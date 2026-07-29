@@ -366,7 +366,10 @@ final class DbalIdentityStore implements IdentityStore
         ], ['id' => $userId]);
     }
 
-    /** @param array<string, mixed> $params @return array<string, mixed>|null */
+    /**
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>|null
+     */
     private function one(string $sql, array $params): ?array
     {
         $row = $this->connection->fetchAssociative($sql, $params);

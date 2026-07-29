@@ -318,7 +318,10 @@ final class DbalHomeStore implements HomeStore
         ]);
     }
 
-    /** @param array<string, mixed> $params @return array<string, mixed>|null */
+    /**
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>|null
+     */
     private function one(string $sql, array $params): ?array
     {
         $row = $this->connection->fetchAssociative($sql, $params);

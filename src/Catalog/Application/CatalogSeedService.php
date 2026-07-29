@@ -98,10 +98,10 @@ final class CatalogSeedService
         /** @var array<string, list<string>> $aliases */
         /** @var list<array<string, mixed>> $identityRules */
         /** @var list<string> $unresolved */
-        $aliasCount = array_sum(array_map(
-            static fn (mixed $value): int => is_array($value) ? count($value) : 0,
-            $aliases,
-        ));
+        $aliasCount = 0;
+        foreach ($aliases as $values) {
+            $aliasCount += count($values);
+        }
         $report = [
             'itemRows' => count($items),
             'distinctProductNames' => count($productNames),
