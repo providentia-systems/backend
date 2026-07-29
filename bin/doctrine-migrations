@@ -19,4 +19,4 @@ $dependencyFactory = DependencyFactory::fromConnection(
     new ExistingConnection($connection),
 );
 
-ConsoleRunner::run($dependencyFactory);
+ConsoleRunner::run([], $dependencyFactory);
