@@ -4,10 +4,10 @@
 declare(strict_types=1);
 
 use Doctrine\DBAL\Connection;
+use Doctrine\Migrations\Configuration\Connection\ExistingConnection;
 use Doctrine\Migrations\Configuration\Migration\PhpFile;
 use Doctrine\Migrations\DependencyFactory;
 use Doctrine\Migrations\Tools\Console\ConsoleRunner;
-use Doctrine\Migrations\Tools\Console\ConnectionProvider\ExistingConnection;
 
 chdir(dirname(__DIR__));
 require 'vendor/autoload.php';
@@ -20,4 +20,3 @@ $dependencyFactory = DependencyFactory::fromConnection(
 );
 
 ConsoleRunner::run($dependencyFactory);
-
