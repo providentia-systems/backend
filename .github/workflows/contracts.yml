@@ -23,7 +23,7 @@ jobs:
           docker run --rm -v "$PWD:/workspace:ro" openapitools/openapi-generator-cli:v7.15.0 validate \
             -i /workspace/contracts/openapi/providentia-v1.json
           bash tool/generate-dart-client.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: providentia-contracts-${{ github.sha }}
           path: |
