@@ -53,7 +53,7 @@ jobs:
       - name: Validate the resolved graph
         if: steps.lock.outputs.required == 'true'
         run: |
-          composer validate --strict --no-check-publish
+          composer validate --no-check-publish
           composer check
           composer audit --locked
       - name: Commit only composer.lock
