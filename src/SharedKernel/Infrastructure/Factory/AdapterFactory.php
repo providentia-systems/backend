@@ -7,6 +7,7 @@ namespace Providentia\SharedKernel\Infrastructure\Factory;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Interop\Queue\Context;
+use Providentia\SharedKernel\Application\Async\QueueMetricsProbe;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineTransactionManager;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineFoundationRecordStore;
 use Providentia\SharedKernel\Infrastructure\Queue\EnqueueAsyncMessageBus;
@@ -37,8 +38,7 @@ final class AdapterFactory
                 $container->get(Connection::class),
             ),
             EnqueueQueueReadinessProbe::class => new EnqueueQueueReadinessProbe(
-                $container->get(Context::class),
-                $config['queue']['name'],
+                $container->get(QueueMetricsProbe::class),
                 $config['queue']['required'],
             ),
             RedisQueueMetricsProbe::class => new RedisQueueMetricsProbe(

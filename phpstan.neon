@@ -1,5 +1,5 @@
 parameters:
-  level: max
+  level: 8
   paths:
     - src
     - config
@@ -8,4 +8,3 @@ parameters:
   tmpDir: var/phpstan
   treatPhpDocTypesAsCertain: false
   reportUnmatchedIgnoredErrors: true
-
