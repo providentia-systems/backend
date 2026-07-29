@@ -3,8 +3,8 @@ name: Bootstrap Composer lock
 on:
   workflow_dispatch:
   push:
-    branches-ignore:
-      - main
+    branches:
+      - agent/phase-1-production-foundations
     paths:
       - composer.json
       - .github/workflows/bootstrap-composer-lock.yml
