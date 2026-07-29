@@ -11,14 +11,15 @@ versioned contracts, and repeatable infrastructure profiles.
 
 - All twelve bounded modules have ConfigProviders and explicit layer
   boundaries.
-- SharedKernel contains the operational foundation; all other business modules
-  remain empty shells pending their scheduled phase.
+- SharedKernel contains the operational foundation. This document records the
+  Phase 1 release boundary; later Phase 2/4 work is documented separately.
 - Doctrine metadata stays under Infrastructure. The proof domain aggregate has
   no Doctrine attribute or base class.
 - One migration uses Doctrine Schema APIs and is tested on SQLite, MySQL, and
   MariaDB.
 - The public site consumes the versioned Fresh Market foundation values.
-- The authoritative OpenAPI contract contains only the four Phase 1 operations.
+- At the Phase 1 boundary, the authoritative OpenAPI contract contained four
+  operations. The current contract is additive and now includes Phase 2/4.
 - Enqueue is behind `AsyncMessageBus`; domain and application code do not import
   Redis or Enqueue.
 - Failed asynchronous messages persist for explicit operator review.

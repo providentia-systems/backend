@@ -14,11 +14,12 @@ Every contract file has a SHA-256 lock manifest. Changing bytes requires:
 6. Release compatible Flutter clients before removing any deprecated server
    behavior.
 
-The Phase 1 API is additive and exposes only liveness, readiness, safe system
-information, and operational metrics. RFC 9457 problem details include a
-request correlation ID. No authentication or tenant resource is implied.
+Phase 1 introduced liveness, readiness, safe system information, and
+operational metrics. The current additive contract also contains the Phase 2
+identity/home/catalog and Phase 4 synchronization operations. RFC 9457 problem
+details include a request correlation ID. The implementation and contract must
+move in the same backend commit.
 
 Design tokens are a versioned data contract. The public CSS and Flutter
 generated values may consume them, but PHP templates and Dart widgets are not
 shared across repositories.
-

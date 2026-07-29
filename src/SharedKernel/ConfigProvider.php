@@ -21,12 +21,15 @@ use Providentia\SharedKernel\Application\Health\DatabaseReadinessProbe;
 use Providentia\SharedKernel\Application\Health\QueueReadinessProbe;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\SystemInformationProvider;
+use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
 use Providentia\SharedKernel\Http\Health\ReadinessHandler;
 use Providentia\SharedKernel\Http\MetricsHandler;
 use Providentia\SharedKernel\Http\ProblemDetailsMiddleware;
 use Providentia\SharedKernel\Http\RequestIdMiddleware;
 use Providentia\SharedKernel\Http\SystemInfoHandler;
+use Providentia\SharedKernel\Http\CorsMiddleware;
+use Providentia\SharedKernel\Http\SecurityHeadersMiddleware;
 use Providentia\SharedKernel\Infrastructure\Cli\FoundationProofCommand;
 use Providentia\SharedKernel\Infrastructure\Cli\OutboxRelayCommand;
 use Providentia\SharedKernel\Infrastructure\Cli\QueueConsumeCommand;
@@ -45,6 +48,7 @@ use Providentia\SharedKernel\Infrastructure\Queue\EnqueueAsyncMessageBus;
 use Providentia\SharedKernel\Infrastructure\Queue\EnqueueQueueReadinessProbe;
 use Providentia\SharedKernel\Infrastructure\Queue\RedisQueueMetricsProbe;
 use Providentia\SharedKernel\Infrastructure\RuntimeSystemInformationProvider;
+use Providentia\SharedKernel\Infrastructure\Identifier\RamseyUuidGenerator;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineDatabaseReadinessProbe;
 
 final class ConfigProvider
@@ -65,12 +69,14 @@ final class ConfigProvider
                     QueueReadinessProbe::class => EnqueueQueueReadinessProbe::class,
                     QueueMetricsProbe::class => RedisQueueMetricsProbe::class,
                     SystemInformationProvider::class => RuntimeSystemInformationProvider::class,
+                    UuidGenerator::class => RamseyUuidGenerator::class,
                 ],
                 'factories' => [
                     Connection::class => ConnectionFactory::class,
                     EntityManager::class => EntityManagerFactory::class,
                     Context::class => QueueContextFactory::class,
                     SystemClock::class => InvokableFactory::class,
+                    RamseyUuidGenerator::class => InvokableFactory::class,
                     EnqueueAsyncMessageBus::class => AdapterFactory::class,
                     DoctrineFoundationRecordStore::class => AdapterFactory::class,
                     DoctrineTransactionManager::class => AdapterFactory::class,
@@ -88,6 +94,8 @@ final class ConfigProvider
                     SystemInfoHandler::class => HttpHandlerFactory::class,
                     ProblemDetailsMiddleware::class => HttpHandlerFactory::class,
                     RequestIdMiddleware::class => InvokableFactory::class,
+                    CorsMiddleware::class => HttpHandlerFactory::class,
+                    SecurityHeadersMiddleware::class => InvokableFactory::class,
                     FoundationProofCommand::class => CliCommandFactory::class,
                     OutboxRelayCommand::class => CliCommandFactory::class,
                     QueueConsumeCommand::class => CliCommandFactory::class,

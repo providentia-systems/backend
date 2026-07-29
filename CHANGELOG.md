@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- Added Phase 2 identity, device-session, home, membership, invitation,
+  ownership-transfer, tenant authorization, audit, and global-catalog
+  foundations.
+- Added strict authoritative catalog seed verification/reconciliation and a
+  one-command MySQL/Redis/Mailpit developer environment.
+- Added the Phase 4 home-scoped offline synchronization prototype with signed
+  cursors, optimistic revisions, idempotent operation receipts, frozen
+  high-water pagination, bootstrap, tombstones, audit, outbox, and metrics.
+- Added production fail-closed secret/mail/URL configuration, CSRF protection,
+  explicit CORS, security headers, authentication rate limiting, and focused
+  authorization/cursor/synchronization tests.
+- Made registration responses generic across new/existing addresses (with
+  synchronous-mail timing explicitly retained as a prototype limitation),
+  revalidated inviter authority at invitation acceptance, recovered partial
+  development registration safely, and fixed completed sync cursors to observe
+  the next frozen change window.
+- Enforced the synchronization contract's closed envelope/operation shapes and
+  aligned private-note and timezone validation documentation with runtime
+  behavior.
+
 ## 0.1.0 - 2026-07-29
 
 - Established the Providentia Mezzio/Laminas modular-monolith foundation.
@@ -7,5 +29,5 @@
   server-rendered site, versioned API/design contracts, transactional outbox,
   Enqueue Redis adapter, worker commands, queue metrics, Compose profiles, and
   CI matrices.
-- Preserved all Phase 2 business behavior as intentionally unimplemented.
-
+- Preserved all Phase 2 business behavior as intentionally unimplemented at
+  that release boundary.

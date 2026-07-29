@@ -16,6 +16,17 @@ names. The authoritative repositories are
 `vast-development-method/providentia-laminas` and
 `vast-development-method/providentia-flutter`.
 
+Owner implementation amendment approved on 30 July 2026:
+
+- Providentia is proprietary. No distribution licence is granted or selected
+  yet; licensing is deferred until a later explicit decision.
+- The permanent application/distribution identifier is
+  `com.vastdevelopmentmethod.providentia`.
+- MySQL is the preferred production database. MariaDB remains a tested
+  compatibility profile and SQLite remains the development/test profile.
+- Redis Open Source is the preferred production queue broker. Valkey remains a
+  tested Redis-protocol-compatible profile.
+
 This document is intended to be given directly to an AI engineering agent. It
 defines the complete product direction, the evidence that must be preserved,
 the target architecture, the non-negotiable privacy and security boundaries,
@@ -1875,13 +1886,14 @@ explicit answer when it is:
 - Confirm the first-release locales, currencies, units, time zones, and
   languages. Preserve `en-NA` and NAD behavior as the migration baseline, not
   as a permanent global assumption.
-- Select the default production deployment profile: external database,
-  self-contained MariaDB/MySQL, or both as equally documented paths.
-- Select Redis Open Source, Valkey, or both as equally tested queue-broker
-  deployment profiles. The project-owned queue port and Enqueue adapter are
-  already decided.
-- Define licensing, pricing, free-tier, and operator responsibilities before
-  the public marketing site makes commercial claims.
+- **Resolved 30 July 2026:** MySQL is the preferred production database;
+  MariaDB and SQLite retain their recorded compatibility/test roles.
+- **Resolved 30 July 2026:** Redis Open Source is the preferred production
+  broker; Valkey remains a tested compatible profile. The project-owned queue
+  port and Enqueue adapter remain decided.
+- **Partially resolved 30 July 2026:** the project is proprietary and grants no
+  distribution licence yet. Pricing, free-tier, operator responsibilities, and
+  any future licensing terms remain required before public commercial claims.
 
 ---
 

@@ -11,12 +11,14 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Throwable;
+use Providentia\SharedKernel\Application\Health\SyncMetricsProbe;
 
 final class MetricsHandler implements RequestHandlerInterface
 {
     public function __construct(
         private readonly OutboxStore $outbox,
         private readonly QueueMetricsProbe $queue,
+        private readonly SyncMetricsProbe $sync,
     ) {
     }
 
@@ -30,6 +32,18 @@ final class MetricsHandler implements RequestHandlerInterface
             $up = 0;
         }
         $queue = $this->queue->measure();
+        try {
+            $sync = $this->sync->metrics();
+        } catch (Throwable) {
+            $sync = [
+                'operations' => 0,
+                'accepted' => 0,
+                'conflicts' => 0,
+                'tombstones' => 0,
+                'changes' => 0,
+                'cursors' => 0,
+            ];
+        }
 
         $lines = [
             '# HELP providentia_metrics_up Whether the metrics dependencies are queryable.',
@@ -50,6 +64,24 @@ final class MetricsHandler implements RequestHandlerInterface
             '# HELP providentia_outbox_oldest_pending_seconds Age of the oldest unpublished event.',
             '# TYPE providentia_outbox_oldest_pending_seconds gauge',
             'providentia_outbox_oldest_pending_seconds ' . $metrics['oldest_pending_seconds'],
+            '# HELP providentia_sync_operations_total Persisted synchronization operation receipts.',
+            '# TYPE providentia_sync_operations_total gauge',
+            'providentia_sync_operations_total ' . $sync['operations'],
+            '# HELP providentia_sync_accepted_total Accepted synchronization operations.',
+            '# TYPE providentia_sync_accepted_total gauge',
+            'providentia_sync_accepted_total ' . $sync['accepted'],
+            '# HELP providentia_sync_conflicts_total Synchronization conflicts.',
+            '# TYPE providentia_sync_conflicts_total gauge',
+            'providentia_sync_conflicts_total ' . $sync['conflicts'],
+            '# HELP providentia_sync_tombstones Current retained synchronization tombstones.',
+            '# TYPE providentia_sync_tombstones gauge',
+            'providentia_sync_tombstones ' . $sync['tombstones'],
+            '# HELP providentia_sync_changes_total Home change-log rows.',
+            '# TYPE providentia_sync_changes_total gauge',
+            'providentia_sync_changes_total ' . $sync['changes'],
+            '# HELP providentia_sync_cursors Current device/home cursor observations.',
+            '# TYPE providentia_sync_cursors gauge',
+            'providentia_sync_cursors ' . $sync['cursors'],
             '',
         ];
 

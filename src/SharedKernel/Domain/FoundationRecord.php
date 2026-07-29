@@ -6,10 +6,7 @@ namespace Providentia\SharedKernel\Domain;
 
 use DateTimeImmutable;
 
-/**
- * Persistence proof aggregate only. It deliberately carries no Phase 2
- * identity, home, or catalog behavior.
- */
+/** Historical Phase 1 persistence/outbox proof aggregate; not a product record. */
 final class FoundationRecord
 {
     public function __construct(
