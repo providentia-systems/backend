@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install check serve migrate sqlite mysql mariadb redis valkey down
+.PHONY: help install check serve migrate setup reset sqlite mysql mariadb redis valkey down
 
 help:
 	@awk 'BEGIN {FS = ":.*## "; printf "Providentia backend targets:\\n"} /^[a-zA-Z_-]+:.*## / {printf "  %-14s %s\\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -17,6 +17,12 @@ serve: ## Run the local SQLite HTTP server
 
 migrate: ## Apply pending database migrations
 	composer migrate
+
+setup: ## Start MySQL/Redis/Mailpit, migrate, seed and provision a developer
+	./scripts/setup-development.sh
+
+reset: ## Print the explicit destructive reset command
+	@echo "Run ./scripts/reset-development.sh --confirm-destroy-local-data"
 
 sqlite: ## Start application and Valkey with server-side SQLite
 	docker compose --profile sqlite --profile valkey up --build --wait
@@ -35,4 +41,3 @@ valkey: ## Start Valkey queue broker
 
 down: ## Stop all Compose profiles and retain named volumes
 	docker compose --profile sqlite --profile mysql --profile mariadb --profile redis --profile valkey down
-

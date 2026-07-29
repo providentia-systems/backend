@@ -25,9 +25,8 @@ php bin/providentia queue:consume
 
 Run both as separately supervised long-lived processes. Graceful process
 supervision, alert routing, and the operational failed-message review UI are
-deployment/Phase 7 work. The Phase 1 metrics endpoint provides outbox pending
+deployment/Phase 7 work. The metrics endpoint provides outbox pending
 depth, failure count, oldest pending age, and metrics dependency status.
 
 Never delete a failed record to simulate recovery. Resolve it through a future
 audited replay or dismissal operation.
-

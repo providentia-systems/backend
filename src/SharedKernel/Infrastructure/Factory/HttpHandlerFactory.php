@@ -13,13 +13,15 @@ use Providentia\SharedKernel\Http\Health\ReadinessHandler;
 use Providentia\SharedKernel\Http\MetricsHandler;
 use Providentia\SharedKernel\Http\ProblemDetailsMiddleware;
 use Providentia\SharedKernel\Http\SystemInfoHandler;
+use Providentia\SharedKernel\Http\CorsMiddleware;
+use Providentia\SharedKernel\Application\Health\SyncMetricsProbe;
 use Psr\Container\ContainerInterface;
 
 final class HttpHandlerFactory
 {
     public function __invoke(ContainerInterface $container, string $requestedName): object
     {
-        /** @var array{app: array{debug: bool, environment: string, version: string}, queue: array{dsn: string}} $config */
+        /** @var array{app: array{debug: bool, environment: string, version: string}, queue: array{dsn: string}, http: array{allowed_origins: list<string>}} $config */
         $config = $container->get('config');
 
         return match ($requestedName) {
@@ -28,11 +30,13 @@ final class HttpHandlerFactory
             MetricsHandler::class => new MetricsHandler(
                 $container->get(OutboxStore::class),
                 $container->get(QueueMetricsProbe::class),
+                $container->get(SyncMetricsProbe::class),
             ),
             ProblemDetailsMiddleware::class => new ProblemDetailsMiddleware($config['app']['debug']),
             SystemInfoHandler::class => new SystemInfoHandler(
                 $container->get(SystemInformationProvider::class),
             ),
+            CorsMiddleware::class => new CorsMiddleware($config['http']['allowed_origins']),
             default => throw new \LogicException('Unsupported HTTP service: ' . $requestedName),
         };
     }

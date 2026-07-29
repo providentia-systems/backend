@@ -57,16 +57,24 @@ final class QueueConsumeCommand extends Command
                     throw new \UnexpectedValueException('Message envelope identity or type is invalid.');
                 }
                 $messageId = $message['id'];
-                if ($message['type'] !== 'foundation.recorded.v1') {
+                $handlers = [
+                    'foundation.recorded.v1' => 'foundation-proof',
+                    'synchronization.record-changed.v1' => 'synchronization-notification',
+                ];
+                if (! isset($handlers[$message['type']])) {
                     throw new \UnexpectedValueException('No handler is registered for ' . $message['type']);
                 }
 
-                $this->connection->transactional(function (Connection $connection) use ($messageId): void {
+                $handlerName = $handlers[$message['type']];
+                $this->connection->transactional(function (Connection $connection) use (
+                    $messageId,
+                    $handlerName,
+                ): void {
                     $connection->insert('async_processed_messages', [
                         'message_id' => $messageId,
                         'processed_at' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))
                             ->format('Y-m-d H:i:s.u'),
-                        'handler_name' => 'foundation-proof',
+                        'handler_name' => $handlerName,
                     ]);
                 });
                 $consumer->acknowledge($transportMessage);

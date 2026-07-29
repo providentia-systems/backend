@@ -23,8 +23,6 @@ Rules enforced by both Bash/Node and PHP architecture checks:
 - Cross-module implementation access is forbidden. Future cross-module calls
   require published application contracts or immutable events.
 
-The first persistence object is a proof aggregate, not a model for identity,
-homes, catalog, or inventory. It exists to validate XML mapping, explicit
-factories, transactions, and the three database platforms before business
-schema is introduced.
-
+The first persistence object remains a historical proof aggregate, not a model
+for identity, homes, catalog, or inventory. Phase 2/4 business persistence uses
+module-owned application interfaces and Infrastructure DBAL adapters.

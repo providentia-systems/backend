@@ -8,14 +8,87 @@ $env = static function (string $name, string $default): string {
     return $value === false || $value === '' ? $default : $value;
 };
 
+$environment = mb_strtolower($env('APP_ENV', 'development'));
+$tokenPepper = $env('AUTH_TOKEN_PEPPER', 'development-only-change-me');
+$cursorSecret = $env('SYNC_CURSOR_SECRET', 'development-sync-secret-change-me');
+$mailDsn = $env('MAIL_DSN', 'smtp://127.0.0.1:1025');
+$publicBaseUrl = rtrim($env('PUBLIC_BASE_URL', 'http://127.0.0.1:8080'), '/');
+$exposeDevelopmentTokens = filter_var(
+    $env('EXPOSE_DEVELOPMENT_TOKENS', '0'),
+    FILTER_VALIDATE_BOOL,
+);
+
+if ($environment === 'production') {
+    $placeholderSecrets = [
+        'development-only-change-me',
+        'development-sync-secret-change-me',
+        'providentia-development-token-pepper-change-me',
+        'providentia-development-cursor-secret-change-me',
+        'replace-with-a-secret-from-your-secret-manager',
+        'CHANGE_TO_AT_LEAST_32_RANDOM_BYTES',
+        'CHANGE_TO_AN_INDEPENDENT_32_BYTE_SECRET',
+    ];
+    if (
+        strlen($tokenPepper) < 32
+        || strlen($cursorSecret) < 32
+        || in_array($tokenPepper, $placeholderSecrets, true)
+        || in_array($cursorSecret, $placeholderSecrets, true)
+        || hash_equals($tokenPepper, $cursorSecret)
+    ) {
+        throw new RuntimeException(
+            'Production requires two independent, non-placeholder authentication and cursor secrets.',
+        );
+    }
+    if ($exposeDevelopmentTokens) {
+        throw new RuntimeException('EXPOSE_DEVELOPMENT_TOKENS cannot be enabled in production.');
+    }
+    $mail = parse_url($mailDsn);
+    if ($mail === false || ($mail['scheme'] ?? null) !== 'smtps') {
+        throw new RuntimeException(
+            'Production MAIL_DSN must use smtps:// because this transport does not implement verified STARTTLS.',
+        );
+    }
+    if (! str_starts_with($publicBaseUrl, 'https://')) {
+        throw new RuntimeException('Production PUBLIC_BASE_URL must use HTTPS.');
+    }
+}
+
 return [
     'app' => [
-        'environment' => $env('APP_ENV', 'production'),
+        'environment' => $environment,
         'version' => $env('APP_VERSION', '0.1.0'),
         'debug' => filter_var($env('APP_DEBUG', '0'), FILTER_VALIDATE_BOOL),
     ],
     'database' => [
         'url' => $env('DATABASE_URL', 'sqlite:///var/providentia.sqlite'),
+        'preferred_production_driver' => 'mysql',
+    ],
+    'identity' => [
+        'access_ttl_seconds' => max(300, (int) $env('AUTH_ACCESS_TTL_SECONDS', '900')),
+        'refresh_ttl_seconds' => max(3600, (int) $env('AUTH_REFRESH_TTL_SECONDS', '2592000')),
+        'token_pepper' => $tokenPepper,
+        'expose_development_tokens' => $exposeDevelopmentTokens,
+    ],
+    'mail' => [
+        'dsn' => $mailDsn,
+        'from' => $env('MAIL_FROM', 'no-reply@providentia.local'),
+        'public_base_url' => $publicBaseUrl,
+    ],
+    'synchronization' => [
+        'cursor_secret' => $cursorSecret,
+        'cursor_ttl_seconds' => max(3600, (int) $env('SYNC_CURSOR_TTL_SECONDS', '2592000')),
+        'max_batch_operations' => 100,
+        'max_payload_bytes' => 65536,
+        'page_size' => 250,
+    ],
+    'http' => [
+        'allowed_origins' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', $env(
+                'CORS_ALLOWED_ORIGINS',
+                'http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:8081,http://localhost:8081',
+            )),
+        ))),
     ],
     'queue' => [
         'dsn' => $env('QUEUE_DSN', 'redis+phpredis://127.0.0.1:6379'),

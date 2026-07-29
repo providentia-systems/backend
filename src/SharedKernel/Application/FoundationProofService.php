@@ -21,7 +21,7 @@ final class FoundationProofService
 
     /**
      * Persists an ORM aggregate and its event in one database transaction.
-     * This is deliberately CLI-only and does not expose Phase 2 behavior.
+     * This historical Phase 1 proof remains CLI-only and outside product flows.
      */
     public function prove(string $label): string
     {

@@ -62,8 +62,14 @@ done
 
 for executable in bin/doctrine-migrations bin/providentia \
   infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
-  tool/check-composer-licenses.php tests/structural/verify.sh; do
+  tool/check-composer-licenses.php tests/structural/verify.sh \
+  scripts/setup-development.sh scripts/reset-development.sh; do
   test -x "$executable" || fail "$executable must be executable"
+done
+
+for shell_script in infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
+  scripts/setup-development.sh scripts/reset-development.sh; do
+  bash -n "$shell_script" || fail "$shell_script has invalid shell syntax"
 done
 
 node <<'NODE'
@@ -71,20 +77,63 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const contract = JSON.parse(fs.readFileSync('contracts/openapi/providentia-v1.json', 'utf8'));
+const routeSource = fs.readFileSync('config/routes.php', 'utf8');
 const expected = {
   '/health/live': 'getLiveness',
   '/health/ready': 'getReadiness',
   '/api/v1/system/info': 'getSystemInfo',
   '/metrics': 'getMetrics',
+  '/api/v1/auth/register': 'registerAccount',
+  '/api/v1/auth/login': 'login',
+  '/api/v1/homes': 'listHomes',
+  '/api/v1/homes/{homeId}/ownership-transfer': 'transferHomeOwnership',
+  '/api/v1/catalog/products': 'searchCatalogProducts',
+  '/api/v1/homes/{homeId}/sync/push': 'pushHomeSynchronization',
+  '/api/v1/homes/{homeId}/sync/pull': 'pullHomeSynchronization',
+  '/api/v1/homes/{homeId}/sync/bootstrap': 'bootstrapHomeSynchronization',
 };
 for (const [path, operationId] of Object.entries(expected)) {
-  if (contract.paths?.[path]?.get?.operationId !== operationId) {
+  const operations = contract.paths?.[path] ?? {};
+  const actual = ['get', 'post', 'patch', 'delete']
+    .map((method) => operations[method]?.operationId)
+    .find(Boolean);
+  if (actual !== operationId) {
     throw new Error(`Missing ${operationId} on ${path}`);
   }
 }
-for (const schema of ['HealthStatus', 'ReadinessStatus', 'SystemInfo', 'ProblemDetails']) {
+for (const schema of [
+  'HealthStatus', 'ReadinessStatus', 'SystemInfo', 'ProblemDetails',
+  'RegisterRequest', 'Home', 'HomeMembership', 'SyncPushRequest',
+  'SyncPrivateNotePayload', 'SyncHomePreferencePayload', 'SyncPushResponse',
+  'SyncPullResponse', 'SyncBootstrapResponse',
+]) {
   if (!contract.components?.schemas?.[schema]) {
     throw new Error(`Missing schema ${schema}`);
+  }
+}
+const registrationResponses = contract.paths?.['/api/v1/auth/register']?.post?.responses ?? {};
+if (!registrationResponses['202'] || registrationResponses['409']) {
+  throw new Error('Registration must return one generic 202 shape without an account-conflict response');
+}
+const runtimeRoutes = {};
+const routePattern = /\$app->(get|post|patch|delete)\(\s*'([^']+)'/g;
+let routeMatch;
+while ((routeMatch = routePattern.exec(routeSource)) !== null) {
+  (runtimeRoutes[routeMatch[2]] ??= []).push(routeMatch[1]);
+}
+for (const [runtimePath, methods] of Object.entries(runtimeRoutes)) {
+  if (runtimePath === '/') continue;
+  for (const method of methods) {
+    if (!contract.paths?.[runtimePath]?.[method]) {
+      throw new Error(`OpenAPI is missing ${method.toUpperCase()} ${runtimePath}`);
+    }
+  }
+}
+for (const [contractPath, pathItem] of Object.entries(contract.paths)) {
+  for (const method of ['get', 'post', 'patch', 'delete']) {
+    if (pathItem[method] && !runtimeRoutes[contractPath]?.includes(method)) {
+      throw new Error(`Runtime is missing ${method.toUpperCase()} ${contractPath}`);
+    }
   }
 }
 const tokens = JSON.parse(fs.readFileSync('contracts/design-tokens/providentia-v1.json', 'utf8'));
@@ -117,6 +166,35 @@ for (const lockPath of [
 }
 NODE
 
+grep -Fq "APP_ENV', 'development'" config/autoload/global.php \
+  || fail "application environment must default to a non-production profile"
+grep -Fq "Production requires two independent, non-placeholder" config/autoload/global.php \
+  || fail "production placeholder secrets do not fail closed"
+grep -Fq "Production MAIL_DSN must use smtps://" config/autoload/global.php \
+  || fail "production SMTP does not require authenticated TLS"
+grep -Fq "'verify_peer' => true" src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
+  || fail "SMTPS peer verification is not explicit"
+grep -Fq "'retain_until' => null" src/Synchronization/Infrastructure/Doctrine/DbalSyncStore.php \
+  || fail "tombstone retention was invented before the offline-window decision"
+
+for expected_gate in \
+  "'itemRows' => 292" \
+  "'distinctProductNames' => 263" \
+  "'distinctItemTuples' => 292" \
+  "'categoryLabels' => 22" \
+  "'aliasGroups' => 13" \
+  "'aliases' => 19" \
+  "'identityRules' => 19" \
+  "'unresolved' => 8" \
+  "'packSizePending' => 9"; do
+  grep -Fq "$expected_gate" src/Catalog/Application/CatalogSeedService.php \
+    || fail "catalog reconciliation gate is missing: $expected_gate"
+done
+
+assert_no_matches "catalog seed importer references private household lineage fields" \
+  -ni --glob 'src/Catalog/Infrastructure/Doctrine/*.php' \
+  'knownFrom|currentStock|stockLevel|receipt|medical|privateNote|mediaPath'
+
 assert_no_matches "Domain layer imports infrastructure or transport code" \
   -n --glob 'src/*/Domain/**/*.php' \
   'Doctrine\\\\|Laminas\\\\|Mezzio\\\\|Enqueue\\\\|Interop\\\\Queue|Psr\\\\Http'
@@ -137,5 +215,10 @@ assert_no_matches "Migration contains a known non-portable SQL construct" \
   -n -F --glob 'migrations/*.php' \
   -e 'ENUM(' -e 'JSON_EXTRACT' -e 'ON DUPLICATE' -e 'UNSIGNED BIGINT' \
   -e 'COLLATE utf8' -e 'ENGINE='
+
+assert_no_matches "change log uses a potentially reserved physical cursor column" \
+  -n -F --glob 'migrations/*.php' --glob 'src/Synchronization/**/*.php' \
+  -e 'MAX(cursor)' -e 'SELECT cursor,' -e 'AND cursor >' \
+  -e 'ORDER BY cursor' -e "addColumn('cursor'"
 
 printf 'Structural, namespace, module-boundary, token, migration, and contract checks passed.\n'
