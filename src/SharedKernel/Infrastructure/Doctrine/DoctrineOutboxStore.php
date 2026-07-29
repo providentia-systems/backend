@@ -54,7 +54,8 @@ final class DoctrineOutboxStore implements OutboxStore
                     'expected_status' => $row['status'],
                     'id' => $row['id'],
                     'now' => $this->utcNow(),
-                    'lease_until' => (new DateTimeImmutable('+60 seconds'))->format('Y-m-d H:i:s.u'),
+                    'lease_until' => (new DateTimeImmutable('+60 seconds', new DateTimeZone('UTC')))
+                        ->format('Y-m-d H:i:s.u'),
                 ],
             );
             if ($updated !== 1) {
@@ -94,7 +95,10 @@ final class DoctrineOutboxStore implements OutboxStore
 
         $this->connection->update('outbox_messages', [
             'status' => $dead ? 'failed' : 'pending',
-            'available_at' => (new DateTimeImmutable('+' . min(300, 2 ** max(1, $attempts)) . ' seconds'))
+            'available_at' => (new DateTimeImmutable(
+                '+' . min(300, 2 ** max(1, $attempts)) . ' seconds',
+                new DateTimeZone('UTC'),
+            ))
                 ->format('Y-m-d H:i:s.u'),
             'last_error' => mb_substr($reason, 0, 2000),
         ], ['id' => $messageId]);

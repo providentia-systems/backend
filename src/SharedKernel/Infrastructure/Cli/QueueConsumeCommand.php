@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\SharedKernel\Infrastructure\Cli;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Interop\Queue\Context;
@@ -38,12 +39,15 @@ final class QueueConsumeCommand extends Command
     {
         $consumer = $this->context->createConsumer($this->context->createQueue($this->queueName));
         $timeout = max(1, (int) $input->getOption('timeout'));
+        $handled = false;
+        $failed = false;
 
         do {
             $transportMessage = $consumer->receive($timeout);
             if ($transportMessage === null) {
                 continue;
             }
+            $handled = true;
 
             $messageId = $transportMessage->getMessageId() ?: hash('sha256', $transportMessage->getBody());
             try {
@@ -60,7 +64,8 @@ final class QueueConsumeCommand extends Command
                 $this->connection->transactional(function (Connection $connection) use ($messageId): void {
                     $connection->insert('async_processed_messages', [
                         'message_id' => $messageId,
-                        'processed_at' => (new DateTimeImmutable())->format('Y-m-d H:i:s.u'),
+                        'processed_at' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))
+                            ->format('Y-m-d H:i:s.u'),
                         'handler_name' => 'foundation-proof',
                     ]);
                 });
@@ -70,6 +75,7 @@ final class QueueConsumeCommand extends Command
                 $consumer->acknowledge($transportMessage);
                 $output->writeln('Acknowledged duplicate ' . $messageId);
             } catch (Throwable $error) {
+                $failed = true;
                 $this->connection->executeStatement(
                     'INSERT INTO async_failed_messages
                         (id, source_message_id, failed_at, reason, resolved_at)
@@ -77,7 +83,8 @@ final class QueueConsumeCommand extends Command
                     [
                         'id' => Uuid::uuid7()->toString(),
                         'source' => mb_substr($messageId, 0, 36),
-                        'failed' => (new DateTimeImmutable())->format('Y-m-d H:i:s.u'),
+                        'failed' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))
+                            ->format('Y-m-d H:i:s.u'),
                         'reason' => mb_substr($error->getMessage(), 0, 2000),
                     ],
                 );
@@ -86,6 +93,6 @@ final class QueueConsumeCommand extends Command
             }
         } while (! $input->getOption('once'));
 
-        return Command::SUCCESS;
+        return $handled && ! $failed ? Command::SUCCESS : Command::FAILURE;
     }
 }

@@ -26,6 +26,8 @@ final class OutboxRelayCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $result = ['published' => 0, 'failed' => 0];
+
         do {
             $result = $this->relay->relayOnce();
             $output->writeln(sprintf(
@@ -38,6 +40,6 @@ final class OutboxRelayCommand extends Command
             }
         } while (! $input->getOption('once'));
 
-        return Command::SUCCESS;
+        return $result['failed'] === 0 ? Command::SUCCESS : Command::FAILURE;
     }
 }
