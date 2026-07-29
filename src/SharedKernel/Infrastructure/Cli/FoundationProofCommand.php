@@ -32,4 +32,3 @@ final class FoundationProofCommand extends Command
         return Command::SUCCESS;
     }
 }
-

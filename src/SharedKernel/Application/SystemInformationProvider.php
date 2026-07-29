@@ -9,4 +9,3 @@ interface SystemInformationProvider
     /** @return array<string, string> */
     public function information(): array;
 }
-

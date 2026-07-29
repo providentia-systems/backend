@@ -13,4 +13,3 @@ interface TransactionManager
      */
     public function transactional(callable $operation): mixed;
 }
-

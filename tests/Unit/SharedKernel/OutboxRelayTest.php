@@ -94,4 +94,3 @@ final class RecordingBus implements AsyncMessageBus
         $this->published[] = $message->id;
     }
 }
-

@@ -18,4 +18,3 @@ final class QueueContextFactory
         return (new RedisConnectionFactory($config['queue']['dsn']))->createContext();
     }
 }
-

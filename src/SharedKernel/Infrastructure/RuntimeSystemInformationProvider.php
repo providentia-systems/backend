@@ -31,4 +31,3 @@ final class RuntimeSystemInformationProvider implements SystemInformationProvide
         ];
     }
 }
-

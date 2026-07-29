@@ -8,4 +8,3 @@ interface AsyncMessageBus
 {
     public function publish(AsyncMessage $message): void;
 }
-

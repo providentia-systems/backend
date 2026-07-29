@@ -37,4 +37,3 @@ final class FoundationRecord
         return $this->createdAt;
     }
 }
-

@@ -26,4 +26,3 @@ final class DoctrineMappingTest extends TestCase
         ));
     }
 }
-

@@ -36,4 +36,3 @@ final class OutboxRelay
         return ['published' => $published, 'failed' => $failed];
     }
 }
-

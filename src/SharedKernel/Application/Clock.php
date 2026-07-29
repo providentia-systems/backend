@@ -10,4 +10,3 @@ interface Clock
 {
     public function now(): DateTimeImmutable;
 }
-

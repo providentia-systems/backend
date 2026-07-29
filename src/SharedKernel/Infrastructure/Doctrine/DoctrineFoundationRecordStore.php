@@ -19,4 +19,3 @@ final class DoctrineFoundationRecordStore implements FoundationRecordStore
         $this->entityManager->persist($record);
     }
 }
-
