@@ -16,4 +16,3 @@ return static function (Application $app): void {
     $app->get('/api/v1/system/info', SystemInfoHandler::class, 'api.system.info');
     $app->get('/metrics', MetricsHandler::class, 'metrics');
 };
-

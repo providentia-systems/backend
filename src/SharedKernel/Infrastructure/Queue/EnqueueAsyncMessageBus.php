@@ -33,4 +33,3 @@ final class EnqueueAsyncMessageBus implements AsyncMessageBus
         );
     }
 }
-

@@ -18,4 +18,3 @@ final class DoctrineTransactionManager implements TransactionManager
         return $this->entityManager->wrapInTransaction($operation);
     }
 }
-

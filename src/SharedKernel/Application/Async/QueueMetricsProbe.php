@@ -9,4 +9,3 @@ interface QueueMetricsProbe
     /** @return array{up: int, depth: int} */
     public function measure(): array;
 }
-

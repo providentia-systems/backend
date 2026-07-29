@@ -41,4 +41,3 @@ final class OutboxRelayCommand extends Command
         return Command::SUCCESS;
     }
 }
-

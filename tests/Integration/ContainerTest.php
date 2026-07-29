@@ -36,4 +36,3 @@ final class ContainerTest extends TestCase
         self::assertInstanceOf(HomePageHandler::class, $this->container->get(HomePageHandler::class));
     }
 }
-

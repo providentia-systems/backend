@@ -25,4 +25,3 @@ final class HomePageHandler implements RequestHandlerInterface
         ]));
     }
 }
-

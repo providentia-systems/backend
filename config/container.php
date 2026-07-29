@@ -9,4 +9,3 @@ $dependencies = $config['dependencies'] ?? [];
 $dependencies['services']['config'] = $config;
 
 return new ServiceManager($dependencies);
-

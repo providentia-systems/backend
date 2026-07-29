@@ -29,4 +29,3 @@ if (($contract['components']['schemas']['ProblemDetails']['description'] ?? '') 
 }
 
 fwrite(STDOUT, "OpenAPI foundation contract passed.\n");
-

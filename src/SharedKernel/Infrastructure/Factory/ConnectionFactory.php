@@ -18,4 +18,3 @@ final class ConnectionFactory
         return DriverManager::getConnection(['url' => $config['database']['url']]);
     }
 }
-

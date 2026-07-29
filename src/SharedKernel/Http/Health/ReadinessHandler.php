@@ -23,4 +23,3 @@ final class ReadinessHandler implements RequestHandlerInterface
         return new JsonResponse($result, $result['status'] === 'ready' ? 200 : 503);
     }
 }
-

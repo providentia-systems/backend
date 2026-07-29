@@ -30,4 +30,3 @@ final class AsyncMessageTest extends TestCase
         new AsyncMessage('', 'foundation.recorded.v1', [], new DateTimeImmutable());
     }
 }
-

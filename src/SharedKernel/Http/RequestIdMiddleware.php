@@ -27,4 +27,3 @@ final class RequestIdMiddleware implements MiddlewareInterface
         return $response->withHeader('X-Request-Id', $requestId);
     }
 }
-

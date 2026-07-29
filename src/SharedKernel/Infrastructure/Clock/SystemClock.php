@@ -15,4 +15,3 @@ final class SystemClock implements Clock
         return new DateTimeImmutable('now', new DateTimeZone('UTC'));
     }
 }
-

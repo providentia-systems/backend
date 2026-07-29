@@ -18,4 +18,3 @@ interface OutboxStore
     /** @return array{pending: int, failed: int, oldest_pending_seconds: float} */
     public function metrics(): array;
 }
-

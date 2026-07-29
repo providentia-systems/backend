@@ -10,4 +10,3 @@ interface FoundationRecordStore
 {
     public function add(FoundationRecord $record): void;
 }
-

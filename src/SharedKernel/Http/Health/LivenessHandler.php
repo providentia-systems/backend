@@ -19,4 +19,3 @@ final class LivenessHandler implements RequestHandlerInterface
         ]);
     }
 }
-
