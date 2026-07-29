@@ -4,15 +4,13 @@ declare(strict_types=1);
 
 namespace Providentia\SharedKernel\Infrastructure\Queue;
 
-use Interop\Queue\Context;
+use Providentia\SharedKernel\Application\Async\QueueMetricsProbe;
 use Providentia\SharedKernel\Application\Health\QueueReadinessProbe;
-use Throwable;
 
 final class EnqueueQueueReadinessProbe implements QueueReadinessProbe
 {
     public function __construct(
-        private readonly Context $context,
-        private readonly string $queueName,
+        private readonly QueueMetricsProbe $metrics,
         private readonly bool $required,
     ) {
     }
@@ -23,12 +21,12 @@ final class EnqueueQueueReadinessProbe implements QueueReadinessProbe
             return ['status' => 'optional'];
         }
 
-        try {
-            $this->context->declareQueue($this->context->createQueue($this->queueName));
+        $measurement = $this->metrics->measure();
 
+        if ($measurement['up'] === 1) {
             return ['status' => 'up'];
-        } catch (Throwable) {
-            return ['status' => 'down'];
         }
+
+        return ['status' => 'down'];
     }
 }

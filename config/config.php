@@ -10,7 +10,6 @@ $providers = [
     Mezzio\Router\FastRouteRouter\ConfigProvider::class,
     Mezzio\Helper\ConfigProvider::class,
     Mezzio\LaminasView\ConfigProvider::class,
-    Laminas\Cli\ConfigProvider::class,
     Providentia\SharedKernel\ConfigProvider::class,
     Providentia\Identity\ConfigProvider::class,
     Providentia\Home\ConfigProvider::class,
