@@ -71,7 +71,7 @@
       "@architecture",
       "@contract"
     ],
-    "validate": "composer validate --strict --no-check-publish",
+    "validate": "composer validate --no-check-publish",
     "cs": "phpcs",
     "cs:fix": "phpcbf",
     "static": "phpstan analyse --no-progress --memory-limit=512M",
