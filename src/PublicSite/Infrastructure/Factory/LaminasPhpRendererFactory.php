@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace Providentia\PublicSite\Infrastructure\Factory;
 
-use Laminas\ServiceManager\ServiceManager;
-use Laminas\View\HelperPluginManager;
+use Laminas\View\HelperPluginManagerInterface;
 use Laminas\View\Renderer\PhpRenderer;
 use Laminas\View\Resolver\TemplatePathStack;
 use Psr\Container\ContainerInterface;
@@ -28,10 +27,11 @@ final class LaminasPhpRendererFactory
             }
         }
 
-        return new PhpRenderer(
-            new HelperPluginManager(new ServiceManager()),
-            $resolver,
-            true,
-        );
+        $helpers = $container->get(HelperPluginManagerInterface::class);
+        if (! $helpers instanceof HelperPluginManagerInterface) {
+            throw new \RuntimeException('View helper plugin manager is unavailable.');
+        }
+
+        return new PhpRenderer($helpers, $resolver, true);
     }
 }
