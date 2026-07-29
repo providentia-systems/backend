@@ -114,14 +114,20 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender
         }
     }
 
-    /** @param resource $socket @param list<int> $codes */
+    /**
+     * @param resource $socket
+     * @param list<int> $codes
+     */
     private function command($socket, string $command, array $codes): void
     {
         fwrite($socket, $command . "\r\n");
         $this->expect($socket, $codes);
     }
 
-    /** @param resource $socket @param list<int> $codes */
+    /**
+     * @param resource $socket
+     * @param list<int> $codes
+     */
     private function expect($socket, array $codes): void
     {
         $response = '';

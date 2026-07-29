@@ -151,10 +151,10 @@ final class SynchronizationStoreTest extends TestCase
         );
 
         self::assertSame($first, $replay);
-        self::assertSame(1, $this->count('client_operations'));
-        self::assertSame(1, $this->count('change_log'));
-        self::assertSame(1, $this->count('outbox_messages'));
-        self::assertSame(1, $this->count('audit_events'));
+        self::assertSame(1, $this->tableRowCount('client_operations'));
+        self::assertSame(1, $this->tableRowCount('change_log'));
+        self::assertSame(1, $this->tableRowCount('outbox_messages'));
+        self::assertSame(1, $this->tableRowCount('audit_events'));
     }
 
     public function testChangingTheRouteHomeCannotCreateOrRevealState(): void
@@ -169,9 +169,9 @@ final class SynchronizationStoreTest extends TestCase
         );
 
         self::assertSame('authorization_failure', $result['status']);
-        self::assertSame(0, $this->count('client_operations'));
-        self::assertSame(0, $this->count('sync_documents'));
-        self::assertSame(0, $this->count('change_log'));
+        self::assertSame(0, $this->tableRowCount('client_operations'));
+        self::assertSame(0, $this->tableRowCount('sync_documents'));
+        self::assertSame(0, $this->tableRowCount('change_log'));
     }
 
     public function testOperationIdentifierCannotBeReplayedByAnotherDevice(): void
@@ -198,7 +198,7 @@ final class SynchronizationStoreTest extends TestCase
 
         self::assertSame('conflict', $result['status']);
         self::assertSame('operation_id_reuse', $result['code']);
-        self::assertSame(1, $this->count('change_log'));
+        self::assertSame(1, $this->tableRowCount('change_log'));
     }
 
     public function testConcurrentDeviceConflictAndTombstoneAreDurable(): void
@@ -233,8 +233,8 @@ final class SynchronizationStoreTest extends TestCase
         self::assertSame('revision_mismatch', $conflict['code']);
         self::assertSame('accepted', $deleted['status']);
         self::assertSame(2, $deleted['serverRevision']);
-        self::assertSame(2, $this->count('change_log'));
-        self::assertSame(1, $this->count('record_tombstones'));
+        self::assertSame(2, $this->tableRowCount('change_log'));
+        self::assertSame(1, $this->tableRowCount('record_tombstones'));
         $tombstone = $this->connection->fetchAssociative(
             'SELECT retain_until FROM record_tombstones',
         );
@@ -259,7 +259,7 @@ final class SynchronizationStoreTest extends TestCase
         ];
     }
 
-    private function count(string $table): int
+    private function tableRowCount(string $table): int
     {
         return (int) $this->connection->fetchOne('SELECT COUNT(*) FROM ' . $table);
     }

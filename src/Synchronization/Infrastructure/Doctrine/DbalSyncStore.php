@@ -19,6 +19,10 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
     ) {
     }
 
+    /**
+     * @param array<string, mixed> $operation
+     * @return array<string, mixed>
+     */
     public function apply(
         string $homeId,
         string $userId,
@@ -347,7 +351,10 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
         ];
     }
 
-    /** @param array<string, mixed> $operation @param array<string, mixed> $response */
+    /**
+     * @param array<string, mixed> $operation
+     * @param array<string, mixed> $response
+     */
     private function recordOperation(
         string $homeId,
         string $userId,
@@ -403,7 +410,10 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
         ]);
     }
 
-    /** @param array<string, mixed> $params @return array<string, mixed>|null */
+    /**
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>|null
+     */
     private function one(string $sql, array $params): ?array
     {
         $row = $this->connection->fetchAssociative($sql, $params);

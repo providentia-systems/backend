@@ -8,7 +8,10 @@ use DateTimeImmutable;
 
 interface SyncStore
 {
-    /** @param array<string, mixed> $operation @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $operation
+     * @return array<string, mixed>
+     */
     public function apply(
         string $homeId,
         string $userId,

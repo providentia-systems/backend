@@ -52,6 +52,10 @@ final class DbalCatalogStore implements CatalogStore
         );
     }
 
+    /**
+     * @param array<string, mixed> $seed
+     * @return array<string, int>
+     */
     public function importSeed(array $seed, DateTimeImmutable $at): array
     {
         $now = $this->date($at);

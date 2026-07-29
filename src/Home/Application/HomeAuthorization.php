@@ -18,7 +18,10 @@ final class HomeAuthorization
     {
     }
 
-    /** @param list<string> $allowedRoles @return array<string, mixed> */
+    /**
+     * @param list<string> $allowedRoles
+     * @return array<string, mixed>
+     */
     public function requireRole(
         AuthenticatedIdentity $identity,
         string $homeId,

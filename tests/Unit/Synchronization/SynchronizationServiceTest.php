@@ -345,7 +345,10 @@ final class SynchronizationServiceTest extends TestCase
         );
     }
 
-    /** @param array<string, mixed> $response @return list<array<string, mixed>> */
+    /**
+     * @param array<string, mixed> $response
+     * @return list<array<string, mixed>>
+     */
     private function rows(array $response, string $key): array
     {
         $rows = $response[$key] ?? null;
@@ -362,7 +365,10 @@ final class SynchronizationServiceTest extends TestCase
         return $rows;
     }
 
-    /** @param array<string, mixed> $response @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $response
+     * @return array<string, mixed>
+     */
     private function firstRow(array $response, string $key): array
     {
         $row = $this->rows($response, $key)[0] ?? null;

@@ -22,7 +22,10 @@ final class SynchronizationService
     ) {
     }
 
-    /** @param array<string, mixed> $envelope @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $envelope
+     * @return array<string, mixed>
+     */
     public function push(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -51,7 +54,7 @@ final class SynchronizationService
             );
         }
         if (
-            isset($envelope['lastPulledCursor'])
+            array_key_exists('lastPulledCursor', $envelope)
             && $envelope['lastPulledCursor'] !== null
             && ! is_string($envelope['lastPulledCursor'])
         ) {
@@ -241,7 +244,10 @@ final class SynchronizationService
         ];
     }
 
-    /** @param array<string, mixed> $operation @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $operation
+     * @return array<string, mixed>
+     */
     private function validateOperation(array $operation): array
     {
         $this->rejectUnknownKeys(

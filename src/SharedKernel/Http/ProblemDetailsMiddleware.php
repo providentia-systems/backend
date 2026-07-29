@@ -27,15 +27,25 @@ final class ProblemDetailsMiddleware implements MiddlewareInterface
                 $requestId = bin2hex(random_bytes(16));
             }
 
-            $problem = $error instanceof HttpProblem ? $error : null;
-            $status = $problem?->status ?? 500;
+            if ($error instanceof HttpProblem) {
+                $status = $error->status;
+                $type = $error->type;
+                $title = $error->title;
+                $detail = $error->getMessage();
+            } else {
+                $status = 500;
+                $type = 'about:blank';
+                $title = 'Internal Server Error';
+                $detail = $this->debug
+                    ? $error->getMessage()
+                    : 'The request could not be completed.';
+            }
 
             return new JsonResponse([
-                'type' => $problem?->type ?? 'about:blank',
-                'title' => $problem?->title ?? 'Internal Server Error',
+                'type' => $type,
+                'title' => $title,
                 'status' => $status,
-                'detail' => $problem?->getMessage()
-                    ?? ($this->debug ? $error->getMessage() : 'The request could not be completed.'),
+                'detail' => $detail,
                 'instance' => (string) $request->getUri(),
                 'requestId' => $requestId,
             ], $status, [

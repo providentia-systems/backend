@@ -18,12 +18,7 @@ final class NativeCredentialHasher implements CredentialHasher
 
     public function hashPassword(string $password): string
     {
-        $hash = password_hash($password, PASSWORD_ARGON2ID);
-        if ($hash === false) {
-            throw new RuntimeException('Password hashing failed.');
-        }
-
-        return $hash;
+        return password_hash($password, PASSWORD_ARGON2ID);
     }
 
     public function verifyPassword(string $password, string $hash): bool
