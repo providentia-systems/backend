@@ -6,6 +6,7 @@ namespace Providentia\SharedKernel\Infrastructure\Factory;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Tools\DsnParser;
 use Psr\Container\ContainerInterface;
 
 final class ConnectionFactory
@@ -15,6 +16,12 @@ final class ConnectionFactory
         /** @var array{database: array{url: string}} $config */
         $config = $container->get('config');
 
-        return DriverManager::getConnection(['url' => $config['database']['url']]);
+        $parser = new DsnParser([
+            'mariadb' => 'pdo_mysql',
+            'mysql' => 'pdo_mysql',
+            'sqlite' => 'pdo_sqlite',
+        ]);
+
+        return DriverManager::getConnection($parser->parse($config['database']['url']));
     }
 }
