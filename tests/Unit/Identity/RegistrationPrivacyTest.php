@@ -10,8 +10,6 @@ use Providentia\Identity\Application\AccountNotificationSender;
 use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
-use Providentia\SharedKernel\Application\Clock;
-use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 
 final class RegistrationPrivacyTest extends TestCase
@@ -48,25 +46,5 @@ final class RegistrationPrivacyTest extends TestCase
         );
 
         self::assertSame(['verificationToken' => null], $result);
-    }
-}
-
-final class IdentityTransactionManager implements TransactionManager
-{
-    public function transactional(callable $operation): mixed
-    {
-        return $operation();
-    }
-}
-
-final class IdentityFixedClock implements Clock
-{
-    public function __construct(private readonly DateTimeImmutable $time)
-    {
-    }
-
-    public function now(): DateTimeImmutable
-    {
-        return $this->time;
     }
 }

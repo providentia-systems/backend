@@ -226,11 +226,17 @@ final class HomeService
         int $expectedRevision,
     ): void {
         $role = strtolower(trim($role));
-        if (! in_array($role, [
-            HomeAuthorization::MANAGER,
-            HomeAuthorization::MEMBER,
-            HomeAuthorization::VIEWER,
-        ], true)) {
+        if (
+            ! in_array(
+                $role,
+                [
+                    HomeAuthorization::MANAGER,
+                    HomeAuthorization::MEMBER,
+                    HomeAuthorization::VIEWER,
+                ],
+                true,
+            )
+        ) {
             throw new HttpProblem(422, 'Validation failed', 'Membership role is invalid.');
         }
         $this->transactions->transactional(function () use (
@@ -253,13 +259,15 @@ final class HomeService
                 );
             }
             $now = $this->clock->now();
-            if (! $this->homes->changeMembershipRole(
-                $homeId,
-                $userId,
-                $role,
-                $expectedRevision,
-                $now,
-            )) {
+            if (
+                ! $this->homes->changeMembershipRole(
+                    $homeId,
+                    $userId,
+                    $role,
+                    $expectedRevision,
+                    $now,
+                )
+            ) {
                 throw new HttpProblem(409, 'Revision conflict', 'The membership changed since it was read.');
             }
             $this->audit(
@@ -318,13 +326,15 @@ final class HomeService
         ): void {
             $this->authorization->requireRole($identity, $homeId, [HomeAuthorization::OWNER]);
             $now = $this->clock->now();
-            if (! $this->homes->transferOwnership(
-                $homeId,
-                $identity->userId,
-                $targetUserId,
-                $expectedTargetRevision,
-                $now,
-            )) {
+            if (
+                ! $this->homes->transferOwnership(
+                    $homeId,
+                    $identity->userId,
+                    $targetUserId,
+                    $expectedTargetRevision,
+                    $now,
+                )
+            ) {
                 throw new HttpProblem(
                     409,
                     'Ownership transfer conflict',

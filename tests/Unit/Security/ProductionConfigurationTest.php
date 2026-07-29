@@ -13,14 +13,16 @@ final class ProductionConfigurationTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach ([
-            'APP_ENV',
-            'AUTH_TOKEN_PEPPER',
-            'SYNC_CURSOR_SECRET',
-            'EXPOSE_DEVELOPMENT_TOKENS',
-            'MAIL_DSN',
-            'PUBLIC_BASE_URL',
-        ] as $name) {
+        foreach (
+            [
+                'APP_ENV',
+                'AUTH_TOKEN_PEPPER',
+                'SYNC_CURSOR_SECRET',
+                'EXPOSE_DEVELOPMENT_TOKENS',
+                'MAIL_DSN',
+                'PUBLIC_BASE_URL',
+            ] as $name
+        ) {
             $this->previous[$name] = getenv($name);
         }
     }

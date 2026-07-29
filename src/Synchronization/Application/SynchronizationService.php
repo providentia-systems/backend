@@ -29,8 +29,7 @@ final class SynchronizationService
         string $requestId,
         string $idempotencyKey,
         array $envelope,
-    ): array
-    {
+    ): array {
         $this->authorization->requireMember($identity, $homeId);
         $this->rejectUnknownKeys(
             $envelope,
@@ -141,8 +140,7 @@ final class SynchronizationService
         string $homeId,
         string $requestId,
         ?string $cursor,
-    ): array
-    {
+    ): array {
         $this->authorization->requireMember($identity, $homeId);
         if ($cursor === null || $cursor === '') {
             throw new HttpProblem(
@@ -260,15 +258,17 @@ final class SynchronizationService
             ],
             'synchronization operation',
         );
-        foreach ([
-            'operationId',
-            'entityType',
-            'entityId',
-            'operationType',
-            'clientTimestamp',
-            'payloadSchemaVersion',
-            'payload',
-        ] as $field) {
+        foreach (
+            [
+                'operationId',
+                'entityType',
+                'entityId',
+                'operationType',
+                'clientTimestamp',
+                'payloadSchemaVersion',
+                'payload',
+            ] as $field
+        ) {
             if (! array_key_exists($field, $operation)) {
                 throw new HttpProblem(422, 'Invalid operation', 'Missing operation field: ' . $field);
             }

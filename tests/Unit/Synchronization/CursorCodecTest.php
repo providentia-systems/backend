@@ -6,7 +6,6 @@ namespace ProvidentiaTest\Unit\Synchronization;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
-use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Http\HttpProblem;
 use Providentia\Synchronization\Application\CursorCodec;
 
@@ -56,17 +55,5 @@ final class CursorCodecTest extends TestCase
                 $problem->type,
             );
         }
-    }
-}
-
-final class MutableClock implements Clock
-{
-    public function __construct(public DateTimeImmutable $time)
-    {
-    }
-
-    public function now(): DateTimeImmutable
-    {
-        return $this->time;
     }
 }

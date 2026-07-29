@@ -19,13 +19,15 @@ final class AuthenticationRateLimiter
     public function assertAllowed(string $ipAddress, string $email): void
     {
         foreach (['ip:' . $ipAddress, 'email-ip:' . mb_strtolower(trim($email)) . '|' . $ipAddress] as $bucket) {
-            if (! $this->store->consume(
-                hash_hmac('sha256', $bucket, $this->pepper),
-                $this->clock->now(),
-                900,
-                20,
-                900,
-            )) {
+            if (
+                ! $this->store->consume(
+                    hash_hmac('sha256', $bucket, $this->pepper),
+                    $this->clock->now(),
+                    900,
+                    20,
+                    900,
+                )
+            ) {
                 throw new HttpProblem(
                     429,
                     'Too many authentication attempts',

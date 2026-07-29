@@ -26,40 +26,42 @@ final class Version20260729000200 extends AbstractMigration
 
     public function down(Schema $schema): void
     {
-        foreach ([
-            'sync_cursors',
-            'record_tombstones',
-            'change_log',
-            'client_operations',
-            'sync_documents',
-            'catalog_seed_runs',
-            'catalog_seed_quarantine',
-            'catalog_merge_events',
-            'catalog_revisions',
-            'catalog_proposals',
-            'catalog_icons',
-            'product_identity_rules',
-            'product_barcodes',
-            'product_aliases',
-            'product_packs',
-            'product_variants',
-            'products',
-            'units',
-            'categories',
-            'support_access_grants',
-            'audit_events',
-            'home_invitations',
-            'home_memberships',
-            'homes',
-            'authentication_rate_limits',
-            'user_platform_roles',
-            'auth_refresh_history',
-            'auth_sessions',
-            'auth_one_time_tokens',
-            'devices',
-            'user_profiles',
-            'users',
-        ] as $table) {
+        foreach (
+            [
+                'sync_cursors',
+                'record_tombstones',
+                'change_log',
+                'client_operations',
+                'sync_documents',
+                'catalog_seed_runs',
+                'catalog_seed_quarantine',
+                'catalog_merge_events',
+                'catalog_revisions',
+                'catalog_proposals',
+                'catalog_icons',
+                'product_identity_rules',
+                'product_barcodes',
+                'product_aliases',
+                'product_packs',
+                'product_variants',
+                'products',
+                'units',
+                'categories',
+                'support_access_grants',
+                'audit_events',
+                'home_invitations',
+                'home_memberships',
+                'homes',
+                'authentication_rate_limits',
+                'user_platform_roles',
+                'auth_refresh_history',
+                'auth_sessions',
+                'auth_one_time_tokens',
+                'devices',
+                'user_profiles',
+                'users',
+            ] as $table
+        ) {
             $schema->dropTable($table);
         }
     }
@@ -317,12 +319,14 @@ final class Version20260729000200 extends AbstractMigration
         $rules->addColumn('provenance', Types::STRING, ['length' => 191]);
         $rules->addUniqueIndex(['rule_key'], 'uniq_identity_rules_key');
 
-        foreach ([
-            'catalog_icons' => ['target_type', 'target_id', 'asset_digest', 'media_type', 'provenance'],
-            'catalog_proposals' => ['proposal_json', 'moderation_status', 'reviewed_by_user_id', 'reviewed_at'],
-            'catalog_revisions' => ['entity_type', 'entity_id', 'before_json', 'after_json', 'reason'],
-            'catalog_merge_events' => ['survivor_id', 'merged_ids_json', 'plan_json', 'reason', 'reversed_at'],
-        ] as $name => $columns) {
+        foreach (
+            [
+                'catalog_icons' => ['target_type', 'target_id', 'asset_digest', 'media_type', 'provenance'],
+                'catalog_proposals' => ['proposal_json', 'moderation_status', 'reviewed_by_user_id', 'reviewed_at'],
+                'catalog_revisions' => ['entity_type', 'entity_id', 'before_json', 'after_json', 'reason'],
+                'catalog_merge_events' => ['survivor_id', 'merged_ids_json', 'plan_json', 'reason', 'reversed_at'],
+            ] as $name => $columns
+        ) {
             $table = $schema->createTable($name);
             $this->id($table);
             foreach ($columns as $column) {

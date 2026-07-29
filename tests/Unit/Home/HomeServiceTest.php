@@ -13,8 +13,6 @@ use Providentia\Identity\Application\AccountNotificationSender;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
-use Providentia\SharedKernel\Application\Clock;
-use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 
 final class HomeServiceTest extends TestCase
@@ -88,35 +86,5 @@ final class HomeServiceTest extends TestCase
 
         self::assertSame(1, $transactions->invocations);
         self::assertFalse($transactions->active);
-    }
-}
-
-final class RecordingTransactionManager implements TransactionManager
-{
-    public bool $active = false;
-    public int $invocations = 0;
-
-    public function transactional(callable $operation): mixed
-    {
-        \PHPUnit\Framework\Assert::assertFalse($this->active);
-        $this->active = true;
-        $this->invocations++;
-        try {
-            return $operation();
-        } finally {
-            $this->active = false;
-        }
-    }
-}
-
-final class HomeFixedClock implements Clock
-{
-    public function __construct(private readonly DateTimeImmutable $time)
-    {
-    }
-
-    public function now(): DateTimeImmutable
-    {
-        return $this->time;
     }
 }
