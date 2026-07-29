@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Providentia\PublicSite\Infrastructure\Factory;
 
+use Laminas\ServiceManager\ServiceManager;
+use Laminas\View\HelperPluginManager;
 use Laminas\View\Renderer\PhpRenderer;
 use Laminas\View\Resolver\TemplatePathStack;
 use Psr\Container\ContainerInterface;
@@ -18,13 +20,18 @@ final class LaminasPhpRendererFactory
 
         foreach ($config['templates']['paths'] as $paths) {
             foreach ($paths as $path) {
+                if ($path === '') {
+                    throw new \InvalidArgumentException('Template paths must not be empty.');
+                }
+
                 $resolver->addPath($path);
             }
         }
 
-        $renderer = new PhpRenderer();
-        $renderer->setResolver($resolver);
-
-        return $renderer;
+        return new PhpRenderer(
+            new HelperPluginManager(new ServiceManager()),
+            $resolver,
+            true,
+        );
     }
 }
