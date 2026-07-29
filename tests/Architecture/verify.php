@@ -36,15 +36,19 @@ foreach ($iterator as $file) {
         }
     }
     if (
-        (str_contains($relative, '/Domain/')
+        (
+            str_contains($relative, '/Domain/')
             || str_contains($relative, '/Application/')
-            || str_contains($relative, '/Http/'))
+            || str_contains($relative, '/Http/')
+        )
         && preg_match('/use Providentia\\\\[^;]+\\\\Infrastructure\\\\/', $source) === 1
     ) {
         $errors[] = $relative . ' reaches into Infrastructure';
     }
-    if (preg_match('/ContainerInterface\\s+\\$[a-zA-Z]/', $source) === 1
-        && ! str_contains($relative, '/Infrastructure/Factory/')) {
+    if (
+        preg_match('/ContainerInterface\\s+\\$[a-zA-Z]/', $source) === 1
+        && ! str_contains($relative, '/Infrastructure/Factory/')
+    ) {
         $errors[] = $relative . ' injects the service container outside a factory';
     }
 }
