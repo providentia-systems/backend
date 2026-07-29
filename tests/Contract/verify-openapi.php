@@ -30,21 +30,23 @@ foreach ($expected as $route => $operationId) {
     }
 }
 
-foreach ([
-    'HealthStatus',
-    'ReadinessStatus',
-    'SystemInfo',
-    'ProblemDetails',
-    'RegisterRequest',
-    'Home',
-    'HomeMembership',
-    'SyncPrivateNotePayload',
-    'SyncHomePreferencePayload',
-    'SyncPushRequest',
-    'SyncPushResponse',
-    'SyncPullResponse',
-    'SyncBootstrapResponse',
-] as $schema) {
+foreach (
+    [
+        'HealthStatus',
+        'ReadinessStatus',
+        'SystemInfo',
+        'ProblemDetails',
+        'RegisterRequest',
+        'Home',
+        'HomeMembership',
+        'SyncPrivateNotePayload',
+        'SyncHomePreferencePayload',
+        'SyncPushRequest',
+        'SyncPushResponse',
+        'SyncPullResponse',
+        'SyncBootstrapResponse',
+    ] as $schema
+) {
     if (! isset($contract['components']['schemas'][$schema])) {
         throw new RuntimeException('Missing component schema ' . $schema);
     }

@@ -101,7 +101,16 @@ final class AuthenticationService
         });
     }
 
-    /** @return array{accessToken: string, refreshToken: string, csrfToken: string, accessExpiresAt: string, sessionId: string, deviceId: string} */
+    /**
+     * @return array{
+     *     accessToken: string,
+     *     refreshToken: string,
+     *     csrfToken: string,
+     *     accessExpiresAt: string,
+     *     sessionId: string,
+     *     deviceId: string
+     * }
+     */
     public function login(
         string $email,
         string $password,
@@ -115,7 +124,11 @@ final class AuthenticationService
             && $user['locked_until'] !== null
             && new \DateTimeImmutable((string) $user['locked_until']) > $this->clock->now()
         ) {
-            throw new HttpProblem(429, 'Account temporarily locked', 'Too many failed sign-in attempts. Try again later.');
+            throw new HttpProblem(
+                429,
+                'Account temporarily locked',
+                'Too many failed sign-in attempts. Try again later.',
+            );
         }
         if (
             $user === null
@@ -143,7 +156,16 @@ final class AuthenticationService
         );
     }
 
-    /** @return array{accessToken: string, refreshToken: string, csrfToken: string, accessExpiresAt: string, sessionId: string, deviceId: string} */
+    /**
+     * @return array{
+     *     accessToken: string,
+     *     refreshToken: string,
+     *     csrfToken: string,
+     *     accessExpiresAt: string,
+     *     sessionId: string,
+     *     deviceId: string
+     * }
+     */
     public function refresh(string $refreshToken): array
     {
         $now = $this->clock->now();
@@ -293,7 +315,16 @@ final class AuthenticationService
         });
     }
 
-    /** @return array{accessToken: string, refreshToken: string, csrfToken: string, accessExpiresAt: string, sessionId: string, deviceId: string} */
+    /**
+     * @return array{
+     *     accessToken: string,
+     *     refreshToken: string,
+     *     csrfToken: string,
+     *     accessExpiresAt: string,
+     *     sessionId: string,
+     *     deviceId: string
+     * }
+     */
     private function issueSession(string $userId, string $deviceId, string $deviceName, string $platform): array
     {
         $now = $this->clock->now();

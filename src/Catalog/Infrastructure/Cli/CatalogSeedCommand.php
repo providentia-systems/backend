@@ -11,7 +11,10 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
-#[AsCommand(name: 'catalog:seed', description: 'Validate and idempotently import the authoritative global catalog seed.')]
+#[AsCommand(
+    name: 'catalog:seed',
+    description: 'Validate and idempotently import the authoritative global catalog seed.',
+)]
 final class CatalogSeedCommand extends Command
 {
     public function __construct(private readonly CatalogSeedService $service)

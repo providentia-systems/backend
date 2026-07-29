@@ -9,7 +9,6 @@ use PHPUnit\Framework\TestCase;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AuthenticatedIdentity;
-use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Http\HttpProblem;
 use Providentia\Synchronization\Application\CursorCodec;
 use Providentia\Synchronization\Application\SynchronizationService;
@@ -372,17 +371,5 @@ final class SynchronizationServiceTest extends TestCase
         }
 
         return $row;
-    }
-}
-
-final class FixedClock implements Clock
-{
-    public function __construct(private readonly DateTimeImmutable $time)
-    {
-    }
-
-    public function now(): DateTimeImmutable
-    {
-        return $this->time;
     }
 }

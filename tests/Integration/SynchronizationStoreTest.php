@@ -8,7 +8,6 @@ use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
-use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\Synchronization\Infrastructure\Doctrine\DbalSyncStore;
 
 final class SynchronizationStoreTest extends TestCase
@@ -25,15 +24,16 @@ final class SynchronizationStoreTest extends TestCase
     protected function setUp(): void
     {
         $this->connection = DriverManager::getConnection(['url' => 'sqlite:///:memory:']);
-        foreach ([
-            'CREATE TABLE home_memberships (
+        foreach (
+            [
+                'CREATE TABLE home_memberships (
                 home_id VARCHAR(36) NOT NULL,
                 user_id VARCHAR(36) NOT NULL,
                 role VARCHAR(16) NOT NULL,
                 status VARCHAR(16) NOT NULL,
                 PRIMARY KEY (home_id, user_id)
             )',
-            'CREATE TABLE client_operations (
+                'CREATE TABLE client_operations (
                 operation_id VARCHAR(36) PRIMARY KEY,
                 home_id VARCHAR(36) NOT NULL,
                 user_id VARCHAR(36) NOT NULL,
@@ -49,7 +49,7 @@ final class SynchronizationStoreTest extends TestCase
                 client_timestamp VARCHAR(40) NOT NULL,
                 processed_at DATETIME NOT NULL
             )',
-            'CREATE TABLE sync_documents (
+                'CREATE TABLE sync_documents (
                 home_id VARCHAR(36) NOT NULL,
                 entity_type VARCHAR(64) NOT NULL,
                 entity_id VARCHAR(36) NOT NULL,
@@ -61,7 +61,7 @@ final class SynchronizationStoreTest extends TestCase
                 updated_at DATETIME NOT NULL,
                 PRIMARY KEY (home_id, entity_type, entity_id)
             )',
-            'CREATE TABLE change_log (
+                'CREATE TABLE change_log (
                 sequence_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 home_id VARCHAR(36) NOT NULL,
                 entity_type VARCHAR(64) NOT NULL,
@@ -73,7 +73,7 @@ final class SynchronizationStoreTest extends TestCase
                 changed_by_user_id VARCHAR(36) NOT NULL,
                 changed_at DATETIME NOT NULL
             )',
-            'CREATE TABLE record_tombstones (
+                'CREATE TABLE record_tombstones (
                 home_id VARCHAR(36) NOT NULL,
                 entity_type VARCHAR(64) NOT NULL,
                 entity_id VARCHAR(36) NOT NULL,
@@ -84,7 +84,7 @@ final class SynchronizationStoreTest extends TestCase
                 retain_until DATETIME NULL,
                 PRIMARY KEY (home_id, entity_type, entity_id)
             )',
-            'CREATE TABLE audit_events (
+                'CREATE TABLE audit_events (
                 id VARCHAR(36) PRIMARY KEY,
                 home_id VARCHAR(36) NULL,
                 actor_user_id VARCHAR(36) NULL,
@@ -94,7 +94,7 @@ final class SynchronizationStoreTest extends TestCase
                 details TEXT NOT NULL,
                 occurred_at DATETIME NOT NULL
             )',
-            'CREATE TABLE outbox_messages (
+                'CREATE TABLE outbox_messages (
                 id VARCHAR(36) PRIMARY KEY,
                 message_type VARCHAR(120) NOT NULL,
                 queue_name VARCHAR(120) NOT NULL,
@@ -106,7 +106,7 @@ final class SynchronizationStoreTest extends TestCase
                 last_error TEXT NULL,
                 status VARCHAR(32) NOT NULL
             )',
-            'CREATE TABLE sync_cursors (
+                'CREATE TABLE sync_cursors (
                 home_id VARCHAR(36) NOT NULL,
                 user_id VARCHAR(36) NOT NULL,
                 device_id VARCHAR(36) NOT NULL,
@@ -115,7 +115,8 @@ final class SynchronizationStoreTest extends TestCase
                 updated_at DATETIME NOT NULL,
                 PRIMARY KEY (home_id, user_id, device_id)
             )',
-        ] as $statement) {
+            ] as $statement
+        ) {
             $this->connection->executeStatement($statement);
         }
         $this->connection->insert('home_memberships', [
@@ -261,15 +262,5 @@ final class SynchronizationStoreTest extends TestCase
     private function count(string $table): int
     {
         return (int) $this->connection->fetchOne('SELECT COUNT(*) FROM ' . $table);
-    }
-}
-
-final class SequenceUuidGenerator implements UuidGenerator
-{
-    private int $next = 1;
-
-    public function generate(): string
-    {
-        return sprintf('01912345-6789-7abc-8def-%012d', $this->next++);
     }
 }
