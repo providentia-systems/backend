@@ -21,7 +21,7 @@
     "mezzio/mezzio": "3.28.1",
     "mezzio/mezzio-fastroute": "3.14.0",
     "mezzio/mezzio-helpers": "5.20.0",
-    "mezzio/mezzio-problem-details": "2.4.0",
+    "mezzio/mezzio-problem-details": "1.19.0",
     "mezzio/mezzio-laminasviewrenderer": "3.0.0",
     "mezzio/mezzio-template": "3.0.0",
     "psr/clock": "1.0.0",
