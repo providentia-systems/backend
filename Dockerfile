@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.10
-FROM composer:2.8.11 AS composer
+FROM composer:2.10.2 AS composer
 
 FROM php:8.5.8-cli-alpine3.22 AS runtime
 

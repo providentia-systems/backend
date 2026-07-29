@@ -11,7 +11,7 @@ memberships, or catalog behavior.
 ## Requirements
 
 - PHP 8.5
-- Composer 2.8.11
+- Composer 2.10.2
 - PHP extensions: JSON, mbstring, PDO, PDO SQLite and Redis
 - Docker Engine with Compose v2 for the full infrastructure matrix
 
