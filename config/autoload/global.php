@@ -18,7 +18,7 @@ return [
         'url' => $env('DATABASE_URL', 'sqlite:///var/providentia.sqlite'),
     ],
     'queue' => [
-        'dsn' => $env('QUEUE_DSN', 'redis://127.0.0.1:6379'),
+        'dsn' => $env('QUEUE_DSN', 'redis+phpredis://127.0.0.1:6379'),
         'name' => $env('QUEUE_NAME', 'providentia.default'),
         'required' => filter_var($env('QUEUE_REQUIRED', '0'), FILTER_VALIDATE_BOOL),
         'outbox_batch_size' => max(1, (int) $env('OUTBOX_BATCH_SIZE', '100')),
