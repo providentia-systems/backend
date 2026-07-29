@@ -1,0 +1,11 @@
+parameters:
+  level: max
+  paths:
+    - src
+    - config
+    - migrations
+    - tests
+  tmpDir: var/phpstan
+  treatPhpDocTypesAsCertain: false
+  reportUnmatchedIgnoredErrors: true
+

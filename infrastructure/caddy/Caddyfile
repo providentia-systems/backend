@@ -1,0 +1,20 @@
+{
+    auto_https disable_redirects
+}
+
+:80 {
+    @metrics path /metrics
+    respond @metrics "Metrics are available only on the private application network." 403
+
+    reverse_proxy api-sqlite:8080 {
+        health_uri /health/ready
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        Content-Security-Policy "default-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    }
+}
+

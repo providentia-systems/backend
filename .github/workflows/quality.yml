@@ -1,0 +1,156 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "phase/**"
+
+permissions:
+  contents: read
+
+jobs:
+  structural:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run dependency-free foundation checks
+        run: bash tests/structural/verify.sh
+
+  php:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.5"
+          extensions: intl, json, mbstring, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.8.11
+      - run: test -f composer.lock
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: composer check
+      - run: composer audit --locked
+      - name: Generate and enforce dependency licence report
+        run: |
+          composer licenses --format=json > var/composer-licenses.json
+          php tool/check-composer-licenses.php var/composer-licenses.json
+      - name: Generate CycloneDX software bill of materials
+        run: |
+          docker run --rm \
+            -v "$PWD:/src:ro" \
+            -v "$PWD/var:/out" \
+            anchore/syft:v1.31.0 dir:/src \
+            -o cyclonedx-json=/out/sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-evidence-${{ github.sha }}
+          path: |
+            var/composer-licenses.json
+            var/sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Prove SQLite migration and outbox transaction
+        env:
+          DATABASE_URL: sqlite:///var/ci.sqlite
+          QUEUE_REQUIRED: "0"
+        run: |
+          php bin/doctrine-migrations migrations:migrate --no-interaction
+          php bin/providentia foundation:prove ci
+          php bin/doctrine-migrations migrations:status
+
+  database:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: mysql
+            image: mysql:8.4.6
+            port: 3306
+            health: mysqladmin ping -h 127.0.0.1 -uroot -proot --silent
+            url: mysql://providentia:providentia@127.0.0.1:3306/providentia?charset=utf8mb4
+          - name: mariadb
+            image: mariadb:11.8.3
+            port: 3306
+            health: healthcheck.sh --connect --innodb_initialized
+            url: mysql://providentia:providentia@127.0.0.1:3306/providentia?charset=utf8mb4
+    runs-on: ubuntu-24.04
+    services:
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_DATABASE: providentia
+          MYSQL_USER: providentia
+          MYSQL_PASSWORD: providentia
+          MYSQL_ROOT_PASSWORD: root
+          MARIADB_DATABASE: providentia
+          MARIADB_USER: providentia
+          MARIADB_PASSWORD: providentia
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "${{ matrix.health }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.5"
+          extensions: intl, json, mbstring, pdo_mysql, redis
+          coverage: none
+          tools: composer:2.8.11
+      - run: test -f composer.lock
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Apply, roll back, and reapply portable migration
+        env:
+          DATABASE_URL: ${{ matrix.url }}
+        run: |
+          php bin/doctrine-migrations migrations:migrate --no-interaction
+          php bin/providentia foundation:prove "${{ matrix.name }}"
+          php bin/doctrine-migrations migrations:migrate prev --no-interaction
+          php bin/doctrine-migrations migrations:migrate latest --no-interaction
+
+  queue:
+    strategy:
+      fail-fast: false
+      matrix:
+        broker:
+          - redis:8.2.1-alpine
+          - valkey/valkey:8.1.3-alpine
+    runs-on: ubuntu-24.04
+    services:
+      broker:
+        image: ${{ matrix.broker }}
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping || valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.5"
+          extensions: intl, json, mbstring, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.8.11
+      - run: test -f composer.lock
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Prove outbox publication and idempotent consumption
+        env:
+          DATABASE_URL: sqlite:///var/queue.sqlite
+          QUEUE_DSN: redis://127.0.0.1:6379
+          QUEUE_REQUIRED: "1"
+        run: |
+          php bin/doctrine-migrations migrations:migrate --no-interaction
+          php bin/providentia foundation:prove queue-ci
+          php bin/providentia outbox:relay --once
+          php bin/providentia queue:consume --once --timeout=5000

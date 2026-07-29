@@ -1,0 +1,323 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Providentia API",
+    "version": "1.0.0-foundation.1",
+    "summary": "Authoritative Phase 1 foundation contract",
+    "description": "The versioned API contract owned by the Providentia backend. Phase 2 business resources are intentionally absent."
+  },
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current Providentia deployment"
+    }
+  ],
+  "paths": {
+    "/health/live": {
+      "get": {
+        "operationId": "getLiveness",
+        "summary": "Process liveness",
+        "tags": [
+          "Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "The HTTP process is alive.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalProblem"
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Dependency readiness",
+        "tags": [
+          "Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Required dependencies are ready.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessStatus"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "At least one required dependency is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalProblem"
+          }
+        }
+      }
+    },
+    "/api/v1/system/info": {
+      "get": {
+        "operationId": "getSystemInfo",
+        "summary": "Non-sensitive runtime information",
+        "tags": [
+          "System"
+        ],
+        "responses": {
+          "200": {
+            "description": "The API and adapter versions safe for client diagnostics.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalProblem"
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "getMetrics",
+        "summary": "Prometheus metrics",
+        "description": "Deployment policy must restrict this endpoint to the operational network.",
+        "tags": [
+          "Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Prometheus text exposition.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "examples": [
+                    "# TYPE providentia_metrics_up gauge\nprovidentia_metrics_up 1\n"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalProblem"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "headers": {
+      "RequestId": {
+        "description": "Opaque request correlation identifier.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "responses": {
+      "InternalProblem": {
+        "description": "RFC 9457 problem response.",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "HealthStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "timestamp"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "alive"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReadinessCheck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "optional"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      },
+      "ReadinessStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "checks"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "not_ready"
+            ]
+          },
+          "checks": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReadinessCheck"
+            },
+            "required": [
+              "database",
+              "queue"
+            ]
+          }
+        }
+      },
+      "SystemInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "product",
+          "apiVersion",
+          "applicationVersion",
+          "environment",
+          "runtime",
+          "databaseDriver",
+          "queueAdapter",
+          "queueBroker"
+        ],
+        "properties": {
+          "product": {
+            "type": "string",
+            "const": "Providentia"
+          },
+          "apiVersion": {
+            "type": "string",
+            "const": "v1"
+          },
+          "applicationVersion": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "databaseDriver": {
+            "type": "string"
+          },
+          "queueAdapter": {
+            "type": "string",
+            "const": "enqueue-redis"
+          },
+          "queueBroker": {
+            "type": "string",
+            "enum": [
+              "redis-compatible",
+              "unknown"
+            ]
+          }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "description": "Problem Details for HTTP APIs as defined by RFC 9457.",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "requestId"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri-reference",
+            "default": "about:blank"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "format": "uri-reference"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Operations"
+    },
+    {
+      "name": "System"
+    }
+  ]
+}
+

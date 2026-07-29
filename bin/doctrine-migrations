@@ -1,0 +1,23 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Doctrine\DBAL\Connection;
+use Doctrine\Migrations\Configuration\Migration\PhpFile;
+use Doctrine\Migrations\DependencyFactory;
+use Doctrine\Migrations\Tools\Console\ConsoleRunner;
+use Doctrine\Migrations\Tools\Console\ConnectionProvider\ExistingConnection;
+
+chdir(dirname(__DIR__));
+require 'vendor/autoload.php';
+
+$container = require 'config/container.php';
+$connection = $container->get(Connection::class);
+$dependencyFactory = DependencyFactory::fromConnection(
+    new PhpFile('config/migrations.php'),
+    new ExistingConnection($connection),
+);
+
+ConsoleRunner::run($dependencyFactory);
+

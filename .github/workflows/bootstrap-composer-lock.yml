@@ -1,0 +1,59 @@
+name: Bootstrap Composer lock
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore:
+      - main
+    paths:
+      - composer.json
+      - .github/workflows/bootstrap-composer-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Determine whether the initial lock is required
+        id: lock
+        run: |
+          if test -f composer.lock; then
+            echo "required=false" >> "$GITHUB_OUTPUT"
+            echo "composer.lock already exists; bootstrap is a no-op."
+          else
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: shivammathur/setup-php@v2
+        if: steps.lock.outputs.required == 'true'
+        with:
+          php-version: "8.5"
+          extensions: intl, json, mbstring, pdo_mysql, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.8.11
+      - name: Resolve the initial exact dependency graph
+        if: steps.lock.outputs.required == 'true'
+        run: composer update --no-interaction --prefer-dist --no-progress
+      - name: Validate the resolved graph
+        if: steps.lock.outputs.required == 'true'
+        run: |
+          composer validate --strict --no-check-publish
+          composer check
+          composer audit --locked
+      - name: Commit only composer.lock
+        if: steps.lock.outputs.required == 'true'
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+        run: |
+          test -f composer.lock
+          git diff --exit-code -- . ':(exclude)composer.lock'
+          git add composer.lock
+          git config user.name "providentia-lock-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: pin initial Composer dependency graph"
+          git push origin "HEAD:${TARGET_BRANCH}"
