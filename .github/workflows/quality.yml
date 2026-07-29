@@ -16,6 +16,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - name: Install structural-check dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ripgrep
       - name: Run dependency-free foundation checks
         run: bash tests/structural/verify.sh
 

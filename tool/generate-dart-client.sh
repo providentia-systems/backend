@@ -20,6 +20,5 @@ docker run --rm \
   --global-property apiDocs=false,modelDocs=false
 
 test -f "$output_dir/pubspec.yaml"
-test -f "$output_dir/lib/api.dart"
+test -f "$output_dir/lib/providentia_api.dart"
 printf 'Generated Dart API client at %s\n' "$output_dir"
-
