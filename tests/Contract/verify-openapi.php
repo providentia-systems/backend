@@ -23,8 +23,10 @@ foreach (['HealthStatus', 'ReadinessStatus', 'SystemInfo', 'ProblemDetails'] as 
     }
 }
 
-if (($contract['components']['schemas']['ProblemDetails']['description'] ?? '') === ''
-    || ($contract['openapi'] ?? '') !== '3.1.0') {
+if (
+    ($contract['components']['schemas']['ProblemDetails']['description'] ?? '') === ''
+    || ($contract['openapi'] ?? '') !== '3.1.0'
+) {
     throw new RuntimeException('The OpenAPI/RFC 9457 baseline is incomplete.');
 }
 
