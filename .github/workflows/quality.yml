@@ -151,7 +151,7 @@ jobs:
       - name: Prove outbox publication and idempotent consumption
         env:
           DATABASE_URL: sqlite:///var/queue.sqlite
-          QUEUE_DSN: redis://127.0.0.1:6379
+          QUEUE_DSN: redis+phpredis://127.0.0.1:6379
           QUEUE_REQUIRED: "1"
         run: |
           php bin/doctrine-migrations migrations:migrate --no-interaction

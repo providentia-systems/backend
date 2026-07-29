@@ -32,7 +32,7 @@ services:
     environment:
       <<: *app-environment
       DATABASE_URL: sqlite:///var/providentia.sqlite
-      QUEUE_DSN: redis://valkey:6379
+      QUEUE_DSN: redis+phpredis://valkey:6379
     volumes:
       - sqlite-data:/app/var
 
@@ -45,7 +45,7 @@ services:
     environment:
       <<: *app-environment
       DATABASE_URL: mysql://providentia:${MYSQL_PASSWORD:-providentia-local-only}@mysql:3306/providentia?charset=utf8mb4
-      QUEUE_DSN: redis://redis:6379
+      QUEUE_DSN: redis+phpredis://redis:6379
     depends_on:
       mysql:
         condition: service_healthy
@@ -59,7 +59,7 @@ services:
     environment:
       <<: *app-environment
       DATABASE_URL: mysql://providentia:${MARIADB_PASSWORD:-providentia-local-only}@mariadb:3306/providentia?charset=utf8mb4
-      QUEUE_DSN: redis://valkey:6379
+      QUEUE_DSN: redis+phpredis://valkey:6379
     depends_on:
       mariadb:
         condition: service_healthy
@@ -166,4 +166,3 @@ volumes:
   mariadb-data:
   redis-data:
   valkey-data:
-

@@ -49,9 +49,10 @@ final class QueueConsumeCommand extends Command
             try {
                 /** @var array{id: string, type: string, occurredAt: string, payload: array<string, mixed>} $message */
                 $message = json_decode($transportMessage->getBody(), true, 512, JSON_THROW_ON_ERROR);
-                if (($message['id'] ?? '') !== $messageId || ($message['type'] ?? '') === '') {
+                if (($message['id'] ?? '') === '' || ($message['type'] ?? '') === '') {
                     throw new \UnexpectedValueException('Message envelope identity or type is invalid.');
                 }
+                $messageId = $message['id'];
                 if ($message['type'] !== 'foundation.recorded.v1') {
                     throw new \UnexpectedValueException('No handler is registered for ' . $message['type']);
                 }

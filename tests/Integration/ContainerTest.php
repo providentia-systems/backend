@@ -21,7 +21,7 @@ final class ContainerTest extends TestCase
     protected function setUp(): void
     {
         putenv('DATABASE_URL=sqlite:///:memory:');
-        putenv('QUEUE_DSN=redis://127.0.0.1:6379');
+        putenv('QUEUE_DSN=redis+phpredis://127.0.0.1:6379');
         $this->container = require dirname(__DIR__, 2) . '/config/container.php';
     }
 
