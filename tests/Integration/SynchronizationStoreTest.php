@@ -23,7 +23,10 @@ final class SynchronizationStoreTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->connection = DriverManager::getConnection(['url' => 'sqlite:///:memory:']);
+        $this->connection = DriverManager::getConnection([
+            'driver' => 'pdo_sqlite',
+            'memory' => true,
+        ]);
         foreach (
             [
                 'CREATE TABLE home_memberships (

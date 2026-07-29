@@ -21,7 +21,10 @@ final class HomeInvitationAuthorityTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->connection = DriverManager::getConnection(['url' => 'sqlite:///:memory:']);
+        $this->connection = DriverManager::getConnection([
+            'driver' => 'pdo_sqlite',
+            'memory' => true,
+        ]);
         $this->connection->executeStatement(
             'CREATE TABLE home_memberships (
                 home_id VARCHAR(36) NOT NULL,
