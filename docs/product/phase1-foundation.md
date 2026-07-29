@@ -38,3 +38,7 @@ does not provide PHP, Composer, or Docker. A Phase 1 acceptance must include a
 green lock bootstrap, PHP quality job, three-database matrix, two-broker matrix,
 and generated Dart client proof.
 
+The guarded bootstrap successfully resolved, validated, audited, and committed
+the initial `composer.lock` on
+`agent/phase-1-production-foundations` at
+`d7d568f53c683607ccea8005ed20d01ba03032ed`.
