@@ -158,3 +158,40 @@ jobs:
           php bin/providentia foundation:prove queue-ci
           php bin/providentia outbox:relay --once
           php bin/providentia queue:consume --once --timeout=5000
+          php -r '
+          $database = new PDO("sqlite:var/queue.sqlite");
+          $database->exec(
+              "UPDATE outbox_messages
+               SET status = \"pending\",
+                   published_at = NULL,
+                   available_at = \"2000-01-01 00:00:00.000000\""
+          );
+          '
+          php bin/providentia outbox:relay --once
+          php bin/providentia queue:consume --once --timeout=5000
+          php -r '
+          $database = new PDO("sqlite:var/queue.sqlite");
+          $published = (int) $database->query(
+              "SELECT COUNT(*) FROM outbox_messages WHERE status = \"published\""
+          )->fetchColumn();
+          $processed = (int) $database->query(
+              "SELECT COUNT(*) FROM outbox_messages o
+               INNER JOIN async_processed_messages p ON p.message_id = o.id"
+          )->fetchColumn();
+          $failed = (int) $database->query(
+              "SELECT COUNT(*) FROM async_failed_messages"
+          )->fetchColumn();
+          if ($published !== 1 || $processed !== 1 || $failed !== 0) {
+              fwrite(
+                  STDERR,
+                  sprintf(
+                      "Queue invariant failed: published=%d processed=%d failed=%d\n",
+                      $published,
+                      $processed,
+                      $failed
+                  )
+              );
+              exit(1);
+          }
+          echo "Queue invariant passed.\n";
+          '
