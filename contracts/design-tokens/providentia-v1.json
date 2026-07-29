@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "Providentia Fresh Market foundation",
+  "version": "1.0.0",
+  "tokens": {
+    "color": {
+      "canvas": {
+        "value": "#FBF8EC",
+        "type": "color"
+      },
+      "surface": {
+        "value": "#FFFDF7",
+        "type": "color"
+      },
+      "forest": {
+        "value": "#14551F",
+        "type": "color"
+      },
+      "fresh": {
+        "value": "#2F8A2A",
+        "type": "color"
+      },
+      "warning": {
+        "value": "#E76F00",
+        "type": "color"
+      },
+      "focus": {
+        "value": "#0B63CE",
+        "type": "color"
+      },
+      "surfaceStrong": {
+        "value": "#FFFFFF",
+        "type": "color"
+      },
+      "greenDark": {
+        "value": "#246F22",
+        "type": "color"
+      },
+      "mint": {
+        "value": "#E8F3DD",
+        "type": "color"
+      },
+      "text": {
+        "value": "#102714",
+        "type": "color"
+      },
+      "muted": {
+        "value": "#726E62",
+        "type": "color"
+      },
+      "line": {
+        "value": "#E8E1CE",
+        "type": "color"
+      },
+      "warningSurface": {
+        "value": "#FFF7E6",
+        "type": "color"
+      }
+    },
+    "radius": {
+      "control": {
+        "value": "14px",
+        "type": "dimension"
+      },
+      "panel": {
+        "value": "20px",
+        "type": "dimension"
+      }
+    },
+    "shadow": {
+      "panel": {
+        "value": "0 12px 32px rgba(23, 61, 42, 0.12)",
+        "type": "shadow"
+      }
+    },
+    "motion": {
+      "fast": {
+        "value": "160ms",
+        "type": "duration"
+      },
+      "reducedMotion": {
+        "value": "0.01ms",
+        "type": "duration"
+      }
+    }
+  },
+  "accessibility": {
+    "visibleFocusRequired": true,
+    "reducedMotionSupported": true
+  }
+}

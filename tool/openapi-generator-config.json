@@ -1,0 +1,8 @@
+{
+  "pubName": "providentia_api",
+  "pubVersion": "1.0.0-foundation.1",
+  "dateLibrary": "core",
+  "serializationLibrary": "json_serializable",
+  "useEnumExtension": true
+}
+

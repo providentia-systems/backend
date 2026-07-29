@@ -1,0 +1,50 @@
+name: Contracts
+
+on:
+  pull_request:
+    paths:
+      - "contracts/**"
+      - "tool/**"
+      - ".github/workflows/contracts.yml"
+  push:
+    tags:
+      - "api-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-generate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate OpenAPI and generate the pinned Dart client proof
+        run: |
+          docker run --rm -v "$PWD:/workspace:ro" openapitools/openapi-generator-cli:v7.15.0 validate \
+            -i /workspace/contracts/openapi/providentia-v1.json
+          bash tool/generate-dart-client.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: providentia-contracts-${{ github.sha }}
+          path: |
+            contracts/
+            var/generated/providentia_api/
+          if-no-files-found: error
+          retention-days: 30
+  publish-contracts:
+    if: startsWith(github.ref, 'refs/tags/api-v')
+    needs: validate-and-generate
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Publish immutable contract files on API tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes \
+            contracts/openapi/providentia-v1.json \
+            contracts/openapi/contract.lock.json \
+            contracts/design-tokens/providentia-v1.json \
+            contracts/design-tokens/contract.lock.json
