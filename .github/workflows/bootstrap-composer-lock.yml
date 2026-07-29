@@ -1,5 +1,7 @@
 name: Bootstrap Composer lock
 
+# This exact-branch workflow becomes a no-op after composer.lock is committed.
+
 on:
   workflow_dispatch:
   push:
