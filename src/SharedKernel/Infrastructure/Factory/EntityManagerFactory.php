@@ -20,6 +20,7 @@ final class EntityManagerFactory
             $config['app']['debug'],
             dirname(__DIR__, 4) . '/var/doctrine-proxies',
         );
+        $ormConfig->enableNativeLazyObjects(true);
 
         return new EntityManager($container->get(Connection::class), $ormConfig);
     }
