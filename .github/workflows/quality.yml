@@ -33,7 +33,7 @@ jobs:
           php-version: "8.5"
           extensions: intl, json, mbstring, pdo_sqlite, redis
           coverage: none
-          tools: composer:2.8.11
+          tools: composer:2.10.2
       - run: test -f composer.lock
       - run: composer install --no-interaction --prefer-dist --no-progress
       - run: composer check
@@ -108,7 +108,7 @@ jobs:
           php-version: "8.5"
           extensions: intl, json, mbstring, pdo_mysql, redis
           coverage: none
-          tools: composer:2.8.11
+          tools: composer:2.10.2
       - run: test -f composer.lock
       - run: composer install --no-interaction --prefer-dist --no-progress
       - name: Apply, roll back, and reapply portable migration
@@ -145,7 +145,7 @@ jobs:
           php-version: "8.5"
           extensions: intl, json, mbstring, pdo_sqlite, redis
           coverage: none
-          tools: composer:2.8.11
+          tools: composer:2.10.2
       - run: test -f composer.lock
       - run: composer install --no-interaction --prefer-dist --no-progress
       - name: Prove outbox publication and idempotent consumption

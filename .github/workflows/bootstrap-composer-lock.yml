@@ -46,7 +46,7 @@ jobs:
           php-version: "8.5"
           extensions: intl, json, mbstring, pdo_mysql, pdo_sqlite, redis
           coverage: none
-          tools: composer:2.8.11
+          tools: composer:2.10.2
       - name: Resolve the initial exact dependency graph
         if: steps.lock.outputs.required == 'true'
         run: composer update --no-interaction --prefer-dist --no-progress
