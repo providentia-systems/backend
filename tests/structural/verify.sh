@@ -201,7 +201,11 @@ assert_no_matches "Domain layer imports infrastructure or transport code" \
 
 assert_no_matches "Application layer imports framework, persistence, queue transport, or HTTP code" \
   -n --glob 'src/*/Application/**/*.php' \
-  'Doctrine\\\\|Laminas\\\\|Mezzio\\\\|Enqueue\\\\|Interop\\\\Queue|Psr\\\\Http'
+  'Doctrine\\\\|Laminas\\\\|Mezzio\\\\|Enqueue\\\\|Interop\\\\Queue|Psr\\\\Http|Providentia\\\\SharedKernel\\\\Http\\\\'
+
+assert_no_matches "Application layer bypasses injected identifier or secure-token ports" \
+  -n --glob 'src/*/Application/**/*.php' \
+  'random_bytes\(|Ramsey\\\\Uuid|Uuid::'
 
 assert_no_matches "HTTP layer imports persistence or queue implementation code" \
   -n --glob 'src/*/Http/**/*.php' \
