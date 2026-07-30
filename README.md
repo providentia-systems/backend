@@ -7,9 +7,10 @@ messaging boundary backed by Enqueue Redis.
 
 The repository includes the Phase 1 production foundation, Phase 2
 identity/home/catalog increment, Phase 4 home-scoped synchronization protocol,
-and the Phase 5 ledger-backed inventory, purchasing, shopping, dashboard, and
-verified-baseline cutover. Synchronization remains explicitly allow-listed to
-`home-preference` and `private-note` until each newer aggregate has a typed
+Phase 5 ledger-backed household operations, Phase 6 privacy-controlled AI,
+Phase 7 governed catalog administration, and Phase 8 deterministic shopping
+intelligence and reporting. Synchronization remains explicitly allow-listed
+to `home-preference` and `private-note` until each newer aggregate has a typed
 offline policy.
 
 ## Requirements
@@ -111,6 +112,13 @@ queue message is never represented as equivalent to the database commit.
 - Home item master, physical counts, immutable stock movements, materialized
   balances, reviewed receipt commit, purchase history, price evidence, shopping
   lists, dashboard projections, and checksum-gated baseline migration.
+- Privacy-gated structured AI extraction with explicit human approval and no
+  persisted media payload.
+- Sanitized catalog proposals, reviewer/curator workbenches, content-addressed
+  icons, and reversible audited product merges.
+- Movement/count-derived consumption, cadence, explainable replenishment,
+  currency-isolated pack comparison, feedback, household reports, and
+  leakage-safe backtesting.
 
 The authoritative operation and schema details live in the OpenAPI contract.
 Remaining phase gates and follow-up work are explicit in
