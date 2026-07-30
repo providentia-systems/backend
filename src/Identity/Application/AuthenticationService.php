@@ -6,9 +6,10 @@ namespace Providentia\Identity\Application;
 
 use DateInterval;
 use Providentia\SharedKernel\Application\Clock;
+use Providentia\SharedKernel\Application\Problem;
+use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
-use Providentia\SharedKernel\Http\HttpProblem;
 
 final class AuthenticationService
 {
@@ -19,6 +20,7 @@ final class AuthenticationService
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
+        private readonly SecureTokenGenerator $tokens,
         private readonly int $accessTtlSeconds,
         private readonly int $refreshTtlSeconds,
     ) {
@@ -36,7 +38,7 @@ final class AuthenticationService
         $this->assertPassword($password);
         $displayName = trim($displayName);
         if ($displayName === '' || mb_strlen($displayName) > 120) {
-            throw new HttpProblem(422, 'Validation failed', 'Display name must contain 1 to 120 characters.');
+            throw new Problem(422, 'Validation failed', 'Display name must contain 1 to 120 characters.');
         }
         // Always perform the expensive hash so account-existence timing is less distinct.
         $passwordHash = $this->hasher->hashPassword($password);
@@ -55,7 +57,7 @@ final class AuthenticationService
 
             $now = $this->clock->now();
             $userId = $existing === null ? $this->ids->generate() : (string) $existing['id'];
-            $token = $this->opaqueToken();
+            $token = $this->tokens->generate();
             if ($existing === null) {
                 $this->store->createUser(
                     $userId,
@@ -95,7 +97,7 @@ final class AuthenticationService
                 $now,
             );
             if ($userId === null) {
-                throw new HttpProblem(422, 'Invalid token', 'The verification token is invalid or expired.');
+                throw new Problem(422, 'Invalid token', 'The verification token is invalid or expired.');
             }
             $this->store->markEmailVerified($userId, $now);
         });
@@ -124,7 +126,7 @@ final class AuthenticationService
             && $user['locked_until'] !== null
             && new \DateTimeImmutable((string) $user['locked_until']) > $this->clock->now()
         ) {
-            throw new HttpProblem(
+            throw new Problem(
                 429,
                 'Account temporarily locked',
                 'Too many failed sign-in attempts. Try again later.',
@@ -137,13 +139,13 @@ final class AuthenticationService
             if ($user !== null) {
                 $this->store->recordFailedLogin((string) $user['id'], $this->clock->now());
             }
-            throw new HttpProblem(401, 'Authentication failed', 'Invalid email or password.');
+            throw new Problem(401, 'Authentication failed', 'Invalid email or password.');
         }
         if ($user['email_verified_at'] === null) {
-            throw new HttpProblem(403, 'Email verification required', 'Verify the email address before signing in.');
+            throw new Problem(403, 'Email verification required', 'Verify the email address before signing in.');
         }
         if ((string) $user['status'] !== 'active') {
-            throw new HttpProblem(403, 'Account unavailable', 'This account is not active.');
+            throw new Problem(403, 'Account unavailable', 'This account is not active.');
         }
 
         $this->store->clearFailedLogin((string) $user['id']);
@@ -175,18 +177,18 @@ final class AuthenticationService
         );
         if ($session === null) {
             if ($this->store->revokeRefreshReplay($this->hasher->hashToken($refreshToken), $now)) {
-                throw new HttpProblem(
+                throw new Problem(
                     401,
                     'Credential replay detected',
                     'The device session was revoked because a rotated refresh credential was reused.',
                 );
             }
-            throw new HttpProblem(401, 'Authentication failed', 'The refresh credential is invalid or expired.');
+            throw new Problem(401, 'Authentication failed', 'The refresh credential is invalid or expired.');
         }
 
-        $accessToken = $this->opaqueToken();
-        $nextRefreshToken = $this->opaqueToken();
-        $csrfToken = $this->opaqueToken();
+        $accessToken = $this->tokens->generate();
+        $nextRefreshToken = $this->tokens->generate();
+        $csrfToken = $this->tokens->generate();
         $accessExpiry = $now->add(new DateInterval('PT' . $this->accessTtlSeconds . 'S'));
         $refreshExpiry = $now->add(new DateInterval('PT' . $this->refreshTtlSeconds . 'S'));
         $rotated = $this->store->rotateSession(
@@ -200,7 +202,7 @@ final class AuthenticationService
             $now,
         );
         if (! $rotated) {
-            throw new HttpProblem(
+            throw new Problem(
                 401,
                 'Credential replay detected',
                 'A concurrent refresh was detected and the device session was revoked.',
@@ -224,7 +226,7 @@ final class AuthenticationService
             $this->clock->now(),
         );
         if ($session === null) {
-            throw new HttpProblem(401, 'Authentication required', 'A valid access credential is required.');
+            throw new Problem(401, 'Authentication required', 'A valid access credential is required.');
         }
 
         return new AuthenticatedIdentity(
@@ -245,7 +247,7 @@ final class AuthenticationService
     public function revokeSession(AuthenticatedIdentity $identity, string $sessionId): void
     {
         if (! $this->store->revokeSession($identity->userId, $sessionId, $this->clock->now())) {
-            throw new HttpProblem(404, 'Not found', 'The requested session is unavailable.');
+            throw new Problem(404, 'Not found', 'The requested session is unavailable.');
         }
     }
 
@@ -261,7 +263,7 @@ final class AuthenticationService
         if ($user === null) {
             return null;
         }
-        $token = $this->opaqueToken();
+        $token = $this->tokens->generate();
         $now = $this->clock->now();
         $this->store->issueOneTimeToken(
             $this->ids->generate(),
@@ -282,7 +284,7 @@ final class AuthenticationService
         if ($user === null || $user['email_verified_at'] !== null) {
             return null;
         }
-        $token = $this->opaqueToken();
+        $token = $this->tokens->generate();
         $now = $this->clock->now();
         $this->store->issueOneTimeToken(
             $this->ids->generate(),
@@ -308,7 +310,7 @@ final class AuthenticationService
                 $now,
             );
             if ($userId === null) {
-                throw new HttpProblem(422, 'Invalid token', 'The reset token is invalid or expired.');
+                throw new Problem(422, 'Invalid token', 'The reset token is invalid or expired.');
             }
             $this->store->changePassword($userId, $this->hasher->hashPassword($password), $now);
             $this->store->revokeAllSessions($userId, $now);
@@ -328,12 +330,12 @@ final class AuthenticationService
     private function issueSession(string $userId, string $deviceId, string $deviceName, string $platform): array
     {
         $now = $this->clock->now();
-        $accessToken = $this->opaqueToken();
-        $refreshToken = $this->opaqueToken();
+        $accessToken = $this->tokens->generate();
+        $refreshToken = $this->tokens->generate();
         $accessExpiry = $now->add(new DateInterval('PT' . $this->accessTtlSeconds . 'S'));
         $refreshExpiry = $now->add(new DateInterval('PT' . $this->refreshTtlSeconds . 'S'));
         $sessionId = $this->ids->generate();
-        $csrfToken = $this->opaqueToken();
+        $csrfToken = $this->tokens->generate();
         $this->store->createSession(
             $sessionId,
             $userId,
@@ -362,7 +364,7 @@ final class AuthenticationService
     {
         $email = mb_strtolower(trim($email));
         if (filter_var($email, FILTER_VALIDATE_EMAIL) === false || mb_strlen($email) > 254) {
-            throw new HttpProblem(422, 'Validation failed', 'A valid email address is required.');
+            throw new Problem(422, 'Validation failed', 'A valid email address is required.');
         }
 
         return $email;
@@ -376,7 +378,7 @@ final class AuthenticationService
             || preg_match('/[A-Za-z]/', $password) !== 1
             || preg_match('/[^A-Za-z]/', $password) !== 1
         ) {
-            throw new HttpProblem(
+            throw new Problem(
                 422,
                 'Validation failed',
                 'Password must be 12 to 1024 characters and contain letters and non-letters.',
@@ -387,14 +389,9 @@ final class AuthenticationService
     private function assertUuid(string $id, string $field): string
     {
         if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $id) !== 1) {
-            throw new HttpProblem(422, 'Validation failed', $field . ' must be a UUID.');
+            throw new Problem(422, 'Validation failed', $field . ' must be a UUID.');
         }
 
         return strtolower($id);
-    }
-
-    private function opaqueToken(): string
-    {
-        return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
     }
 }
