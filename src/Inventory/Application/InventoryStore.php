@@ -66,6 +66,8 @@ interface InventoryStore
         string $homeId,
         ?string $locationId,
         string $notes,
+        bool $scopeComplete,
+        string $reliability,
         string $actorUserId,
         DateTimeImmutable $at,
     ): void;
