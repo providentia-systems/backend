@@ -7,6 +7,7 @@ namespace Providentia\Purchasing;
 use Providentia\Purchasing\Application\PurchasingService;
 use Providentia\Purchasing\Application\PurchasingStore;
 use Providentia\Purchasing\Application\PurchaseSummaryReader;
+use Providentia\Purchasing\Application\PurchaseAnalyticsReader;
 use Providentia\Purchasing\Infrastructure\Doctrine\DbalPurchasingStore;
 use Providentia\Purchasing\Infrastructure\Factory\PurchasingFactory;
 
@@ -20,6 +21,7 @@ final class ConfigProvider
                 'aliases' => [
                     PurchasingStore::class => DbalPurchasingStore::class,
                     PurchaseSummaryReader::class => DbalPurchasingStore::class,
+                    PurchaseAnalyticsReader::class => DbalPurchasingStore::class,
                 ],
                 'factories' => [
                     DbalPurchasingStore::class => PurchasingFactory::class,
