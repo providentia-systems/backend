@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
+use Providentia\Synchronization\Application\SyncOperation;
 use Providentia\Synchronization\Infrastructure\Doctrine\DbalSyncStore;
 
 final class SynchronizationStoreTest extends TestCase
@@ -247,19 +248,41 @@ final class SynchronizationStoreTest extends TestCase
         self::assertNull($tombstone['retain_until']);
     }
 
-    /** @return array<string, mixed> */
-    private function operation(string $operationId, ?int $baseRevision, string $type): array
+    public function testCapturedSnapshotUsesTheSameHighWaterBoundaryAsItsRecords(): void
     {
-        return [
-            'operationId' => $operationId,
-            'entityType' => 'private-note',
-            'entityId' => self::ENTITY_ID,
-            'operationType' => $type,
-            'baseRevision' => $baseRevision,
-            'clientTimestamp' => '2026-07-30T11:59:00+00:00',
-            'payloadSchemaVersion' => 1,
-            'payload' => $type === 'delete' ? [] : ['body' => 'freezer'],
-        ];
+        $this->store->apply(
+            self::HOME_ID,
+            self::USER_ID,
+            self::DEVICE_ONE,
+            $this->operation('01912345-6789-7abc-9def-1123456789ab', null, 'put'),
+            str_repeat('a', 64),
+            new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
+        );
+
+        $snapshot = $this->store->captureSnapshot(self::HOME_ID, 251);
+
+        self::assertSame(1, $snapshot->highWater);
+        self::assertCount(1, $snapshot->records);
+        self::assertSame(self::ENTITY_ID, $snapshot->records[0]['entityId']);
+        self::assertSame(1, $snapshot->records[0]['revision']);
+    }
+
+    private function operation(
+        string $operationId,
+        ?int $baseRevision,
+        string $type,
+    ): SyncOperation
+    {
+        return new SyncOperation(
+            $operationId,
+            'private-note',
+            self::ENTITY_ID,
+            $type,
+            $baseRevision,
+            '2026-07-30T11:59:00+00:00',
+            1,
+            $type === 'delete' ? [] : ['body' => 'freezer'],
+        );
     }
 
     private function tableRowCount(string $table): int
