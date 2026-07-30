@@ -8,6 +8,8 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
 use Providentia\Synchronization\Application\SyncStore;
+use Providentia\Synchronization\Application\SyncOperation;
+use Providentia\Synchronization\Application\SyncSnapshot;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\SharedKernel\Application\Health\SyncMetricsProbe;
 
@@ -19,15 +21,12 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
     ) {
     }
 
-    /**
-     * @param array<string, mixed> $operation
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function apply(
         string $homeId,
         string $userId,
         string $deviceId,
-        array $operation,
+        SyncOperation $operation,
         string $requestHash,
         DateTimeImmutable $at,
     ): array {
@@ -50,7 +49,7 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                 || (string) $membership['role'] === 'viewer'
             ) {
                 return [
-                    'operationId' => $operation['operationId'],
+                    'operationId' => $operation->operationId,
                     'status' => 'authorization_failure',
                     'detail' => 'The current membership cannot write this synchronized resource.',
                 ];
@@ -58,7 +57,7 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
             $existingOperation = $this->one(
                 'SELECT home_id, user_id, device_id, request_hash, response_json FROM client_operations
                  WHERE operation_id = :id',
-                ['id' => $operation['operationId']],
+                ['id' => $operation->operationId],
             );
             if ($existingOperation !== null) {
                 if (
@@ -81,7 +80,7 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                 }
 
                 return [
-                    'operationId' => $operation['operationId'],
+                    'operationId' => $operation->operationId,
                     'status' => 'conflict',
                     'code' => 'operation_id_reuse',
                     'detail' => 'The operation identifier was already bound to a different immutable request.',
@@ -93,14 +92,14 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                  WHERE home_id = :home AND entity_type = :type AND entity_id = :entity',
                 [
                     'home' => $homeId,
-                    'type' => $operation['entityType'],
-                    'entity' => $operation['entityId'],
+                    'type' => $operation->entityType,
+                    'entity' => $operation->entityId,
                 ],
             );
             $currentRevision = $document === null ? 0 : (int) $document['revision'];
-            if ($currentRevision !== (int) $operation['baseRevision']) {
+            if ($currentRevision !== (int) $operation->baseRevision) {
                 $response = [
-                    'operationId' => $operation['operationId'],
+                    'operationId' => $operation->operationId,
                     'status' => 'conflict',
                     'code' => 'revision_mismatch',
                     'currentRevision' => $currentRevision,
@@ -122,16 +121,16 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
             }
 
             $revision = $currentRevision + 1;
-            $deleted = $operation['operationType'] === 'delete';
-            $payload = $deleted ? [] : $operation['payload'];
+            $deleted = $operation->operationType === 'delete';
+            $payload = $deleted ? [] : $operation->payload;
             $payloadJson = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
             if ($document === null) {
                 $this->connection->insert('sync_documents', [
                     'home_id' => $homeId,
-                    'entity_type' => $operation['entityType'],
-                    'entity_id' => $operation['entityId'],
+                    'entity_type' => $operation->entityType,
+                    'entity_id' => $operation->entityId,
                     'revision' => $revision,
-                    'payload_schema_version' => $operation['payloadSchemaVersion'],
+                    'payload_schema_version' => $operation->payloadSchemaVersion,
                     'payload_json' => $payloadJson,
                     'deleted_at' => $deleted ? $this->date($at) : null,
                     'updated_by_user_id' => $userId,
@@ -147,20 +146,20 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                        AND entity_id = :entity AND revision = :expected_revision',
                     [
                         'next_revision' => $revision,
-                        'schema_version' => $operation['payloadSchemaVersion'],
+                        'schema_version' => $operation->payloadSchemaVersion,
                         'payload' => $payloadJson,
                         'deleted' => $deleted ? $this->date($at) : null,
                         'user' => $userId,
                         'updated' => $this->date($at),
                         'home' => $homeId,
-                        'type' => $operation['entityType'],
-                        'entity' => $operation['entityId'],
+                        'type' => $operation->entityType,
+                        'entity' => $operation->entityId,
                         'expected_revision' => $currentRevision,
                     ],
                 );
                 if ($updated !== 1) {
                     return [
-                        'operationId' => $operation['operationId'],
+                        'operationId' => $operation->operationId,
                         'status' => 'retryable_failure',
                         'code' => 'concurrent_write',
                     ];
@@ -169,11 +168,11 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
 
             $this->connection->insert('change_log', [
                 'home_id' => $homeId,
-                'entity_type' => $operation['entityType'],
-                'entity_id' => $operation['entityId'],
+                'entity_type' => $operation->entityType,
+                'entity_id' => $operation->entityId,
                 'operation_type' => $deleted ? 'delete' : 'put',
                 'revision' => $revision,
-                'payload_schema_version' => $operation['payloadSchemaVersion'],
+                'payload_schema_version' => $operation->payloadSchemaVersion,
                 'payload_json' => $payloadJson,
                 'changed_by_user_id' => $userId,
                 'changed_at' => $this->date($at),
@@ -182,8 +181,8 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
             if ($deleted) {
                 $this->replaceTombstone(
                     $homeId,
-                    (string) $operation['entityType'],
-                    (string) $operation['entityId'],
+                    $operation->entityType,
+                    $operation->entityId,
                     $revision,
                     $cursor,
                     $userId,
@@ -195,8 +194,8 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                 'home_id' => $homeId,
                 'actor_user_id' => $userId,
                 'action' => 'synchronization.' . ($deleted ? 'deleted' : 'updated'),
-                'target_type' => $operation['entityType'],
-                'target_id' => $operation['entityId'],
+                'target_type' => $operation->entityType,
+                'target_id' => $operation->entityId,
                 'details' => json_encode(
                     ['revision' => $revision, 'cursor' => $cursor, 'deviceId' => $deviceId],
                     JSON_THROW_ON_ERROR,
@@ -209,8 +208,8 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                 'queue_name' => 'providentia.default',
                 'payload' => json_encode([
                     'homeId' => $homeId,
-                    'entityType' => $operation['entityType'],
-                    'entityId' => $operation['entityId'],
+                    'entityType' => $operation->entityType,
+                    'entityId' => $operation->entityId,
                     'revision' => $revision,
                     'cursor' => $cursor,
                 ], JSON_THROW_ON_ERROR),
@@ -222,10 +221,10 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                 'status' => 'pending',
             ]);
             $response = [
-                'operationId' => $operation['operationId'],
+                'operationId' => $operation->operationId,
                 'status' => 'accepted',
-                'entityType' => $operation['entityType'],
-                'entityId' => $operation['entityId'],
+                'entityType' => $operation->entityType,
+                'entityId' => $operation->entityId,
                 'serverRevision' => $revision,
                 'cursor' => $cursor,
                 'payload' => $payload,
@@ -253,28 +252,39 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
         );
     }
 
-    public function snapshot(string $homeId, int $limit): array
+    public function captureSnapshot(string $homeId, int $limit): SyncSnapshot
     {
-        $rows = $this->connection->fetchAllAssociative(
-            'SELECT entity_type, entity_id, revision, payload_schema_version,
-                    payload_json, updated_at
-             FROM sync_documents
-             WHERE home_id = :home AND deleted_at IS NULL
-             ORDER BY entity_type, entity_id LIMIT ' . max(1, $limit),
-            ['home' => $homeId],
-        );
+        return $this->connection->transactional(function () use ($homeId, $limit): SyncSnapshot {
+            $highWater = $this->highWater($homeId);
+            $rows = $this->connection->fetchAllAssociative(
+                'SELECT entity_type, entity_id, revision, payload_schema_version,
+                        payload_json, updated_at
+                 FROM sync_documents
+                 WHERE home_id = :home AND deleted_at IS NULL
+                 ORDER BY entity_type, entity_id LIMIT ' . max(1, $limit),
+                ['home' => $homeId],
+            );
 
-        return array_map(static fn (array $row): array => [
-            'entityType' => (string) $row['entity_type'],
-            'entityId' => (string) $row['entity_id'],
-            'revision' => (int) $row['revision'],
-            'representationSchemaVersion' => (int) $row['payload_schema_version'],
-            'representation' => array_merge(
-                ['id' => (string) $row['entity_id'], 'revision' => (int) $row['revision']],
-                (array) json_decode((string) $row['payload_json'], true, 64, JSON_THROW_ON_ERROR),
-            ),
-            'serverTimestamp' => (string) $row['updated_at'],
-        ], $rows);
+            return new SyncSnapshot(
+                $highWater,
+                array_map(static fn (array $row): array => [
+                    'entityType' => (string) $row['entity_type'],
+                    'entityId' => (string) $row['entity_id'],
+                    'revision' => (int) $row['revision'],
+                    'representationSchemaVersion' => (int) $row['payload_schema_version'],
+                    'representation' => array_merge(
+                        ['id' => (string) $row['entity_id'], 'revision' => (int) $row['revision']],
+                        (array) json_decode(
+                            (string) $row['payload_json'],
+                            true,
+                            64,
+                            JSON_THROW_ON_ERROR,
+                        ),
+                    ),
+                    'serverTimestamp' => (string) $row['updated_at'],
+                ], $rows),
+            );
+        });
     }
 
     public function changes(string $homeId, int $after, int $highWater, int $limit): array
@@ -352,32 +362,31 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
     }
 
     /**
-     * @param array<string, mixed> $operation
      * @param array<string, mixed> $response
      */
     private function recordOperation(
         string $homeId,
         string $userId,
         string $deviceId,
-        array $operation,
+        SyncOperation $operation,
         string $requestHash,
         array $response,
         DateTimeImmutable $at,
     ): void {
         $this->connection->insert('client_operations', [
-            'operation_id' => $operation['operationId'],
+            'operation_id' => $operation->operationId,
             'home_id' => $homeId,
             'user_id' => $userId,
             'device_id' => $deviceId,
-            'entity_type' => $operation['entityType'],
-            'entity_id' => $operation['entityId'],
-            'operation_type' => $operation['operationType'],
-            'base_revision' => $operation['baseRevision'],
-            'payload_schema_version' => $operation['payloadSchemaVersion'],
+            'entity_type' => $operation->entityType,
+            'entity_id' => $operation->entityId,
+            'operation_type' => $operation->operationType,
+            'base_revision' => $operation->baseRevision,
+            'payload_schema_version' => $operation->payloadSchemaVersion,
             'request_hash' => $requestHash,
             'status' => $response['status'],
             'response_json' => json_encode($response, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-            'client_timestamp' => $operation['clientTimestamp'],
+            'client_timestamp' => $operation->clientTimestamp,
             'processed_at' => $this->date($at),
         ]);
     }
