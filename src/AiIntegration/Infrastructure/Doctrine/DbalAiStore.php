@@ -350,7 +350,10 @@ final class DbalAiStore implements AiStore
         ) === 1;
     }
 
-    /** @param array<string, mixed> $parameters @return array<string, mixed>|null */
+    /**
+     * @param array<string, mixed> $parameters
+     * @return array<string, mixed>|null
+     */
     private function one(string $sql, array $parameters): ?array
     {
         $row = $this->connection->fetchAssociative($sql, $parameters);

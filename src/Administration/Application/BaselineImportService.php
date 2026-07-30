@@ -149,7 +149,10 @@ final class BaselineImportService
         return $decoded;
     }
 
-    /** @return list<mixed> */
+    /**
+     * @param array<string, mixed> $document
+     * @return list<mixed>
+     */
     private function list(array $document, string $key): array
     {
         $value = $document[$key] ?? null;

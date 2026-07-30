@@ -72,7 +72,8 @@ final class Version20260730000700 extends AbstractMigration
             'length' => 36,
             'notnull' => false,
         ]);
-        $revisions->addIndex(['entity_type', 'entity_id', 'created_at'], 'idx_catalog_revision_entity');
+        $revisions->addColumn('entity_key', Types::STRING, ['length' => 191, 'default' => '']);
+        $revisions->addIndex(['entity_key', 'created_at'], 'idx_catalog_revision_entity');
 
         $merges = $schema->getTable('catalog_merge_events');
         $merges->addColumn('status', Types::STRING, ['length' => 24, 'default' => 'legacy']);
@@ -179,6 +180,7 @@ final class Version20260730000700 extends AbstractMigration
         $this->removeColumns($schema->getTable('catalog_revisions'), [
             'actor_user_id',
             'operation_id',
+            'entity_key',
         ]);
         $schema->getTable('catalog_icons')->dropIndex('idx_catalog_icons_status');
         $this->removeColumns($schema->getTable('catalog_icons'), [

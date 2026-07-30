@@ -8,7 +8,10 @@ use DateTimeImmutable;
 
 interface CatalogGovernanceStore
 {
-    /** @param array<string, mixed> $payload @return array<string, mixed>|null */
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>|null
+     */
     public function conflictFor(string $type, string $normalizedKey, array $payload): ?array;
 
     /** @param array<string, mixed> $payload */
@@ -29,7 +32,10 @@ interface CatalogGovernanceStore
     /** @return list<array<string, mixed>> */
     public function workbench(string $queue, int $limit, int $offset): array;
 
-    /** @param array<string, mixed> $proposal @return array{entityType: string, entityId: string} */
+    /**
+     * @param array<string, mixed> $proposal
+     * @return array{entityType: string, entityId: string}
+     */
     public function publishProposal(
         array $proposal,
         string $entityId,

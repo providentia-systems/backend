@@ -362,7 +362,7 @@ final class DbalBaselineImportStore implements BaselineImportStore
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
-            foreach (array_values($group['rows']) as $index => $row) {
+            foreach ($group['rows'] as $index => $row) {
                 $lineId = $this->ids->generate();
                 $canonical = trim((string) ($row['canonicalItem'] ?? ''));
                 $canonicalPack = trim((string) ($row['canonicalPackSize'] ?? ''));
