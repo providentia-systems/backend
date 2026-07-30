@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace Providentia\SharedKernel\Http;
 
-use RuntimeException;
+use Providentia\SharedKernel\Application\Problem;
 
-final class HttpProblem extends RuntimeException
+/**
+ * Transport-specific problem raised by HTTP middleware and handlers.
+ *
+ * Application services raise {@see Problem} directly so they remain
+ * independent of the HTTP adapter.
+ */
+final class HttpProblem extends Problem
 {
-    public function __construct(
-        public readonly int $status,
-        public readonly string $title,
-        string $detail,
-        public readonly string $type = 'about:blank',
-    ) {
-        parent::__construct($detail);
-    }
 }
