@@ -48,9 +48,9 @@ conflict.
 The first incremental pull without a cursor returns `410
 sync_resync_required`. The client first requests
 `GET /api/v1/homes/{homeId}/sync/bootstrap`. Authorization is rechecked, the
-server captures one high-water sequence, returns the current non-deleted
-snapshot plus an opaque cursor, and acknowledges that position for the current
-device.
+server captures one high-water sequence and the current non-deleted records in
+one database transaction, returns that snapshot plus an opaque cursor, and
+acknowledges the captured position for the current device.
 
 The current bootstrap implementation refuses snapshots above 250 records with
 `409`; it never returns an inconsistent partial snapshot. Paged bootstrap with
