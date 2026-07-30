@@ -19,6 +19,10 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
     ) {
     }
 
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>|null
+     */
     public function conflictFor(string $type, string $normalizedKey, array $payload): ?array
     {
         $row = match ($type) {
@@ -173,12 +177,9 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
             return $rows;
         }
         if (in_array($queue, ['duplicates', 'aliases', 'barcodes'], true)) {
-            $type = match ($queue) {
-                'duplicates' => 'duplicate',
-                'aliases' => 'alias',
-                'barcodes' => 'barcode',
-                default => throw new \LogicException('Unsupported catalog conflict queue.'),
-            };
+            $type = $queue === 'duplicates'
+                ? 'duplicate'
+                : ($queue === 'aliases' ? 'alias' : 'barcode');
             $rows = $this->connection->fetchAllAssociative(
                 'SELECT c.id, c.conflict_type AS conflictType,
                         c.conflict_key AS conflictKey, c.proposal_id AS proposalId,
@@ -239,6 +240,10 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         return $rows;
     }
 
+    /**
+     * @param array<string, mixed> $proposal
+     * @return array{entityType: string, entityId: string}
+     */
     public function publishProposal(
         array $proposal,
         string $entityId,
@@ -1150,6 +1155,7 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
             'id' => $id,
             'entity_type' => $entityType,
             'entity_id' => $entityId,
+            'entity_key' => mb_substr($entityType . '|' . $entityId, 0, 191),
             'before_json' => $this->json($before),
             'after_json' => $this->json($after),
             'reason' => $reason,
@@ -1190,7 +1196,10 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         ]);
     }
 
-    /** @param array<string, mixed> $parameters @return array<string, mixed>|null */
+    /**
+     * @param array<string, mixed> $parameters
+     * @return array<string, mixed>|null
+     */
     private function one(string $sql, array $parameters): ?array
     {
         $row = $this->connection->fetchAssociative($sql, $parameters);

@@ -123,7 +123,10 @@ final class ExtractionSchema
         ];
     }
 
-    /** @param array<string, mixed> $result */
+    /**
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
     public function validate(array $result, string $expectedKind): array
     {
         $expectedKeys = [
@@ -244,7 +247,10 @@ final class ExtractionSchema
         return $result;
     }
 
-    /** @param array<string, mixed> $value @param list<string> $expected */
+    /**
+     * @param array<string, mixed> $value
+     * @param list<string> $expected
+     */
     private function exactKeys(array $value, array $expected, string $label): void
     {
         $actual = array_keys($value);

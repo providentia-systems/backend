@@ -87,7 +87,10 @@ final class AiIntegrationFactory
         };
     }
 
-    /** @param array<string, mixed> $ai @return list<AiProvider> */
+    /**
+     * @param array<string, mixed> $ai
+     * @return list<AiProvider>
+     */
     private function providers(ContainerInterface $container, array $ai): array
     {
         if (! (bool) $ai['server_proxy_enabled']) {
@@ -110,7 +113,10 @@ final class AiIntegrationFactory
         return $providers;
     }
 
-    /** @param array<string, mixed> $ai @return list<string> */
+    /**
+     * @param array<string, mixed> $ai
+     * @return list<string>
+     */
     private function allowedHosts(array $ai): array
     {
         $hosts = [];
@@ -124,6 +130,7 @@ final class AiIntegrationFactory
             }
         }
 
+        /** @var list<string> $hosts */
         return array_values(array_unique($hosts));
     }
 }

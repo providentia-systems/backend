@@ -22,7 +22,10 @@ final class CatalogGovernanceService
     ) {
     }
 
-    /** @param array<string, mixed> $payload @return array{id: string, status: string, revision: int} */
+    /**
+     * @param array<string, mixed> $payload
+     * @return array{id: string, status: string, revision: int}
+     */
     public function submit(
         AuthenticatedIdentity $identity,
         string $type,
@@ -181,7 +184,10 @@ final class CatalogGovernanceService
         }
     }
 
-    /** @param array<string, mixed> $input @return array{id: string, revision: int} */
+    /**
+     * @param array<string, mixed> $input
+     * @return array{id: string, revision: int}
+     */
     public function putIcon(
         AuthenticatedIdentity $identity,
         string $targetType,
@@ -240,7 +246,10 @@ final class CatalogGovernanceService
         }
     }
 
-    /** @param list<string> $duplicateIds @return array<string, mixed> */
+    /**
+     * @param list<string> $duplicateIds
+     * @return array<string, mixed>
+     */
     public function previewMerge(
         AuthenticatedIdentity $identity,
         string $survivorId,
@@ -252,7 +261,10 @@ final class CatalogGovernanceService
         return $this->catalog->mergePreview($survivorId, $duplicateIds);
     }
 
-    /** @param array<string, int> $duplicateRevisions @return array<string, mixed> */
+    /**
+     * @param array<string, int> $duplicateRevisions
+     * @return array<string, mixed>
+     */
     public function applyMerge(
         AuthenticatedIdentity $identity,
         string $survivorId,
@@ -316,7 +328,10 @@ final class CatalogGovernanceService
         }
     }
 
-    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
     private function sanitize(string $type, array $payload): array
     {
         $definitions = [
@@ -349,7 +364,10 @@ final class CatalogGovernanceService
         };
     }
 
-    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
     private function productPayload(array $payload): array
     {
         $name = trim((string) $payload['canonicalName']);
@@ -362,7 +380,10 @@ final class CatalogGovernanceService
         return ['canonicalName' => $name, 'brand' => $brand, 'categoryId' => $categoryId];
     }
 
-    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
     private function packPayload(array $payload): array
     {
         $productId = trim((string) $payload['productId']);
@@ -392,7 +413,10 @@ final class CatalogGovernanceService
         ];
     }
 
-    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
     private function aliasPayload(array $payload): array
     {
         $productId = trim((string) $payload['productId']);
@@ -411,7 +435,10 @@ final class CatalogGovernanceService
         ];
     }
 
-    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
     private function barcodePayload(array $payload): array
     {
         $packId = trim((string) $payload['packId']);
@@ -437,15 +464,20 @@ final class CatalogGovernanceService
             'pack' => (string) $payload['productId'] . '|' . (string) $payload['originalPackText'],
             'alias' => (string) $payload['rawAlias'],
             'barcode' => (string) $payload['barcode'],
+            default => throw new \LogicException('Unsupported catalog proposal type.'),
         };
 
         return mb_substr($this->normalize((string) $value), 0, 191);
     }
 
-    /** @param list<string> $duplicateIds @return list<string> */
+    /**
+     * @param list<string> $duplicateIds
+     * @return list<string>
+     */
     private function mergeIds(string $survivorId, array $duplicateIds): array
     {
         $duplicateIds = array_values(array_unique(array_filter(array_map('trim', $duplicateIds))));
+        /** @var list<string> $duplicateIds */
         if (
             $survivorId === ''
             || $duplicateIds === []

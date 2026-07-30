@@ -22,8 +22,7 @@ final class EndpointPolicyTest extends TestCase
     {
         $policy = new EndpointPolicy(['127.0.0.1'], true);
         $policy->assertAllowed('http://127.0.0.1:11434/api/chat');
-
-        self::assertTrue(true);
+        self::addToAssertionCount(1);
     }
 
     public function testCredentialsAndQueryParametersCannotBeSmuggledIntoEndpoint(): void
@@ -40,7 +39,7 @@ final class EndpointPolicyTest extends TestCase
                 $policy->assertAllowed($endpoint);
                 self::fail('An unsafe endpoint was accepted.');
             } catch (AiProviderException) {
-                self::assertTrue(true);
+                self::addToAssertionCount(1);
             }
         }
     }

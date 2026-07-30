@@ -218,6 +218,7 @@ final class AuthenticationService
             'accessExpiresAt' => $accessExpiry->format(DATE_ATOM),
             'sessionId' => (string) $session['id'],
             'deviceId' => (string) $session['device_id'],
+            'userId' => (string) $session['user_id'],
         ];
     }
 
