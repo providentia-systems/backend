@@ -10,9 +10,10 @@ use Providentia\Identity\Application\AccountNotificationSender;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
 use Providentia\SharedKernel\Application\Clock;
+use Providentia\SharedKernel\Application\Problem;
+use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
-use Providentia\SharedKernel\Http\HttpProblem;
 
 final class HomeService
 {
@@ -25,6 +26,7 @@ final class HomeService
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
+        private readonly SecureTokenGenerator $tokens,
     ) {
     }
 
@@ -38,10 +40,10 @@ final class HomeService
     ): array {
         $name = trim($name);
         if ($name === '' || mb_strlen($name) > 120) {
-            throw new HttpProblem(422, 'Validation failed', 'Home name must contain 1 to 120 characters.');
+            throw new Problem(422, 'Validation failed', 'Home name must contain 1 to 120 characters.');
         }
         if (preg_match('/^[A-Z]{3}$/', $currency) !== 1) {
-            throw new HttpProblem(422, 'Validation failed', 'Currency must be a three-letter ISO code.');
+            throw new Problem(422, 'Validation failed', 'Currency must be a three-letter ISO code.');
         }
         $id = $this->ids->generate();
         $now = $this->clock->now();
@@ -81,7 +83,7 @@ final class HomeService
         $this->authorization->requireMember($identity, $homeId);
         $home = $this->homes->findHome($homeId);
         if ($home === null) {
-            throw new HttpProblem(404, 'Not found', 'The requested resource is unavailable.');
+            throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
         }
 
         return $home;
@@ -109,15 +111,15 @@ final class HomeService
         $role = strtolower(trim($role));
         $allowed = [HomeAuthorization::MANAGER, HomeAuthorization::MEMBER, HomeAuthorization::VIEWER];
         if (! in_array($role, $allowed, true)) {
-            throw new HttpProblem(422, 'Validation failed', 'Invitation role is invalid.');
+            throw new Problem(422, 'Validation failed', 'Invitation role is invalid.');
         }
         $email = mb_strtolower(trim($email));
         if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-            throw new HttpProblem(422, 'Validation failed', 'A valid invitation email is required.');
+            throw new Problem(422, 'Validation failed', 'A valid invitation email is required.');
         }
 
         $id = $this->ids->generate();
-        $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $token = $this->tokens->generate();
         $now = $this->clock->now();
         $expires = $now->add(new DateInterval('P7D'));
         $this->transactions->transactional(function () use (
@@ -139,7 +141,7 @@ final class HomeService
                 (string) $actor['role'] === HomeAuthorization::MANAGER
                 && $role === HomeAuthorization::MANAGER
             ) {
-                throw new HttpProblem(403, 'Forbidden', 'Managers cannot create peer manager memberships.');
+                throw new Problem(403, 'Forbidden', 'Managers cannot create peer manager memberships.');
             }
             $this->homes->createInvitation(
                 $id,
@@ -177,7 +179,7 @@ final class HomeService
     {
         $user = $this->identities->findUserById($identity->userId);
         if ($user === null) {
-            throw new HttpProblem(401, 'Authentication required', 'The account is unavailable.');
+            throw new Problem(401, 'Authentication required', 'The account is unavailable.');
         }
         $result = $this->transactions->transactional(function () use ($token, $identity, $user): array {
             $result = $this->homes->acceptInvitation(
@@ -187,7 +189,7 @@ final class HomeService
                 $this->clock->now(),
             );
             if ($result === null) {
-                throw new HttpProblem(
+                throw new Problem(
                     422,
                     'Invalid invitation',
                     'The invitation is invalid, expired, used, or not addressed to you.',
@@ -237,7 +239,7 @@ final class HomeService
                 true,
             )
         ) {
-            throw new HttpProblem(422, 'Validation failed', 'Membership role is invalid.');
+            throw new Problem(422, 'Validation failed', 'Membership role is invalid.');
         }
         $this->transactions->transactional(function () use (
             $homeId,
@@ -249,10 +251,10 @@ final class HomeService
             $this->authorization->requireRole($identity, $homeId, [HomeAuthorization::OWNER]);
             $membership = $this->homes->membership($homeId, $userId);
             if ($membership === null) {
-                throw new HttpProblem(404, 'Not found', 'The requested resource is unavailable.');
+                throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
             }
             if ((string) $membership['role'] === HomeAuthorization::OWNER) {
-                throw new HttpProblem(
+                throw new Problem(
                     409,
                     'Ownership safeguard',
                     'Use the explicit ownership-transfer command to change the owner.',
@@ -268,7 +270,7 @@ final class HomeService
                     $now,
                 )
             ) {
-                throw new HttpProblem(409, 'Revision conflict', 'The membership changed since it was read.');
+                throw new Problem(409, 'Revision conflict', 'The membership changed since it was read.');
             }
             $this->audit(
                 $identity,
@@ -287,7 +289,7 @@ final class HomeService
         $this->transactions->transactional(function () use ($homeId, $identity): void {
             $membership = $this->authorization->requireMember($identity, $homeId);
             if ((string) $membership['role'] === HomeAuthorization::OWNER) {
-                throw new HttpProblem(
+                throw new Problem(
                     409,
                     'Ownership safeguard',
                     'A sole owner must transfer ownership or delete the home.',
@@ -295,7 +297,7 @@ final class HomeService
             }
             $now = $this->clock->now();
             if (! $this->homes->removeMembership($homeId, $identity->userId, $now)) {
-                throw new HttpProblem(409, 'Membership conflict', 'The membership could not be removed.');
+                throw new Problem(409, 'Membership conflict', 'The membership could not be removed.');
             }
             $this->audit(
                 $identity,
@@ -316,7 +318,7 @@ final class HomeService
         int $expectedTargetRevision,
     ): void {
         if ($targetUserId === $identity->userId) {
-            throw new HttpProblem(422, 'Validation failed', 'The target is already the owner.');
+            throw new Problem(422, 'Validation failed', 'The target is already the owner.');
         }
         $this->transactions->transactional(function () use (
             $identity,
@@ -335,7 +337,7 @@ final class HomeService
                     $now,
                 )
             ) {
-                throw new HttpProblem(
+                throw new Problem(
                     409,
                     'Ownership transfer conflict',
                     'The target membership or ownership changed. Reload and retry explicitly.',
