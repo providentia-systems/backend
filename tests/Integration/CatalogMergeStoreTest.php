@@ -145,7 +145,8 @@ final class CatalogMergeStoreTest extends TestCase
             )',
             'CREATE TABLE catalog_revisions (
                 id VARCHAR(36) PRIMARY KEY, entity_type TEXT NOT NULL,
-                entity_id TEXT NOT NULL, before_json TEXT NOT NULL,
+                entity_id TEXT NOT NULL, entity_key VARCHAR(191) NOT NULL,
+                before_json TEXT NOT NULL,
                 after_json TEXT NOT NULL, reason TEXT NOT NULL,
                 actor_user_id VARCHAR(36) NULL, operation_id VARCHAR(36) NULL,
                 created_at DATETIME NOT NULL
