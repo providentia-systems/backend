@@ -163,7 +163,7 @@ final class AuthenticationServiceTest extends TestCase
 
     public function testAuthenticateBuildsIdentityFromSessionAndRoles(): void
     {
-        $store = $this->createStub(IdentityStore::class);
+        $store = $this->createMock(IdentityStore::class);
         $store->method('findSessionByAccessHash')->willReturn([
             'user_id' => self::USER_ID,
             'id' => self::SESSION_ID,
