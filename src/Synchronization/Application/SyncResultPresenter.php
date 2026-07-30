@@ -10,7 +10,11 @@ final class SyncResultPresenter
     {
     }
 
-    /** @param array<string, mixed> $result @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $result
+     *
+     * @return array<string, mixed>
+     */
     public function applied(string $homeId, array $result): array
     {
         if (($result['status'] ?? null) !== 'accepted') {
@@ -33,7 +37,11 @@ final class SyncResultPresenter
         return $result;
     }
 
-    /** @param array<string, mixed> $change @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $change
+     *
+     * @return array<string, mixed>
+     */
     public function change(string $homeId, int $highWater, array $change): array
     {
         $position = (int) $change['cursor'];
