@@ -133,6 +133,7 @@ final class AuthenticationServiceTest extends TestCase
         $store = $this->createMock(IdentityStore::class);
         $store->method('findSessionByRefreshHash')->willReturn([
             'id' => self::SESSION_ID,
+            'user_id' => self::USER_ID,
             'device_id' => self::DEVICE_ID,
             'refresh_token_hash' => 'stored-refresh-hash',
         ]);
@@ -156,6 +157,7 @@ final class AuthenticationServiceTest extends TestCase
 
         $result = $this->service($store, $hasher, $tokens)->refresh('current-refresh');
 
+        self::assertSame(self::USER_ID, $result['userId']);
         self::assertSame('next-access', $result['accessToken']);
         self::assertSame('next-refresh', $result['refreshToken']);
         self::assertSame('next-csrf', $result['csrfToken']);
