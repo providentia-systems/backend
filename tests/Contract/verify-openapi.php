@@ -45,6 +45,13 @@ foreach (
         'SyncPushResponse',
         'SyncPullResponse',
         'SyncBootstrapResponse',
+        'ConsumptionEstimate',
+        'ShoppingSuggestion',
+        'SuggestionExplanation',
+        'PriceComparison',
+        'StockPreference',
+        'SuggestionBacktest',
+        'HomeReport',
     ] as $schema
 ) {
     if (! isset($contract['components']['schemas'][$schema])) {
@@ -63,6 +70,9 @@ if (
         $contract['components']['schemas']['RegisterResponse']['required'] ?? [],
         true,
     )
+    || ($contract['info']['version'] ?? '') !== '1.7.0'
+    || ($contract['components']['schemas']['PriceComparisonCollection']['properties']['currencyPolicy']['const']
+        ?? '') !== 'never-compare-across-currencies'
 ) {
     throw new RuntimeException('The OpenAPI/RFC 9457 baseline is incomplete.');
 }

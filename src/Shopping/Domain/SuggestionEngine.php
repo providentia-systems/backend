@@ -55,7 +55,8 @@ final class SuggestionEngine
             ? FixedDecimal::zero()
             : $dailyRate->multiplyByInt($demandDays);
         $required = $expectedDemand->add($minimum)->subtract($usableStock)->maxZero();
-        $limitations = $estimate['limitations'];
+        /** @var list<string> $limitations */
+        $limitations = is_array($estimate['limitations']) ? $estimate['limitations'] : [];
         if ((int) $estimate['sampleIntervals'] === 0) {
             $limitations[] = 'Insufficient history: the calculation uses only the configured minimum reserve.';
         }

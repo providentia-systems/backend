@@ -35,9 +35,12 @@ final class ConsumptionEstimatorTest extends TestCase
         self::assertSame(2, $estimate['sampleIntervals']);
         self::assertSame(20, $estimate['coverageDays']);
         self::assertSame(11, $estimate['purchaseCadenceDays']);
+        self::assertInstanceOf(DateTimeImmutable::class, $estimate['nextExpectedShoppingAt']);
+        /** @var DateTimeImmutable $nextExpectedShoppingAt */
+        $nextExpectedShoppingAt = $estimate['nextExpectedShoppingAt'];
         self::assertSame(
             '2026-01-30',
-            $estimate['nextExpectedShoppingAt']->format('Y-m-d'),
+            $nextExpectedShoppingAt->format('Y-m-d'),
         );
         self::assertSame('medium', $estimate['confidenceBand']);
     }

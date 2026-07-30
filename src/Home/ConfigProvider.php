@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Home;
 
 use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomeAuditRecorder;
 use Providentia\Home\Application\HomeService;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Home\Infrastructure\Doctrine\DbalHomeStore;
@@ -19,6 +20,7 @@ final class ConfigProvider
             'dependencies' => [
                 'aliases' => [
                     HomeStore::class => DbalHomeStore::class,
+                    HomeAuditRecorder::class => DbalHomeStore::class,
                 ],
                 'factories' => [
                     DbalHomeStore::class => HomeFactory::class,

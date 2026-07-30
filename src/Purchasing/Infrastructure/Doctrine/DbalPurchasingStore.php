@@ -7,10 +7,11 @@ namespace Providentia\Purchasing\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Providentia\Purchasing\Application\PurchaseAnalyticsReader;
 use Providentia\Purchasing\Application\PurchaseSummaryReader;
 use Providentia\Purchasing\Application\PurchasingStore;
 
-final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReader
+final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReader, PurchaseAnalyticsReader
 {
     public function __construct(private readonly Connection $connection)
     {
@@ -52,6 +53,33 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
                 'store_empty' => $storeId ?? '',
                 'store' => $storeId ?? '',
                 'empty' => '',
+            ],
+        );
+    }
+
+    public function purchaseFacts(
+        string $homeId,
+        DateTimeImmutable $from,
+        DateTimeImmutable $through,
+    ): array {
+        return $this->connection->fetchAllAssociative(
+            'SELECT r.id, r.purchase_date AS purchaseDate, r.currency,
+                    r.store_id AS storeId, s.name AS storeName,
+                    COALESCE(
+                        r.total_amount,
+                        (SELECT SUM(rl.line_total) FROM receipt_lines rl
+                         WHERE rl.receipt_id = r.id AND rl.home_id = r.home_id)
+                    ) AS totalAmount
+             FROM receipts r
+             LEFT JOIN stores s ON s.id = r.store_id AND s.home_id = r.home_id
+             WHERE r.home_id = :home AND r.status = :status
+               AND r.purchase_date >= :from_date AND r.purchase_date <= :through_date
+             ORDER BY r.purchase_date, r.id',
+            [
+                'home' => $homeId,
+                'status' => 'committed',
+                'from_date' => $from->format('Y-m-d'),
+                'through_date' => $through->format('Y-m-d'),
             ],
         );
     }

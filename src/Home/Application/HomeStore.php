@@ -6,7 +6,7 @@ namespace Providentia\Home\Application;
 
 use DateTimeImmutable;
 
-interface HomeStore
+interface HomeStore extends HomeAuditRecorder
 {
     public function createHome(
         string $id,

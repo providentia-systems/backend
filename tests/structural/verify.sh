@@ -105,7 +105,9 @@ for (const schema of [
   'HealthStatus', 'ReadinessStatus', 'SystemInfo', 'ProblemDetails',
   'RegisterRequest', 'Home', 'HomeMembership', 'SyncPushRequest',
   'SyncPrivateNotePayload', 'SyncHomePreferencePayload', 'SyncPushResponse',
-  'SyncPullResponse', 'SyncBootstrapResponse',
+  'SyncPullResponse', 'SyncBootstrapResponse', 'ConsumptionEstimate',
+  'ShoppingSuggestion', 'SuggestionExplanation', 'PriceComparison',
+  'StockPreference', 'SuggestionBacktest', 'HomeReport',
 ]) {
   if (!contract.components?.schemas?.[schema]) {
     throw new Error(`Missing schema ${schema}`);
@@ -230,6 +232,28 @@ assert_no_matches "catalog governance transport imports household modules" \
 assert_no_matches "catalog merge deletes canonical products or household history" \
   -ni --glob 'src/Catalog/Infrastructure/Doctrine/DbalCatalogGovernanceStore.php' \
   'DELETE FROM (products|home_products|stock_movements|receipts|receipt_lines|price_observations)'
+
+for intelligence_gate in \
+  "scs.scope_complete = :complete" \
+  "scs.reliability = :reliability" \
+  "sm.created_at <= :as_of" \
+  "po.created_at <= :as_of" \
+  "Prices in different currencies are shown separately and never compared." \
+  "No fact after each cutoff is used to build its suggestion." \
+  "'shopping.suggestion-run.completed'" \
+  "'shopping.backtest.completed'" \
+  "'report.generated'"; do
+  rg -Fq "$intelligence_gate" src \
+    || fail "Phase 8 intelligence safety gate is missing: $intelligence_gate"
+done
+
+assert_no_matches "Phase 8 intelligence reads a mutable balance projection instead of movement facts" \
+  -n --glob 'src/Shopping/Infrastructure/Doctrine/DbalShoppingIntelligenceStore.php' \
+  'inventory_balances'
+
+assert_no_matches "Phase 8 deterministic domain introduces binary floating-point arithmetic" \
+  -n --glob 'src/Shopping/Domain/{FixedDecimal,ConsumptionEstimator,SuggestionEngine,PackOptimizer}.php' \
+  '\bfloat\b|\(float\)'
 
 for sanitized_field in \
   "'product' => ['canonicalName', 'brand', 'categoryId']" \

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.6.0",
+    "version": "1.7.0",
     "summary": "Authoritative Providentia backend contract through Phase 7",
     "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization prototype.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges."
   },
@@ -1489,7 +1489,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StartCountRequest"
+                "$ref": "#/components/schemas/StockCountSessionCreate"
               }
             }
           }
@@ -2348,11 +2348,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Deterministic Phase 5 parity suggestions",
+            "description": "Latest deterministic, explainable replenishment suggestions",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/ShoppingSuggestionCollection"
                 }
               }
             }
@@ -3153,6 +3153,702 @@
             "$ref": "#/components/responses/Problem"
           },
           "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/inventory-balances": {
+      "get": {
+        "operationId": "listInventoryBalances",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Factual balances derived from the append-only movement ledger",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/consumption-estimates": {
+      "get": {
+        "operationId": "listConsumptionEstimates",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest movement/count-derived consumption estimates with evidence confidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumptionEstimateCollection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/shopping-suggestion-runs": {
+      "post": {
+        "operationId": "createShoppingSuggestionRun",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Deterministic suggestion run created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingSuggestionRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "horizonDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 90
+                  }
+                },
+                "required": [
+                  "horizonDays"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/shopping-suggestions/{suggestionId}/explanation": {
+      "get": {
+        "operationId": "getShoppingSuggestionExplanation",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "suggestionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Structured factors, limitations, confidence and price options",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestionExplanation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/shopping-suggestions/{suggestionId}/feedback": {
+      "post": {
+        "operationId": "createShoppingSuggestionFeedback",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "suggestionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Suggestion feedback recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentifierResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "edited",
+                      "dismissed",
+                      "snoozed"
+                    ]
+                  },
+                  "resultQuantity": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(?:0|[1-9]\\d{0,8})(?:\\.\\d{1,8})?$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 191
+                  }
+                },
+                "required": [
+                  "decision",
+                  "resultQuantity",
+                  "reason"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/stock-preferences/{homeProductId}": {
+      "get": {
+        "operationId": "getStockPreference",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "homeProductId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Home replenishment policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockPreference"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "put": {
+        "operationId": "putStockPreference",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "homeProductId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revision-checked home replenishment policy updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "minimumQuantity": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^(?:0|[1-9]\\d{0,8})(?:\\.\\d{1,8})?$"
+                  },
+                  "alwaysKeep": {
+                    "type": "boolean"
+                  },
+                  "neverSuggest": {
+                    "type": "boolean"
+                  },
+                  "preferredPackId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  },
+                  "leadTimeDays": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 365
+                  },
+                  "targetCoverageDays": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1,
+                    "maximum": 365
+                  },
+                  "snoozeUntil": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date"
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "minimumQuantity",
+                  "alwaysKeep",
+                  "neverSuggest",
+                  "preferredPackId",
+                  "leadTimeDays",
+                  "targetCoverageDays",
+                  "snoozeUntil",
+                  "expectedRevision"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/price-comparisons": {
+      "get": {
+        "operationId": "listPriceComparisons",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pack options grouped without implicit cross-currency comparison",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriceComparisonCollection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/suggestion-backtests": {
+      "post": {
+        "operationId": "createSuggestionBacktest",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Historical walk-forward evaluation created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestionBacktestCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "cutoffs": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 12,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "format": "date"
+                    }
+                  },
+                  "evaluationDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 90
+                  }
+                },
+                "required": [
+                  "cutoffs",
+                  "evaluationDays"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/suggestion-backtests/{backtestId}": {
+      "get": {
+        "operationId": "getSuggestionBacktest",
+        "tags": [
+          "Intelligence"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "backtestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backtest support counts, metrics and limitations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestionBacktest"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/reports/inventory": {
+      "get": {
+        "operationId": "getInventoryReport",
+        "tags": [
+          "Reporting"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Household factual inventory report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/reports/purchases": {
+      "get": {
+        "operationId": "getPurchaseReport",
+        "tags": [
+          "Reporting"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "through",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Household purchase report with currency-isolated totals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/reports/consumption": {
+      "get": {
+        "operationId": "getConsumptionReport",
+        "tags": [
+          "Reporting"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Household estimated-consumption report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/reports/suggestions": {
+      "get": {
+        "operationId": "getSuggestionReport",
+        "tags": [
+          "Reporting"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Household forecast suggestion and price-option report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
             "$ref": "#/components/responses/Problem"
           }
         }
@@ -6514,6 +7210,818 @@
             "minimum": 0
           }
         }
+      },
+      "FixedDecimal": {
+        "type": "string",
+        "pattern": "^-?(?:0|[1-9]\\d{0,8})(?:\\.\\d{1,8})?$",
+        "description": "Exact fixed-point decimal. Clients must not parse it through binary floating point."
+      },
+      "ConsumptionEstimate": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeProductId",
+          "productName",
+          "method",
+          "dailyRate",
+          "variability",
+          "sampleIntervals",
+          "coverageDays",
+          "purchaseSamples",
+          "purchaseCadenceDays",
+          "nextExpectedShoppingAt",
+          "confidenceScore",
+          "confidenceBand",
+          "limitations",
+          "asOf",
+          "inputWatermark"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productName": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "dailyRate": {
+            "$ref": "#/components/schemas/FixedDecimal"
+          },
+          "variability": {
+            "$ref": "#/components/schemas/FixedDecimal"
+          },
+          "sampleIntervals": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverageDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "purchaseSamples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "purchaseCadenceDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "nextExpectedShoppingAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "confidenceScore": {
+            "type": "string",
+            "pattern": "^(?:0(?:\\.\\d{1,4})?|1(?:\\.0{1,4})?)$",
+            "description": "Versioned evidence grade, not a probability."
+          },
+          "confidenceBand": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "evidenceFrom": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "evidenceTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "inputWatermark": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      },
+      "ConsumptionEstimateCollection": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsumptionEstimate"
+            }
+          }
+        }
+      },
+      "ShoppingSuggestion": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeProductId",
+          "productName",
+          "expectedDemand",
+          "safetyStock",
+          "factualStock",
+          "usableStock",
+          "requiredQuantity",
+          "confidenceScore",
+          "confidenceBand",
+          "status",
+          "expiresAt",
+          "modelVersion",
+          "asOf",
+          "inputWatermark"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productName": {
+            "type": "string"
+          },
+          "packText": {
+            "type": "string"
+          },
+          "expectedDemand": {
+            "$ref": "#/components/schemas/FixedDecimal"
+          },
+          "safetyStock": {
+            "$ref": "#/components/schemas/FixedDecimal"
+          },
+          "factualStock": {
+            "$ref": "#/components/schemas/FixedDecimal"
+          },
+          "usableStock": {
+            "$ref": "#/components/schemas/FixedDecimal"
+          },
+          "requiredQuantity": {
+            "$ref": "#/components/schemas/FixedDecimal"
+          },
+          "selectedPackId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "packCount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "confidenceScore": {
+            "type": "string"
+          },
+          "confidenceBand": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "accepted",
+              "dismissed",
+              "snoozed"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modelVersion": {
+            "type": "string"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "inputWatermark": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      },
+      "ShoppingSuggestionCollection": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShoppingSuggestion"
+            }
+          }
+        }
+      },
+      "ShoppingSuggestionRun": {
+        "type": "object",
+        "required": [
+          "id",
+          "estimateRunId",
+          "modelVersion",
+          "methodVersion",
+          "asOf",
+          "inputWatermark",
+          "estimatedProducts",
+          "suggestionCount"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estimateRunId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "modelVersion": {
+            "type": "string"
+          },
+          "methodVersion": {
+            "type": "string"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "inputWatermark": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "estimatedProducts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "suggestionCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "SuggestionExplanation": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeProductId",
+          "requiredQuantity",
+          "confidenceScore",
+          "confidenceBand",
+          "factors",
+          "limitations",
+          "packOptions",
+          "modelVersion",
+          "asOf",
+          "inputWatermark"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requiredQuantity": {
+            "$ref": "#/components/schemas/FixedDecimal"
+          },
+          "confidenceScore": {
+            "type": "string"
+          },
+          "confidenceBand": {
+            "type": "string"
+          },
+          "factors": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "packOptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PriceComparison"
+            }
+          },
+          "modelVersion": {
+            "type": "string"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "inputWatermark": {
+            "type": "string"
+          }
+        }
+      },
+      "PriceComparison": {
+        "type": "object",
+        "required": [
+          "packId",
+          "currency",
+          "packCount",
+          "effectiveTotal",
+          "excessQuantity",
+          "priceObservedAt",
+          "selected",
+          "reason"
+        ],
+        "properties": {
+          "suggestionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productName": {
+            "type": "string"
+          },
+          "packId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "storeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "packCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "effectiveTotal": {
+            "$ref": "#/components/schemas/FixedDecimal"
+          },
+          "excessQuantity": {
+            "$ref": "#/components/schemas/FixedDecimal"
+          },
+          "priceObservedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "PriceComparisonCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "currencyPolicy"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PriceComparison"
+            }
+          },
+          "currencyPolicy": {
+            "type": "string",
+            "const": "never-compare-across-currencies"
+          }
+        }
+      },
+      "StockPreference": {
+        "type": "object",
+        "required": [
+          "homeProductId",
+          "minimumQuantity",
+          "alwaysKeep",
+          "neverSuggest",
+          "preferredPackId",
+          "leadTimeDays",
+          "targetCoverageDays",
+          "snoozeUntil",
+          "revision"
+        ],
+        "properties": {
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minimumQuantity": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FixedDecimal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "alwaysKeep": {
+            "type": "boolean"
+          },
+          "neverSuggest": {
+            "type": "boolean"
+          },
+          "preferredPackId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "targetCoverageDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "snoozeUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "IdentifierResult": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "RevisionResult": {
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "SuggestionBacktestCreated": {
+        "type": "object",
+        "required": [
+          "id",
+          "metrics",
+          "limitations"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "metrics": {
+            "type": "object",
+            "description": "Support, precision, recall, outcome proxies, and feedback override rate."
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SuggestionBacktest": {
+        "type": "object",
+        "required": [
+          "id",
+          "modelVersion",
+          "cutoffs",
+          "evaluationDays",
+          "status",
+          "metrics",
+          "limitations",
+          "resultSummary"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "modelVersion": {
+            "type": "string"
+          },
+          "cutoffs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          "evaluationDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          },
+          "status": {
+            "type": "string",
+            "const": "completed"
+          },
+          "metrics": {
+            "type": "object",
+            "description": "Support, precision, recall, explicitly labelled outcome proxies, and feedback override rate."
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "resultSummary": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "HomeReport": {
+        "type": "object",
+        "required": [
+          "type",
+          "asOf",
+          "data"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "inventory",
+              "purchases",
+              "consumption",
+              "suggestions"
+            ]
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "quantitySemantics": {
+            "type": "string"
+          },
+          "currencyPolicy": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "through": {
+            "type": "string",
+            "format": "date"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "priceComparisons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PriceComparison"
+            }
+          }
+        }
+      },
+      "ShoppingSuggestionRunRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "horizonDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          }
+        },
+        "required": [
+          "horizonDays"
+        ]
+      },
+      "StockPreferenceUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "minimumQuantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9]\\d{0,8})(?:\\.\\d{1,8})?$"
+          },
+          "alwaysKeep": {
+            "type": "boolean"
+          },
+          "neverSuggest": {
+            "type": "boolean"
+          },
+          "preferredPackId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 365
+          },
+          "targetCoverageDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 365
+          },
+          "snoozeUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "minimumQuantity",
+          "alwaysKeep",
+          "neverSuggest",
+          "preferredPackId",
+          "leadTimeDays",
+          "targetCoverageDays",
+          "snoozeUntil",
+          "expectedRevision"
+        ]
+      },
+      "SuggestionFeedbackRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "edited",
+              "dismissed",
+              "snoozed"
+            ]
+          },
+          "resultQuantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9]\\d{0,8})(?:\\.\\d{1,8})?$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          }
+        },
+        "required": [
+          "decision",
+          "resultQuantity",
+          "reason"
+        ]
+      },
+      "SuggestionBacktestRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cutoffs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          "evaluationDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          }
+        },
+        "required": [
+          "cutoffs",
+          "evaluationDays"
+        ]
+      },
+      "StockCountSessionCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "locationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "scopeComplete": {
+            "type": "boolean"
+          },
+          "reliability": {
+            "type": "string",
+            "enum": [
+              "reliable",
+              "partial",
+              "unassessed"
+            ]
+          }
+        },
+        "required": [
+          "locationId",
+          "notes",
+          "scopeComplete",
+          "reliability"
+        ]
       }
     }
   },
@@ -6544,6 +8052,9 @@
     },
     {
       "name": "Shopping"
+    },
+    {
+      "name": "Intelligence"
     },
     {
       "name": "Reporting"

@@ -155,6 +155,26 @@ return static function (Application $app): void {
         'api.dashboard',
     );
     $app->get(
+        '/api/v1/homes/{homeId}/reports/inventory',
+        [BearerAuthenticationMiddleware::class, 'reporting.home.inventory'],
+        'api.reporting.inventory',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/reports/purchases',
+        [BearerAuthenticationMiddleware::class, 'reporting.home.purchases'],
+        'api.reporting.purchases',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/reports/consumption',
+        [BearerAuthenticationMiddleware::class, 'reporting.home.consumption'],
+        'api.reporting.consumption',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/reports/suggestions',
+        [BearerAuthenticationMiddleware::class, 'reporting.home.suggestions'],
+        'api.reporting.suggestions',
+    );
+    $app->get(
         '/api/v1/homes/{homeId}/locations',
         [BearerAuthenticationMiddleware::class, 'inventory.locations.list'],
         'api.inventory.locations.list',
@@ -178,6 +198,11 @@ return static function (Application $app): void {
         '/api/v1/homes/{homeId}/stock',
         [BearerAuthenticationMiddleware::class, 'inventory.stock.list'],
         'api.inventory.stock.list',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/inventory-balances',
+        [BearerAuthenticationMiddleware::class, 'inventory.balances.list'],
+        'api.inventory.balances.list',
     );
     $app->post(
         '/api/v1/homes/{homeId}/stock-adjustments',
@@ -286,8 +311,53 @@ return static function (Application $app): void {
     );
     $app->get(
         '/api/v1/homes/{homeId}/shopping-suggestions',
-        [BearerAuthenticationMiddleware::class, 'shopping.suggestions'],
+        [BearerAuthenticationMiddleware::class, 'shopping.intelligence.suggestions.list'],
         'api.shopping.suggestions',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/shopping-suggestion-runs',
+        [BearerAuthenticationMiddleware::class, 'shopping.intelligence.runs.create'],
+        'api.shopping.suggestion-runs.create',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/shopping-suggestions/{suggestionId}/explanation',
+        [BearerAuthenticationMiddleware::class, 'shopping.intelligence.explanation.get'],
+        'api.shopping.suggestions.explanation',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/shopping-suggestions/{suggestionId}/feedback',
+        [BearerAuthenticationMiddleware::class, 'shopping.intelligence.feedback.create'],
+        'api.shopping.suggestions.feedback',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/consumption-estimates',
+        [BearerAuthenticationMiddleware::class, 'shopping.intelligence.estimates.list'],
+        'api.shopping.consumption-estimates.list',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/stock-preferences/{homeProductId}',
+        [BearerAuthenticationMiddleware::class, 'shopping.intelligence.preferences.get'],
+        'api.shopping.preferences.get',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/stock-preferences/{homeProductId}',
+        [BearerAuthenticationMiddleware::class, 'shopping.intelligence.preferences.put'],
+        'api.shopping.preferences.put',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/price-comparisons',
+        [BearerAuthenticationMiddleware::class, 'shopping.intelligence.prices.list'],
+        'api.shopping.price-comparisons.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/suggestion-backtests',
+        [BearerAuthenticationMiddleware::class, 'shopping.intelligence.backtests.create'],
+        'api.shopping.backtests.create',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/suggestion-backtests/{backtestId}',
+        [BearerAuthenticationMiddleware::class, 'shopping.intelligence.backtests.get'],
+        'api.shopping.backtests.get',
     );
     $app->get(
         '/api/v1/homes/{homeId}/ai/settings',
