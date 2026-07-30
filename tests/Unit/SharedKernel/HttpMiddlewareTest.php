@@ -115,7 +115,7 @@ final class HttpMiddlewareTest extends TestCase
     }
 
     /**
-     * @param array<string, list<string>> $headers
+     * @param array<non-empty-string, list<string>> $headers
      */
     private function request(string $method = 'GET', array $headers = []): ServerRequestInterface
     {
