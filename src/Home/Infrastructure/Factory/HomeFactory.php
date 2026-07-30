@@ -14,6 +14,7 @@ use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\AccountNotificationSender;
 use Providentia\Identity\Application\IdentityStore;
 use Providentia\SharedKernel\Application\Clock;
+use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Psr\Container\ContainerInterface;
@@ -39,6 +40,7 @@ final class HomeFactory
                 $container->get(UuidGenerator::class),
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
+                $container->get(SecureTokenGenerator::class),
             ),
             str_starts_with($requestedName, 'home.') => new HomeHandler(
                 $container->get(HomeService::class),
