@@ -236,7 +236,7 @@ final class AuthenticationServiceTest extends TestCase
     private function tokenGenerator(string ...$tokens): SecureTokenGenerator
     {
         $generator = $this->createStub(SecureTokenGenerator::class);
-        $generator->method('generate')->willReturnOnConsecutiveCalls(...$tokens);
+        $generator->method('generate')->willReturnOnConsecutiveCalls(...array_values($tokens));
 
         return $generator;
     }
