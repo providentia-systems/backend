@@ -21,6 +21,13 @@
 - Enforced the synchronization contract's closed envelope/operation shapes and
   aligned private-note and timezone validation documentation with runtime
   behavior.
+- Hardened SOLID boundaries by separating application failures from HTTP,
+  injecting secure token/UUID generation, decomposing synchronization
+  validation/policy/hashing/presentation, and capturing bootstrap records and
+  their high-water cursor atomically.
+- Expanded focused workflow, policy, security middleware, readiness, and
+  synchronization tests; PHPUnit now fails on notices, warnings, deprecations,
+  and risky tests.
 
 ## 0.1.0 - 2026-07-29
 
