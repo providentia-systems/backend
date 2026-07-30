@@ -15,6 +15,7 @@ use Providentia\SharedKernel\Application\ReadinessService;
 use Providentia\SharedKernel\Application\Health\DatabaseReadinessProbe;
 use Providentia\SharedKernel\Application\Health\QueueReadinessProbe;
 use Providentia\SharedKernel\Application\TransactionManager;
+use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineOutboxStore;
 use Psr\Container\ContainerInterface;
 
@@ -42,6 +43,7 @@ final class ApplicationServiceFactory
                 $container->get(TransactionManager::class),
                 $container->get(OutboxStore::class),
                 $container->get(Clock::class),
+                $container->get(UuidGenerator::class),
             ),
             default => throw new \LogicException('Unsupported service: ' . $requestedName),
         };
