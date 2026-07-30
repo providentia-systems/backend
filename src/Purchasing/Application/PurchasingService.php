@@ -186,19 +186,21 @@ final class PurchasingService
             $lineTotal,
         ): void {
             $lines = $this->purchases->receiptLines($homeId, $receiptId);
-            if (! $this->purchases->addReceiptLine(
-                $id,
-                $homeId,
-                $receiptId,
-                $expectedReceiptRevision,
-                count($lines) + 1,
-                $rawDescription,
-                $quantity,
-                $originalPackText === null ? null : mb_substr(trim($originalPackText), 0, 191),
-                $unitPrice,
-                $lineTotal,
-                $this->clock->now(),
-            )) {
+            if (
+                ! $this->purchases->addReceiptLine(
+                    $id,
+                    $homeId,
+                    $receiptId,
+                    $expectedReceiptRevision,
+                    count($lines) + 1,
+                    $rawDescription,
+                    $quantity,
+                    $originalPackText === null ? null : mb_substr(trim($originalPackText), 0, 191),
+                    $unitPrice,
+                    $lineTotal,
+                    $this->clock->now(),
+                )
+            ) {
                 throw new Problem(409, 'Revision conflict', 'The receipt changed on another device.');
             }
         });
@@ -224,15 +226,17 @@ final class PurchasingService
             $expectedRevision,
             $identity,
         ): void {
-            if (! $this->purchases->approveReceiptLine(
-                $homeId,
-                $receiptId,
-                $lineId,
-                $homeProductId,
-                $expectedRevision,
-                $identity->userId,
-                $this->clock->now(),
-            )) {
+            if (
+                ! $this->purchases->approveReceiptLine(
+                    $homeId,
+                    $receiptId,
+                    $lineId,
+                    $homeProductId,
+                    $expectedRevision,
+                    $identity->userId,
+                    $this->clock->now(),
+                )
+            ) {
                 throw new Problem(409, 'Revision conflict', 'The receipt line changed on another device.');
             }
         });
@@ -303,12 +307,14 @@ final class PurchasingService
                     );
                 }
             }
-            if (! $this->purchases->markReceiptCommitted(
-                $homeId,
-                $receiptId,
-                $expectedRevision,
-                $this->clock->now(),
-            )) {
+            if (
+                ! $this->purchases->markReceiptCommitted(
+                    $homeId,
+                    $receiptId,
+                    $expectedRevision,
+                    $this->clock->now(),
+                )
+            ) {
                 throw new Problem(409, 'Revision conflict', 'The receipt changed on another device.');
             }
 

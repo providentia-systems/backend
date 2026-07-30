@@ -1,6 +1,6 @@
 name: Bootstrap Composer lock
 
-# This exact-branch workflow becomes a no-op after composer.lock is committed.
+# This workflow becomes a no-op after composer.lock is committed.
 
 on:
   workflow_dispatch:
@@ -9,8 +9,6 @@ on:
       - composer.json
       - .github/workflows/bootstrap-composer-lock.yml
   push:
-    branches:
-      - agent/phase-1-production-foundations
     paths:
       - composer.json
       - .github/workflows/bootstrap-composer-lock.yml
@@ -30,7 +28,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: agent/phase-1-production-foundations
+          ref: ${{ github.head_ref || github.ref_name }}
       - name: Determine whether the initial lock is required
         id: lock
         run: |
@@ -59,7 +57,7 @@ jobs:
       - name: Commit only composer.lock
         if: steps.lock.outputs.required == 'true'
         env:
-          TARGET_BRANCH: agent/phase-1-production-foundations
+          TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
           test -f composer.lock
           git diff --exit-code -- . ':(exclude)composer.lock'

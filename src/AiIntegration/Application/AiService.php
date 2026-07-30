@@ -100,15 +100,17 @@ final class AiService
                 );
             }
         }
-        if (! $this->store->saveSettings(
-            $homeId,
-            $parsedMode->value,
-            $provider,
-            $model,
-            $expectedRevision,
-            $identity->userId,
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->store->saveSettings(
+                $homeId,
+                $parsedMode->value,
+                $provider,
+                $model,
+                $expectedRevision,
+                $identity->userId,
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Revision conflict', 'AI settings changed on another device.');
         }
 
@@ -328,15 +330,17 @@ final class AiService
         if ($position < 0 || $expectedRevision < 1) {
             throw new Problem(422, 'Invalid AI review', 'Candidate position and revision are invalid.');
         }
-        if (! $this->store->reviewCandidate(
-            $homeId,
-            $extractionId,
-            $position,
-            $decision,
-            $expectedRevision,
-            $identity->userId,
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->store->reviewCandidate(
+                $homeId,
+                $extractionId,
+                $position,
+                $decision,
+                $expectedRevision,
+                $identity->userId,
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Revision conflict', 'The AI candidate changed on another device.');
         }
     }

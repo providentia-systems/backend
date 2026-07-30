@@ -284,19 +284,21 @@ final class InventoryService implements InventoryMovementGateway
             $identity,
             $expectedRevision,
         ): void {
-            if (! $this->inventory->saveCountLine(
-                $lineId,
-                $homeId,
-                $sessionId,
-                $homeProductId,
-                $quantity,
-                $confidence,
-                $source,
-                $notes,
-                $identity->userId,
-                $expectedRevision,
-                $this->clock->now(),
-            )) {
+            if (
+                ! $this->inventory->saveCountLine(
+                    $lineId,
+                    $homeId,
+                    $sessionId,
+                    $homeProductId,
+                    $quantity,
+                    $confidence,
+                    $source,
+                    $notes,
+                    $identity->userId,
+                    $expectedRevision,
+                    $this->clock->now(),
+                )
+            ) {
                 throw new Problem(409, 'Revision conflict', 'The count line changed on another device.');
             }
         });
@@ -355,13 +357,15 @@ final class InventoryService implements InventoryMovementGateway
                 );
                 $movementCount++;
             }
-            if (! $this->inventory->closeCountSession(
-                $homeId,
-                $sessionId,
-                $expectedRevision,
-                $identity->userId,
-                $this->clock->now(),
-            )) {
+            if (
+                ! $this->inventory->closeCountSession(
+                    $homeId,
+                    $sessionId,
+                    $expectedRevision,
+                    $identity->userId,
+                    $this->clock->now(),
+                )
+            ) {
                 throw new Problem(409, 'Revision conflict', 'The count session changed on another device.');
             }
 

@@ -113,19 +113,21 @@ final class ShoppingService
                 $description,
                 $quantity,
             ): void {
-                if (! $this->shopping->addLine(
-                    $id,
-                    $homeId,
-                    $listId,
-                    $expectedListRevision,
-                    $homeProductId === '' ? null : $homeProductId,
-                    $description,
-                    'manual',
-                    $quantity,
-                    'Added manually.',
-                    null,
-                    $this->clock->now(),
-                )) {
+                if (
+                    ! $this->shopping->addLine(
+                        $id,
+                        $homeId,
+                        $listId,
+                        $expectedListRevision,
+                        $homeProductId === '' ? null : $homeProductId,
+                        $description,
+                        'manual',
+                        $quantity,
+                        'Added manually.',
+                        null,
+                        $this->clock->now(),
+                    )
+                ) {
                     throw new Problem(409, 'Revision conflict', 'The shopping list changed on another device.');
                 }
             });
@@ -153,14 +155,16 @@ final class ShoppingService
             $checked,
             $expectedRevision,
         ): void {
-            if (! $this->shopping->setChecked(
-                $homeId,
-                $listId,
-                $lineId,
-                $checked,
-                $expectedRevision,
-                $this->clock->now(),
-            )) {
+            if (
+                ! $this->shopping->setChecked(
+                    $homeId,
+                    $listId,
+                    $lineId,
+                    $checked,
+                    $expectedRevision,
+                    $this->clock->now(),
+                )
+            ) {
                 throw new Problem(409, 'Revision conflict', 'The shopping-list line changed on another device.');
             }
         });
