@@ -52,6 +52,49 @@ final class DbalCatalogStore implements CatalogStore
         );
     }
 
+    public function product(string $requestedId): ?array
+    {
+        $redirect = $this->connection->fetchAssociative(
+            'SELECT survivor_product_id AS survivorId
+             FROM catalog_product_redirects
+             WHERE duplicate_product_id = :id AND status = :status',
+            ['id' => $requestedId, 'status' => 'active'],
+        );
+        $resolvedId = $redirect === false ? $requestedId : (string) $redirect['survivorId'];
+        $product = $this->connection->fetchAssociative(
+            'SELECT p.id, p.canonical_name AS canonicalName, p.brand, p.revision,
+                    c.id AS categoryId, c.canonical_name AS category
+             FROM products p
+             INNER JOIN categories c ON c.id = p.category_id
+             WHERE p.id = :id AND p.status = :status',
+            ['id' => $resolvedId, 'status' => 'published'],
+        );
+        if ($product === false) {
+            return null;
+        }
+        $product['requestedId'] = $requestedId;
+        $product['redirected'] = $resolvedId !== $requestedId;
+        $product['packs'] = $this->connection->fetchAllAssociative(
+            'SELECT id, original_pack_text AS packText, amount,
+                    normalized_base_amount AS normalizedBaseAmount,
+                    multiplicity, revision
+             FROM product_packs
+             WHERE product_id = :product AND status = :status
+             ORDER BY original_pack_text, id',
+            ['product' => $resolvedId, 'status' => 'published'],
+        );
+        $product['icons'] = $this->connection->fetchAllAssociative(
+            'SELECT id, asset_digest AS assetDigest, media_type AS mediaType,
+                    alt_text AS altText, width, height, byte_size AS byteSize, revision
+             FROM catalog_icons
+             WHERE target_type = :type AND target_id = :target AND status = :status
+             ORDER BY created_at DESC',
+            ['type' => 'product', 'target' => $resolvedId, 'status' => 'active'],
+        );
+
+        return $product;
+    }
+
     /**
      * @param array<string, mixed> $seed
      * @return array<string, int>

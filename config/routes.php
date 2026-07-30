@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Mezzio\Application;
 use Providentia\Catalog\Http\CatalogSearchHandler;
+use Providentia\Catalog\Http\CatalogProductHandler;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
 use Providentia\PublicSite\Http\HomePageHandler;
@@ -103,6 +104,51 @@ return static function (Application $app): void {
     );
 
     $app->get('/api/v1/catalog/products', CatalogSearchHandler::class, 'api.catalog.products.search');
+    $app->get(
+        '/api/v1/catalog/products/{productId}',
+        CatalogProductHandler::class,
+        'api.catalog.products.get',
+    );
+    $app->post(
+        '/api/v1/catalog/proposals',
+        [BearerAuthenticationMiddleware::class, 'catalog.governance.proposals.submit'],
+        'api.catalog.proposals.submit',
+    );
+    $app->get(
+        '/api/v1/catalog-admin/workbench',
+        [BearerAuthenticationMiddleware::class, 'catalog.governance.workbench'],
+        'api.catalog-admin.workbench',
+    );
+    $app->post(
+        '/api/v1/catalog-admin/proposals/{proposalId}/decision',
+        [BearerAuthenticationMiddleware::class, 'catalog.governance.proposals.decision'],
+        'api.catalog-admin.proposals.decision',
+    );
+    $app->post(
+        '/api/v1/catalog-admin/conflicts/{conflictId}/keep-existing',
+        [BearerAuthenticationMiddleware::class, 'catalog.governance.conflicts.keep'],
+        'api.catalog-admin.conflicts.keep-existing',
+    );
+    $app->put(
+        '/api/v1/catalog-admin/icons/{targetType}/{targetId}',
+        [BearerAuthenticationMiddleware::class, 'catalog.governance.icons.put'],
+        'api.catalog-admin.icons.put',
+    );
+    $app->post(
+        '/api/v1/catalog-admin/merges/preview',
+        [BearerAuthenticationMiddleware::class, 'catalog.governance.merges.preview'],
+        'api.catalog-admin.merges.preview',
+    );
+    $app->post(
+        '/api/v1/catalog-admin/merges',
+        [BearerAuthenticationMiddleware::class, 'catalog.governance.merges.apply'],
+        'api.catalog-admin.merges.apply',
+    );
+    $app->post(
+        '/api/v1/catalog-admin/merges/{mergeId}/reverse',
+        [BearerAuthenticationMiddleware::class, 'catalog.governance.merges.reverse'],
+        'api.catalog-admin.merges.reverse',
+    );
     $app->get(
         '/api/v1/homes/{homeId}/dashboard',
         [BearerAuthenticationMiddleware::class, DashboardHandler::class],
