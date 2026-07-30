@@ -105,7 +105,7 @@ final class HomeServiceWorkflowTest extends TestCase
         $identities->method('findUserById')->willReturn([
             'normalized_email' => 'user@example.test',
         ]);
-        $hasher = $this->createStub(CredentialHasher::class);
+        $hasher = $this->createMock(CredentialHasher::class);
         $hasher->method('hashToken')->with('invitation')->willReturn('hashed-invitation');
 
         $result = $this->service(
