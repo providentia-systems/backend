@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.5.0",
-    "summary": "Authoritative Providentia backend contract through Phase 6",
-    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization prototype.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction."
+    "version": "1.6.0",
+    "summary": "Authoritative Providentia backend contract through Phase 7",
+    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization prototype.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -2711,6 +2711,452 @@
           }
         }
       }
+    },
+    "/api/v1/catalog/products/{productId}": {
+      "get": {
+        "operationId": "getCatalogProduct",
+        "tags": [
+          "Catalog"
+        ],
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Canonical product, active packs/icons, and redirect resolution",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogProductDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/proposals": {
+      "post": {
+        "operationId": "submitCatalogProposal",
+        "tags": [
+          "Catalog Governance"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitCatalogProposalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Sanitized proposal accepted for moderation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogProposalAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog-admin/workbench": {
+      "get": {
+        "operationId": "getCatalogWorkbench",
+        "tags": [
+          "Catalog Governance"
+        ],
+        "parameters": [
+          {
+            "name": "queue",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "proposals",
+                "duplicates",
+                "aliases",
+                "barcodes",
+                "icons",
+                "merges"
+              ],
+              "default": "proposals"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role-scoped catalog moderation queue with no household data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogWorkbench"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog-admin/proposals/{proposalId}/decision": {
+      "post": {
+        "operationId": "decideCatalogProposal",
+        "tags": [
+          "Catalog Governance"
+        ],
+        "parameters": [
+          {
+            "name": "proposalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Moderation decision recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogDecisionResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog-admin/conflicts/{conflictId}/keep-existing": {
+      "post": {
+        "operationId": "keepExistingCatalogConflict",
+        "tags": [
+          "Catalog Governance"
+        ],
+        "parameters": [
+          {
+            "name": "conflictId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogConflictDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Existing canonical identity retained and proposal rejected"
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog-admin/icons/{targetType}/{targetId}": {
+      "put": {
+        "operationId": "putCatalogIcon",
+        "tags": [
+          "Catalog Governance"
+        ],
+        "parameters": [
+          {
+            "name": "targetType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "product",
+                "category"
+              ]
+            }
+          },
+          {
+            "name": "targetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutCatalogIconRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Content-addressed public icon metadata updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogRevisionResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog-admin/merges/preview": {
+      "post": {
+        "operationId": "previewCatalogMerge",
+        "tags": [
+          "Catalog Governance"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogMergePreviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Non-mutating merge plan, conflicts, and aggregate relink counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogMergePreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog-admin/merges": {
+      "post": {
+        "operationId": "applyCatalogMerge",
+        "tags": [
+          "Catalog Governance"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyCatalogMergeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Audited reversible merge applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogMergeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog-admin/merges/{mergeId}/reverse": {
+      "post": {
+        "operationId": "reverseCatalogMerge",
+        "tags": [
+          "Catalog Governance"
+        ],
+        "parameters": [
+          {
+            "name": "mergeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReverseCatalogMergeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Merge references and canonical products restored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogMergeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5352,6 +5798,720 @@
             "items": {
               "$ref": "#/components/schemas/AiExtractionCandidatePayload"
             }
+          }
+        }
+      },
+      "CatalogPack": {
+        "type": "object",
+        "required": [
+          "id",
+          "packText",
+          "multiplicity",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "packText": {
+            "type": "string"
+          },
+          "amount": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "normalizedBaseAmount": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "multiplicity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "CatalogIcon": {
+        "type": "object",
+        "required": [
+          "id",
+          "assetDigest",
+          "mediaType",
+          "altText",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assetDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "altText": {
+            "type": "string"
+          },
+          "width": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "height": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "byteSize": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "CatalogProductDetail": {
+        "type": "object",
+        "required": [
+          "id",
+          "requestedId",
+          "redirected",
+          "canonicalName",
+          "brand",
+          "categoryId",
+          "category",
+          "revision",
+          "packs",
+          "icons"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestedId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "redirected": {
+            "type": "boolean"
+          },
+          "canonicalName": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "categoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "category": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "packs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogPack"
+            }
+          },
+          "icons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogIcon"
+            }
+          }
+        }
+      },
+      "CatalogProductProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "canonicalName",
+          "brand",
+          "categoryId"
+        ],
+        "properties": {
+          "canonicalName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "brand": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "categoryId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "CatalogPackProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "productId",
+          "originalPackText",
+          "unitId",
+          "amount",
+          "multiplicity"
+        ],
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "originalPackText": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "unitId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "amount": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "multiplicity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      },
+      "CatalogAliasProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "productId",
+          "variantId",
+          "packId",
+          "rawAlias"
+        ],
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "variantId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "packId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rawAlias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          }
+        }
+      },
+      "CatalogBarcodeProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "packId",
+          "barcode",
+          "barcodeType"
+        ],
+        "properties": {
+          "packId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "barcode": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 64
+          },
+          "barcodeType": {
+            "type": "string",
+            "enum": [
+              "gtin-8",
+              "gtin-12",
+              "gtin-13",
+              "gtin-14",
+              "other"
+            ]
+          }
+        }
+      },
+      "SubmitCatalogProposalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "payload"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "product",
+              "pack",
+              "alias",
+              "barcode"
+            ]
+          },
+          "payload": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CatalogProductProposal"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogPackProposal"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAliasProposal"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogBarcodeProposal"
+              }
+            ]
+          }
+        }
+      },
+      "CatalogProposalAccepted": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "conflict"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "const": 1
+          }
+        }
+      },
+      "CatalogWorkbench": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "CatalogDecisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decision",
+          "reason",
+          "expectedRevision"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "CatalogDecisionResult": {
+        "type": "object",
+        "required": [
+          "status",
+          "entityType",
+          "entityId"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          },
+          "entityType": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entityId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "CatalogConflictDecisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason",
+          "expectedRevision"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "PutCatalogIconRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assetDigest",
+          "mediaType",
+          "altText",
+          "width",
+          "height",
+          "byteSize",
+          "provenance",
+          "expectedRevision"
+        ],
+        "properties": {
+          "assetDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "mediaType": {
+            "type": "string",
+            "enum": [
+              "image/png",
+              "image/webp",
+              "image/svg+xml"
+            ]
+          },
+          "altText": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 16,
+            "maximum": 4096
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 16,
+            "maximum": 4096
+          },
+          "byteSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5242880
+          },
+          "provenance": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 191
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CatalogRevisionResult": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "CatalogMergePreviewRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "survivorId",
+          "duplicateIds"
+        ],
+        "properties": {
+          "survivorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "duplicateIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "CatalogMergePreview": {
+        "type": "object",
+        "required": [
+          "survivorId",
+          "duplicateIds",
+          "eligible",
+          "products",
+          "affectedCounts",
+          "conflicts"
+        ],
+        "properties": {
+          "survivorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "duplicateIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "affectedCounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ApplyCatalogMergeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "survivorId",
+          "expectedSurvivorRevision",
+          "duplicateRevisions",
+          "reason"
+        ],
+        "properties": {
+          "survivorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedSurvivorRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "duplicateRevisions": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 20,
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "ReverseCatalogMergeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedRevision",
+          "reason"
+        ],
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "CatalogMergeResult": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "revision",
+          "survivorId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "reversed"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "survivorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "duplicateIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "restoredProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "affectedCounts": {
+            "type": "object"
+          },
+          "restoredReferenceCount": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       }

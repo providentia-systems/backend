@@ -223,6 +223,23 @@ assert_no_matches "AI persistence introduces a media payload column" \
   -ni --glob 'migrations/Version20260730000600.php' \
   "image_(data|bytes|blob|base64)|media_(data|bytes|blob)|original_image"
 
+assert_no_matches "catalog governance transport imports household modules" \
+  -n --glob 'src/Catalog/{Application,Http}/**/*.php' \
+  'Providentia\\\\(Home|Inventory|Purchasing|Shopping|AiIntegration)\\\\'
+
+assert_no_matches "catalog merge deletes canonical products or household history" \
+  -ni --glob 'src/Catalog/Infrastructure/Doctrine/DbalCatalogGovernanceStore.php' \
+  'DELETE FROM (products|home_products|stock_movements|receipts|receipt_lines|price_observations)'
+
+for sanitized_field in \
+  "'product' => ['canonicalName', 'brand', 'categoryId']" \
+  "'pack' => ['productId', 'originalPackText', 'unitId', 'amount', 'multiplicity']" \
+  "'alias' => ['productId', 'variantId', 'packId', 'rawAlias']" \
+  "'barcode' => ['packId', 'barcode', 'barcodeType']"; do
+  grep -Fq "$sanitized_field" src/Catalog/Application/CatalogGovernanceService.php \
+    || fail "catalog proposal contract is missing: $sanitized_field"
+done
+
 assert_no_matches "Migration contains a known non-portable SQL construct" \
   -n -F --glob 'migrations/*.php' \
   -e 'ENUM(' -e 'JSON_EXTRACT' -e 'ON DUPLICATE' -e 'UNSIGNED BIGINT' \

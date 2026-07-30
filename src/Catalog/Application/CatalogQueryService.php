@@ -19,4 +19,10 @@ final class CatalogQueryService
             max(0, $offset),
         );
     }
+
+    /** @return array<string, mixed>|null */
+    public function product(string $requestedId): ?array
+    {
+        return $this->catalog->product($requestedId);
+    }
 }
