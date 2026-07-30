@@ -9,8 +9,17 @@ use PHPUnit\Framework\TestCase;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AuthenticatedIdentity;
-use Providentia\SharedKernel\Http\HttpProblem;
+use Providentia\SharedKernel\Application\Problem;
 use Providentia\Synchronization\Application\CursorCodec;
+use Providentia\Synchronization\Application\HomePreferenceSyncEntityPolicy;
+use Providentia\Synchronization\Application\PrivateNoteSyncEntityPolicy;
+use Providentia\Synchronization\Application\SyncEntityPolicyRegistry;
+use Providentia\Synchronization\Application\SyncEnvelopeValidator;
+use Providentia\Synchronization\Application\SyncOperation;
+use Providentia\Synchronization\Application\SyncOperationValidator;
+use Providentia\Synchronization\Application\SyncRequestHasher;
+use Providentia\Synchronization\Application\SyncResultPresenter;
+use Providentia\Synchronization\Application\SyncSnapshot;
 use Providentia\Synchronization\Application\SynchronizationService;
 use Providentia\Synchronization\Application\SyncStore;
 
@@ -35,7 +44,7 @@ final class SynchronizationServiceTest extends TestCase
         try {
             $service->push($this->identity(), self::HOME_ID, 'request-1', self::BATCH_ID, $envelope);
             self::fail('An operation from another device was accepted.');
-        } catch (HttpProblem $problem) {
+        } catch (Problem $problem) {
             self::assertSame(403, $problem->status);
         }
     }
@@ -69,7 +78,7 @@ final class SynchronizationServiceTest extends TestCase
                 self::HOME_ID,
                 self::USER_ID,
                 self::DEVICE_ID,
-                self::isType('array'),
+                self::isInstanceOf(SyncOperation::class),
                 self::matchesRegularExpression('/^[0-9a-f]{64}$/'),
                 self::isInstanceOf(DateTimeImmutable::class),
             )
@@ -114,7 +123,7 @@ final class SynchronizationServiceTest extends TestCase
         try {
             $service->pull($this->identity(), self::HOME_ID, 'request-4', null);
             self::fail('Incremental synchronization started without a bootstrap cursor.');
-        } catch (HttpProblem $problem) {
+        } catch (Problem $problem) {
             self::assertSame(410, $problem->status);
             self::assertSame(
                 'https://providentia.invalid/problems/sync_resync_required',
@@ -239,7 +248,7 @@ final class SynchronizationServiceTest extends TestCase
                 $envelope,
             );
             self::fail('An envelope containing a field outside its closed schema was accepted.');
-        } catch (HttpProblem $problem) {
+        } catch (Problem $problem) {
             self::assertSame(422, $problem->status);
             self::assertStringContainsString('serverOwnedScope', $problem->getMessage());
         }
@@ -296,19 +305,69 @@ final class SynchronizationServiceTest extends TestCase
         self::assertSame('accepted', $this->firstRow($response, 'results')['status']);
     }
 
+    public function testBootstrapUsesOneCapturedSnapshotAndAcknowledgesItsBoundary(): void
+    {
+        $record = [
+            'entityType' => 'private-note',
+            'entityId' => self::ENTITY_ID,
+            'revision' => 2,
+            'representationSchemaVersion' => 1,
+            'representation' => [
+                'id' => self::ENTITY_ID,
+                'revision' => 2,
+                'body' => 'freezer',
+            ],
+            'serverTimestamp' => '2026-07-30 12:00:00',
+        ];
+        $store = $this->createMock(SyncStore::class);
+        $store->expects(self::never())->method('highWater');
+        $store->expects(self::once())
+            ->method('captureSnapshot')
+            ->with(self::HOME_ID, 251)
+            ->willReturn(new SyncSnapshot(7, [$record]));
+        $store->expects(self::once())
+            ->method('acknowledgeCursor')
+            ->with(
+                self::HOME_ID,
+                self::USER_ID,
+                self::DEVICE_ID,
+                7,
+                self::isInstanceOf(DateTimeImmutable::class),
+            );
+        $service = $this->service($store, HomeAuthorization::MEMBER);
+
+        $response = $service->bootstrap(
+            $this->identity(),
+            self::HOME_ID,
+            'request-bootstrap',
+        );
+
+        self::assertSame([$record], $response['records']);
+        self::assertIsString($response['snapshotCursor']);
+    }
+
     private function service(SyncStore $syncStore, string $role): SynchronizationService
     {
         $homeStore = $this->createStub(HomeStore::class);
         $homeStore->method('membership')->willReturn(['status' => 'active', 'role' => $role]);
         $clock = new FixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00'));
+        $cursors = new CursorCodec(str_repeat('s', 32), $clock, 3600);
 
         return new SynchronizationService(
             $syncStore,
-            new CursorCodec(str_repeat('s', 32), $clock, 3600),
+            $cursors,
             new HomeAuthorization($homeStore),
             $clock,
-            100,
-            65536,
+            new SyncEnvelopeValidator(100),
+            new SyncOperationValidator(
+                new SyncEntityPolicyRegistry([
+                    new PrivateNoteSyncEntityPolicy(),
+                    new HomePreferenceSyncEntityPolicy(),
+                ]),
+                65536,
+            ),
+            new SyncRequestHasher(),
+            new SyncResultPresenter($cursors),
             250,
         );
     }
