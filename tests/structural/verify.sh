@@ -215,6 +215,14 @@ assert_no_matches "A non-composition layer imports module Infrastructure" \
   -n --glob 'src/*/{Domain,Application,Http}/**/*.php' \
   'Providentia\\\\[A-Za-z]+\\\\Infrastructure\\\\'
 
+assert_no_matches "AI proposals bypass reviewed Phase 5 inventory or purchasing commands" \
+  -n --glob 'src/AiIntegration/**/*.php' \
+  'Providentia\\\\(Inventory|Purchasing)\\\\|stock_movements|receipt_lines|count_session_lines'
+
+assert_no_matches "AI persistence introduces a media payload column" \
+  -ni --glob 'migrations/Version20260730000600.php' \
+  "image_(data|bytes|blob|base64)|media_(data|bytes|blob)|original_image"
+
 assert_no_matches "Migration contains a known non-portable SQL construct" \
   -n -F --glob 'migrations/*.php' \
   -e 'ENUM(' -e 'JSON_EXTRACT' -e 'ON DUPLICATE' -e 'UNSIGNED BIGINT' \

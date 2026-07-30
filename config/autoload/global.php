@@ -17,6 +17,14 @@ $exposeDevelopmentTokens = filter_var(
     $env('EXPOSE_DEVELOPMENT_TOKENS', '0'),
     FILTER_VALIDATE_BOOL,
 );
+$aiServerProxyEnabled = filter_var($env('AI_SERVER_PROXY_ENABLED', '0'), FILTER_VALIDATE_BOOL);
+$aiCredentialKek = $env('AI_CREDENTIAL_KEK', '');
+$aiCompatibleEndpoint = rtrim($env('AI_COMPATIBLE_ENDPOINT', ''), '/');
+$aiOllamaEndpoint = rtrim($env('AI_OLLAMA_ENDPOINT', ''), '/');
+$aiAllowPrivateEndpoints = filter_var(
+    $env('AI_ALLOW_PRIVATE_ENDPOINTS', '0'),
+    FILTER_VALIDATE_BOOL,
+);
 
 if ($environment === 'production') {
     $placeholderSecrets = [
@@ -51,6 +59,20 @@ if ($environment === 'production') {
     if (! str_starts_with($publicBaseUrl, 'https://')) {
         throw new RuntimeException('Production PUBLIC_BASE_URL must use HTTPS.');
     }
+    if ($aiServerProxyEnabled) {
+        $decodedAiKey = base64_decode($aiCredentialKek, true);
+        if (! is_string($decodedAiKey) || strlen($decodedAiKey) !== 32) {
+            throw new RuntimeException(
+                'Production AI server proxy requires AI_CREDENTIAL_KEK as exactly 32 base64-encoded bytes.',
+            );
+        }
+        if (
+            $aiCompatibleEndpoint !== ''
+            && ! str_starts_with($aiCompatibleEndpoint, 'https://')
+        ) {
+            throw new RuntimeException('Production AI-compatible endpoints must use HTTPS.');
+        }
+    }
 }
 
 return [
@@ -80,6 +102,21 @@ return [
         'max_batch_operations' => 100,
         'max_payload_bytes' => 65536,
         'page_size' => 250,
+    ],
+    'ai' => [
+        'server_proxy_enabled' => $aiServerProxyEnabled,
+        'credential_kek' => $aiCredentialKek,
+        'credential_key_version' => max(1, (int) $env('AI_CREDENTIAL_KEY_VERSION', '1')),
+        'openai_endpoint' => 'https://api.openai.com/v1/responses',
+        'compatible_endpoint' => $aiCompatibleEndpoint === ''
+            ? ''
+            : $aiCompatibleEndpoint . '/v1/chat/completions',
+        'ollama_endpoint' => $aiOllamaEndpoint === '' ? '' : $aiOllamaEndpoint . '/api/chat',
+        'allow_private_endpoints' => $aiAllowPrivateEndpoints,
+        'max_image_bytes' => max(
+            1048576,
+            min(16777216, (int) $env('AI_MAX_IMAGE_BYTES', '8388608')),
+        ),
     ],
     'http' => [
         'allowed_origins' => array_values(array_filter(array_map(

@@ -243,6 +243,41 @@ return static function (Application $app): void {
         [BearerAuthenticationMiddleware::class, 'shopping.suggestions'],
         'api.shopping.suggestions',
     );
+    $app->get(
+        '/api/v1/homes/{homeId}/ai/settings',
+        [BearerAuthenticationMiddleware::class, 'ai.settings.get'],
+        'api.ai.settings.get',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/ai/settings',
+        [BearerAuthenticationMiddleware::class, 'ai.settings.put'],
+        'api.ai.settings.put',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/ai/credentials/{providerId}',
+        [BearerAuthenticationMiddleware::class, 'ai.credentials.put'],
+        'api.ai.credentials.put',
+    );
+    $app->delete(
+        '/api/v1/homes/{homeId}/ai/credentials/{providerId}',
+        [BearerAuthenticationMiddleware::class, 'ai.credentials.delete'],
+        'api.ai.credentials.delete',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/ai/extractions',
+        [BearerAuthenticationMiddleware::class, 'ai.extractions.create'],
+        'api.ai.extractions.create',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/ai/extractions/{extractionId}',
+        [BearerAuthenticationMiddleware::class, 'ai.extractions.get'],
+        'api.ai.extractions.get',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/ai/extractions/{extractionId}/candidates/{position}',
+        [BearerAuthenticationMiddleware::class, 'ai.candidates.review'],
+        'api.ai.candidates.review',
+    );
     $app->post(
         '/api/v1/homes/{homeId}/sync/push',
         [BearerAuthenticationMiddleware::class, 'synchronization.push'],

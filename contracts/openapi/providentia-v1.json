@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.4.0",
-    "summary": "Authoritative implemented Phase 2/4 increment contract",
-    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization prototype.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections."
+    "version": "1.5.0",
+    "summary": "Authoritative Providentia backend contract through Phase 6",
+    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization prototype.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -2368,6 +2368,349 @@
           }
         }
       }
+    },
+    "/api/v1/homes/{homeId}/ai/settings": {
+      "get": {
+        "operationId": "getAiSettings",
+        "tags": [
+          "AI Integration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Effective privacy and provider settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "put": {
+        "operationId": "putAiSettings",
+        "tags": [
+          "AI Integration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutAiSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AI settings updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/credentials/{providerId}": {
+      "put": {
+        "operationId": "putAiProviderCredential",
+        "tags": [
+          "AI Integration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "providerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutAiCredentialRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Credential encrypted and stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiCredentialStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAiProviderCredential",
+        "tags": [
+          "AI Integration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "providerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Credential revoked"
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/extractions": {
+      "post": {
+        "operationId": "createAiExtraction",
+        "tags": [
+          "AI Integration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "transmissionConsent",
+                  "image"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "receipt",
+                      "stock"
+                    ]
+                  },
+                  "targetId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "transmissionConsent": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  },
+                  "image": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Structured candidates ready for mandatory review",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiExtractionCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "502": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/extractions/{extractionId}": {
+      "get": {
+        "operationId": "getAiExtraction",
+        "tags": [
+          "AI Integration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "extractionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Extraction metadata and review candidates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiExtraction"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/extractions/{extractionId}/candidates/{position}": {
+      "put": {
+        "operationId": "reviewAiExtractionCandidate",
+        "tags": [
+          "AI Integration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "extractionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "position",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewAiCandidateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Candidate review decision recorded; inventory is unchanged"
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4192,6 +4535,825 @@
             "minimum": 1
           }
         }
+      },
+      "AiSettings": {
+        "type": "object",
+        "required": [
+          "mode",
+          "provider",
+          "model",
+          "revision",
+          "availableServerProviders",
+          "cloudByokOnNativeClients",
+          "serverPersistsUploadedMedia",
+          "humanReviewRequired",
+          "credentialEncryptionAvailable"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "manual_only",
+              "server_proxy",
+              "local_direct"
+            ]
+          },
+          "provider": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "availableServerProviders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "requiresCredential"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "requiresCredential": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "cloudByokOnNativeClients": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "serverPersistsUploadedMedia": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "humanReviewRequired": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "credentialEncryptionAvailable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PutAiSettingsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "provider",
+          "model",
+          "expectedRevision"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "manual_only",
+              "server_proxy",
+              "local_direct"
+            ]
+          },
+          "provider": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "PutAiCredentialRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "credential"
+        ],
+        "properties": {
+          "credential": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 500,
+            "writeOnly": true
+          }
+        }
+      },
+      "AiCredentialStatus": {
+        "type": "object",
+        "required": [
+          "provider",
+          "configured",
+          "lastFour"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "lastFour": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 4
+          }
+        }
+      },
+      "AiExtractionCreated": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "candidateCount"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "review_required"
+            ]
+          },
+          "candidateCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 200
+          }
+        }
+      },
+      "AiCandidate": {
+        "type": "object",
+        "required": [
+          "position",
+          "candidateType",
+          "confidence",
+          "reviewStatus",
+          "revision",
+          "payload"
+        ],
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "candidateType": {
+            "type": "string",
+            "enum": [
+              "receipt_line",
+              "stock_item"
+            ]
+          },
+          "confidence": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviewStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "payload": {
+            "$ref": "#/components/schemas/AiExtractionCandidatePayload"
+          }
+        }
+      },
+      "AiExtraction": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "provider",
+          "model",
+          "status",
+          "inputMimeType",
+          "inputSha256",
+          "inputByteCount",
+          "schemaVersion",
+          "candidates",
+          "promptTemplateVersion",
+          "processingMs"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "receipt",
+              "stock"
+            ]
+          },
+          "targetId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "review_required",
+              "failed"
+            ]
+          },
+          "inputMimeType": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          },
+          "inputSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "inputByteCount": {
+            "type": "integer",
+            "minimum": 16
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "promptTemplateVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "processingMs": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AiTokenUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AiExtractionResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "errorCode": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "errorDetail": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiCandidate"
+            }
+          }
+        }
+      },
+      "ReviewAiCandidateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decision",
+          "expectedRevision"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected"
+            ]
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "AiTokenUsage": {
+        "type": "object",
+        "required": [
+          "inputTokens",
+          "outputTokens",
+          "totalTokens"
+        ],
+        "properties": {
+          "inputTokens": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outputTokens": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "totalTokens": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "AiFieldConfidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "description",
+          "quantity",
+          "packText",
+          "unitPrice",
+          "lineTotal"
+        ],
+        "properties": {
+          "description": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quantity": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "packText": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitPrice": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lineTotal": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "AiBoundingRegion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "y": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "width": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "height": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "AiExtractionCandidatePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidateType",
+          "rawText",
+          "description",
+          "brand",
+          "product",
+          "variant",
+          "quantity",
+          "packText",
+          "unitPrice",
+          "lineTotal",
+          "discountAmount",
+          "taxAmount",
+          "boundingRegion",
+          "confidence",
+          "fieldConfidence",
+          "warnings",
+          "unresolvedValues"
+        ],
+        "properties": {
+          "candidateType": {
+            "type": "string",
+            "enum": [
+              "receipt_line",
+              "stock_item"
+            ]
+          },
+          "rawText": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "brand": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "product": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "variant": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "packText": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitPrice": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lineTotal": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discountAmount": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "taxAmount": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "boundingRegion": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AiBoundingRegion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "fieldConfidence": {
+            "$ref": "#/components/schemas/AiFieldConfidence"
+          },
+          "warnings": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string"
+            }
+          },
+          "unresolvedValues": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AiExtractionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "documentType",
+          "merchant",
+          "receiptNumber",
+          "purchaseDate",
+          "currency",
+          "totalAmount",
+          "taxAmount",
+          "notes",
+          "warnings",
+          "candidates"
+        ],
+        "properties": {
+          "documentType": {
+            "type": "string",
+            "enum": [
+              "receipt",
+              "stock"
+            ]
+          },
+          "merchant": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receiptNumber": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "purchaseDate": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "totalAmount": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "taxAmount": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/AiExtractionCandidatePayload"
+            }
+          }
+        }
       }
     }
   },
@@ -4225,6 +5387,9 @@
     },
     {
       "name": "Reporting"
+    },
+    {
+      "name": "AI Integration"
     }
   ]
 }

@@ -21,6 +21,8 @@ final class ProductionConfigurationTest extends TestCase
                 'EXPOSE_DEVELOPMENT_TOKENS',
                 'MAIL_DSN',
                 'PUBLIC_BASE_URL',
+                'AI_SERVER_PROXY_ENABLED',
+                'AI_CREDENTIAL_KEK',
             ] as $name
         ) {
             $this->previous[$name] = getenv($name);
@@ -66,6 +68,17 @@ final class ProductionConfigurationTest extends TestCase
         self::assertFalse($config['identity']['expose_development_tokens']);
     }
 
+    public function testProductionAiProxyRequiresAnIndependentEnvelopeEncryptionKey(): void
+    {
+        $this->productionEnvironment();
+        putenv('AI_SERVER_PROXY_ENABLED=1');
+        putenv('AI_CREDENTIAL_KEK=');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('AI_CREDENTIAL_KEK');
+        require dirname(__DIR__, 3) . '/config/autoload/global.php';
+    }
+
     private function productionEnvironment(): void
     {
         putenv('APP_ENV=production');
@@ -74,5 +87,7 @@ final class ProductionConfigurationTest extends TestCase
         putenv('EXPOSE_DEVELOPMENT_TOKENS=0');
         putenv('MAIL_DSN=smtps://smtp.example.net:465');
         putenv('PUBLIC_BASE_URL=https://app.example.net');
+        putenv('AI_SERVER_PROXY_ENABLED=0');
+        putenv('AI_CREDENTIAL_KEK=');
     }
 }
