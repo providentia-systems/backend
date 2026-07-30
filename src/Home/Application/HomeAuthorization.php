@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Home\Application;
 
 use Providentia\Identity\Application\AuthenticatedIdentity;
-use Providentia\SharedKernel\Http\HttpProblem;
+use Providentia\SharedKernel\Application\Problem;
 
 final class HomeAuthorization
 {
@@ -33,7 +33,7 @@ final class HomeAuthorization
             || (string) $membership['status'] !== 'active'
             || ! in_array((string) $membership['role'], $allowedRoles, true)
         ) {
-            throw new HttpProblem(404, 'Not found', 'The requested resource is unavailable.');
+            throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
         }
 
         return $membership;
