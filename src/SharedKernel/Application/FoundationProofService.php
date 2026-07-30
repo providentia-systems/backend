@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Providentia\SharedKernel\Application;
 
-use Ramsey\Uuid\Uuid;
 use Providentia\SharedKernel\Application\Async\AsyncMessage;
 use Providentia\SharedKernel\Application\Async\OutboxStore;
 use Providentia\SharedKernel\Domain\FoundationRecord;
@@ -16,6 +15,7 @@ final class FoundationProofService
         private readonly TransactionManager $transactions,
         private readonly OutboxStore $outbox,
         private readonly Clock $clock,
+        private readonly UuidGenerator $ids,
     ) {
     }
 
@@ -25,13 +25,13 @@ final class FoundationProofService
      */
     public function prove(string $label): string
     {
-        $id = Uuid::uuid7()->toString();
+        $id = $this->ids->generate();
         $now = $this->clock->now();
 
         return $this->transactions->transactional(function () use ($id, $label, $now): string {
             $this->records->add(new FoundationRecord($id, $label, $now));
             $this->outbox->append(new AsyncMessage(
-                Uuid::uuid7()->toString(),
+                $this->ids->generate(),
                 'foundation.recorded.v1',
                 ['recordId' => $id, 'label' => $label],
                 $now,
