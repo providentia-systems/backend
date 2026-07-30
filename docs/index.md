@@ -13,6 +13,7 @@
 ## Engineering
 
 - [Module and dependency boundaries](architecture/module-boundaries.md)
+- [SOLID and backend quality audit — 2026-07-30](architecture/solid-quality-audit-2026-07-30.md)
 - [Contracts and release order](architecture/contracts.md)
 - [Local development and deployment profiles](deployment/local-development.md)
 - [Authoritative catalog seed and reconciliation](operations/catalog-seed.md)
