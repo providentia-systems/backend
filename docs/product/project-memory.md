@@ -47,3 +47,22 @@ compaction.
 - `local_direct` is a client-owned path to a user-controlled endpoint.
 - Advanced native direct cloud BYOK remains disabled pending a native-client
   vault and warning design.
+
+## Phase 8 intelligence decision — 30 July 2026
+
+- `stock_movements` is factual truth; `inventory_balances` remains a
+  rebuildable projection.
+- Only confirmed lines from complete, explicitly reliable closed count
+  sessions may estimate consumption.
+- Recommendation arithmetic is deterministic fixed-point arithmetic. A
+  confidence score is an evidence grade, not a probability.
+- With insufficient count history, demand is zero and a suggestion may use
+  only the home-configured minimum reserve.
+- Historical evaluation uses only facts known at each cutoff. Later purchases,
+  missed-stock-out counts, and overbuying counts are labelled as proxies.
+- Private household prices are compared only within the same currency. No
+  exchange-rate or cross-home price-sharing policy is implied.
+- Owner and manager roles control replenishment policy; owner, manager, and
+  member roles may generate and give feedback; viewers remain read-only.
+- Seasonality, menu-plan demand, garden production, and learned models remain
+  deferred until their evidence and product decisions are explicit.
