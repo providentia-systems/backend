@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AuthenticatedIdentity;
-use Providentia\SharedKernel\Http\HttpProblem;
+use Providentia\SharedKernel\Application\Problem;
 
 final class HomeAuthorizationTest extends TestCase
 {
@@ -35,7 +35,7 @@ final class HomeAuthorizationTest extends TestCase
         try {
             $authorization->requireMember($this->identity(), '01912345-6789-7abc-8def-1123456789ab');
             self::fail('An absent cross-home membership was authorized.');
-        } catch (HttpProblem $problem) {
+        } catch (Problem $problem) {
             self::assertSame(404, $problem->status);
             self::assertSame('Not found', $problem->title);
         }
@@ -50,7 +50,7 @@ final class HomeAuthorizationTest extends TestCase
         ]);
         $authorization = new HomeAuthorization($store);
 
-        $this->expectException(HttpProblem::class);
+        $this->expectException(Problem::class);
         $authorization->requireRole(
             $this->identity(),
             '01912345-6789-7abc-8def-0123456789ab',
