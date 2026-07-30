@@ -17,6 +17,7 @@ use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\FoundationProofService;
 use Providentia\SharedKernel\Application\FoundationRecordStore;
 use Providentia\SharedKernel\Application\ReadinessService;
+use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Providentia\SharedKernel\Application\Health\DatabaseReadinessProbe;
 use Providentia\SharedKernel\Application\Health\QueueReadinessProbe;
 use Providentia\SharedKernel\Application\TransactionManager;
@@ -49,6 +50,7 @@ use Providentia\SharedKernel\Infrastructure\Queue\EnqueueQueueReadinessProbe;
 use Providentia\SharedKernel\Infrastructure\Queue\RedisQueueMetricsProbe;
 use Providentia\SharedKernel\Infrastructure\RuntimeSystemInformationProvider;
 use Providentia\SharedKernel\Infrastructure\Identifier\RamseyUuidGenerator;
+use Providentia\SharedKernel\Infrastructure\Identifier\NativeSecureTokenGenerator;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineDatabaseReadinessProbe;
 
 final class ConfigProvider
@@ -69,6 +71,7 @@ final class ConfigProvider
                     QueueReadinessProbe::class => EnqueueQueueReadinessProbe::class,
                     QueueMetricsProbe::class => RedisQueueMetricsProbe::class,
                     SystemInformationProvider::class => RuntimeSystemInformationProvider::class,
+                    SecureTokenGenerator::class => NativeSecureTokenGenerator::class,
                     UuidGenerator::class => RamseyUuidGenerator::class,
                 ],
                 'factories' => [
@@ -77,6 +80,7 @@ final class ConfigProvider
                     Context::class => QueueContextFactory::class,
                     SystemClock::class => InvokableFactory::class,
                     RamseyUuidGenerator::class => InvokableFactory::class,
+                    NativeSecureTokenGenerator::class => InvokableFactory::class,
                     EnqueueAsyncMessageBus::class => AdapterFactory::class,
                     DoctrineFoundationRecordStore::class => AdapterFactory::class,
                     DoctrineTransactionManager::class => AdapterFactory::class,
