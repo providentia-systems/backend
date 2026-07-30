@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\SharedKernel\Http;
 
 use Laminas\Diactoros\Response\JsonResponse;
+use Providentia\SharedKernel\Application\Problem;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -27,7 +28,7 @@ final class ProblemDetailsMiddleware implements MiddlewareInterface
                 $requestId = bin2hex(random_bytes(16));
             }
 
-            if ($error instanceof HttpProblem) {
+            if ($error instanceof Problem) {
                 $status = $error->status;
                 $type = $error->type;
                 $title = $error->title;
