@@ -11,7 +11,6 @@ use Providentia\SharedKernel\Application\Async\OutboxStore;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\FoundationProofService;
 use Providentia\SharedKernel\Application\FoundationRecordStore;
-use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\SharedKernel\Domain\FoundationRecord;
 
@@ -59,22 +58,5 @@ final class FoundationProofServiceTest extends TestCase
         self::assertSame('01912345-6789-7abc-8def-0123456789ab', $result);
         self::assertSame(1, $transactions->invocations);
         self::assertFalse($transactions->active);
-    }
-}
-
-final class RecordingSharedKernelTransactionManager implements TransactionManager
-{
-    public bool $active = false;
-    public int $invocations = 0;
-
-    public function transactional(callable $operation): mixed
-    {
-        $this->invocations++;
-        $this->active = true;
-        try {
-            return $operation();
-        } finally {
-            $this->active = false;
-        }
     }
 }
