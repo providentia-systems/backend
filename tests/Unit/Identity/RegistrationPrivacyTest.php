@@ -11,6 +11,7 @@ use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
 use Providentia\SharedKernel\Application\UuidGenerator;
+use Providentia\SharedKernel\Application\SecureTokenGenerator;
 
 final class RegistrationPrivacyTest extends TestCase
 {
@@ -35,6 +36,7 @@ final class RegistrationPrivacyTest extends TestCase
             $this->createStub(UuidGenerator::class),
             new IdentityFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
             new IdentityTransactionManager(),
+            $this->createStub(SecureTokenGenerator::class),
             900,
             2592000,
         );
