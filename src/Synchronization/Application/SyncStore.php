@@ -8,23 +8,19 @@ use DateTimeImmutable;
 
 interface SyncStore
 {
-    /**
-     * @param array<string, mixed> $operation
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function apply(
         string $homeId,
         string $userId,
         string $deviceId,
-        array $operation,
+        SyncOperation $operation,
         string $requestHash,
         DateTimeImmutable $at,
     ): array;
 
     public function highWater(string $homeId): int;
 
-    /** @return list<array<string, mixed>> */
-    public function snapshot(string $homeId, int $limit): array;
+    public function captureSnapshot(string $homeId, int $limit): SyncSnapshot;
 
     /** @return list<array<string, mixed>> */
     public function changes(string $homeId, int $after, int $highWater, int $limit): array;
