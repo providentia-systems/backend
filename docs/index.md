@@ -2,13 +2,18 @@
 
 ## Current phase
 
-- [Phase 1 foundation](product/phase1-foundation.md)
-- [Phase 2 identity, homes, and catalog](product/phase2-identity-homes-catalog.md)
-- [Phase 4 synchronization protocol](architecture/synchronization-protocol.md)
+- [Phase 0 verified evidence](product/phases/phase-00-evidence/README.md)
+- [Phase 1 foundation](product/phases/phase-01-foundation/README.md)
+- [Phase 2 identity, homes, and catalog](product/phases/phase-02-identity-homes-catalog/README.md)
+- [Phase 4 synchronization protocol](product/phases/phase-04-synchronization/README.md)
+- [Phase 5 inventory and purchasing](product/phases/phase-05-inventory-purchasing/README.md)
+- [Phase 6 AI integration](product/phases/phase-06-ai-integration/README.md)
+- [Phase 7 catalog administration](product/phases/phase-07-catalog-administration/README.md)
+- [Phase 8 intelligence and reporting](product/phases/phase-08-intelligence-reporting/README.md)
 - [Project memory and owner decisions](product/project-memory.md)
 - [Controlling implementation prompt](product/providentia_master_implementation_prompt_V1.md)
-- `docs/phase0/` — corrected evidence and architecture package, retained in
-  this repository as the reviewed Phase 0 documentation trail
+- `docs/product/phases/phase-00-evidence/` — corrected evidence and
+  architecture package, retained as the reviewed Phase 0 documentation trail
 
 ## Engineering
 

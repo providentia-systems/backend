@@ -5,11 +5,12 @@ application is a modular monolith built with Mezzio, selected Laminas
 components, Doctrine ORM/DBAL/Migrations, and a project-owned asynchronous
 messaging boundary backed by Enqueue Redis.
 
-The repository now includes the Phase 1 production foundation, a bounded Phase
-2 identity/home/catalog implementation increment, and a bounded Phase 4
-home-scoped synchronization prototype. Phase 3 inventory and purchasing
-behavior remains intentionally unimplemented; synchronization therefore covers
-only its explicitly allow-listed `home-preference` and `private-note` records.
+The repository includes the Phase 1 production foundation, Phase 2
+identity/home/catalog increment, Phase 4 home-scoped synchronization protocol,
+and the Phase 5 ledger-backed inventory, purchasing, shopping, dashboard, and
+verified-baseline cutover. Synchronization remains explicitly allow-listed to
+`home-preference` and `private-note` until each newer aggregate has a typed
+offline policy.
 
 ## Requirements
 
@@ -95,7 +96,7 @@ Doctrine transaction. The relay publishes committed records. The worker
 records a message ID before acknowledging it, so redelivery is idempotent. A
 queue message is never represented as equivalent to the database commit.
 
-## Phase 2 and Phase 4 surface
+## Product surface
 
 - Generic-shape email/password registration (not timing-resistant while
   verification SMTP remains synchronous), email verification,
@@ -107,11 +108,13 @@ queue message is never represented as equivalent to the database commit.
 - Home/device-bound offline push, pull, bootstrap, optimistic revisions,
   immutable operation receipts, signed cursors, tombstones, outbox events, and
   duplicate-operation replay.
+- Home item master, physical counts, immutable stock movements, materialized
+  balances, reviewed receipt commit, purchase history, price evidence, shopping
+  lists, dashboard projections, and checksum-gated baseline migration.
 
 The authoritative operation and schema details live in the OpenAPI contract.
-This is not full Phase 2/4 acceptance: invitation revocation, step-up
-proposed/accepted ownership transfer, operation-status lookup, and consistent
-paged bootstrap remain explicitly documented follow-up work.
+Remaining phase gates and follow-up work are explicit in
+[`docs/product/phases`](docs/product/phases/).
 
 ## Quality gates
 

@@ -110,7 +110,8 @@ final class AuthenticationService
      *     csrfToken: string,
      *     accessExpiresAt: string,
      *     sessionId: string,
-     *     deviceId: string
+     *     deviceId: string,
+     *     userId: string
      * }
      */
     public function login(
@@ -165,7 +166,8 @@ final class AuthenticationService
      *     csrfToken: string,
      *     accessExpiresAt: string,
      *     sessionId: string,
-     *     deviceId: string
+     *     deviceId: string,
+     *     userId: string
      * }
      */
     public function refresh(string $refreshToken): array
@@ -324,7 +326,8 @@ final class AuthenticationService
      *     csrfToken: string,
      *     accessExpiresAt: string,
      *     sessionId: string,
-     *     deviceId: string
+     *     deviceId: string,
+     *     userId: string
      * }
      */
     private function issueSession(string $userId, string $deviceId, string $deviceName, string $platform): array
@@ -357,6 +360,7 @@ final class AuthenticationService
             'accessExpiresAt' => $accessExpiry->format(DATE_ATOM),
             'sessionId' => $sessionId,
             'deviceId' => $deviceId,
+            'userId' => $userId,
         ];
     }
 

@@ -7,6 +7,7 @@ use Providentia\Catalog\Http\CatalogSearchHandler;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
 use Providentia\PublicSite\Http\HomePageHandler;
+use Providentia\Reporting\Http\DashboardHandler;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
 use Providentia\SharedKernel\Http\Health\ReadinessHandler;
 use Providentia\SharedKernel\Http\MetricsHandler;
@@ -102,6 +103,146 @@ return static function (Application $app): void {
     );
 
     $app->get('/api/v1/catalog/products', CatalogSearchHandler::class, 'api.catalog.products.search');
+    $app->get(
+        '/api/v1/homes/{homeId}/dashboard',
+        [BearerAuthenticationMiddleware::class, DashboardHandler::class],
+        'api.dashboard',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/locations',
+        [BearerAuthenticationMiddleware::class, 'inventory.locations.list'],
+        'api.inventory.locations.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/locations',
+        [BearerAuthenticationMiddleware::class, 'inventory.locations.create'],
+        'api.inventory.locations.create',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/products',
+        [BearerAuthenticationMiddleware::class, 'inventory.items.list'],
+        'api.inventory.items.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/products',
+        [BearerAuthenticationMiddleware::class, 'inventory.items.create'],
+        'api.inventory.items.create',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/stock',
+        [BearerAuthenticationMiddleware::class, 'inventory.stock.list'],
+        'api.inventory.stock.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/stock-adjustments',
+        [BearerAuthenticationMiddleware::class, 'inventory.adjustments.create'],
+        'api.inventory.adjustments.create',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/stock-movements',
+        [BearerAuthenticationMiddleware::class, 'inventory.movements.list'],
+        'api.inventory.movements.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/inventory-balances/rebuild',
+        [BearerAuthenticationMiddleware::class, 'inventory.balances.rebuild'],
+        'api.inventory.balances.rebuild',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/stock-count-sessions',
+        [BearerAuthenticationMiddleware::class, 'inventory.counts.list'],
+        'api.inventory.counts.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/stock-count-sessions',
+        [BearerAuthenticationMiddleware::class, 'inventory.counts.create'],
+        'api.inventory.counts.create',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}',
+        [BearerAuthenticationMiddleware::class, 'inventory.counts.get'],
+        'api.inventory.counts.get',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/lines/{lineId}',
+        [BearerAuthenticationMiddleware::class, 'inventory.counts.line'],
+        'api.inventory.counts.lines.put',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/close',
+        [BearerAuthenticationMiddleware::class, 'inventory.counts.close'],
+        'api.inventory.counts.close',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/receipts',
+        [BearerAuthenticationMiddleware::class, 'purchasing.history'],
+        'api.purchasing.receipts.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/receipts',
+        [BearerAuthenticationMiddleware::class, 'purchasing.create'],
+        'api.purchasing.receipts.create',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}',
+        [BearerAuthenticationMiddleware::class, 'purchasing.get'],
+        'api.purchasing.receipts.get',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/stores',
+        [BearerAuthenticationMiddleware::class, 'purchasing.stores.create'],
+        'api.purchasing.stores.create',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/purchase-summary',
+        [BearerAuthenticationMiddleware::class, 'purchasing.summary'],
+        'api.purchasing.summary',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}/lines',
+        [BearerAuthenticationMiddleware::class, 'purchasing.lines.create'],
+        'api.purchasing.receipt-lines.create',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}/lines/{lineId}/approve',
+        [BearerAuthenticationMiddleware::class, 'purchasing.lines.approve'],
+        'api.purchasing.receipt-lines.approve',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}/commit',
+        [BearerAuthenticationMiddleware::class, 'purchasing.commit'],
+        'api.purchasing.receipts.commit',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/shopping-lists',
+        [BearerAuthenticationMiddleware::class, 'shopping.lists.list'],
+        'api.shopping.lists.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/shopping-lists',
+        [BearerAuthenticationMiddleware::class, 'shopping.lists.create'],
+        'api.shopping.lists.create',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/shopping-lists/{listId}',
+        [BearerAuthenticationMiddleware::class, 'shopping.lists.get'],
+        'api.shopping.lists.get',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/shopping-lists/{listId}/lines',
+        [BearerAuthenticationMiddleware::class, 'shopping.lines.create'],
+        'api.shopping.lines.create',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/shopping-lists/{listId}/lines/{lineId}/checked',
+        [BearerAuthenticationMiddleware::class, 'shopping.lines.check'],
+        'api.shopping.lines.checked',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/shopping-suggestions',
+        [BearerAuthenticationMiddleware::class, 'shopping.suggestions'],
+        'api.shopping.suggestions',
+    );
     $app->post(
         '/api/v1/homes/{homeId}/sync/push',
         [BearerAuthenticationMiddleware::class, 'synchronization.push'],

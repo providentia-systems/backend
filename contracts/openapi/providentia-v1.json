@@ -2,216 +2,4229 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "summary": "Authoritative implemented Phase 2/4 increment contract",
-    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization prototype."
+    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization prototype.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
-  "servers": [{"url": "/"}],
-  "security": [{"bearerAuth": []}, {"cookieAuth": []}],
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "cookieAuth": []
+    }
+  ],
   "paths": {
-    "/health/live": {"get": {"operationId": "getLiveness", "security": [], "tags": ["Operations"], "responses": {"200": {"description": "Alive", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthStatus"}}}}}}},
-    "/health/ready": {"get": {"operationId": "getReadiness", "security": [], "tags": ["Operations"], "responses": {"200": {"description": "Ready", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReadinessStatus"}}}}, "503": {"$ref": "#/components/responses/Problem"}}}},
-    "/api/v1/system/info": {"get": {"operationId": "getSystemInfo", "security": [], "tags": ["System"], "responses": {"200": {"description": "Runtime information", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SystemInfo"}}}}}}},
-    "/metrics": {"get": {"operationId": "getMetrics", "security": [], "tags": ["Operations"], "responses": {"200": {"description": "Prometheus exposition", "content": {"text/plain": {"schema": {"type": "string"}}}}}}},
+    "/health/live": {
+      "get": {
+        "operationId": "getLiveness",
+        "security": [],
+        "tags": [
+          "Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Alive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "security": [],
+        "tags": [
+          "Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessStatus"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/system/info": {
+      "get": {
+        "operationId": "getSystemInfo",
+        "security": [],
+        "tags": [
+          "System"
+        ],
+        "responses": {
+          "200": {
+            "description": "Runtime information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "getMetrics",
+        "security": [],
+        "tags": [
+          "Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Prometheus exposition",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/register": {
       "post": {
         "operationId": "registerAccount",
         "security": [],
-        "tags": ["Identity"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RegisterRequest"}}}},
-        "responses": {"202": {"description": "Generic accepted response whether the account is new or already exists", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RegisterResponse"}}}}, "422": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Identity"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Generic accepted response whether the account is new or already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
     "/api/v1/auth/verify-email": {
       "post": {
         "operationId": "verifyEmail",
         "security": [],
-        "tags": ["Identity"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenRequest"}}}},
-        "responses": {"204": {"description": "Verified"}, "422": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Identity"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Verified"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
     "/api/v1/auth/verify-email/resend": {
       "post": {
         "operationId": "resendEmailVerification",
         "security": [],
-        "tags": ["Identity"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailRequest"}}}},
-        "responses": {"202": {"description": "Accepted without account enumeration"}}
+        "tags": [
+          "Identity"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted without account enumeration"
+          }
+        }
       }
     },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "login",
         "security": [],
-        "tags": ["Identity"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginRequest"}}}},
-        "responses": {"200": {"description": "Native credentials or secure cookie session issued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SessionCredentials"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "429": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Identity"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Native credentials or secure cookie session issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCredentials"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
     "/api/v1/auth/refresh": {
       "post": {
         "operationId": "refreshSession",
         "security": [],
-        "tags": ["Identity"],
-        "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"refreshToken": {"type": "string", "writeOnly": true}}}}}},
-        "responses": {"200": {"description": "Rotated credentials", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SessionCredentials"}}}}, "401": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Identity"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "refreshToken": {
+                    "type": "string",
+                    "writeOnly": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rotated credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCredentials"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
-    "/api/v1/auth/logout": {"post": {"operationId": "logout", "tags": ["Identity"], "responses": {"204": {"description": "Current session revoked and cookies cleared"}}}},
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "tags": [
+          "Identity"
+        ],
+        "responses": {
+          "204": {
+            "description": "Current session revoked and cookies cleared"
+          }
+        }
+      }
+    },
     "/api/v1/auth/password-reset/request": {
       "post": {
         "operationId": "requestPasswordReset",
         "security": [],
-        "tags": ["Identity"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailRequest"}}}},
-        "responses": {"202": {"description": "Accepted without account enumeration"}}
+        "tags": [
+          "Identity"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted without account enumeration"
+          }
+        }
       }
     },
     "/api/v1/auth/password-reset/complete": {
       "post": {
         "operationId": "completePasswordReset",
         "security": [],
-        "tags": ["Identity"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["token", "password"], "properties": {"token": {"type": "string"}, "password": {"type": "string", "minLength": 12, "maxLength": 1024}}}}}},
-        "responses": {"204": {"description": "Password changed and all sessions revoked"}, "422": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Identity"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "token",
+                  "password"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 12,
+                    "maxLength": 1024
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Password changed and all sessions revoked"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
-    "/api/v1/auth/sessions": {"get": {"operationId": "listDeviceSessions", "tags": ["Identity"], "responses": {"200": {"description": "Device sessions without secret material", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/DeviceSession"}}}}}}}}}},
-    "/api/v1/auth/sessions/{sessionId}": {"delete": {"operationId": "revokeDeviceSession", "tags": ["Identity"], "parameters": [{"$ref": "#/components/parameters/SessionId"}], "responses": {"204": {"description": "Revoked"}, "404": {"$ref": "#/components/responses/Problem"}}}},
-    "/api/v1/homes": {
-      "get": {"operationId": "listHomes", "tags": ["Homes"], "responses": {"200": {"description": "Authorized homes", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/Home"}}}}}}}}},
-      "post": {"operationId": "createHome", "tags": ["Homes"], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateHomeRequest"}}}}, "responses": {"201": {"description": "Created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Home"}}}}, "422": {"$ref": "#/components/responses/Problem"}}}
+    "/api/v1/auth/sessions": {
+      "get": {
+        "operationId": "listDeviceSessions",
+        "tags": [
+          "Identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "Device sessions without secret material",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DeviceSession"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     },
-    "/api/v1/homes/{homeId}": {"get": {"operationId": "getHome", "tags": ["Homes"], "parameters": [{"$ref": "#/components/parameters/HomeId"}], "responses": {"200": {"description": "Authorized home", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Home"}}}}, "404": {"$ref": "#/components/responses/Problem"}}}},
-    "/api/v1/homes/{homeId}/switch": {"post": {"operationId": "switchHome", "tags": ["Homes"], "parameters": [{"$ref": "#/components/parameters/HomeId"}], "responses": {"200": {"description": "Session active home changed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Home"}}}}, "404": {"$ref": "#/components/responses/Problem"}}}},
-    "/api/v1/homes/{homeId}/memberships": {"get": {"operationId": "listHomeMemberships", "tags": ["Homes"], "parameters": [{"$ref": "#/components/parameters/HomeId"}], "responses": {"200": {"description": "Memberships", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/HomeMembership"}}}}}}}}}},
+    "/api/v1/auth/sessions/{sessionId}": {
+      "delete": {
+        "operationId": "revokeDeviceSession",
+        "tags": [
+          "Identity"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SessionId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes": {
+      "get": {
+        "operationId": "listHomes",
+        "tags": [
+          "Homes"
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized homes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Home"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createHome",
+        "tags": [
+          "Homes"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHomeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Home"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}": {
+      "get": {
+        "operationId": "getHome",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized home",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Home"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/switch": {
+      "post": {
+        "operationId": "switchHome",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session active home changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Home"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/memberships": {
+      "get": {
+        "operationId": "listHomeMemberships",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Memberships",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/HomeMembership"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/homes/{homeId}/memberships/{userId}": {
       "patch": {
         "operationId": "changeHomeMembershipRole",
-        "tags": ["Homes"],
-        "parameters": [{"$ref": "#/components/parameters/HomeId"}, {"$ref": "#/components/parameters/UserId"}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["role", "expectedRevision"], "properties": {"role": {"$ref": "#/components/schemas/HomeRole"}, "expectedRevision": {"type": "integer", "minimum": 1}}}}}},
-        "responses": {"204": {"description": "Role changed"}, "409": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "$ref": "#/components/parameters/UserId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "role",
+                  "expectedRevision"
+                ],
+                "properties": {
+                  "role": {
+                    "$ref": "#/components/schemas/HomeRole"
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Role changed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
-    "/api/v1/homes/{homeId}/memberships/me": {"delete": {"operationId": "leaveHome", "tags": ["Homes"], "parameters": [{"$ref": "#/components/parameters/HomeId"}], "responses": {"204": {"description": "Left"}, "409": {"$ref": "#/components/responses/Problem"}}}},
+    "/api/v1/homes/{homeId}/memberships/me": {
+      "delete": {
+        "operationId": "leaveHome",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Left"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/api/v1/homes/{homeId}/ownership-transfer": {
       "post": {
         "operationId": "transferHomeOwnership",
-        "tags": ["Homes"],
-        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["targetUserId", "expectedTargetRevision"], "properties": {"targetUserId": {"type": "string", "format": "uuid"}, "expectedTargetRevision": {"type": "integer", "minimum": 1}}}}}},
-        "responses": {"204": {"description": "Ownership atomically transferred"}, "409": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "targetUserId",
+                  "expectedTargetRevision"
+                ],
+                "properties": {
+                  "targetUserId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "expectedTargetRevision": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Ownership atomically transferred"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
     "/api/v1/homes/{homeId}/invitations": {
       "post": {
         "operationId": "createHomeInvitation",
-        "tags": ["Homes"],
-        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["email", "role"], "properties": {"email": {"type": "string", "format": "email"}, "role": {"type": "string", "enum": ["manager", "member", "viewer"]}}}}}},
-        "responses": {"201": {"description": "Expiring single-use invitation created and mailed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/InvitationCreated"}}}}, "403": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "email",
+                  "role"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "manager",
+                      "member",
+                      "viewer"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Expiring single-use invitation created and mailed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationCreated"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
-    "/api/v1/home-invitations/accept": {"post": {"operationId": "acceptHomeInvitation", "tags": ["Homes"], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenRequest"}}}}, "responses": {"200": {"description": "Accepted", "content": {"application/json": {"schema": {"type": "object"}}}}, "422": {"$ref": "#/components/responses/Problem"}}}},
+    "/api/v1/home-invitations/accept": {
+      "post": {
+        "operationId": "acceptHomeInvitation",
+        "tags": [
+          "Homes"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/api/v1/catalog/products": {
       "get": {
         "operationId": "searchCatalogProducts",
         "security": [],
-        "tags": ["Catalog"],
-        "parameters": [{"name": "q", "in": "query", "schema": {"type": "string", "maxLength": 191}}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}}, {"name": "offset", "in": "query", "schema": {"type": "integer", "minimum": 0, "default": 0}}],
-        "responses": {"200": {"description": "Published global catalog only", "content": {"application/json": {"schema": {"type": "object"}}}}}
+        "tags": [
+          "Catalog"
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 191
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Published global catalog only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/homes/{homeId}/sync/push": {
       "post": {
         "operationId": "pushHomeSynchronization",
-        "tags": ["Synchronization"],
-        "parameters": [{"$ref": "#/components/parameters/HomeId"}, {"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SyncPushRequest"}}}},
-        "responses": {"200": {"description": "One classified result per operation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SyncPushResponse"}}}}, "403": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Synchronization"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncPushRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One classified result per operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncPushResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
     "/api/v1/homes/{homeId}/sync/pull": {
       "get": {
         "operationId": "pullHomeSynchronization",
-        "tags": ["Synchronization"],
-        "parameters": [{"$ref": "#/components/parameters/HomeId"}, {"name": "cursor", "in": "query", "schema": {"type": "string"}}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 250, "default": 250}}],
-        "responses": {"200": {"description": "Ordered changes through a frozen high-water cursor", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SyncPullResponse"}}}}, "410": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Synchronization"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 250,
+              "default": 250
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ordered changes through a frozen high-water cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncPullResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     },
     "/api/v1/homes/{homeId}/sync/bootstrap": {
       "get": {
         "operationId": "bootstrapHomeSynchronization",
-        "tags": ["Synchronization"],
-        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
-        "responses": {"200": {"description": "Consistent authorized current-state snapshot and captured cursor", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SyncBootstrapResponse"}}}}, "409": {"$ref": "#/components/responses/Problem"}}
+        "tags": [
+          "Synchronization"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consistent authorized current-state snapshot and captured cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncBootstrapResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/dashboard": {
+      "get": {
+        "operationId": "getHomeDashboard",
+        "tags": [
+          "Reporting"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Home dashboard projection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/locations": {
+      "get": {
+        "operationId": "listHomeLocations",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Home locations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Location"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createHomeLocation",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLocationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Location created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Location"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/products": {
+      "get": {
+        "operationId": "listHomeProducts",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Home item master",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/HomeProduct"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createHomeProduct",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHomeProductRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Home product created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeProduct"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/stock": {
+      "get": {
+        "operationId": "listHomeStock",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current ledger balances",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/HomeProduct"
+                          },
+                          {
+                            "$ref": "#/components/schemas/InventoryBalance"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/stock-adjustments": {
+      "post": {
+        "operationId": "createStockAdjustment",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable operation identifier for exactly-once movement creation.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockAdjustmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Adjustment movement created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockMovement"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/stock-movements": {
+      "get": {
+        "operationId": "listStockMovements",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "homeProductId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Append-only movement history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/StockMovement"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/inventory-balances/rebuild": {
+      "post": {
+        "operationId": "rebuildInventoryBalances",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balances rebuilt from the append-only ledger",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/stock-count-sessions": {
+      "get": {
+        "operationId": "listStockCountSessions",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Count sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/StockCountSession"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "operationId": "startStockCountSession",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartCountRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Count session started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockCountSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}": {
+      "get": {
+        "operationId": "getStockCountSession",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Count session and lines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockCountSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/lines/{lineId}": {
+      "put": {
+        "operationId": "putStockCountLine",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "lineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordCountRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Count line recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockCountLine"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/close": {
+      "post": {
+        "operationId": "closeStockCountSession",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpectedRevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Count committed as ledger corrections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockCountSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/receipts": {
+      "get": {
+        "operationId": "listReceipts",
+        "tags": [
+          "Purchasing"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "storeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Purchase history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Receipt"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createReceipt",
+        "tags": [
+          "Purchasing"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReceiptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Draft receipt created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/receipts/{receiptId}": {
+      "get": {
+        "operationId": "getReceipt",
+        "tags": [
+          "Purchasing"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "receiptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt and review state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/stores": {
+      "post": {
+        "operationId": "createStore",
+        "tags": [
+          "Purchasing"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Store created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/purchase-summary": {
+      "get": {
+        "operationId": "getPurchaseSummary",
+        "tags": [
+          "Purchasing"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "recentDays",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650,
+              "default": 90
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Purchase totals and history coverage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/receipts/{receiptId}/lines": {
+      "post": {
+        "operationId": "createReceiptLine",
+        "tags": [
+          "Purchasing"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "receiptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReceiptLineRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Receipt line created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptLine"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/receipts/{receiptId}/lines/{lineId}/approve": {
+      "post": {
+        "operationId": "approveReceiptLine",
+        "tags": [
+          "Purchasing"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "receiptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "lineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveReceiptLineRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Receipt line approved"
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/receipts/{receiptId}/commit": {
+      "post": {
+        "operationId": "commitReceipt",
+        "tags": [
+          "Purchasing"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "receiptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpectedRevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Receipt committed and approved lines applied once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/shopping-lists": {
+      "get": {
+        "operationId": "listShoppingLists",
+        "tags": [
+          "Shopping"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Shopping lists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ShoppingList"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createShoppingList",
+        "tags": [
+          "Shopping"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateShoppingListRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Shopping list created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/shopping-lists/{listId}": {
+      "get": {
+        "operationId": "getShoppingList",
+        "tags": [
+          "Shopping"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "listId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Shopping list and lines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/shopping-lists/{listId}/lines": {
+      "post": {
+        "operationId": "createShoppingListLine",
+        "tags": [
+          "Shopping"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "listId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateShoppingListLineRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Shopping list line created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingListLine"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/shopping-lists/{listId}/lines/{lineId}/checked": {
+      "put": {
+        "operationId": "setShoppingListLineChecked",
+        "tags": [
+          "Shopping"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "listId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "lineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckShoppingListLineRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Shopping list line state updated"
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/shopping-suggestions": {
+      "get": {
+        "operationId": "listShoppingSuggestions",
+        "tags": [
+          "Shopping"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deterministic Phase 5 parity suggestions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
       }
     }
   },
   "components": {
     "securitySchemes": {
-      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "opaque"},
-      "cookieAuth": {"type": "apiKey", "in": "cookie", "name": "providentia_access"}
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque"
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "providentia_access"
+      }
     },
     "parameters": {
-      "HomeId": {"name": "homeId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
-      "UserId": {"name": "userId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
-      "SessionId": {"name": "sessionId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
-      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "description": "Must equal batchId for stable identical batch retries.", "schema": {"type": "string", "format": "uuid"}}
+      "HomeId": {
+        "name": "homeId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "UserId": {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "SessionId": {
+        "name": "sessionId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Must equal batchId for stable identical batch retries.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
     },
     "responses": {
-      "Problem": {"description": "RFC 9457 Problem Details", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/ProblemDetails"}}}}
+      "Problem": {
+        "description": "RFC 9457 Problem Details",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            }
+          }
+        }
+      }
     },
     "schemas": {
-      "ProblemDetails": {"type": "object", "description": "Problem Details for HTTP APIs as defined by RFC 9457.", "required": ["type", "title", "status", "requestId"], "properties": {"type": {"type": "string"}, "title": {"type": "string"}, "status": {"type": "integer", "minimum": 400, "maximum": 599}, "detail": {"type": "string"}, "requestId": {"type": "string"}}, "additionalProperties": true},
-      "HealthStatus": {"type": "object", "required": ["status", "timestamp"], "properties": {"status": {"const": "alive"}, "timestamp": {"type": "string", "format": "date-time"}}},
-      "ReadinessStatus": {"type": "object", "required": ["status", "checks"], "properties": {"status": {"enum": ["ready", "not_ready"]}, "checks": {"type": "object"}}},
-      "SystemInfo": {"type": "object", "required": ["product", "apiVersion", "applicationVersion", "environment", "runtime", "databaseDriver", "queueAdapter", "queueBroker"], "properties": {"product": {"const": "Providentia"}, "apiVersion": {"const": "v1"}, "applicationVersion": {"type": "string"}, "environment": {"type": "string"}, "runtime": {"type": "string"}, "databaseDriver": {"type": "string"}, "queueAdapter": {"const": "enqueue-redis"}, "queueBroker": {"enum": ["redis-compatible", "unknown"]}}},
-      "RegisterRequest": {"type": "object", "additionalProperties": false, "required": ["email", "password", "displayName"], "properties": {"email": {"type": "string", "format": "email"}, "password": {"type": "string", "minLength": 12, "maxLength": 1024}, "displayName": {"type": "string", "minLength": 1, "maxLength": 120}, "locale": {"type": "string"}, "timezone": {"type": "string"}}},
-      "RegisterResponse": {"type": "object", "additionalProperties": false, "required": ["accepted", "verificationRequired"], "properties": {"accepted": {"const": true}, "verificationRequired": {"const": true}, "developmentVerificationToken": {"type": "string", "writeOnly": true, "description": "Present only in an explicitly enabled non-production development profile."}}},
-      "EmailRequest": {"type": "object", "additionalProperties": false, "required": ["email"], "properties": {"email": {"type": "string", "format": "email"}}},
-      "TokenRequest": {"type": "object", "additionalProperties": false, "required": ["token"], "properties": {"token": {"type": "string", "minLength": 40}}},
-      "LoginRequest": {"type": "object", "additionalProperties": false, "required": ["email", "password", "deviceId", "deviceName", "platform"], "properties": {"email": {"type": "string", "format": "email"}, "password": {"type": "string"}, "deviceId": {"type": "string", "format": "uuid"}, "deviceName": {"type": "string"}, "platform": {"type": "string"}, "transport": {"enum": ["native", "web"], "default": "native"}}},
-      "SessionCredentials": {"type": "object", "required": ["sessionId", "deviceId", "accessExpiresAt"], "properties": {"accessToken": {"type": "string", "writeOnly": true}, "refreshToken": {"type": "string", "writeOnly": true}, "csrfToken": {"type": "string", "writeOnly": true}, "sessionId": {"type": "string", "format": "uuid"}, "deviceId": {"type": "string", "format": "uuid"}, "accessExpiresAt": {"type": "string", "format": "date-time"}, "transport": {"type": "string"}}},
-      "DeviceSession": {"type": "object", "required": ["id", "deviceId"], "properties": {"id": {"type": "string", "format": "uuid"}, "deviceId": {"type": "string", "format": "uuid"}, "deviceName": {"type": "string"}, "platform": {"type": "string"}, "activeHomeId": {"type": ["string", "null"], "format": "uuid"}, "createdAt": {"type": "string"}, "lastSeenAt": {"type": "string"}, "revokedAt": {"type": ["string", "null"]}}},
-      "HomeRole": {"type": "string", "enum": ["owner", "manager", "member", "viewer"]},
-      "CreateHomeRequest": {"type": "object", "additionalProperties": false, "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 120}, "locale": {"type": "string", "default": "en-NA"}, "currency": {"type": "string", "pattern": "^[A-Z]{3}$", "default": "NAD"}, "timezone": {"type": "string", "default": "Africa/Windhoek"}}},
-      "Home": {"type": "object", "required": ["id", "name", "revision"], "properties": {"id": {"type": "string", "format": "uuid"}, "name": {"type": "string"}, "defaultLocale": {"type": "string"}, "defaultCurrency": {"type": "string"}, "defaultTimezone": {"type": "string"}, "role": {"$ref": "#/components/schemas/HomeRole"}, "revision": {"type": "integer"}}},
-      "HomeMembership": {"type": "object", "required": ["userId", "role", "revision"], "properties": {"userId": {"type": "string", "format": "uuid"}, "displayName": {"type": "string"}, "role": {"$ref": "#/components/schemas/HomeRole"}, "revision": {"type": "integer"}}},
-      "InvitationCreated": {"type": "object", "additionalProperties": false, "required": ["invitationId", "expiresAt", "delivery"], "properties": {"invitationId": {"type": "string", "format": "uuid"}, "expiresAt": {"type": "string", "format": "date-time"}, "delivery": {"const": "transactional-email"}}},
-      "SyncPrivateNotePayload": {"type": "object", "additionalProperties": false, "required": ["body"], "properties": {"title": {"type": "string", "maxLength": 120}, "body": {"type": "string", "minLength": 1, "maxLength": 4000}}},
-      "SyncHomePreferencePayload": {"type": "object", "additionalProperties": false, "minProperties": 1, "properties": {"defaultLocale": {"type": "string", "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"}, "defaultCurrency": {"type": "string", "pattern": "^[A-Z]{3}$"}, "defaultTimezone": {"type": "string", "minLength": 1, "maxLength": 64}, "measurementSystem": {"enum": ["metric", "imperial"]}}},
+      "ProblemDetails": {
+        "type": "object",
+        "description": "Problem Details for HTTP APIs as defined by RFC 9457.",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "requestId"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "detail": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "HealthStatus": {
+        "type": "object",
+        "required": [
+          "status",
+          "timestamp"
+        ],
+        "properties": {
+          "status": {
+            "const": "alive"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReadinessStatus": {
+        "type": "object",
+        "required": [
+          "status",
+          "checks"
+        ],
+        "properties": {
+          "status": {
+            "enum": [
+              "ready",
+              "not_ready"
+            ]
+          },
+          "checks": {
+            "type": "object"
+          }
+        }
+      },
+      "SystemInfo": {
+        "type": "object",
+        "required": [
+          "product",
+          "apiVersion",
+          "applicationVersion",
+          "environment",
+          "runtime",
+          "databaseDriver",
+          "queueAdapter",
+          "queueBroker"
+        ],
+        "properties": {
+          "product": {
+            "const": "Providentia"
+          },
+          "apiVersion": {
+            "const": "v1"
+          },
+          "applicationVersion": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "databaseDriver": {
+            "type": "string"
+          },
+          "queueAdapter": {
+            "const": "enqueue-redis"
+          },
+          "queueBroker": {
+            "enum": [
+              "redis-compatible",
+              "unknown"
+            ]
+          }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email",
+          "password",
+          "displayName"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "locale": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        }
+      },
+      "RegisterResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accepted",
+          "verificationRequired"
+        ],
+        "properties": {
+          "accepted": {
+            "const": true
+          },
+          "verificationRequired": {
+            "const": true
+          },
+          "developmentVerificationToken": {
+            "type": "string",
+            "writeOnly": true,
+            "description": "Present only in an explicitly enabled non-production development profile."
+          }
+        }
+      },
+      "EmailRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
+      "TokenRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 40
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email",
+          "password",
+          "deviceId",
+          "deviceName",
+          "platform"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceName": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "transport": {
+            "enum": [
+              "native",
+              "web"
+            ],
+            "default": "native"
+          }
+        }
+      },
+      "SessionCredentials": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "deviceId",
+          "accessExpiresAt",
+          "userId"
+        ],
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "writeOnly": true
+          },
+          "refreshToken": {
+            "type": "string",
+            "writeOnly": true
+          },
+          "csrfToken": {
+            "type": "string",
+            "writeOnly": true
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "accessExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "DeviceSession": {
+        "type": "object",
+        "required": [
+          "id",
+          "deviceId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceName": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "activeHomeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "HomeRole": {
+        "type": "string",
+        "enum": [
+          "owner",
+          "manager",
+          "member",
+          "viewer"
+        ]
+      },
+      "CreateHomeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "locale": {
+            "type": "string",
+            "default": "en-NA"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$",
+            "default": "NAD"
+          },
+          "timezone": {
+            "type": "string",
+            "default": "Africa/Windhoek"
+          }
+        }
+      },
+      "Home": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "defaultLocale": {
+            "type": "string"
+          },
+          "defaultCurrency": {
+            "type": "string"
+          },
+          "defaultTimezone": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/HomeRole"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        }
+      },
+      "HomeMembership": {
+        "type": "object",
+        "required": [
+          "userId",
+          "role",
+          "revision"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/HomeRole"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        }
+      },
+      "InvitationCreated": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invitationId",
+          "expiresAt",
+          "delivery"
+        ],
+        "properties": {
+          "invitationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "delivery": {
+            "const": "transactional-email"
+          }
+        }
+      },
+      "SyncPrivateNotePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      },
+      "SyncHomePreferencePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "defaultLocale": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+          },
+          "defaultCurrency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "defaultTimezone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "measurementSystem": {
+            "enum": [
+              "metric",
+              "imperial"
+            ]
+          }
+        }
+      },
       "SyncOperation": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["operationId", "entityType", "entityId", "operationType", "clientTimestamp", "payloadSchemaVersion", "payload"],
+        "required": [
+          "operationId",
+          "entityType",
+          "entityId",
+          "operationType",
+          "clientTimestamp",
+          "payloadSchemaVersion",
+          "payload"
+        ],
         "properties": {
-          "operationId": {"type": "string", "format": "uuid"},
-          "entityType": {"enum": ["home-preference", "private-note"]},
-          "entityId": {"type": "string", "format": "uuid"},
-          "operationType": {"enum": ["put", "delete"]},
-          "baseRevision": {"type": ["integer", "null"], "minimum": 0},
-          "clientTimestamp": {"type": "string", "format": "date-time"},
-          "payloadSchemaVersion": {"const": 1},
-          "payload": {"type": "object"}
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entityType": {
+            "enum": [
+              "home-preference",
+              "private-note"
+            ]
+          },
+          "entityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operationType": {
+            "enum": [
+              "put",
+              "delete"
+            ]
+          },
+          "baseRevision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "clientTimestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "payloadSchemaVersion": {
+            "const": 1
+          },
+          "payload": {
+            "type": "object"
+          }
         },
         "allOf": [
-          {"if": {"properties": {"operationType": {"const": "delete"}}, "required": ["operationType"]}, "then": {"properties": {"payload": {"type": "object", "maxProperties": 0}}}},
-          {"if": {"properties": {"operationType": {"const": "put"}, "entityType": {"const": "private-note"}}, "required": ["operationType", "entityType"]}, "then": {"properties": {"payload": {"$ref": "#/components/schemas/SyncPrivateNotePayload"}}}},
-          {"if": {"properties": {"operationType": {"const": "put"}, "entityType": {"const": "home-preference"}}, "required": ["operationType", "entityType"]}, "then": {"properties": {"payload": {"$ref": "#/components/schemas/SyncHomePreferencePayload"}}}}
+          {
+            "if": {
+              "properties": {
+                "operationType": {
+                  "const": "delete"
+                }
+              },
+              "required": [
+                "operationType"
+              ]
+            },
+            "then": {
+              "properties": {
+                "payload": {
+                  "type": "object",
+                  "maxProperties": 0
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "operationType": {
+                  "const": "put"
+                },
+                "entityType": {
+                  "const": "private-note"
+                }
+              },
+              "required": [
+                "operationType",
+                "entityType"
+              ]
+            },
+            "then": {
+              "properties": {
+                "payload": {
+                  "$ref": "#/components/schemas/SyncPrivateNotePayload"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "operationType": {
+                  "const": "put"
+                },
+                "entityType": {
+                  "const": "home-preference"
+                }
+              },
+              "required": [
+                "operationType",
+                "entityType"
+              ]
+            },
+            "then": {
+              "properties": {
+                "payload": {
+                  "$ref": "#/components/schemas/SyncHomePreferencePayload"
+                }
+              }
+            }
+          }
         ]
       },
-      "SyncPushRequest": {"type": "object", "additionalProperties": false, "required": ["protocolVersion", "batchId", "deviceId", "operations"], "properties": {"protocolVersion": {"const": 1}, "batchId": {"type": "string", "format": "uuid"}, "deviceId": {"type": "string", "format": "uuid"}, "lastPulledCursor": {"type": ["string", "null"]}, "operations": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/components/schemas/SyncOperation"}}}},
-      "SyncOperationResult": {"type": "object", "required": ["operationId", "status"], "properties": {"operationId": {"type": "string", "format": "uuid"}, "status": {"enum": ["accepted", "conflict", "validation_error", "authorization_failure", "retryable_failure"]}, "entityType": {"type": "string"}, "entityId": {"type": "string", "format": "uuid"}, "revision": {"type": "integer"}, "changeCursor": {"type": "string"}, "representation": {"type": "object"}, "conflict": {"type": "object"}, "detail": {"type": "string"}}},
-      "SyncPushResponse": {"type": "object", "required": ["protocolVersion", "batchId", "requestId", "serverTime", "results", "highWaterCursor"], "properties": {"protocolVersion": {"const": 1}, "batchId": {"type": "string", "format": "uuid"}, "requestId": {"type": "string"}, "serverTime": {"type": "string", "format": "date-time"}, "results": {"type": "array", "items": {"$ref": "#/components/schemas/SyncOperationResult"}}, "highWaterCursor": {"type": "string"}}},
-      "SyncChange": {"type": "object", "required": ["cursor", "entityType", "entityId", "operation", "revision", "serverTimestamp", "representationSchemaVersion"], "properties": {"cursor": {"type": "string"}, "entityType": {"type": "string"}, "entityId": {"type": "string", "format": "uuid"}, "operation": {"enum": ["upsert", "delete"]}, "revision": {"type": "integer"}, "serverTimestamp": {"type": "string", "format": "date-time"}, "representationSchemaVersion": {"const": 1}, "representation": {"type": "object"}, "tombstone": {"type": "object", "required": ["deletedAt"], "properties": {"deletedAt": {"type": "string", "format": "date-time"}}}}},
-      "SyncPullResponse": {"type": "object", "required": ["protocolVersion", "requestId", "fromCursor", "pageCursor", "highWaterCursor", "hasMore", "changes"], "properties": {"protocolVersion": {"const": 1}, "requestId": {"type": "string"}, "fromCursor": {"type": "string"}, "pageCursor": {"type": "string"}, "highWaterCursor": {"type": "string"}, "hasMore": {"type": "boolean"}, "changes": {"type": "array", "items": {"$ref": "#/components/schemas/SyncChange"}}}}
-      ,
-      "SyncBootstrapResponse": {"type": "object", "required": ["protocolVersion", "requestId", "snapshotCursor", "records"], "properties": {"protocolVersion": {"const": 1}, "requestId": {"type": "string"}, "snapshotCursor": {"type": "string"}, "records": {"type": "array", "maxItems": 250, "items": {"type": "object"}}}}
+      "SyncPushRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocolVersion",
+          "batchId",
+          "deviceId",
+          "operations"
+        ],
+        "properties": {
+          "protocolVersion": {
+            "const": 1
+          },
+          "batchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lastPulledCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/SyncOperation"
+            }
+          }
+        }
+      },
+      "SyncOperationResult": {
+        "type": "object",
+        "required": [
+          "operationId",
+          "status"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "conflict",
+              "validation_error",
+              "authorization_failure",
+              "retryable_failure"
+            ]
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "changeCursor": {
+            "type": "string"
+          },
+          "representation": {
+            "type": "object"
+          },
+          "conflict": {
+            "type": "object"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      },
+      "SyncPushResponse": {
+        "type": "object",
+        "required": [
+          "protocolVersion",
+          "batchId",
+          "requestId",
+          "serverTime",
+          "results",
+          "highWaterCursor"
+        ],
+        "properties": {
+          "protocolVersion": {
+            "const": 1
+          },
+          "batchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "serverTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncOperationResult"
+            }
+          },
+          "highWaterCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "SyncChange": {
+        "type": "object",
+        "required": [
+          "cursor",
+          "entityType",
+          "entityId",
+          "operation",
+          "revision",
+          "serverTimestamp",
+          "representationSchemaVersion"
+        ],
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operation": {
+            "enum": [
+              "upsert",
+              "delete"
+            ]
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "serverTimestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "representationSchemaVersion": {
+            "const": 1
+          },
+          "representation": {
+            "type": "object"
+          },
+          "tombstone": {
+            "type": "object",
+            "required": [
+              "deletedAt"
+            ],
+            "properties": {
+              "deletedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "SyncPullResponse": {
+        "type": "object",
+        "required": [
+          "protocolVersion",
+          "requestId",
+          "fromCursor",
+          "pageCursor",
+          "highWaterCursor",
+          "hasMore",
+          "changes"
+        ],
+        "properties": {
+          "protocolVersion": {
+            "const": 1
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "fromCursor": {
+            "type": "string"
+          },
+          "pageCursor": {
+            "type": "string"
+          },
+          "highWaterCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncChange"
+            }
+          }
+        }
+      },
+      "SyncBootstrapResponse": {
+        "type": "object",
+        "required": [
+          "protocolVersion",
+          "requestId",
+          "snapshotCursor",
+          "records"
+        ],
+        "properties": {
+          "protocolVersion": {
+            "const": 1
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "snapshotCursor": {
+            "type": "string"
+          },
+          "records": {
+            "type": "array",
+            "maxItems": 250,
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "Location": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeId",
+          "name",
+          "kind",
+          "status",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "HomeProduct": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeId",
+          "status",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "packId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "privateName": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "originalPackText": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "productName": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "brandName": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "categoryId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "InventoryBalance": {
+        "type": "object",
+        "required": [
+          "homeProductId",
+          "quantity",
+          "revision"
+        ],
+        "properties": {
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]{0,8})(?:\\.[0-9]{1,8})?$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "StockMovement": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeId",
+          "homeProductId",
+          "movementType",
+          "quantityDelta",
+          "sourceType",
+          "sourceId",
+          "occurredAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "movementType": {
+            "type": "string"
+          },
+          "quantityDelta": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]{0,8})(?:\\.[0-9]{1,8})?$"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "actorUserId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reversedMovementId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "StockCountLine": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeProductId",
+          "quantity",
+          "status",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]{0,8})(?:\\.[0-9]{1,8})?$"
+          },
+          "confidence": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^(?:0(?:\\.[0-9]{1,4})?|1(?:\\.0{1,4})?)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "StockCountSession": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeId",
+          "status",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locationId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StockCountLine"
+            }
+          }
+        }
+      },
+      "ReceiptLine": {
+        "type": "object",
+        "required": [
+          "id",
+          "receiptId",
+          "lineNumber",
+          "rawDescription",
+          "quantity",
+          "approvalStatus",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receiptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lineNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "rawDescription": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]{0,8})(?:\\.[0-9]{1,8})?$"
+          },
+          "originalPackText": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitPrice": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lineTotal": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "homeProductId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvalStatus": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "Receipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeId",
+          "purchaseDate",
+          "currency",
+          "status",
+          "source",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "storeId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "purchaseDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "totalAmount": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptLine"
+            }
+          }
+        }
+      },
+      "ShoppingListLine": {
+        "type": "object",
+        "required": [
+          "id",
+          "description",
+          "quantityToBuy",
+          "checked",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeProductId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "quantityToBuy": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]{0,8})(?:\\.[0-9]{1,8})?$"
+          },
+          "checked": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ShoppingList": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeId",
+          "name",
+          "kind",
+          "status",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShoppingListLine"
+            }
+          }
+        }
+      },
+      "CreateLocationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        }
+      },
+      "CreateHomeProductRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "productId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "packId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "privateName": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "originalPackText": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "StockAdjustmentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "homeProductId",
+          "quantityDelta",
+          "reason"
+        ],
+        "properties": {
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantityDelta": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]{0,8})(?:\\.[0-9]{1,8})?$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "StartCountRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "locationId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "RecordCountRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "homeProductId",
+          "quantity",
+          "expectedRevision"
+        ],
+        "properties": {
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]{0,8})(?:\\.[0-9]{1,8})?$"
+          },
+          "confidence": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ExpectedRevisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedRevision"
+        ],
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "CreateStoreRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "location": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateReceiptRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "purchaseDate",
+          "currency"
+        ],
+        "properties": {
+          "storeId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "purchaseDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "totalAmount": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "type": "string"
+          },
+          "sourceReference": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "CreateReceiptLineRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedReceiptRevision",
+          "rawDescription",
+          "quantity"
+        ],
+        "properties": {
+          "rawDescription": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]{0,8})(?:\\.[0-9]{1,8})?$"
+          },
+          "originalPackText": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitPrice": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lineTotal": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expectedReceiptRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ApproveReceiptLineRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "homeProductId",
+          "expectedRevision"
+        ],
+        "properties": {
+          "homeProductId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "CreateShoppingListRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "mixed",
+              "suggested"
+            ]
+          }
+        }
+      },
+      "CreateShoppingListLineRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedListRevision",
+          "description",
+          "quantityToBuy"
+        ],
+        "properties": {
+          "homeProductId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantityToBuy": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]{0,8})(?:\\.[0-9]{1,8})?$"
+          },
+          "expectedListRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "CheckShoppingListLineRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "checked",
+          "expectedRevision"
+        ],
+        "properties": {
+          "checked": {
+            "type": "boolean"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
     }
   },
-  "tags": [{"name": "Operations"}, {"name": "System"}, {"name": "Identity"}, {"name": "Homes"}, {"name": "Catalog"}, {"name": "Synchronization"}]
+  "tags": [
+    {
+      "name": "Operations"
+    },
+    {
+      "name": "System"
+    },
+    {
+      "name": "Identity"
+    },
+    {
+      "name": "Homes"
+    },
+    {
+      "name": "Catalog"
+    },
+    {
+      "name": "Synchronization"
+    },
+    {
+      "name": "Inventory"
+    },
+    {
+      "name": "Purchasing"
+    },
+    {
+      "name": "Shopping"
+    },
+    {
+      "name": "Reporting"
+    }
+  ]
 }
