@@ -271,8 +271,7 @@ final class SynchronizationStoreTest extends TestCase
         string $operationId,
         ?int $baseRevision,
         string $type,
-    ): SyncOperation
-    {
+    ): SyncOperation {
         return new SyncOperation(
             $operationId,
             'private-note',
