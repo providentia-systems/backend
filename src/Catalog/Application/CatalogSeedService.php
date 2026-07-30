@@ -6,8 +6,8 @@ namespace Providentia\Catalog\Application;
 
 use JsonException;
 use Providentia\SharedKernel\Application\Clock;
+use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
-use Providentia\SharedKernel\Http\HttpProblem;
 
 final class CatalogSeedService
 {
@@ -28,7 +28,7 @@ final class CatalogSeedService
         foreach ($expectedDigests as $path => $expectedDigest) {
             $actualDigest = is_file($path) ? hash_file('sha256', $path) : false;
             if (! is_string($actualDigest) || ! hash_equals($expectedDigest, $actualDigest)) {
-                throw new HttpProblem(
+                throw new Problem(
                     422,
                     'Seed integrity failed',
                     'An authoritative catalog source failed SHA-256 verification.',
@@ -42,14 +42,14 @@ final class CatalogSeedService
         $identityRules = $rules['identityRules'] ?? null;
         $unresolved = $rules['unresolvedCurrentStock'] ?? null;
         if (! is_array($items) || ! is_array($aliases) || ! is_array($identityRules) || ! is_array($unresolved)) {
-            throw new HttpProblem(422, 'Invalid seed', 'The authoritative catalog exports have an invalid shape.');
+            throw new Problem(422, 'Invalid seed', 'The authoritative catalog exports have an invalid shape.');
         }
         if (
             ! array_is_list($items)
             || ! array_is_list($identityRules)
             || ! array_is_list($unresolved)
         ) {
-            throw new HttpProblem(422, 'Invalid seed', 'The authoritative seed collections must be ordered lists.');
+            throw new Problem(422, 'Invalid seed', 'The authoritative seed collections must be ordered lists.');
         }
         $productNames = [];
         $tuples = [];
@@ -57,14 +57,14 @@ final class CatalogSeedService
         $pendingPacks = 0;
         foreach ($items as $row) {
             if (! is_array($row)) {
-                throw new HttpProblem(422, 'Invalid seed', 'Every item-master row must be an object.');
+                throw new Problem(422, 'Invalid seed', 'Every item-master row must be an object.');
             }
             $product = trim((string) ($row['product'] ?? ''));
             $category = trim((string) ($row['category'] ?? ''));
             $brand = trim((string) ($row['brand'] ?? ''));
             $pack = trim((string) ($row['packSize'] ?? ''));
             if ($product === '' || $category === '') {
-                throw new HttpProblem(422, 'Invalid seed', 'Each seed row requires product and category.');
+                throw new Problem(422, 'Invalid seed', 'Each seed row requires product and category.');
             }
             $productNames[$product] = true;
             $categories[$category] = true;
@@ -81,17 +81,17 @@ final class CatalogSeedService
                 || ! array_is_list($values)
                 || array_filter($values, 'is_string') !== $values
             ) {
-                throw new HttpProblem(422, 'Invalid seed', 'Every alias group must contain ordered strings.');
+                throw new Problem(422, 'Invalid seed', 'Every alias group must contain ordered strings.');
             }
         }
         foreach ($identityRules as $rule) {
             if (! is_array($rule)) {
-                throw new HttpProblem(422, 'Invalid seed', 'Every identity rule must be an object.');
+                throw new Problem(422, 'Invalid seed', 'Every identity rule must be an object.');
             }
         }
         foreach ($unresolved as $description) {
             if (! is_string($description) || trim($description) === '') {
-                throw new HttpProblem(422, 'Invalid seed', 'Every unresolved description must be a string.');
+                throw new Problem(422, 'Invalid seed', 'Every unresolved description must be a string.');
             }
         }
         /** @var list<array<string, mixed>> $items */
@@ -125,7 +125,7 @@ final class CatalogSeedService
             'packSizePending' => 9,
         ];
         if ($report !== $expected) {
-            throw new HttpProblem(
+            throw new Problem(
                 422,
                 'Seed reconciliation failed',
                 'Catalog seed counts differ from the authoritative Phase 0 gates: '
@@ -166,15 +166,15 @@ final class CatalogSeedService
     private function decode(string $path): array
     {
         if (! is_file($path) || ! is_readable($path)) {
-            throw new HttpProblem(422, 'Invalid seed', 'Seed source is not readable: ' . $path);
+            throw new Problem(422, 'Invalid seed', 'Seed source is not readable: ' . $path);
         }
         try {
             $decoded = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException $error) {
-            throw new HttpProblem(422, 'Invalid seed', 'Seed JSON is invalid: ' . $error->getMessage());
+            throw new Problem(422, 'Invalid seed', 'Seed JSON is invalid: ' . $error->getMessage());
         }
         if (! is_array($decoded)) {
-            throw new HttpProblem(422, 'Invalid seed', 'Seed root must be an object.');
+            throw new Problem(422, 'Invalid seed', 'Seed root must be an object.');
         }
 
         return $decoded;
