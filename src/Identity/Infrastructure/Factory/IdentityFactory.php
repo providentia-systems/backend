@@ -19,6 +19,7 @@ use Providentia\Identity\Infrastructure\Doctrine\DbalAuthenticationRateLimitStor
 use Providentia\Identity\Infrastructure\Notification\SmtpAccountNotificationSender;
 use Providentia\Identity\Infrastructure\Security\NativeCredentialHasher;
 use Providentia\SharedKernel\Application\Clock;
+use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Psr\Container\ContainerInterface;
@@ -54,6 +55,7 @@ final class IdentityFactory
                 $container->get(UuidGenerator::class),
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
+                $container->get(SecureTokenGenerator::class),
                 $config['identity']['access_ttl_seconds'],
                 $config['identity']['refresh_ttl_seconds'],
             );
