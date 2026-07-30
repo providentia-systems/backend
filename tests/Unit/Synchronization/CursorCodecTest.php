@@ -6,7 +6,7 @@ namespace ProvidentiaTest\Unit\Synchronization;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
-use Providentia\SharedKernel\Http\HttpProblem;
+use Providentia\SharedKernel\Application\Problem;
 use Providentia\Synchronization\Application\CursorCodec;
 
 final class CursorCodecTest extends TestCase
@@ -33,7 +33,7 @@ final class CursorCodecTest extends TestCase
         try {
             $codec->decode($cursor, '01912345-6789-7abc-9def-0123456789ab');
             self::fail('A cursor issued for another home was accepted.');
-        } catch (HttpProblem $problem) {
+        } catch (Problem $problem) {
             self::assertSame(404, $problem->status);
         }
     }
@@ -48,7 +48,7 @@ final class CursorCodecTest extends TestCase
         try {
             $codec->decode($cursor, '01912345-6789-7abc-8def-0123456789ab');
             self::fail('An expired cursor was accepted.');
-        } catch (HttpProblem $problem) {
+        } catch (Problem $problem) {
             self::assertSame(410, $problem->status);
             self::assertSame(
                 'https://providentia.invalid/problems/sync_resync_required',
