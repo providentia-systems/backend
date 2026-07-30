@@ -61,6 +61,17 @@ final class InventoryHandler implements RequestHandlerInterface
                 (int) ($query['limit'] ?? 50),
                 (int) ($query['offset'] ?? 0),
             )]),
+            'balances.list' => new JsonResponse([
+                'data' => $this->inventory->stock(
+                    $identity,
+                    $homeId,
+                    (string) ($query['q'] ?? ''),
+                    isset($query['categoryId']) ? (string) $query['categoryId'] : null,
+                    (int) ($query['limit'] ?? 50),
+                    (int) ($query['offset'] ?? 0),
+                ),
+                'quantityType' => 'factual-ledger-balance',
+            ]),
             'adjustments.create' => new JsonResponse($this->inventory->manualAdjustment(
                 $identity,
                 $homeId,
@@ -87,6 +98,8 @@ final class InventoryHandler implements RequestHandlerInterface
                 $homeId,
                 isset($body['locationId']) ? (string) $body['locationId'] : null,
                 (string) ($body['notes'] ?? ''),
+                (bool) ($body['scopeComplete'] ?? false),
+                (string) ($body['reliability'] ?? 'unassessed'),
             ), 201),
             'counts.get' => new JsonResponse($this->inventory->countSession(
                 $identity,

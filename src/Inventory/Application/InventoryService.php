@@ -188,11 +188,23 @@ final class InventoryService implements InventoryMovementGateway
         string $homeId,
         ?string $locationId,
         string $notes,
+        bool $scopeComplete = false,
+        string $reliability = 'unassessed',
     ): array {
         $this->authorization->requireRole($identity, $homeId, self::WRITERS);
         $notes = trim($notes);
         if (mb_strlen($notes) > 2000) {
             throw new Problem(422, 'Invalid count session', 'Count-session notes exceed 2000 characters.');
+        }
+        if (
+            ! in_array($reliability, ['reliable', 'partial', 'unassessed'], true)
+            || ($reliability === 'reliable' && ! $scopeComplete)
+        ) {
+            throw new Problem(
+                422,
+                'Invalid count session',
+                'Reliable evidence requires an explicitly complete count scope.',
+            );
         }
         $id = $this->ids->generate();
         try {
@@ -201,6 +213,8 @@ final class InventoryService implements InventoryMovementGateway
                 $homeId,
                 $locationId === '' ? null : $locationId,
                 $notes,
+                $scopeComplete,
+                $reliability,
                 $identity->userId,
                 $this->clock->now(),
             );

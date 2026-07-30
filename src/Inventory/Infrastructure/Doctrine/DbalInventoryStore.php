@@ -7,10 +7,11 @@ namespace Providentia\Inventory\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Providentia\Inventory\Application\InventoryAnalyticsReader;
 use Providentia\Inventory\Application\InventoryStore;
 use Providentia\Inventory\Application\InventorySummaryReader;
 
-final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
+final class DbalInventoryStore implements InventoryStore, InventorySummaryReader, InventoryAnalyticsReader
 {
     public function __construct(private readonly Connection $connection)
     {
@@ -146,6 +147,32 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                 'approved' => 'approved',
                 'global_scope' => 'global',
             ],
+        );
+    }
+
+    public function inventoryReport(string $homeId): array
+    {
+        return $this->connection->fetchAllAssociative(
+            'SELECT hp.id AS homeProductId,
+                    COALESCE(p.canonical_name, hp.private_name) AS productName,
+                    COALESCE(pk.original_pack_text, hp.original_pack_text, :empty) AS packText,
+                    COALESCE(ib.quantity, 0) AS factualQuantity,
+                    ib.revision AS balanceRevision,
+                    ib.last_movement_id AS lastMovementId,
+                    ib.updated_at AS balanceUpdatedAt,
+                    sp.minimum_quantity AS configuredMinimum,
+                    sp.always_keep AS alwaysKeep,
+                    sp.never_suggest AS neverSuggest
+             FROM home_products hp
+             LEFT JOIN products p ON p.id = hp.product_id
+             LEFT JOIN product_packs pk ON pk.id = hp.pack_id
+             LEFT JOIN inventory_balances ib
+               ON ib.home_id = hp.home_id AND ib.home_product_id = hp.id
+             LEFT JOIN stock_threshold_preferences sp
+               ON sp.home_id = hp.home_id AND sp.home_product_id = hp.id
+             WHERE hp.home_id = :home AND hp.status = :status
+             ORDER BY productName, hp.id',
+            ['empty' => '', 'home' => $homeId, 'status' => 'active'],
         );
     }
 
@@ -324,6 +351,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         string $homeId,
         ?string $locationId,
         string $notes,
+        bool $scopeComplete,
+        string $reliability,
         string $actorUserId,
         DateTimeImmutable $at,
     ): void {
@@ -344,6 +373,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'location_id' => $locationId,
             'status' => 'open',
             'notes' => $notes,
+            'scope_complete' => $scopeComplete,
+            'reliability' => $reliability,
             'revision' => 1,
             'opened_by_user_id' => $actorUserId,
             'opened_at' => $now,
@@ -358,7 +389,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     {
         return $this->one(
             'SELECT s.id, s.home_id AS homeId, s.location_id AS locationId,
-                    l.name AS locationName, s.status, s.notes, s.revision,
+                    l.name AS locationName, s.status, s.notes,
+                    s.scope_complete AS scopeComplete, s.reliability, s.revision,
                     s.opened_by_user_id AS openedByUserId, s.opened_at AS openedAt,
                     s.closed_by_user_id AS closedByUserId, s.closed_at AS closedAt,
                     s.created_at AS createdAt, s.updated_at AS updatedAt
@@ -373,14 +405,16 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     {
         return $this->connection->fetchAllAssociative(
             'SELECT s.id, s.location_id AS locationId, l.name AS locationName,
-                    s.status, s.notes, s.revision, s.opened_at AS openedAt,
+                    s.status, s.notes, s.scope_complete AS scopeComplete,
+                    s.reliability, s.revision, s.opened_at AS openedAt,
                     s.closed_at AS closedAt, COUNT(sl.id) AS lineCount
              FROM stock_count_sessions s
              LEFT JOIN home_locations l ON l.id = s.location_id AND l.home_id = s.home_id
              LEFT JOIN stock_count_lines sl ON sl.session_id = s.id AND sl.home_id = s.home_id
              WHERE s.home_id = :home
              GROUP BY s.id, s.location_id, l.name, s.status, s.notes,
-                      s.revision, s.opened_at, s.closed_at
+                      s.scope_complete, s.reliability, s.revision,
+                      s.opened_at, s.closed_at
              ORDER BY s.opened_at DESC, s.id DESC
              LIMIT ' . $limit . ' OFFSET ' . $offset,
             ['home' => $homeId],
