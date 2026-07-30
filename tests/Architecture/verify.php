@@ -15,7 +15,17 @@ foreach ($iterator as $file) {
     $relative = substr($path, strlen($root) + 1);
 
     if (str_contains($relative, '/Domain/')) {
-        foreach (['Doctrine\\', 'Laminas\\', 'Mezzio\\', 'Enqueue\\', 'Interop\\Queue', 'Psr\\Http'] as $forbidden) {
+        foreach (
+            [
+                'Doctrine\\',
+                'Laminas\\',
+                'Mezzio\\',
+                'Enqueue\\',
+                'Interop\\Queue',
+                'Psr\\Http',
+                'Providentia\\SharedKernel\\Http\\',
+            ] as $forbidden
+        ) {
             if (str_contains($source, $forbidden)) {
                 $errors[] = $relative . ' Domain dependency: ' . $forbidden;
             }
