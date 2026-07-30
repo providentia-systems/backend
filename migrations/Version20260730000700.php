@@ -6,6 +6,7 @@ namespace Providentia\Migrations;
 
 use Doctrine\DBAL\Schema\Schema;
 use Doctrine\DBAL\Schema\Table;
+use Doctrine\DBAL\Types\Type;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\Migrations\AbstractMigration;
 
@@ -19,6 +20,10 @@ final class Version20260730000700 extends AbstractMigration
     public function up(Schema $schema): void
     {
         $proposals = $schema->getTable('catalog_proposals');
+        $proposals->modifyColumn('moderation_status', [
+            'type' => Type::getType(Types::STRING),
+            'length' => 24,
+        ]);
         $proposals->addColumn('proposal_type', Types::STRING, ['length' => 32, 'default' => 'legacy']);
         $proposals->addColumn('normalized_key', Types::STRING, ['length' => 191, 'default' => '']);
         $proposals->addColumn('submitted_by_user_id', Types::STRING, ['length' => 36, 'default' => '']);
@@ -195,6 +200,10 @@ final class Version20260730000700 extends AbstractMigration
         ]);
         $schema->getTable('catalog_proposals')->dropIndex('idx_catalog_proposals_workbench');
         $schema->getTable('catalog_proposals')->dropIndex('idx_catalog_proposals_normalized');
+        $schema->getTable('catalog_proposals')->modifyColumn('moderation_status', [
+            'type' => Type::getType(Types::TEXT),
+            'length' => null,
+        ]);
         $this->removeColumns($schema->getTable('catalog_proposals'), [
             'proposal_type',
             'normalized_key',

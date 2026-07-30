@@ -21,8 +21,7 @@ final class ConsumptionEstimator
         array $inbound,
         array $purchases,
         DateTimeImmutable $asOf,
-    ): array
-    {
+    ): array {
         usort($counts, static fn (array $left, array $right): int => $left['at'] <=> $right['at']);
         usort($purchases, static fn (DateTimeImmutable $left, DateTimeImmutable $right): int => $left <=> $right);
         $totalConsumption = FixedDecimal::zero();
