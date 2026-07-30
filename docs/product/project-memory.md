@@ -33,8 +33,17 @@ data, workflow, privacy, or architectural evidence.
 - Authentication methods beyond the Phase 2 email/password baseline
 - Supported offline duration, tombstone retention, and compaction boundary
 - Durable transactional delivery and retry policy for account/invitation mail
-- First-release media backup and AI privacy defaults
 
 None of these unresolved choices is silently treated as a production decision.
 Until retention is approved, sync tombstones are retained without automatic
 compaction.
+
+## Phase 6 privacy decision — 30 July 2026
+
+- `manual_only` is the fail-closed default for every home and deployment.
+- The first release does not persist receipt or stock-photo media.
+- Cloud extraction uses only the encrypted server proxy after deployment,
+  home, and user consent gates are all satisfied.
+- `local_direct` is a client-owned path to a user-controlled endpoint.
+- Advanced native direct cloud BYOK remains disabled pending a native-client
+  vault and warning design.

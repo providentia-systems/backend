@@ -8,6 +8,7 @@
     "ext-mbstring": "*",
     "ext-pdo": "*",
     "ext-redis": "*",
+    "ext-sodium": "*",
     "doctrine/dbal": "4.4.4",
     "doctrine/migrations": "3.9.5",
     "doctrine/orm": "3.6.6",
