@@ -81,8 +81,9 @@ final class PackOptimizer
                     }
                 }
             }
+            $selectedPackId = (string) $ranked[$selected]['packId'];
             $ranked[$selected]['selected'] = true;
-            $ranked[$selected]['reason'] = (string) $ranked[$selected]['packId'] === $preferredPackId
+            $ranked[$selected]['reason'] = $selectedPackId === $preferredPackId
                 ? 'preferred-pack'
                 : 'lowest-observed-cost';
         } elseif (count($currencies) > 1) {

@@ -130,7 +130,6 @@ final class AiIntegrationFactory
             }
         }
 
-        /** @var list<string> $hosts */
         return array_values(array_unique($hosts));
     }
 }
