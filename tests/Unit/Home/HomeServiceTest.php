@@ -14,6 +14,7 @@ use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
 use Providentia\SharedKernel\Application\UuidGenerator;
+use Providentia\SharedKernel\Application\SecureTokenGenerator;
 
 final class HomeServiceTest extends TestCase
 {
@@ -68,6 +69,7 @@ final class HomeServiceTest extends TestCase
             $ids,
             new HomeFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
             $transactions,
+            $this->createStub(SecureTokenGenerator::class),
         );
 
         $service->changeRole(
