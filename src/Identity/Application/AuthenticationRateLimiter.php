@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Identity\Application;
 
 use Providentia\SharedKernel\Application\Clock;
-use Providentia\SharedKernel\Http\HttpProblem;
+use Providentia\SharedKernel\Application\Problem;
 
 final class AuthenticationRateLimiter
 {
@@ -28,7 +28,7 @@ final class AuthenticationRateLimiter
                     900,
                 )
             ) {
-                throw new HttpProblem(
+                throw new Problem(
                     429,
                     'Too many authentication attempts',
                     'Wait before trying this authentication operation again.',
