@@ -62,8 +62,9 @@ readonly PACKAGE_BASENAME="$(basename "${PACKAGE_ROOT}")"
 readonly PACKAGE_PARENT_BASENAME="$(basename "$(dirname "${PACKAGE_ROOT}")")"
 
 if [[ "${PACKAGE_BASENAME}" != 'providentia-phase0' ]] \
-	&& ! [[ "${PACKAGE_BASENAME}" == 'phase0' && "${PACKAGE_PARENT_BASENAME}" == 'docs' ]]; then
-	fail "Package root must be providentia-phase0 or an embedded docs/phase0 copy"
+	&& ! [[ "${PACKAGE_BASENAME}" == 'phase-00-evidence' \
+		&& "${PACKAGE_PARENT_BASENAME}" == 'phases' ]]; then
+	fail "Package root must be providentia-phase0 or docs/product/phases/phase-00-evidence"
 fi
 
 for relative_path in "${REQUIRED_FILES[@]}"; do

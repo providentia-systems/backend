@@ -116,6 +116,26 @@ jq -e '
     and .seedRunsInserted == 0
     and .mappedSourceRows == 292
 ' <<<"$catalog_replay" >/dev/null
+baseline_dry_run="$(
+    docker compose --env-file "$env_file" exec -T api-mysql \
+        php bin/providentia baseline:import \
+        --data=/tmp/pantry-data.json \
+        --rules=/tmp/product-rules.json \
+        --dry-run
+)"
+jq -e '
+    .dryRun == true
+    and .itemMasterRows == 292
+    and .openingStockLines == 60
+    and .openingStockQuantity == 159
+    and .recentPurchaseLines == 16
+    and .recentPurchaseSpend == "1078.38"
+    and .historicalPurchaseLines == 452
+    and .monthlyValidationRows == 261
+    and .aliases == 19
+    and .identityRules == 19
+    and .unresolvedDescriptions == 8
+' <<<"$baseline_dry_run" >/dev/null
 
 api_base="http://127.0.0.1:${http_port}"
 login_payload="$(jq -n \
@@ -246,6 +266,7 @@ if [[ "$login_status" != '200' ]]; then
     exit 1
 fi
 access_token="$(jq -r '.accessToken' <<<"$login_response")"
+actor_user_id="$(jq -r '.userId' <<<"$login_response")"
 homes="$(
     curl --fail-with-body --silent --show-error \
         -H "Authorization: Bearer ${access_token}" \
@@ -266,16 +287,46 @@ curl --fail-with-body --silent --show-error \
     -H "Authorization: Bearer ${access_token}" \
     -X POST "${api_base}/api/v1/homes/${home_id}/switch" >/dev/null
 
+baseline_import="$(
+    docker compose --env-file "$env_file" exec -T api-mysql \
+        php bin/providentia baseline:import \
+        --data=/tmp/pantry-data.json \
+        --rules=/tmp/product-rules.json \
+        --home="$home_id" \
+        --actor-user="$actor_user_id"
+)"
+jq -e '
+    .catalogLinked == 23
+    and .privateProducts == 37
+    and .countLines == 60
+    and .quantity == 159
+    and .receipts == 9
+    and .lines == 468
+    and .approvedMatches == 456
+    and .unresolvedLines == 12
+    and .priceObservations == 16
+' <<<"$baseline_import" >/dev/null
+baseline_replay="$(
+    docker compose --env-file "$env_file" exec -T api-mysql \
+        php bin/providentia baseline:import \
+        --data=/tmp/pantry-data.json \
+        --rules=/tmp/product-rules.json \
+        --home="$home_id" \
+        --actor-user="$actor_user_id"
+)"
+jq -e '.replayed == true' <<<"$baseline_replay" >/dev/null
+
 umask 077
 jq -n \
     --arg apiBaseUrl "$api_base" \
     --arg homeId "$home_id" \
+    --arg userId "$actor_user_id" \
     --arg email "$dev_email" \
     --arg password "$dev_password" \
     --arg deviceId "$dev_device_id" \
     --arg accessToken "$access_token" \
     --arg refreshToken "$(jq -r '.refreshToken' <<<"$login_response")" \
-    '{apiBaseUrl:$apiBaseUrl,homeId:$homeId,email:$email,password:$password,deviceId:$deviceId,accessToken:$accessToken,refreshToken:$refreshToken}' \
+    '{apiBaseUrl:$apiBaseUrl,homeId:$homeId,userId:$userId,email:$email,password:$password,deviceId:$deviceId,accessToken:$accessToken,refreshToken:$refreshToken}' \
     >"$handoff_file"
 
 printf '\nProvidentia development environment is ready.\n'

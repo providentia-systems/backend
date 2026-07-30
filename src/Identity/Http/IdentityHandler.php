@@ -168,13 +168,24 @@ final class IdentityHandler implements RequestHandlerInterface
         return $identity;
     }
 
-    /** @param array{accessToken: string, refreshToken: string, csrfToken: string, accessExpiresAt: string, sessionId: string, deviceId: string} $tokens */
+    /**
+     * @param array{
+     *     accessToken: string,
+     *     refreshToken: string,
+     *     csrfToken: string,
+     *     accessExpiresAt: string,
+     *     sessionId: string,
+     *     deviceId: string,
+     *     userId: string
+     * } $tokens
+     */
     private function webSessionResponse(array $tokens): ResponseInterface
     {
         $secure = '; Path=/; Secure; SameSite=Strict';
         $response = new JsonResponse([
             'sessionId' => $tokens['sessionId'],
             'deviceId' => $tokens['deviceId'],
+            'userId' => $tokens['userId'],
             'accessExpiresAt' => $tokens['accessExpiresAt'],
             'transport' => 'secure-cookie',
         ]);

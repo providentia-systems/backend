@@ -49,7 +49,7 @@ former_name='Stock''Home'
 former_lower='stock''home'
 assert_no_matches "former prototype name leaked outside historical evidence" \
   -n "${former_name}|${former_lower}" \
-  --glob '!docs/phase0/**' \
+  --glob '!docs/product/phases/phase-00-evidence/**' \
   --glob '!docs/product/project-memory.md' \
   --glob '!docs/product/providentia_master_implementation_prompt_V1.md' \
   --glob '!tests/structural/verify.sh' \
@@ -94,7 +94,7 @@ const expected = {
 };
 for (const [path, operationId] of Object.entries(expected)) {
   const operations = contract.paths?.[path] ?? {};
-  const actual = ['get', 'post', 'patch', 'delete']
+  const actual = ['get', 'post', 'put', 'patch', 'delete']
     .map((method) => operations[method]?.operationId)
     .find(Boolean);
   if (actual !== operationId) {
@@ -116,7 +116,7 @@ if (!registrationResponses['202'] || registrationResponses['409']) {
   throw new Error('Registration must return one generic 202 shape without an account-conflict response');
 }
 const runtimeRoutes = {};
-const routePattern = /\$app->(get|post|patch|delete)\(\s*'([^']+)'/g;
+const routePattern = /\$app->(get|post|put|patch|delete)\(\s*'([^']+)'/g;
 let routeMatch;
 while ((routeMatch = routePattern.exec(routeSource)) !== null) {
   (runtimeRoutes[routeMatch[2]] ??= []).push(routeMatch[1]);
@@ -130,7 +130,7 @@ for (const [runtimePath, methods] of Object.entries(runtimeRoutes)) {
   }
 }
 for (const [contractPath, pathItem] of Object.entries(contract.paths)) {
-  for (const method of ['get', 'post', 'patch', 'delete']) {
+  for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
     if (pathItem[method] && !runtimeRoutes[contractPath]?.includes(method)) {
       throw new Error(`Runtime is missing ${method.toUpperCase()} ${contractPath}`);
     }
