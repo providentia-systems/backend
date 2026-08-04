@@ -8,6 +8,7 @@ use Providentia\AiIntegration\Application\AiProviderException;
 use Providentia\AiIntegration\Application\ExtractionSchema;
 use Providentia\AiIntegration\Domain\ExtractionOutcome;
 use Providentia\AiIntegration\Domain\ExtractionRequest;
+use Throwable;
 
 final readonly class AiOrchestrator
 {
@@ -28,31 +29,52 @@ final readonly class AiOrchestrator
         string $bytes,
         array $extractionPlan,
         ?AiExecution $validator = null,
+        int $maxEstimatedCostMicros = PHP_INT_MAX,
+        int $maxTotalTokens = PHP_INT_MAX,
+        ?callable $recordAttempt = null,
     ): AiOrchestrationResult {
-        if (count($extractionPlan) > $this->maxAttempts) {
+        if (count($extractionPlan) + ($validator === null ? 0 : 1) > $this->maxAttempts) {
             throw new AiProviderException('orchestration_budget_exceeded', 'The AI attempt budget was exceeded.');
+        }
+        if ($maxEstimatedCostMicros < 0 || $maxTotalTokens < 1) {
+            throw new AiProviderException('orchestration_budget_invalid', 'The AI budget is invalid.');
         }
         $attempts = [];
         $primary = null;
         $primaryProvider = null;
         $lastError = null;
+        $spentMicros = 0;
         foreach ($extractionPlan as $execution) {
+            $spentMicros = $this->reserveBudget($spentMicros, $execution, $maxEstimatedCostMicros);
             try {
                 $primary = $this->run($execution, $kind, $mimeType, $bytes);
                 $primaryProvider = $execution->provider->id();
-                $attempts[] = $this->attempt('extract', $primaryProvider, 'completed', null);
+                $attempt = $this->attempt('extract', $execution, 'completed', null);
+                $attempts[] = $attempt;
+                if ($recordAttempt !== null) {
+                    $recordAttempt($attempt);
+                }
                 break;
             } catch (AiProviderException $error) {
                 $lastError = $error;
-                $attempts[] = $this->attempt(
-                    'extract',
-                    $execution->provider->id(),
-                    'failed',
-                    $error->safeCode,
-                );
+                $attempt = $this->attempt('extract', $execution, 'failed', $error->safeCode);
+                $attempts[] = $attempt;
+                if ($recordAttempt !== null) {
+                    $recordAttempt($attempt);
+                }
                 if (! $this->failures->permitsFailover($error->safeCode)) {
                     throw $error;
                 }
+            } catch (Throwable) {
+                $attempt = $this->attempt('extract', $execution, 'failed', 'provider_failure');
+                $attempts[] = $attempt;
+                if ($recordAttempt !== null) {
+                    $recordAttempt($attempt);
+                }
+                throw new AiProviderException(
+                    'provider_failure',
+                    'The provider request could not be completed safely.',
+                );
             }
         }
         if ($primary === null) {
@@ -72,11 +94,39 @@ final readonly class AiOrchestrator
                     'Independent validation requires another provider.',
                 );
             }
-            $validation = $this->run($validator, $kind, $mimeType, $bytes);
-            $attempts[] = $this->attempt('validate', $validator->provider->id(), 'completed', null);
+            $this->reserveBudget($spentMicros, $validator, $maxEstimatedCostMicros);
+            try {
+                $validation = $this->run($validator, $kind, $mimeType, $bytes);
+                $attempt = $this->attempt('validate', $validator, 'completed', null);
+                $attempts[] = $attempt;
+                if ($recordAttempt !== null) {
+                    $recordAttempt($attempt);
+                }
+            } catch (AiProviderException $error) {
+                $attempt = $this->attempt('validate', $validator, 'failed', $error->safeCode);
+                if ($recordAttempt !== null) {
+                    $recordAttempt($attempt);
+                }
+                throw $error;
+            } catch (Throwable) {
+                $attempt = $this->attempt('validate', $validator, 'failed', 'provider_failure');
+                if ($recordAttempt !== null) {
+                    $recordAttempt($attempt);
+                }
+                throw new AiProviderException(
+                    'provider_failure',
+                    'The validation request could not be completed safely.',
+                );
+            }
             $discrepancies = $this->reconciler->discrepancies($primary->data, $validation->data);
             $usage = $this->addUsage($primary->usage, $validation->usage);
             $validated = true;
+        }
+        if ($usage['totalTokens'] !== null && $usage['totalTokens'] > $maxTotalTokens) {
+            throw new AiProviderException(
+                'orchestration_token_budget_exceeded',
+                'The AI token budget was exceeded; no candidates were released.',
+            );
         }
 
         return new AiOrchestrationResult(
@@ -106,15 +156,31 @@ final readonly class AiOrchestrator
         return new ExtractionOutcome($validated, $outcome->usage);
     }
 
-    /** @return array{purpose: string, provider: string, status: string, errorCode: string|null} */
-    private function attempt(string $purpose, string $provider, string $status, ?string $error): array
+    /** @return array{purpose: string, profileId: string, provider: string, model: string,
+     *     status: string, errorCode: string|null, estimatedCostMicros: int} */
+    private function attempt(string $purpose, AiExecution $execution, string $status, ?string $error): array
     {
         return [
             'purpose' => $purpose,
-            'provider' => $provider,
+            'profileId' => $execution->profileId,
+            'provider' => $execution->provider->id(),
+            'model' => $execution->model,
             'status' => $status,
             'errorCode' => $error,
+            'estimatedCostMicros' => $execution->estimatedCostMicros,
         ];
+    }
+
+    private function reserveBudget(int $spent, AiExecution $execution, int $maximum): int
+    {
+        if ($execution->estimatedCostMicros > $maximum - $spent) {
+            throw new AiProviderException(
+                'orchestration_budget_exceeded',
+                'The AI estimated-cost budget was exceeded.',
+            );
+        }
+
+        return $spent + $execution->estimatedCostMicros;
     }
 
     /**

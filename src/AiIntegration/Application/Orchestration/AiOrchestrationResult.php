@@ -9,7 +9,8 @@ final readonly class AiOrchestrationResult
     /**
      * @param array<string, mixed> $data
      * @param array{inputTokens: int|null, outputTokens: int|null, totalTokens: int|null} $usage
-     * @param list<array{purpose: string, provider: string, status: string, errorCode: string|null}> $attempts
+     * @param list<array{purpose: string, profileId: string, provider: string, model: string,
+     *     status: string, errorCode: string|null, estimatedCostMicros: int}> $attempts
      * @param list<array<string, mixed>> $discrepancies
      */
     public function __construct(
