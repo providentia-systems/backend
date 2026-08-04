@@ -15,6 +15,7 @@ final readonly class SyncEnvelope
         public string $deviceId,
         public ?string $lastPulledCursor,
         public array $operations,
+        public int $protocolVersion = 1,
     ) {
     }
 }

@@ -8,8 +8,10 @@ use DateTimeImmutable;
 use DomainException;
 use InvalidArgumentException;
 use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Domain\DecimalQuantity;
+use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
@@ -17,25 +19,20 @@ use Providentia\SharedKernel\Application\UuidGenerator;
 
 final class InventoryService implements InventoryMovementGateway
 {
-    private const WRITERS = [
-        HomeAuthorization::OWNER,
-        HomeAuthorization::MANAGER,
-        HomeAuthorization::MEMBER,
-    ];
-
     public function __construct(
         private readonly InventoryStore $inventory,
         private readonly HomeAuthorization $authorization,
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
+        private readonly ?ChangeFeedWriter $changes = null,
     ) {
     }
 
     /** @return list<array<string, mixed>> */
     public function locations(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
 
         return $this->inventory->locations($homeId);
     }
@@ -46,8 +43,9 @@ final class InventoryService implements InventoryMovementGateway
         string $homeId,
         string $name,
         string $kind,
+        ?string $requestedId = null,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
         $name = trim($name);
         if ($name === '' || mb_strlen($name) > 120) {
             throw new Problem(422, 'Invalid location', 'Location name must contain 1 to 120 characters.');
@@ -55,8 +53,20 @@ final class InventoryService implements InventoryMovementGateway
         if (! in_array($kind, ['pantry', 'shelf', 'fridge', 'freezer', 'household', 'other'], true)) {
             throw new Problem(422, 'Invalid location', 'Location kind is not supported.');
         }
-        $id = $this->ids->generate();
-        $this->inventory->createLocation($id, $homeId, $name, $this->normalize($name), $kind, $this->clock->now());
+        $id = $this->identifier($requestedId);
+        $at = $this->clock->now();
+        $this->transactions->transactional(function () use ($id, $homeId, $name, $kind, $identity, $at): void {
+            $this->inventory->createLocation($id, $homeId, $name, $this->normalize($name), $kind, $at);
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'inventory-location',
+                $id,
+                1,
+                ['name' => $name, 'kind' => $kind, 'status' => 'active'],
+                $at,
+            );
+        });
 
         return ['id' => $id];
     }
@@ -70,7 +80,7 @@ final class InventoryService implements InventoryMovementGateway
         int $limit,
         int $offset,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
 
         return $this->inventory->itemMaster(
             $homeId,
@@ -90,7 +100,7 @@ final class InventoryService implements InventoryMovementGateway
         int $limit,
         int $offset,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
 
         return $this->inventory->stock(
             $homeId,
@@ -109,8 +119,9 @@ final class InventoryService implements InventoryMovementGateway
         ?string $packId,
         ?string $privateName,
         ?string $originalPackText,
+        ?string $requestedId = null,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
         $privateName = $privateName === null ? null : trim($privateName);
         if ($productId === null && ($privateName === null || $privateName === '')) {
             throw new Problem(422, 'Invalid item', 'Choose a catalog product or provide a private product name.');
@@ -128,18 +139,45 @@ final class InventoryService implements InventoryMovementGateway
         if ($originalPackText !== null && mb_strlen($originalPackText) > 191) {
             throw new Problem(422, 'Invalid item', 'Original pack text exceeds 191 characters.');
         }
-        $id = $this->ids->generate();
+        $id = $this->identifier($requestedId);
+        $at = $this->clock->now();
         try {
-            $this->inventory->createHomeProduct(
+            $this->transactions->transactional(function () use (
                 $id,
                 $homeId,
                 $productId,
                 $packId,
                 $privateName,
-                $privateName === null ? null : $this->normalize($privateName),
                 $originalPackText,
-                $this->clock->now(),
-            );
+                $identity,
+                $at,
+            ): void {
+                $this->inventory->createHomeProduct(
+                    $id,
+                    $homeId,
+                    $productId,
+                    $packId,
+                    $privateName,
+                    $privateName === null ? null : $this->normalize($privateName),
+                    $originalPackText,
+                    $at,
+                );
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'inventory-home-product',
+                    $id,
+                    1,
+                    [
+                        'productId' => $productId,
+                        'packId' => $packId,
+                        'privateName' => $privateName,
+                        'originalPackText' => $originalPackText,
+                        'status' => 'active',
+                    ],
+                    $at,
+                );
+            });
         } catch (DomainException $error) {
             throw new Problem(422, 'Invalid item', $error->getMessage());
         }
@@ -156,7 +194,7 @@ final class InventoryService implements InventoryMovementGateway
         string $reason,
         string $operationId,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
         $delta = $this->delta($quantityDelta);
         if ($delta->isZero()) {
             throw new Problem(422, 'Invalid adjustment', 'A manual adjustment cannot be zero.');
@@ -190,8 +228,9 @@ final class InventoryService implements InventoryMovementGateway
         string $notes,
         bool $scopeComplete = false,
         string $reliability = 'unassessed',
+        ?string $requestedId = null,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
         $notes = trim($notes);
         if (mb_strlen($notes) > 2000) {
             throw new Problem(422, 'Invalid count session', 'Count-session notes exceed 2000 characters.');
@@ -206,18 +245,46 @@ final class InventoryService implements InventoryMovementGateway
                 'Reliable evidence requires an explicitly complete count scope.',
             );
         }
-        $id = $this->ids->generate();
+        $id = $this->identifier($requestedId);
+        $at = $this->clock->now();
         try {
-            $this->inventory->createCountSession(
+            $this->transactions->transactional(function () use (
                 $id,
                 $homeId,
-                $locationId === '' ? null : $locationId,
+                $locationId,
                 $notes,
                 $scopeComplete,
                 $reliability,
-                $identity->userId,
-                $this->clock->now(),
-            );
+                $identity,
+                $at,
+            ): void {
+                $locationId = $locationId === '' ? null : $locationId;
+                $this->inventory->createCountSession(
+                    $id,
+                    $homeId,
+                    $locationId,
+                    $notes,
+                    $scopeComplete,
+                    $reliability,
+                    $identity->userId,
+                    $at,
+                );
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'inventory-count-session',
+                    $id,
+                    1,
+                    [
+                        'locationId' => $locationId,
+                        'notes' => $notes,
+                        'scopeComplete' => $scopeComplete,
+                        'reliability' => $reliability,
+                        'status' => 'open',
+                    ],
+                    $at,
+                );
+            });
         } catch (DomainException $error) {
             throw new Problem(422, 'Invalid count session', $error->getMessage());
         }
@@ -232,7 +299,7 @@ final class InventoryService implements InventoryMovementGateway
         int $limit,
         int $offset,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
 
         return $this->inventory->countSessions($homeId, min(100, max(1, $limit)), max(0, $offset));
     }
@@ -243,7 +310,7 @@ final class InventoryService implements InventoryMovementGateway
         string $homeId,
         string $sessionId,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
         $session = $this->inventory->countSession($homeId, $sessionId);
         if ($session === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
@@ -266,7 +333,7 @@ final class InventoryService implements InventoryMovementGateway
         string $notes,
         int $expectedRevision,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
         $session = $this->inventory->countSession($homeId, $sessionId);
         if ($session === null || (string) $session['status'] !== 'open') {
             throw new Problem(409, 'Count session closed', 'Only an open count session can be changed.');
@@ -297,6 +364,7 @@ final class InventoryService implements InventoryMovementGateway
             $notes,
             $identity,
             $expectedRevision,
+            $session,
         ): void {
             if (
                 ! $this->inventory->saveCountLine(
@@ -315,6 +383,38 @@ final class InventoryService implements InventoryMovementGateway
             ) {
                 throw new Problem(409, 'Revision conflict', 'The count line changed on another device.');
             }
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'inventory-count-line',
+                $lineId,
+                $expectedRevision + 1,
+                [
+                    'sessionId' => $sessionId,
+                    'homeProductId' => $homeProductId,
+                    'quantity' => $quantity,
+                    'confidence' => $confidence,
+                    'source' => $source,
+                    'notes' => $notes,
+                    'status' => 'confirmed',
+                ],
+                $this->clock->now(),
+            );
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'inventory-count-session',
+                $sessionId,
+                (int) $session['revision'] + 1,
+                [
+                    'locationId' => $session['locationId'] ?? null,
+                    'notes' => (string) ($session['notes'] ?? ''),
+                    'scopeComplete' => (bool) ($session['scopeComplete'] ?? false),
+                    'reliability' => (string) ($session['reliability'] ?? 'unassessed'),
+                    'status' => 'open',
+                ],
+                $this->clock->now(),
+            );
         });
 
         return ['id' => $lineId];
@@ -327,7 +427,7 @@ final class InventoryService implements InventoryMovementGateway
         string $sessionId,
         int $expectedRevision,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
 
         return $this->transactions->transactional(function () use (
             $identity,
@@ -382,6 +482,21 @@ final class InventoryService implements InventoryMovementGateway
             ) {
                 throw new Problem(409, 'Revision conflict', 'The count session changed on another device.');
             }
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'inventory-count-session',
+                $sessionId,
+                $expectedRevision + 1,
+                [
+                    'locationId' => $session['locationId'] ?? null,
+                    'notes' => (string) ($session['notes'] ?? ''),
+                    'scopeComplete' => (bool) ($session['scopeComplete'] ?? false),
+                    'reliability' => (string) ($session['reliability'] ?? 'unassessed'),
+                    'status' => 'closed',
+                ],
+                $this->clock->now(),
+            );
 
             return ['sessionId' => $sessionId, 'movements' => $movementCount];
         });
@@ -418,7 +533,7 @@ final class InventoryService implements InventoryMovementGateway
         int $limit,
         int $offset,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
 
         return $this->inventory->movements(
             $homeId,
@@ -431,10 +546,7 @@ final class InventoryService implements InventoryMovementGateway
     /** @return array{products: int, quantity: string} */
     public function rebuild(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireRole($identity, $homeId, [
-            HomeAuthorization::OWNER,
-            HomeAuthorization::MANAGER,
-        ]);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_MANAGE);
 
         return $this->transactions->transactional(
             fn (): array => $this->inventory->rebuildBalances($homeId, $this->clock->now()),
@@ -457,7 +569,7 @@ final class InventoryService implements InventoryMovementGateway
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
         }
 
-        return $this->inventory->appendMovement(
+        $result = $this->inventory->appendMovement(
             $this->ids->generate(),
             $homeId,
             $homeProductId,
@@ -470,6 +582,23 @@ final class InventoryService implements InventoryMovementGateway
             $occurredAt,
             $this->clock->now(),
         );
+        if (! (bool) ($result['replayed'] ?? false)) {
+            $this->changes?->put(
+                $homeId,
+                $actorUserId,
+                'inventory-balance',
+                $homeProductId,
+                (int) $result['balanceRevision'],
+                [
+                    'homeProductId' => $homeProductId,
+                    'quantity' => (string) $result['balance'],
+                    'lastMovementId' => (string) $result['id'],
+                ],
+                $this->clock->now(),
+            );
+        }
+
+        return $result;
     }
 
     private function quantity(string|int $value): DecimalQuantity
@@ -496,5 +625,17 @@ final class InventoryService implements InventoryMovementGateway
         $value = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $value) ?? $value;
 
         return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+    }
+
+    private function identifier(?string $requestedId): string
+    {
+        if ($requestedId === null) {
+            return $this->ids->generate();
+        }
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $requestedId) !== 1) {
+            throw new Problem(422, 'Invalid identifier', 'The client-provided identifier is invalid.');
+        }
+
+        return strtolower($requestedId);
     }
 }

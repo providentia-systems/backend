@@ -8,6 +8,7 @@ use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
+use Providentia\SharedKernel\Application\TransactionManager;
 use Throwable;
 
 /**
@@ -28,6 +29,11 @@ final class SynchronizationService
         private readonly SyncRequestHasher $hasher,
         private readonly SyncResultPresenter $presenter,
         private readonly int $pageSize,
+        private readonly ?SyncCommandValidator $commands = null,
+        private readonly ?SyncCommandDispatcher $commandDispatcher = null,
+        private readonly ?SyncCommandHasher $commandHasher = null,
+        private readonly ?TransactionManager $transactions = null,
+        private readonly ?SnapshotCursorCodec $snapshotCursors = null,
     ) {
         if ($this->pageSize < 1) {
             throw new \InvalidArgumentException('pageSize must be positive.');
@@ -54,13 +60,15 @@ final class SynchronizationService
 
         $results = [];
         foreach ($validatedEnvelope->operations as $operation) {
-            $results[] = $this->processOperation($identity, $homeId, $operation);
+            $results[] = $validatedEnvelope->protocolVersion === 1
+                ? $this->processOperation($identity, $homeId, $operation)
+                : $this->processCommand($identity, $homeId, $operation);
         }
 
         $highWater = $this->store->highWater($homeId);
 
         return [
-            'protocolVersion' => 1,
+            'protocolVersion' => $validatedEnvelope->protocolVersion,
             'batchId' => $validatedEnvelope->batchId,
             'requestId' => $requestId,
             'serverTime' => $this->clock->now()->format(DATE_ATOM),
@@ -89,6 +97,14 @@ final class SynchronizationService
         $decoded = $this->cursors->decode($cursor, $homeId);
         $after = $decoded['position'];
         $highWater = $decoded['highWater'];
+        if ($after < $this->store->minimumAvailableCursor($homeId)) {
+            throw new Problem(
+                410,
+                'Synchronization bootstrap required',
+                'The requested cursor predates retained synchronization history.',
+                'https://providentia.invalid/problems/sync_resync_required',
+            );
+        }
         if ($after === $highWater) {
             $highWater = max($after, $this->store->highWater($homeId));
         }
@@ -119,26 +135,101 @@ final class SynchronizationService
         AuthenticatedIdentity $identity,
         string $homeId,
         string $requestId,
+        ?string $pageCursor = null,
+        ?int $requestedLimit = null,
     ): array {
         $this->authorization->requireMember($identity, $homeId);
-        $snapshot = $this->store->captureSnapshot($homeId, $this->pageSize + 1);
-        if (count($snapshot->records) > $this->pageSize) {
-            throw new Problem(
-                409,
-                'Paged bootstrap required',
-                'The snapshot exceeds this prototype page boundary; use the documented paged bootstrap upgrade.',
-            );
+        $limit = min($this->pageSize, max(1, $requestedLimit ?? $this->pageSize));
+        $afterType = null;
+        $afterId = null;
+        if ($pageCursor === null || $pageCursor === '') {
+            $highWater = $this->store->highWater($homeId);
+        } else {
+            $snapshotCursors = $this->snapshotCursors
+                ?? throw new \LogicException('Snapshot cursor support is not configured.');
+            $decoded = $snapshotCursors->decode($pageCursor, $homeId);
+            $highWater = $decoded['highWater'];
+            $afterType = $decoded['entityType'];
+            $afterId = $decoded['entityId'];
         }
-
-        $cursor = $this->cursors->encode($homeId, $snapshot->highWater, $snapshot->highWater);
-        $this->acknowledge($identity, $homeId, $snapshot->highWater);
+        $snapshot = $this->store->captureSnapshotPage(
+            $homeId,
+            $highWater,
+            $afterType,
+            $afterId,
+            $limit,
+        );
+        $incrementalCursor = null;
+        $nextPageCursor = null;
+        if ($snapshot->hasMore) {
+            $last = $snapshot->records[array_key_last($snapshot->records)];
+            $snapshotCursors = $this->snapshotCursors
+                ?? throw new \LogicException('Snapshot cursor support is not configured.');
+            $nextPageCursor = $snapshotCursors->encode(
+                $homeId,
+                $snapshot->highWater,
+                (string) $last['entityType'],
+                (string) $last['entityId'],
+            );
+        } else {
+            $incrementalCursor = $this->cursors->encode(
+                $homeId,
+                $snapshot->highWater,
+                $snapshot->highWater,
+            );
+            $this->acknowledge($identity, $homeId, $snapshot->highWater);
+        }
 
         return [
             'protocolVersion' => 1,
             'requestId' => $requestId,
-            'snapshotCursor' => $cursor,
+            'snapshotCursor' => $incrementalCursor,
+            'pageCursor' => $nextPageCursor,
+            'highWaterCursor' => $this->cursors->encode(
+                $homeId,
+                $snapshot->highWater,
+                $snapshot->highWater,
+            ),
+            'hasMore' => $snapshot->hasMore,
             'records' => $snapshot->records,
         ];
+    }
+
+    /**
+     * @param list<string> $operationIds
+     * @return array{protocolVersion: int, operations: list<array<string, mixed>>}
+     */
+    public function operationStatuses(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $deviceId,
+        array $operationIds,
+    ): array {
+        $this->authorization->requireMember($identity, $homeId);
+        if (! hash_equals($identity->deviceId, $deviceId)) {
+            throw new Problem(403, 'Device mismatch', 'Operation receipts are bound to the authenticated device.');
+        }
+        if ($operationIds === [] || count($operationIds) > 100) {
+            throw new Problem(422, 'Invalid operation status request', 'Request between 1 and 100 operation IDs.');
+        }
+        $operationIds = array_values(array_unique(array_map(
+            fn (mixed $id): string => $this->operationId($id),
+            $operationIds,
+        )));
+        $stored = $this->store->operationStatuses(
+            $homeId,
+            $identity->userId,
+            $identity->deviceId,
+            $operationIds,
+        );
+        $operations = [];
+        foreach ($operationIds as $operationId) {
+            $operations[] = isset($stored[$operationId])
+                ? ['operationId' => $operationId, 'known' => true, 'result' => $stored[$operationId]]
+                : ['operationId' => $operationId, 'known' => false];
+        }
+
+        return ['protocolVersion' => 2, 'operations' => $operations];
     }
 
     /** @return array<string, mixed> */
@@ -188,6 +279,104 @@ final class SynchronizationService
                 'detail' => 'The operation could not be processed safely.',
             ];
         }
+    }
+
+    /** @return array<string, mixed> */
+    private function processCommand(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        mixed $operation,
+    ): array {
+        if (! is_array($operation)) {
+            return ['status' => 'validation_error', 'detail' => 'Command must be an object.'];
+        }
+        try {
+            $commands = $this->commands ?? throw new \LogicException('Command validation is not configured.');
+            $dispatcher = $this->commandDispatcher
+                ?? throw new \LogicException('Command dispatch is not configured.');
+            $hasher = $this->commandHasher ?? throw new \LogicException('Command hashing is not configured.');
+            $transactions = $this->transactions
+                ?? throw new \LogicException('Command transactions are not configured.');
+            $command = $commands->validate($operation);
+            $requestHash = $hasher->hash($command);
+
+            return $transactions->transactional(function () use (
+                $identity,
+                $homeId,
+                $command,
+                $dispatcher,
+                $requestHash,
+            ): array {
+                $receipt = $this->store->operationReceipt($command->operationId);
+                if ($receipt !== null) {
+                    if (
+                        (string) $receipt['homeId'] === $homeId
+                        && (string) $receipt['userId'] === $identity->userId
+                        && (string) $receipt['deviceId'] === $identity->deviceId
+                        && hash_equals((string) $receipt['requestHash'], $requestHash)
+                    ) {
+                        /** @var array<string, mixed> $response */
+                        $response = $receipt['response'];
+
+                        return $response;
+                    }
+
+                    return [
+                        'operationId' => $command->operationId,
+                        'status' => 'conflict',
+                        'code' => 'operation_id_reuse',
+                        'detail' => 'The operation identifier is bound to another immutable request.',
+                    ];
+                }
+                $result = $dispatcher->dispatch($identity, $homeId, $command);
+                $response = [
+                    'operationId' => $command->operationId,
+                    'status' => 'accepted',
+                    'commandType' => $command->commandType,
+                    'entityId' => $command->entityId,
+                    'result' => $result,
+                ];
+                $this->store->recordCommandReceipt(
+                    $homeId,
+                    $identity->userId,
+                    $identity->deviceId,
+                    $command,
+                    $requestHash,
+                    $response,
+                    $this->clock->now(),
+                );
+
+                return $response;
+            });
+        } catch (Problem $problem) {
+            return [
+                'operationId' => (string) ($operation['operationId'] ?? ''),
+                'status' => match (true) {
+                    in_array($problem->status, [403, 404], true) => 'authorization_failure',
+                    $problem->status === 409 => 'conflict',
+                    default => 'validation_error',
+                },
+                'detail' => $problem->getMessage(),
+            ];
+        } catch (Throwable) {
+            return [
+                'operationId' => (string) ($operation['operationId'] ?? ''),
+                'status' => 'retryable_failure',
+                'detail' => 'The command could not be processed safely.',
+            ];
+        }
+    }
+
+    private function operationId(mixed $value): string
+    {
+        if (
+            ! is_string($value)
+            || preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $value) !== 1
+        ) {
+            throw new Problem(422, 'Invalid identifier', 'operationId must be a UUID.');
+        }
+
+        return strtolower($value);
     }
 
     private function acknowledge(

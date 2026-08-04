@@ -10,16 +10,22 @@ use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\Problem;
+use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\Synchronization\Application\CursorCodec;
 use Providentia\Synchronization\Application\HomePreferenceSyncEntityPolicy;
 use Providentia\Synchronization\Application\PrivateNoteSyncEntityPolicy;
+use Providentia\Synchronization\Application\SnapshotCursorCodec;
+use Providentia\Synchronization\Application\SyncCommand;
+use Providentia\Synchronization\Application\SyncCommandDispatcher;
+use Providentia\Synchronization\Application\SyncCommandHasher;
+use Providentia\Synchronization\Application\SyncCommandValidator;
 use Providentia\Synchronization\Application\SyncEntityPolicyRegistry;
 use Providentia\Synchronization\Application\SyncEnvelopeValidator;
 use Providentia\Synchronization\Application\SyncOperation;
 use Providentia\Synchronization\Application\SyncOperationValidator;
 use Providentia\Synchronization\Application\SyncRequestHasher;
 use Providentia\Synchronization\Application\SyncResultPresenter;
-use Providentia\Synchronization\Application\SyncSnapshot;
+use Providentia\Synchronization\Application\SyncSnapshotPage;
 use Providentia\Synchronization\Application\SynchronizationService;
 use Providentia\Synchronization\Application\SyncStore;
 
@@ -123,6 +129,31 @@ final class SynchronizationServiceTest extends TestCase
         try {
             $service->pull($this->identity(), self::HOME_ID, 'request-4', null);
             self::fail('Incremental synchronization started without a bootstrap cursor.');
+        } catch (Problem $problem) {
+            self::assertSame(410, $problem->status);
+            self::assertSame(
+                'https://providentia.invalid/problems/sync_resync_required',
+                $problem->type,
+            );
+        }
+    }
+
+    public function testPullBehindTheCompactedHistoryBoundaryRequiresAFullBootstrap(): void
+    {
+        $store = $this->createMock(SyncStore::class);
+        $store->expects(self::once())
+            ->method('minimumAvailableCursor')
+            ->with(self::HOME_ID)
+            ->willReturn(2);
+        $store->expects(self::never())->method('changes');
+        $service = $this->service($store, HomeAuthorization::MEMBER);
+        $clock = new FixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00'));
+        $staleCursor = (new CursorCodec(str_repeat('s', 32), $clock, 3600))
+            ->encode(self::HOME_ID, 1, 1);
+
+        try {
+            $service->pull($this->identity(), self::HOME_ID, 'request-stale', $staleCursor);
+            self::fail('A client behind compacted synchronization history was allowed to pull.');
         } catch (Problem $problem) {
             self::assertSame(410, $problem->status);
             self::assertSame(
@@ -320,11 +351,11 @@ final class SynchronizationServiceTest extends TestCase
             'serverTimestamp' => '2026-07-30 12:00:00',
         ];
         $store = $this->createMock(SyncStore::class);
-        $store->expects(self::never())->method('highWater');
+        $store->expects(self::once())->method('highWater')->with(self::HOME_ID)->willReturn(7);
         $store->expects(self::once())
-            ->method('captureSnapshot')
-            ->with(self::HOME_ID, 251)
-            ->willReturn(new SyncSnapshot(7, [$record]));
+            ->method('captureSnapshotPage')
+            ->with(self::HOME_ID, 7, null, null, 250)
+            ->willReturn(new SyncSnapshotPage(7, [$record], false));
         $store->expects(self::once())
             ->method('acknowledgeCursor')
             ->with(
@@ -344,9 +375,104 @@ final class SynchronizationServiceTest extends TestCase
 
         self::assertSame([$record], $response['records']);
         self::assertIsString($response['snapshotCursor']);
+        self::assertFalse($response['hasMore']);
     }
 
-    private function service(SyncStore $syncStore, string $role): SynchronizationService
+    public function testProtocolTwoDispatchesAValidatedPantryCommandAndStoresItsReceipt(): void
+    {
+        $store = $this->createMock(SyncStore::class);
+        $store->method('operationReceipt')->willReturn(null);
+        $store->method('highWater')->willReturn(0);
+        $store->expects(self::once())
+            ->method('recordCommandReceipt')
+            ->with(
+                self::HOME_ID,
+                self::USER_ID,
+                self::DEVICE_ID,
+                self::isInstanceOf(SyncCommand::class),
+                self::matchesRegularExpression('/^[0-9a-f]{64}$/'),
+                self::callback(static fn (array $response): bool => $response['status'] === 'accepted'),
+                self::isInstanceOf(DateTimeImmutable::class),
+            );
+        $dispatcher = $this->createMock(SyncCommandDispatcher::class);
+        $dispatcher->expects(self::once())
+            ->method('dispatch')
+            ->with(
+                self::isInstanceOf(AuthenticatedIdentity::class),
+                self::HOME_ID,
+                self::callback(
+                    static fn (SyncCommand $command): bool =>
+                        $command->commandType === 'shopping.list.create'
+                        && $command->entityId === self::ENTITY_ID,
+                ),
+            )
+            ->willReturn(['id' => self::ENTITY_ID, 'revision' => 1]);
+        $service = $this->service($store, HomeAuthorization::MEMBER, $dispatcher);
+        $envelope = [
+            'protocolVersion' => 2,
+            'batchId' => self::BATCH_ID,
+            'deviceId' => self::DEVICE_ID,
+            'lastPulledCursor' => null,
+            'operations' => [[
+                'operationId' => self::OPERATION_ID,
+                'commandType' => 'shopping.list.create',
+                'entityId' => self::ENTITY_ID,
+                'baseRevision' => null,
+                'clientTimestamp' => '2026-07-30T11:59:00+00:00',
+                'payloadSchemaVersion' => 1,
+                'payload' => ['name' => 'Weekly', 'kind' => 'manual'],
+            ]],
+        ];
+
+        $response = $service->push(
+            $this->identity(),
+            self::HOME_ID,
+            'request-v2',
+            self::BATCH_ID,
+            $envelope,
+        );
+
+        self::assertSame(2, $response['protocolVersion']);
+        self::assertSame('accepted', $this->firstRow($response, 'results')['status']);
+    }
+
+    public function testLostResponseStatusRecoveryIsScopedAndPreservesUnknownOperations(): void
+    {
+        $unknown = '01912345-6789-7abc-bdef-4123456789ab';
+        $storedResult = [
+            'operationId' => self::OPERATION_ID,
+            'status' => 'accepted',
+            'entityId' => self::ENTITY_ID,
+        ];
+        $store = $this->createMock(SyncStore::class);
+        $store->expects(self::once())
+            ->method('operationStatuses')
+            ->with(
+                self::HOME_ID,
+                self::USER_ID,
+                self::DEVICE_ID,
+                [self::OPERATION_ID, $unknown],
+            )
+            ->willReturn([self::OPERATION_ID => $storedResult]);
+        $service = $this->service($store, HomeAuthorization::MEMBER);
+
+        $response = $service->operationStatuses(
+            $this->identity(),
+            self::HOME_ID,
+            self::DEVICE_ID,
+            [self::OPERATION_ID, $unknown],
+        );
+
+        self::assertTrue($response['operations'][0]['known']);
+        self::assertSame($storedResult, $response['operations'][0]['result']);
+        self::assertFalse($response['operations'][1]['known']);
+    }
+
+    private function service(
+        SyncStore $syncStore,
+        string $role,
+        ?SyncCommandDispatcher $dispatcher = null,
+    ): SynchronizationService
     {
         $homeStore = $this->createStub(HomeStore::class);
         $homeStore->method('membership')->willReturn(['status' => 'active', 'role' => $role]);
@@ -369,6 +495,11 @@ final class SynchronizationServiceTest extends TestCase
             new SyncRequestHasher(),
             new SyncResultPresenter($cursors),
             250,
+            new SyncCommandValidator(65536),
+            $dispatcher ?? $this->createStub(SyncCommandDispatcher::class),
+            new SyncCommandHasher(),
+            new ImmediateTransactionManager(),
+            new SnapshotCursorCodec(str_repeat('s', 32), $clock, 3600),
         );
     }
 
@@ -436,5 +567,13 @@ final class SynchronizationServiceTest extends TestCase
         }
 
         return $row;
+    }
+}
+
+final class ImmediateTransactionManager implements TransactionManager
+{
+    public function transactional(callable $operation): mixed
+    {
+        return $operation();
     }
 }

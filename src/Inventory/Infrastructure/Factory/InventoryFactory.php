@@ -11,6 +11,7 @@ use Providentia\Inventory\Application\InventoryStore;
 use Providentia\Inventory\Http\InventoryHandler;
 use Providentia\Inventory\Infrastructure\Doctrine\DbalInventoryStore;
 use Providentia\SharedKernel\Application\Clock;
+use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Psr\Container\ContainerInterface;
@@ -29,6 +30,7 @@ final class InventoryFactory
                 $container->get(UuidGenerator::class),
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
+                $container->get(ChangeFeedWriter::class),
             ),
             str_starts_with($requestedName, 'inventory.') => new InventoryHandler(
                 $container->get(InventoryService::class),

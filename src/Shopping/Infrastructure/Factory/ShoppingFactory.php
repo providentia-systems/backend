@@ -7,6 +7,7 @@ namespace Providentia\Shopping\Infrastructure\Factory;
 use Doctrine\DBAL\Connection;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\SharedKernel\Application\Clock;
+use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\Shopping\Application\ShoppingService;
@@ -45,6 +46,7 @@ final class ShoppingFactory
                 $container->get(UuidGenerator::class),
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
+                $container->get(ChangeFeedWriter::class),
             ),
             $requestedName === ShoppingIntelligenceService::class => new ShoppingIntelligenceService(
                 $container->get(ShoppingIntelligenceStore::class),
