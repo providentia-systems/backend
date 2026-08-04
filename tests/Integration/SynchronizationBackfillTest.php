@@ -201,6 +201,7 @@ final class SynchronizationBackfillTest extends TestCase
     }
 }
 
+// phpcs:disable PSR1.Classes.ClassDeclaration.MultipleClasses -- focused test adapter belongs with this integration.
 final readonly class BackfillDbalTransactionManager implements TransactionManager
 {
     public function __construct(private Connection $connection)

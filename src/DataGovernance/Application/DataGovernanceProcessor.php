@@ -37,13 +37,15 @@ final class DataGovernanceProcessor
             if (str_ends_with((string) $request['requestKind'], '_export')) {
                 $json = $this->exports->generate($request);
                 $artifact = $this->artifacts->store($id, $json);
-                if (! $this->store->completeExport(
-                    $id,
-                    $revision + 1,
-                    $artifact,
-                    $this->clock->now()->add(new DateInterval('P1D')),
-                    $this->clock->now(),
-                )) {
+                if (
+                    ! $this->store->completeExport(
+                        $id,
+                        $revision + 1,
+                        $artifact,
+                        $this->clock->now()->add(new DateInterval('P1D')),
+                        $this->clock->now(),
+                    )
+                ) {
                     $this->artifacts->delete($artifact);
                     throw new \RuntimeException('The export request changed while completing.');
                 }

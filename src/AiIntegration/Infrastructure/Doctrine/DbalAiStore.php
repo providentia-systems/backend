@@ -981,8 +981,7 @@ final class DbalAiStore implements AiStore, AiMaturityStore
         ?int $durationMs,
         ?string $error,
         DateTimeImmutable $at,
-    ): void
-    {
+    ): void {
         $this->connection->executeStatement(
             'UPDATE ai_media_assets SET processing_status = :status, processing_error = :error,
                     duration_ms = :duration, revision = revision + 1, updated_at = :updated

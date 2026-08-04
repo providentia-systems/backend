@@ -448,8 +448,10 @@ final class CatalogImportService
     {
         foreach ($record as $key => $value) {
             $normalized = strtolower(str_replace(['-', ' '], '_', (string) $key));
-            if (in_array(str_replace('_', '', $normalized), self::FORBIDDEN_MUTATION_FIELDS, true)
-                || in_array($normalized, self::FORBIDDEN_MUTATION_FIELDS, true)) {
+            if (
+                in_array(str_replace('_', '', $normalized), self::FORBIDDEN_MUTATION_FIELDS, true)
+                || in_array($normalized, self::FORBIDDEN_MUTATION_FIELDS, true)
+            ) {
                 return (string) $key;
             }
             if (is_array($value) && ! array_is_list($value)) {

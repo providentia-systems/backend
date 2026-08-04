@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use Providentia\AiIntegration\Application\Media\EncryptedMediaObject;
 use Providentia\AiIntegration\Infrastructure\Doctrine\DbalAiStore;
 
+// phpcs:disable PSR2.Methods.FunctionCallSignature.MultipleArguments -- dense persistence fixtures stay readable.
 final class AiMaturityStoreTest extends TestCase
 {
     private Connection $connection;
@@ -57,8 +58,8 @@ final class AiMaturityStoreTest extends TestCase
         $this->store->appendExtractionDiscrepancies(
             'extraction-1', 0, 0, [['type' => 'field', 'field' => 'merchant']], $this->at,
         );
-        self::assertSame(1, $this->count('ai_extraction_attempts'));
-        self::assertSame(1, $this->count('ai_extraction_discrepancies'));
+        self::assertSame(1, $this->tableCount('ai_extraction_attempts'));
+        self::assertSame(1, $this->tableCount('ai_extraction_discrepancies'));
         self::assertTrue($this->store->hasBlockingExtractionDiscrepancies('home-1', 'extraction-1'));
         self::assertTrue($this->store->reviewExtractionDiscrepancy(
             'home-1', 'extraction-1', 0, 'accepted_primary', 1, 'user-1', $this->at,
@@ -147,7 +148,7 @@ final class AiMaturityStoreTest extends TestCase
         ];
     }
 
-    private function count(string $table): int
+    private function tableCount(string $table): int
     {
         return (int) $this->connection->fetchOne('SELECT COUNT(*) FROM ' . $table);
     }

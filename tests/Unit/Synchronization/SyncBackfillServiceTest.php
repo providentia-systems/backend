@@ -70,6 +70,7 @@ final class SyncBackfillServiceTest extends TestCase
     }
 }
 
+// phpcs:disable PSR1.Classes.ClassDeclaration.MultipleClasses -- focused test double belongs with this unit.
 final class BackfillImmediateTransactionManager implements TransactionManager
 {
     public function transactional(callable $operation): mixed

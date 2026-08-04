@@ -313,13 +313,15 @@ final class AiService
                 'Update the orchestration policy before revoking this provider profile.',
             );
         }
-        if (! $this->maturity->revokeProviderProfile(
-            $homeId,
-            $profileId,
-            $expectedRevision,
-            $identity->userId,
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->maturity->revokeProviderProfile(
+                $homeId,
+                $profileId,
+                $expectedRevision,
+                $identity->userId,
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Revision conflict', 'The provider profile changed on another device.');
         }
     }
@@ -396,17 +398,19 @@ final class AiService
                 'The configured provider plan exceeds its estimated-cost budget.',
             );
         }
-        if (! $this->maturity->saveOrchestrationPolicy(
-            $homeId,
-            $extractionProfileIds,
-            $validationProfileId,
-            $maxAttempts,
-            $maxTotalTokens,
-            $maxEstimatedCostMicros,
-            $expectedRevision,
-            $identity->userId,
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->maturity->saveOrchestrationPolicy(
+                $homeId,
+                $extractionProfileIds,
+                $validationProfileId,
+                $maxAttempts,
+                $maxTotalTokens,
+                $maxEstimatedCostMicros,
+                $expectedRevision,
+                $identity->userId,
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Revision conflict', 'The AI orchestration policy changed on another device.');
         }
 
@@ -478,10 +482,13 @@ final class AiService
                 static fn (AiExecution $execution): int => $execution->estimatedCostMicros,
                 $plan,
             )) + ($validator?->estimatedCostMicros ?? 0);
-            if ($plannedCost > 0 && count($observations) > intdiv(
-                (int) $policy['maxEstimatedCostMicros'],
-                $plannedCost,
-            )) {
+            if (
+                $plannedCost > 0
+                && count($observations) > intdiv(
+                    (int) $policy['maxEstimatedCostMicros'],
+                    $plannedCost,
+                )
+            ) {
                 if (function_exists('sodium_memzero')) {
                     foreach ($credentials as &$credential) {
                         sodium_memzero($credential);
@@ -727,14 +734,16 @@ final class AiService
         if (! in_array($decision, ['confirmed_duplicate', 'distinct'], true) || $expectedRevision < 1) {
             throw new Problem(422, 'Invalid duplicate review', 'Choose confirmed_duplicate or distinct.');
         }
-        if (! $this->maturity->reviewObservationDecision(
-            $homeId,
-            $decisionId,
-            $decision,
-            $expectedRevision,
-            $identity->userId,
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->maturity->reviewObservationDecision(
+                $homeId,
+                $decisionId,
+                $decision,
+                $expectedRevision,
+                $identity->userId,
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Revision conflict', 'The duplicate decision changed on another device.');
         }
     }
@@ -755,15 +764,17 @@ final class AiService
         ) {
             throw new Problem(422, 'Invalid discrepancy review', 'Choose an allowed discrepancy decision.');
         }
-        if (! $this->maturity->reviewExtractionDiscrepancy(
-            $homeId,
-            $extractionId,
-            $position,
-            $decision,
-            $expectedRevision,
-            $identity->userId,
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->maturity->reviewExtractionDiscrepancy(
+                $homeId,
+                $extractionId,
+                $position,
+                $decision,
+                $expectedRevision,
+                $identity->userId,
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Revision conflict', 'The discrepancy changed on another device.');
         }
     }

@@ -186,14 +186,16 @@ final readonly class PrivateMediaService
         $expires = $retention === 'transient'
             ? $this->clock->now()->add(new DateInterval('PT' . $this->transientTtlSeconds . 'S'))
             : null;
-        if (! $this->store->updateMediaRetention(
-            $homeId,
-            $assetId,
-            $retention,
-            $expires,
-            $expectedRevision,
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->store->updateMediaRetention(
+                $homeId,
+                $assetId,
+                $retention,
+                $expires,
+                $expectedRevision,
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Revision conflict', 'The private-media retention changed on another device.');
         }
         $this->store->updateDerivedMediaRetention(
@@ -240,7 +242,8 @@ final readonly class PrivateMediaService
         $images = [];
         foreach (array_values(array_unique($assetIds)) as $assetId) {
             $asset = $this->requiredAsset($homeId, $assetId);
-            if (! in_array($asset['purpose'], ['image', 'derived_frame'], true)
+            if (
+                ! in_array($asset['purpose'], ['image', 'derived_frame'], true)
                 || $asset['processingStatus'] !== 'ready'
             ) {
                 throw new Problem(409, 'Media not ready', 'Only ready image assets can be extracted.');
@@ -438,12 +441,14 @@ final readonly class PrivateMediaService
     /** @param array<string, mixed> $asset */
     private function deleteAsset(array $asset): void
     {
-        if (! $this->store->deleteMediaWithinQuota(
-            (string) $asset['homeId'],
-            (string) $asset['id'],
-            (int) $asset['plaintextBytes'],
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->store->deleteMediaWithinQuota(
+                (string) $asset['homeId'],
+                (string) $asset['id'],
+                (int) $asset['plaintextBytes'],
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Media changed', 'The private media changed while it was deleted.');
         }
         $this->storage->delete($this->object($asset));

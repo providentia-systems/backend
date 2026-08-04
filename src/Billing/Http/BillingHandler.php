@@ -203,14 +203,16 @@ final readonly class BillingHandler implements RequestHandlerInterface
             }
             foreach ($current as $key => $value) {
                 $normalized = preg_replace('/[^a-z0-9]/', '', mb_strtolower((string) $key));
-                if (in_array($normalized, [
-                    'cardnumber',
-                    'pan',
-                    'cvc',
-                    'cvv',
-                    'trackdata',
-                    'magneticstripe',
-                ], true)) {
+                if (
+                    in_array($normalized, [
+                        'cardnumber',
+                        'pan',
+                        'cvc',
+                        'cvv',
+                        'trackdata',
+                        'magneticstripe',
+                    ], true)
+                ) {
                     throw new HttpProblem(
                         422,
                         'Payment credentials rejected',

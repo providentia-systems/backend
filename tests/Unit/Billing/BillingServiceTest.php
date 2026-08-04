@@ -245,6 +245,7 @@ final class BillingServiceTest extends TestCase
     }
 }
 
+// phpcs:disable PSR1.Classes.ClassDeclaration.MultipleClasses -- focused test doubles belong with this unit.
 final class FakePayPalGateway implements PayPalHostedCheckoutGateway
 {
     public ?HostedCheckoutRequest $request = null;

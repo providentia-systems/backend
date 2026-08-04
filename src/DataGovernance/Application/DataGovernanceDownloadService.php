@@ -31,13 +31,15 @@ final class DataGovernanceDownloadService
         $request = $this->authorized($identity, $requestId);
         $token = $this->tokens->generate();
         $expires = $this->clock->now()->add(new DateInterval('PT15M'));
-        if (! $this->store->setDownloadToken(
-            $requestId,
-            $expectedRevision,
-            $this->hasher->hashToken($token),
-            $expires,
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->store->setDownloadToken(
+                $requestId,
+                $expectedRevision,
+                $this->hasher->hashToken($token),
+                $expires,
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Download conflict', 'The export is unavailable at that revision.');
         }
 

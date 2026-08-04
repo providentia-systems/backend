@@ -214,8 +214,7 @@ final class CatalogImportServiceTest extends TestCase
         CatalogImportStore $store,
         array $ids = [],
         ?ChangeFeedWriter $changes = null,
-    ): CatalogImportService
-    {
+    ): CatalogImportService {
         $homes = $this->createStub(HomeStore::class);
         $homes->method('membership')->willReturnCallback(
             static fn (string $homeId, string $_userId): ?array => $homeId === self::HOME_ID ? [

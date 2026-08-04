@@ -156,12 +156,14 @@ final readonly class HostedCardRedirectAdapter implements HostedCardCheckoutGate
             throw $this->invalidWebhook();
         }
         $eventType = $this->requiredString($event, 'type', 64);
-        if (! in_array($eventType, [
-            'checkout.completed',
-            'subscription.updated',
-            'subscription.cancelled',
-            'subscription.past_due',
-        ], true)) {
+        if (
+            ! in_array($eventType, [
+                'checkout.completed',
+                'subscription.updated',
+                'subscription.cancelled',
+                'subscription.past_due',
+            ], true)
+        ) {
             throw new BillingProviderException(
                 'provider_event_unsupported',
                 'The hosted-card event is not configured for the billing state machine.',

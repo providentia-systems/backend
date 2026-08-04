@@ -94,8 +94,7 @@ final readonly class FfmpegVideoProcessor implements VideoProcessor
         string $workingDirectory,
         int $maxOutputBytes,
         int $timeoutSeconds,
-    ): string
-    {
+    ): string {
         /** @var array<int, resource> $pipes */
         $pipes = [];
         $process = proc_open(
