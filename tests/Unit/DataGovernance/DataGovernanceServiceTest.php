@@ -75,7 +75,7 @@ final class DataGovernanceServiceTest extends TestCase
 
     public function testDelegatedPermissionDoesNotBypassHomeErasureOwnershipSafeguard(): void
     {
-        $homeStore = $this->createStub(HomeStore::class);
+        $homeStore = $this->createMock(HomeStore::class);
         $homeStore->method('membership')->willReturn([
             'home_id' => self::HOME_ID,
             'user_id' => self::USER_ID,
@@ -83,7 +83,7 @@ final class DataGovernanceServiceTest extends TestCase
             'role' => HomeAuthorization::MANAGER,
             'revision' => 1,
         ]);
-        $homeStore->method('permissionDecision')
+        $homeStore->expects(self::once())->method('permissionDecision')
             ->with(self::HOME_ID, HomeAuthorization::MANAGER, HomePermission::DATA_ERASURE)
             ->willReturn(true);
         $this->expectException(Problem::class);
