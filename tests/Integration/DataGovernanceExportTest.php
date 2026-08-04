@@ -13,19 +13,21 @@ final class DataGovernanceExportTest extends TestCase
     public function testAccountExportIsBoundedAndExcludesCredentialHashes(): void
     {
         $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
-        foreach ([
-            'CREATE TABLE users (id TEXT, email TEXT, password_hash TEXT, status TEXT,
-                email_verified_at TEXT, created_at TEXT, updated_at TEXT)',
-            'CREATE TABLE user_profiles (user_id TEXT, display_name TEXT, locale TEXT,
-                timezone TEXT, created_at TEXT, updated_at TEXT)',
-            'CREATE TABLE devices (id TEXT, user_id TEXT, name TEXT, platform TEXT,
-                last_seen_at TEXT, revoked_at TEXT, created_at TEXT)',
-            'CREATE TABLE home_memberships (home_id TEXT, user_id TEXT, role TEXT,
-                status TEXT, revision INTEGER, joined_at TEXT, left_at TEXT, updated_at TEXT)',
-            'CREATE TABLE catalog_contributions (id TEXT, submitted_by_user_id TEXT,
-                contribution_type TEXT, payload_json TEXT, moderation_status TEXT,
-                revision INTEGER, created_at TEXT)',
-        ] as $statement) {
+        foreach (
+            [
+                'CREATE TABLE users (id TEXT, email TEXT, password_hash TEXT, status TEXT,
+                    email_verified_at TEXT, created_at TEXT, updated_at TEXT)',
+                'CREATE TABLE user_profiles (user_id TEXT, display_name TEXT, locale TEXT,
+                    timezone TEXT, created_at TEXT, updated_at TEXT)',
+                'CREATE TABLE devices (id TEXT, user_id TEXT, name TEXT, platform TEXT,
+                    last_seen_at TEXT, revoked_at TEXT, created_at TEXT)',
+                'CREATE TABLE home_memberships (home_id TEXT, user_id TEXT, role TEXT,
+                    status TEXT, revision INTEGER, joined_at TEXT, left_at TEXT, updated_at TEXT)',
+                'CREATE TABLE catalog_contributions (id TEXT, submitted_by_user_id TEXT,
+                    contribution_type TEXT, payload_json TEXT, moderation_status TEXT,
+                    revision INTEGER, created_at TEXT)',
+            ] as $statement
+        ) {
             $connection->executeStatement($statement);
         }
         $connection->insert('users', [

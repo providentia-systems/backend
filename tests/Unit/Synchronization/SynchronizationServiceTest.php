@@ -472,8 +472,7 @@ final class SynchronizationServiceTest extends TestCase
         SyncStore $syncStore,
         string $role,
         ?SyncCommandDispatcher $dispatcher = null,
-    ): SynchronizationService
-    {
+    ): SynchronizationService {
         $homeStore = $this->createStub(HomeStore::class);
         $homeStore->method('membership')->willReturn(['status' => 'active', 'role' => $role]);
         $clock = new FixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00'));
@@ -570,6 +569,7 @@ final class SynchronizationServiceTest extends TestCase
     }
 }
 
+// phpcs:disable PSR1.Classes.ClassDeclaration.MultipleClasses -- focused test double belongs with this unit.
 final class ImmediateTransactionManager implements TransactionManager
 {
     public function transactional(callable $operation): mixed

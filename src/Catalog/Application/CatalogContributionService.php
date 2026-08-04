@@ -71,17 +71,19 @@ final class CatalogContributionService
             $identity,
             $now,
         ): void {
-            if (! $this->store->saveConsent(
-                $receiptId,
-                $homeId,
-                $shareProductIdentity,
-                $shareProductImages,
-                $shareStorePrices,
-                $noticeVersion,
-                $expectedRevision,
-                $identity->userId,
-                $now,
-            )) {
+            if (
+                ! $this->store->saveConsent(
+                    $receiptId,
+                    $homeId,
+                    $shareProductIdentity,
+                    $shareProductImages,
+                    $shareStorePrices,
+                    $noticeVersion,
+                    $expectedRevision,
+                    $identity->userId,
+                    $now,
+                )
+            ) {
                 throw new Problem(409, 'Consent conflict', 'The sharing consent changed since it was read.');
             }
             $this->recordAudit(
@@ -143,16 +145,18 @@ final class CatalogContributionService
             $identity,
             $now,
         ): void {
-            if (! $this->store->createContribution(
-                $id,
-                $homeId,
-                (string) $consent['receiptId'],
-                $type,
-                $sourceEntityId,
-                $payload,
-                $identity->userId,
-                $now,
-            )) {
+            if (
+                ! $this->store->createContribution(
+                    $id,
+                    $homeId,
+                    (string) $consent['receiptId'],
+                    $type,
+                    $sourceEntityId,
+                    $payload,
+                    $identity->userId,
+                    $now,
+                )
+            ) {
                 throw new Problem(
                     409,
                     'Sharing consent changed',
@@ -220,14 +224,16 @@ final class CatalogContributionService
         if ($this->store->contribution($id) === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
         }
-        if (! $this->store->decide(
-            $id,
-            $decision,
-            $reason,
-            $expectedRevision,
-            $identity->userId,
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->store->decide(
+                $id,
+                $decision,
+                $reason,
+                $expectedRevision,
+                $identity->userId,
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Contribution conflict', 'The contribution changed or is no longer pending.');
         }
     }

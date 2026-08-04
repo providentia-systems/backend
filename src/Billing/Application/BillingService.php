@@ -154,13 +154,15 @@ final readonly class BillingService
         if (! in_array($status, ['active', 'retired'], true) || $expectedRevision < 1) {
             throw new Problem(422, 'Invalid price', 'Price status or revision is invalid.');
         }
-        if (! $this->billing->setPriceStatus(
-            $priceId,
-            $status,
-            $expectedRevision,
-            $identity->userId,
-            $this->clock->now(),
-        )) {
+        if (
+            ! $this->billing->setPriceStatus(
+                $priceId,
+                $status,
+                $expectedRevision,
+                $identity->userId,
+                $this->clock->now(),
+            )
+        ) {
             throw new Problem(409, 'Price changed', 'The price revision is no longer current.');
         }
 
