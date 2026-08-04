@@ -12,6 +12,7 @@ use Providentia\Purchasing\Application\PurchasingStore;
 use Providentia\Purchasing\Http\PurchasingHandler;
 use Providentia\Purchasing\Infrastructure\Doctrine\DbalPurchasingStore;
 use Providentia\SharedKernel\Application\Clock;
+use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Psr\Container\ContainerInterface;
@@ -31,6 +32,7 @@ final class PurchasingFactory
                 $container->get(UuidGenerator::class),
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
+                $container->get(ChangeFeedWriter::class),
             ),
             str_starts_with($requestedName, 'purchasing.') => new PurchasingHandler(
                 $container->get(PurchasingService::class),

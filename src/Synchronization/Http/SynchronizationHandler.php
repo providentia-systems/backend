@@ -39,14 +39,31 @@ final class SynchronizationHandler implements RequestHandlerInterface
             ));
         }
         if ($this->action === 'bootstrap') {
+            $query = $request->getQueryParams();
+            $cursor = $query['cursor'] ?? null;
+            $limit = $query['limit'] ?? null;
+
             return new JsonResponse($this->synchronization->bootstrap(
                 $identity,
                 (string) $request->getAttribute('homeId', ''),
                 $request->getHeaderLine('X-Request-Id'),
+                is_string($cursor) ? $cursor : null,
+                is_numeric($limit) ? (int) $limit : null,
             ));
         }
         /** @var array<string, mixed> $body */
         $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
+
+        if ($this->action === 'operation-status') {
+            $operationIds = $body['operationIds'] ?? null;
+
+            return new JsonResponse($this->synchronization->operationStatuses(
+                $identity,
+                (string) $request->getAttribute('homeId', ''),
+                (string) ($body['deviceId'] ?? ''),
+                is_array($operationIds) && array_is_list($operationIds) ? $operationIds : [],
+            ));
+        }
 
         return new JsonResponse($this->synchronization->push(
             $identity,

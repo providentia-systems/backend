@@ -24,8 +24,9 @@ final class SyncEnvelopeValidator
         array $envelope,
     ): SyncEnvelope {
         $this->rejectUnknownKeys($envelope);
-        if (($envelope['protocolVersion'] ?? null) !== 1) {
-            throw new Problem(422, 'Unsupported protocol', 'protocolVersion must be integer 1.');
+        $protocolVersion = $envelope['protocolVersion'] ?? null;
+        if (! in_array($protocolVersion, [1, 2], true)) {
+            throw new Problem(422, 'Unsupported protocol', 'protocolVersion must be integer 1 or 2.');
         }
         if (($envelope['deviceId'] ?? null) !== $authenticatedDeviceId) {
             throw new Problem(
@@ -72,6 +73,7 @@ final class SyncEnvelopeValidator
             $authenticatedDeviceId,
             $lastPulledCursor,
             $operations,
+            $protocolVersion,
         );
     }
 

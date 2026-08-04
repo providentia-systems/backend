@@ -7,8 +7,10 @@ namespace Providentia\Shopping\Application;
 use DomainException;
 use InvalidArgumentException;
 use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Domain\DecimalQuantity;
+use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
@@ -17,12 +19,6 @@ use Providentia\Shopping\Domain\LegacySuggestionPolicy;
 
 final class ShoppingService
 {
-    private const WRITERS = [
-        HomeAuthorization::OWNER,
-        HomeAuthorization::MANAGER,
-        HomeAuthorization::MEMBER,
-    ];
-
     public function __construct(
         private readonly ShoppingStore $shopping,
         private readonly HomeAuthorization $authorization,
@@ -30,13 +26,14 @@ final class ShoppingService
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
+        private readonly ?ChangeFeedWriter $changes = null,
     ) {
     }
 
     /** @return list<array<string, mixed>> */
     public function lists(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
 
         return $this->shopping->lists($homeId);
     }
@@ -47,7 +44,7 @@ final class ShoppingService
         string $homeId,
         string $listId,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
         $list = $this->shopping->shoppingList($homeId, $listId);
         if ($list === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
@@ -63,8 +60,9 @@ final class ShoppingService
         string $homeId,
         string $name,
         string $kind,
+        ?string $requestedId = null,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
         $name = trim($name);
         if ($name === '' || mb_strlen($name) > 120) {
             throw new Problem(422, 'Invalid shopping list', 'List name must contain 1 to 120 characters.');
@@ -72,8 +70,20 @@ final class ShoppingService
         if (! in_array($kind, ['manual', 'mixed', 'suggested'], true)) {
             throw new Problem(422, 'Invalid shopping list', 'List kind is not supported.');
         }
-        $id = $this->ids->generate();
-        $this->shopping->createList($id, $homeId, $name, $kind, $identity->userId, $this->clock->now());
+        $id = $this->identifier($requestedId);
+        $at = $this->clock->now();
+        $this->transactions->transactional(function () use ($id, $homeId, $name, $kind, $identity, $at): void {
+            $this->shopping->createList($id, $homeId, $name, $kind, $identity->userId, $at);
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'shopping-list',
+                $id,
+                1,
+                ['name' => $name, 'kind' => $kind, 'status' => 'open'],
+                $at,
+            );
+        });
 
         return ['id' => $id, 'revision' => 1];
     }
@@ -87,9 +97,10 @@ final class ShoppingService
         ?string $homeProductId,
         string $description,
         string $quantity,
+        ?string $requestedId = null,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
-        $this->requireOpenList($homeId, $listId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
+        $list = $this->requireOpenList($homeId, $listId);
         $description = trim($description);
         if ($description === '' || mb_strlen($description) > 191) {
             throw new Problem(422, 'Invalid list line', 'Description must contain 1 to 191 characters.');
@@ -102,7 +113,7 @@ final class ShoppingService
         if ($quantity === '0') {
             throw new Problem(422, 'Invalid quantity', 'Quantity to buy must be greater than zero.');
         }
-        $id = $this->ids->generate();
+        $id = $this->identifier($requestedId);
         try {
             $this->transactions->transactional(function () use (
                 $id,
@@ -112,6 +123,8 @@ final class ShoppingService
                 $homeProductId,
                 $description,
                 $quantity,
+                $identity,
+                $list,
             ): void {
                 if (
                     ! $this->shopping->addLine(
@@ -130,6 +143,38 @@ final class ShoppingService
                 ) {
                     throw new Problem(409, 'Revision conflict', 'The shopping list changed on another device.');
                 }
+                $at = $this->clock->now();
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'shopping-list-line',
+                    $id,
+                    1,
+                    [
+                        'listId' => $listId,
+                        'homeProductId' => $homeProductId === '' ? null : $homeProductId,
+                        'description' => $description,
+                        'source' => 'manual',
+                        'quantityToBuy' => $quantity,
+                        'explanation' => 'Added manually.',
+                        'confidence' => null,
+                        'checked' => false,
+                    ],
+                    $at,
+                );
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'shopping-list',
+                    $listId,
+                    $expectedListRevision + 1,
+                    [
+                        'name' => (string) $list['name'],
+                        'kind' => (string) $list['kind'],
+                        'status' => (string) $list['status'],
+                    ],
+                    $at,
+                );
             });
         } catch (DomainException $error) {
             throw new Problem(422, 'Invalid list line', $error->getMessage());
@@ -146,7 +191,7 @@ final class ShoppingService
         bool $checked,
         int $expectedRevision,
     ): void {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
         $this->requireOpenList($homeId, $listId);
         $this->transactions->transactional(function () use (
             $homeId,
@@ -154,6 +199,7 @@ final class ShoppingService
             $lineId,
             $checked,
             $expectedRevision,
+            $identity,
         ): void {
             if (
                 ! $this->shopping->setChecked(
@@ -167,13 +213,35 @@ final class ShoppingService
             ) {
                 throw new Problem(409, 'Revision conflict', 'The shopping-list line changed on another device.');
             }
+            $line = null;
+            foreach ($this->shopping->lines($homeId, $listId) as $candidate) {
+                if ((string) ($candidate['id'] ?? '') === $lineId) {
+                    $line = $candidate;
+                    break;
+                }
+            }
+            if ($line === null) {
+                throw new \RuntimeException('The updated shopping-list line is unavailable.');
+            }
+            unset($line['id'], $line['revision']);
+            $line['listId'] = $listId;
+            $line['checked'] = $checked;
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'shopping-list-line',
+                $lineId,
+                $expectedRevision + 1,
+                $line,
+                $this->clock->now(),
+            );
         });
     }
 
     /** @return list<array<string, mixed>> */
     public function legacySuggestions(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
         $suggestions = [];
         foreach ($this->shopping->legacySuggestionCandidates($homeId) as $candidate) {
             $quantity = $this->legacyPolicy->suggest(
@@ -218,5 +286,17 @@ final class ShoppingService
         }
 
         return $list;
+    }
+
+    private function identifier(?string $requestedId): string
+    {
+        if ($requestedId === null) {
+            return $this->ids->generate();
+        }
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $requestedId) !== 1) {
+            throw new Problem(422, 'Invalid identifier', 'The client-provided identifier is invalid.');
+        }
+
+        return strtolower($requestedId);
     }
 }

@@ -9,6 +9,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use Providentia\Synchronization\Application\SyncOperation;
+use Providentia\Synchronization\Infrastructure\Doctrine\DbalChangeFeedWriter;
 use Providentia\Synchronization\Infrastructure\Doctrine\DbalSyncStore;
 
 final class SynchronizationStoreTest extends TestCase
@@ -118,6 +119,11 @@ final class SynchronizationStoreTest extends TestCase
                 schema_version INTEGER NOT NULL,
                 updated_at DATETIME NOT NULL,
                 PRIMARY KEY (home_id, user_id, device_id)
+            )',
+                'CREATE TABLE sync_retention_state (
+                home_id VARCHAR(36) PRIMARY KEY,
+                minimum_available_cursor INTEGER NOT NULL DEFAULT 0,
+                compacted_at DATETIME NULL
             )',
             ] as $statement
         ) {
@@ -245,7 +251,7 @@ final class SynchronizationStoreTest extends TestCase
         if ($tombstone === false) {
             self::fail('The durable tombstone is missing.');
         }
-        self::assertNull($tombstone['retain_until']);
+        self::assertSame('2026-11-27 12:00:00', $tombstone['retain_until']);
     }
 
     public function testCapturedSnapshotUsesTheSameHighWaterBoundaryAsItsRecords(): void
@@ -267,20 +273,163 @@ final class SynchronizationStoreTest extends TestCase
         self::assertSame(1, $snapshot->records[0]['revision']);
     }
 
+    public function testPagedSnapshotRemainsFrozenWhenRowsChangeBetweenPages(): void
+    {
+        $firstId = '01912345-6789-7abc-8def-1123456789aa';
+        $secondId = '01912345-6789-7abc-8def-1123456789bb';
+        $thirdId = '01912345-6789-7abc-8def-1123456789cc';
+        $at = new DateTimeImmutable('2026-07-30T12:00:00+00:00');
+        $this->store->apply(
+            self::HOME_ID,
+            self::USER_ID,
+            self::DEVICE_ONE,
+            $this->operation('01912345-6789-7abc-9def-2123456789aa', null, 'put', $firstId, 'first'),
+            str_repeat('a', 64),
+            $at,
+        );
+        $this->store->apply(
+            self::HOME_ID,
+            self::USER_ID,
+            self::DEVICE_ONE,
+            $this->operation('01912345-6789-7abc-9def-2123456789bb', null, 'put', $secondId, 'second'),
+            str_repeat('b', 64),
+            $at,
+        );
+        $highWater = $this->store->highWater(self::HOME_ID);
+        $firstPage = $this->store->captureSnapshotPage(self::HOME_ID, $highWater, null, null, 1);
+
+        $this->store->apply(
+            self::HOME_ID,
+            self::USER_ID,
+            self::DEVICE_ONE,
+            $this->operation('01912345-6789-7abc-9def-2123456789bc', 1, 'put', $secondId, 'newer'),
+            str_repeat('c', 64),
+            $at->modify('+1 minute'),
+        );
+        $this->store->apply(
+            self::HOME_ID,
+            self::USER_ID,
+            self::DEVICE_ONE,
+            $this->operation('01912345-6789-7abc-9def-2123456789cc', null, 'put', $thirdId, 'third'),
+            str_repeat('d', 64),
+            $at->modify('+1 minute'),
+        );
+        $last = $firstPage->records[0];
+        $secondPage = $this->store->captureSnapshotPage(
+            self::HOME_ID,
+            $highWater,
+            (string) $last['entityType'],
+            (string) $last['entityId'],
+            1,
+        );
+
+        self::assertTrue($firstPage->hasMore);
+        self::assertFalse($secondPage->hasMore);
+        self::assertSame($secondId, $secondPage->records[0]['entityId']);
+        self::assertSame('second', $secondPage->records[0]['representation']['body']);
+    }
+
+    public function testOperationStatusLookupCannotRevealAnotherDeviceReceipt(): void
+    {
+        $operationId = '01912345-6789-7abc-9def-3123456789ab';
+        $operation = $this->operation($operationId, null, 'put');
+        $this->store->apply(
+            self::HOME_ID,
+            self::USER_ID,
+            self::DEVICE_ONE,
+            $operation,
+            str_repeat('a', 64),
+            new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
+        );
+
+        $owner = $this->store->operationStatuses(
+            self::HOME_ID,
+            self::USER_ID,
+            self::DEVICE_ONE,
+            [$operationId],
+        );
+        $otherDevice = $this->store->operationStatuses(
+            self::HOME_ID,
+            self::USER_ID,
+            self::DEVICE_TWO,
+            [$operationId],
+        );
+
+        self::assertSame('accepted', $owner[$operationId]['status']);
+        self::assertSame([], $otherDevice);
+    }
+
+    public function testAuthoritativeOnlineMutationWriterIsVisibleToPullAndBootstrap(): void
+    {
+        $writer = new DbalChangeFeedWriter($this->connection, new SequenceUuidGenerator());
+        $cursor = $writer->put(
+            self::HOME_ID,
+            self::USER_ID,
+            'shopping-list',
+            self::ENTITY_ID,
+            1,
+            ['name' => 'Weekly', 'kind' => 'manual', 'status' => 'open'],
+            new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
+        );
+
+        $changes = $this->store->changes(self::HOME_ID, 0, $cursor, 10);
+        $snapshot = $this->store->captureSnapshotPage(self::HOME_ID, $cursor, null, null, 10);
+
+        self::assertSame('shopping-list', $changes[0]['entityType']);
+        self::assertSame('Weekly', $changes[0]['payload']['name']);
+        self::assertSame('shopping-list', $snapshot->records[0]['entityType']);
+        self::assertSame('Weekly', $snapshot->records[0]['representation']['name']);
+        self::assertSame(1, $this->tableRowCount('outbox_messages'));
+    }
+
+    public function testExpiredTombstoneCompactionAdvancesTheResyncBoundaryAtomically(): void
+    {
+        $at = new DateTimeImmutable('2026-07-30T12:00:00+00:00');
+        $this->store->apply(
+            self::HOME_ID,
+            self::USER_ID,
+            self::DEVICE_ONE,
+            $this->operation('01912345-6789-7abc-9def-4123456789ab', null, 'put'),
+            str_repeat('a', 64),
+            $at,
+        );
+        $this->store->apply(
+            self::HOME_ID,
+            self::USER_ID,
+            self::DEVICE_ONE,
+            $this->operation('01912345-6789-7abc-9def-5123456789ab', 1, 'delete'),
+            str_repeat('b', 64),
+            $at,
+        );
+        $expiredAt = $at->modify('+121 days');
+
+        self::assertSame([self::HOME_ID], $this->store->homesWithExpiredTombstones($expiredAt, 10));
+        $result = $this->store->compactTombstones(self::HOME_ID, $expiredAt, 10);
+
+        self::assertSame(['deleted' => 1, 'safeCursor' => 2], $result);
+        self::assertSame(2, $this->store->minimumAvailableCursor(self::HOME_ID));
+        self::assertSame(0, $this->tableRowCount('record_tombstones'));
+        self::assertSame(0, $this->tableRowCount('sync_documents'));
+        self::assertSame(0, $this->tableRowCount('change_log'));
+        self::assertSame([], $this->store->captureSnapshotPage(self::HOME_ID, 2, null, null, 10)->records);
+    }
+
     private function operation(
         string $operationId,
         ?int $baseRevision,
         string $type,
+        string $entityId = self::ENTITY_ID,
+        string $body = 'freezer',
     ): SyncOperation {
         return new SyncOperation(
             $operationId,
             'private-note',
-            self::ENTITY_ID,
+            $entityId,
             $type,
             $baseRevision,
             '2026-07-30T11:59:00+00:00',
             1,
-            $type === 'delete' ? [] : ['body' => 'freezer'],
+            $type === 'delete' ? [] : ['body' => $body],
         );
     }
 

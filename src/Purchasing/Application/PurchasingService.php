@@ -8,9 +8,11 @@ use DateTimeImmutable;
 use DomainException;
 use InvalidArgumentException;
 use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Application\InventoryMovementGateway;
 use Providentia\Inventory\Domain\DecimalQuantity;
+use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
@@ -19,12 +21,6 @@ use Throwable;
 
 final class PurchasingService
 {
-    private const WRITERS = [
-        HomeAuthorization::OWNER,
-        HomeAuthorization::MANAGER,
-        HomeAuthorization::MEMBER,
-    ];
-
     public function __construct(
         private readonly PurchasingStore $purchases,
         private readonly InventoryMovementGateway $inventory,
@@ -32,6 +28,7 @@ final class PurchasingService
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
+        private readonly ?ChangeFeedWriter $changes = null,
     ) {
     }
 
@@ -45,7 +42,7 @@ final class PurchasingService
         int $limit,
         int $offset,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_READ);
         $this->optionalDate($from);
         $this->optionalDate($to);
 
@@ -65,7 +62,7 @@ final class PurchasingService
         string $homeId,
         string $receiptId,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_READ);
         $receipt = $this->purchases->receipt($homeId, $receiptId);
         if ($receipt === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
@@ -81,8 +78,9 @@ final class PurchasingService
         string $homeId,
         string $name,
         string $location,
+        ?string $requestedId = null,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
         $name = trim($name);
         $location = trim($location);
         if ($name === '' || mb_strlen($name) > 191 || mb_strlen($location) > 191) {
@@ -93,15 +91,28 @@ final class PurchasingService
         if ($existing !== null) {
             return ['id' => (string) $existing['id']];
         }
-        $id = $this->ids->generate();
-        $this->purchases->createStore(
+        $id = $this->identifier($requestedId);
+        $at = $this->clock->now();
+        $this->transactions->transactional(function () use (
             $id,
             $homeId,
             $name,
             $normalized,
             $location,
-            $this->clock->now(),
-        );
+            $identity,
+            $at,
+        ): void {
+            $this->purchases->createStore($id, $homeId, $name, $normalized, $location, $at);
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'purchasing-store',
+                $id,
+                1,
+                ['name' => $name, 'location' => $location, 'status' => 'active'],
+                $at,
+            );
+        });
 
         return ['id' => $id];
     }
@@ -116,8 +127,9 @@ final class PurchasingService
         ?string $totalAmount,
         string $notes,
         ?string $sourceReference,
+        ?string $requestedId = null,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
         $this->date($purchaseDate);
         $currency = strtoupper(trim($currency));
         if (preg_match('/^[A-Z]{3}$/', $currency) !== 1) {
@@ -127,21 +139,56 @@ final class PurchasingService
         if (mb_strlen($notes) > 2000) {
             throw new Problem(422, 'Invalid receipt', 'Receipt notes exceed 2000 characters.');
         }
-        $id = $this->ids->generate();
+        $id = $this->identifier($requestedId);
+        $notes = trim($notes);
+        $storeId = $storeId === '' ? null : $storeId;
+        $sourceReference = $sourceReference === '' ? null : $sourceReference;
+        $at = $this->clock->now();
         try {
-            $this->purchases->createReceipt(
+            $this->transactions->transactional(function () use (
                 $id,
                 $homeId,
-                $storeId === '' ? null : $storeId,
+                $storeId,
                 $purchaseDate,
                 $currency,
                 $totalAmount,
-                'manual',
-                $sourceReference === '' ? null : $sourceReference,
-                trim($notes),
-                $identity->userId,
-                $this->clock->now(),
-            );
+                $sourceReference,
+                $notes,
+                $identity,
+                $at,
+            ): void {
+                $this->purchases->createReceipt(
+                    $id,
+                    $homeId,
+                    $storeId,
+                    $purchaseDate,
+                    $currency,
+                    $totalAmount,
+                    'manual',
+                    $sourceReference,
+                    $notes,
+                    $identity->userId,
+                    $at,
+                );
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'purchasing-receipt',
+                    $id,
+                    1,
+                    [
+                        'storeId' => $storeId,
+                        'purchaseDate' => $purchaseDate,
+                        'currency' => $currency,
+                        'totalAmount' => $totalAmount,
+                        'status' => 'draft',
+                        'source' => 'manual',
+                        'sourceReference' => $sourceReference,
+                        'notes' => $notes,
+                    ],
+                    $at,
+                );
+            });
         } catch (DomainException $error) {
             throw new Problem(422, 'Invalid receipt', $error->getMessage());
         }
@@ -160,8 +207,9 @@ final class PurchasingService
         ?string $originalPackText,
         ?string $unitPrice,
         ?string $lineTotal,
+        ?string $requestedId = null,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
         $receipt = $this->requireDraft($homeId, $receiptId);
         $rawDescription = trim($rawDescription);
         if ($rawDescription === '' || mb_strlen($rawDescription) > 500) {
@@ -170,10 +218,13 @@ final class PurchasingService
         $quantity = $this->quantity($quantity);
         $unitPrice = $this->money($unitPrice, true);
         $lineTotal = $this->money($lineTotal, true);
+        $originalPackText = $originalPackText === null
+            ? null
+            : mb_substr(trim($originalPackText), 0, 191);
         if ($unitPrice === null && $lineTotal === null) {
             throw new Problem(422, 'Invalid receipt line', 'A unit price or line total is required.');
         }
-        $id = $this->ids->generate();
+        $id = $this->identifier($requestedId);
         $this->transactions->transactional(function () use (
             $id,
             $homeId,
@@ -184,6 +235,8 @@ final class PurchasingService
             $originalPackText,
             $unitPrice,
             $lineTotal,
+            $identity,
+            $receipt,
         ): void {
             $lines = $this->purchases->receiptLines($homeId, $receiptId);
             if (
@@ -195,7 +248,7 @@ final class PurchasingService
                     count($lines) + 1,
                     $rawDescription,
                     $quantity,
-                    $originalPackText === null ? null : mb_substr(trim($originalPackText), 0, 191),
+                    $originalPackText,
                     $unitPrice,
                     $lineTotal,
                     $this->clock->now(),
@@ -203,6 +256,42 @@ final class PurchasingService
             ) {
                 throw new Problem(409, 'Revision conflict', 'The receipt changed on another device.');
             }
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'purchasing-receipt-line',
+                $id,
+                1,
+                [
+                    'receiptId' => $receiptId,
+                    'rawDescription' => $rawDescription,
+                    'quantity' => $quantity,
+                    'originalPackText' => $originalPackText,
+                    'unitPrice' => $unitPrice,
+                    'lineTotal' => $lineTotal,
+                    'homeProductId' => null,
+                    'approvalStatus' => 'unreviewed',
+                ],
+                $this->clock->now(),
+            );
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'purchasing-receipt',
+                $receiptId,
+                $expectedReceiptRevision + 1,
+                [
+                    'storeId' => $receipt['storeId'] ?? null,
+                    'purchaseDate' => (string) $receipt['purchaseDate'],
+                    'currency' => (string) $receipt['currency'],
+                    'totalAmount' => $receipt['totalAmount'] ?? null,
+                    'status' => (string) $receipt['status'],
+                    'source' => (string) ($receipt['source'] ?? 'manual'),
+                    'sourceReference' => $receipt['sourceReference'] ?? null,
+                    'notes' => (string) ($receipt['notes'] ?? ''),
+                ],
+                $this->clock->now(),
+            );
         });
 
         return ['id' => $id];
@@ -216,7 +305,7 @@ final class PurchasingService
         string $homeProductId,
         int $expectedRevision,
     ): void {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
         $this->requireDraft($homeId, $receiptId);
         $this->transactions->transactional(function () use (
             $homeId,
@@ -239,6 +328,20 @@ final class PurchasingService
             ) {
                 throw new Problem(409, 'Revision conflict', 'The receipt line changed on another device.');
             }
+            $line = $this->purchases->receiptLine($homeId, $receiptId, $lineId);
+            if ($line === null) {
+                throw new \RuntimeException('The updated receipt line is unavailable.');
+            }
+            unset($line['id'], $line['revision']);
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'purchasing-receipt-line',
+                $lineId,
+                $expectedRevision + 1,
+                $line,
+                $this->clock->now(),
+            );
         });
     }
 
@@ -249,7 +352,7 @@ final class PurchasingService
         string $receiptId,
         int $expectedRevision,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
 
         return $this->transactions->transactional(function () use (
             $identity,
@@ -267,6 +370,24 @@ final class PurchasingService
             if ((string) $receipt['status'] !== 'draft' || (int) $receipt['revision'] !== $expectedRevision) {
                 throw new Problem(409, 'Revision conflict', 'The receipt changed on another device.');
             }
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'purchasing-receipt',
+                $receiptId,
+                $expectedRevision + 1,
+                [
+                    'storeId' => $receipt['storeId'] ?? null,
+                    'purchaseDate' => (string) $receipt['purchaseDate'],
+                    'currency' => (string) $receipt['currency'],
+                    'totalAmount' => $receipt['totalAmount'] ?? null,
+                    'status' => 'committed',
+                    'source' => (string) ($receipt['source'] ?? 'manual'),
+                    'sourceReference' => $receipt['sourceReference'] ?? null,
+                    'notes' => (string) ($receipt['notes'] ?? ''),
+                ],
+                $this->clock->now(),
+            );
             $lines = $this->purchases->receiptLines($homeId, $receiptId);
             if ($lines === []) {
                 throw new Problem(422, 'Empty receipt', 'At least one receipt line is required.');
@@ -325,7 +446,7 @@ final class PurchasingService
     /** @return array<string, mixed> */
     public function summary(AuthenticatedIdentity $identity, string $homeId, int $recentDays = 90): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_READ);
 
         return $this->purchases->summary($homeId, min(365, max(1, $recentDays)));
     }
@@ -396,5 +517,17 @@ final class PurchasingService
         $value = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $value) ?? $value;
 
         return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+    }
+
+    private function identifier(?string $requestedId): string
+    {
+        if ($requestedId === null) {
+            return $this->ids->generate();
+        }
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $requestedId) !== 1) {
+            throw new Problem(422, 'Invalid identifier', 'The client-provided identifier is invalid.');
+        }
+
+        return strtolower($requestedId);
     }
 }
