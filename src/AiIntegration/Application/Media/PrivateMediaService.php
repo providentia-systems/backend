@@ -103,7 +103,11 @@ final readonly class PrivateMediaService
                 $this->storage->delete($object);
                 $duplicate = $this->store->activeMediaByDigest($homeId, $digest);
                 if ($duplicate === null) {
-                    throw new Problem(413, 'Private media quota exceeded', 'Delete media or increase the household quota.');
+                    throw new Problem(
+                        413,
+                        'Private media quota exceeded',
+                        'Delete media or increase the household quota.',
+                    );
                 }
 
                 return [

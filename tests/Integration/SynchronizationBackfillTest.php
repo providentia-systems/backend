@@ -100,11 +100,11 @@ final class SynchronizationBackfillTest extends TestCase
         self::assertSame(2, $second['appended']);
         self::assertFalse($second['hasMore']);
         self::assertSame(0, $replay['appended']);
-        self::assertSame(3, $this->count('change_log', self::HOME_ONE));
-        self::assertSame(0, $this->count('change_log', self::HOME_TWO));
-        self::assertSame(2, $this->count('home_locations'));
-        self::assertSame(1, $this->count('shopping_lists'));
-        self::assertSame(1, $this->count('shopping_list_lines'));
+        self::assertSame(3, $this->tableCount('change_log', self::HOME_ONE));
+        self::assertSame(0, $this->tableCount('change_log', self::HOME_TWO));
+        self::assertSame(2, $this->tableCount('home_locations'));
+        self::assertSame(1, $this->tableCount('shopping_lists'));
+        self::assertSame(1, $this->tableCount('shopping_list_lines'));
         self::assertSame(self::USER_ID, $this->connection->fetchOne(
             "SELECT changed_by_user_id FROM change_log
              WHERE home_id = :home AND entity_type = 'inventory-location'",
@@ -190,7 +190,7 @@ final class SynchronizationBackfillTest extends TestCase
         ];
     }
 
-    private function count(string $table, ?string $homeId = null): int
+    private function tableCount(string $table, ?string $homeId = null): int
     {
         $sql = 'SELECT COUNT(*) FROM ' . $table;
         if ($homeId === null) {

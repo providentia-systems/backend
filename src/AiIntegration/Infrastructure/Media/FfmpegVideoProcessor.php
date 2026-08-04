@@ -28,7 +28,10 @@ final readonly class FfmpegVideoProcessor implements VideoProcessor
         $directory = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR . 'providentia-video-' . bin2hex(random_bytes(12));
         if (! mkdir($directory, 0700)) {
-            throw new AiProviderException('video_processing_failed', 'An isolated video workspace could not be created.');
+            throw new AiProviderException(
+                'video_processing_failed',
+                'An isolated video workspace could not be created.',
+            );
         }
         $input = $directory . DIRECTORY_SEPARATOR . 'input.media';
         $processingDeadline = microtime(true) + $this->maxProcessingSeconds;
@@ -49,7 +52,10 @@ final readonly class FfmpegVideoProcessor implements VideoProcessor
             $format = is_array($decoded['format'] ?? null) ? $decoded['format'] : [];
             $duration = (float) ($format['duration'] ?? 0);
             if (! is_finite($duration) || $duration <= 0 || $duration > $this->maxDurationSeconds) {
-                throw new AiProviderException('video_duration_rejected', 'Video duration is outside the configured limit.');
+                throw new AiProviderException(
+                    'video_duration_rejected',
+                    'Video duration is outside the configured limit.',
+                );
             }
             $frameCount = min($this->maxFrames, max(1, (int) ceil($duration)));
             $interval = $duration / ($frameCount + 1);
@@ -71,7 +77,10 @@ final readonly class FfmpegVideoProcessor implements VideoProcessor
                 ], $directory, 1048576, $this->remainingSeconds($processingDeadline));
                 $frame = is_file($output) ? file_get_contents($output) : false;
                 if (! is_string($frame) || strlen($frame) < 16 || strlen($frame) > $this->maxFrameBytes) {
-                    throw new AiProviderException('video_frame_rejected', 'A derived video frame exceeded safe limits.');
+                    throw new AiProviderException(
+                        'video_frame_rejected',
+                        'A derived video frame exceeded safe limits.',
+                    );
                 }
                 $frames[] = [
                     'offsetMs' => (int) round($offset * 1000),
@@ -106,7 +115,10 @@ final readonly class FfmpegVideoProcessor implements VideoProcessor
             ['bypass_shell' => true],
         );
         if (! is_resource($process)) {
-            throw new AiProviderException('video_processor_unavailable', 'The isolated video processor is unavailable.');
+            throw new AiProviderException(
+                'video_processor_unavailable',
+                'The isolated video processor is unavailable.',
+            );
         }
         stream_set_blocking($pipes[1], false);
         stream_set_blocking($pipes[2], false);
