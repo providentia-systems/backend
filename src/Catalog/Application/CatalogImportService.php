@@ -393,7 +393,7 @@ final class CatalogImportService
         }
 
         $productId = isset($match['productId']) ? (string) $match['productId'] : null;
-        $packId = isset($match['packId']) && $match['packId'] !== null ? (string) $match['packId'] : null;
+        $packId = isset($match['packId']) ? (string) $match['packId'] : null;
         $homeProductId = isset($match['homeProductId']) ? (string) $match['homeProductId'] : null;
         $resolution = match ((string) $match['resolution']) {
             'existing_home' => 'already_present',
@@ -422,7 +422,10 @@ final class CatalogImportService
         ];
     }
 
-    /** @param array<string, mixed> $record @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $record
+     * @return array<string, mixed>
+     */
     private function errorRow(int $position, array $record, string $code, string $detail): array
     {
         return [
@@ -473,7 +476,10 @@ final class CatalogImportService
         return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
     }
 
-    /** @param array<string, mixed> $record @return array<string, string> */
+    /**
+     * @param array<string, mixed> $record
+     * @return array<string, string>
+     */
     private function safePayload(array $record): array
     {
         $safe = [];

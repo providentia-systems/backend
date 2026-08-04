@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 use Doctrine\DBAL\Connection;
 
-if ($argc !== 3 || ! in_array($argv[1], ['prepare-redelivery', 'verify'], true)) {
+$arguments = $_SERVER['argv'] ?? [];
+if (count($arguments) !== 3 || ! in_array($arguments[1], ['prepare-redelivery', 'verify'], true)) {
     fwrite(STDERR, "Usage: php tests/Acceptance/outbox-recovery.php <prepare-redelivery|verify> <proof-name>\n");
     exit(2);
 }
@@ -13,9 +14,9 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 $container = require dirname(__DIR__, 2) . '/config/container.php';
 /** @var Connection $connection */
 $connection = $container->get(Connection::class);
-$needle = '%"label":"' . $argv[2] . '"%';
+$needle = '%"label":"' . $arguments[2] . '"%';
 
-if ($argv[1] === 'prepare-redelivery') {
+if ($arguments[1] === 'prepare-redelivery') {
     $updated = $connection->executeStatement(
         "UPDATE outbox_messages
          SET status = 'pending', published_at = NULL, available_at = :available

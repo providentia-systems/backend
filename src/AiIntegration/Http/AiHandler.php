@@ -65,7 +65,7 @@ final readonly class AiHandler implements RequestHandlerInterface
             'policy.put' => new JsonResponse($this->ai->putOrchestrationPolicy(
                 $identity,
                 $homeId,
-                is_array($body['extractionProfileIds'] ?? null) ? $body['extractionProfileIds'] : [],
+                $this->stringList($body['extractionProfileIds'] ?? null),
                 isset($body['validationProfileId']) ? (string) $body['validationProfileId'] : null,
                 (int) ($body['maxAttempts'] ?? 4),
                 (int) ($body['maxTotalTokens'] ?? 50000),
@@ -79,7 +79,7 @@ final readonly class AiHandler implements RequestHandlerInterface
                 (string) ($body['kind'] ?? ''),
                 isset($body['targetId']) ? (string) $body['targetId'] : null,
                 filter_var($body['transmissionConsent'] ?? false, FILTER_VALIDATE_BOOL),
-                is_array($body['assetIds'] ?? null) ? array_map('strval', $body['assetIds']) : [],
+                $this->stringList($body['assetIds'] ?? null),
             ), 201),
             'extractions.get' => new JsonResponse($this->ai->extraction(
                 $identity,
@@ -91,6 +91,16 @@ final readonly class AiHandler implements RequestHandlerInterface
             'discrepancies.review' => $this->reviewDiscrepancy($identity, $homeId, $request, $body),
             default => throw new \LogicException('Unknown AI integration action.'),
         };
+    }
+
+    /** @return list<string> */
+    private function stringList(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_map(static fn (mixed $item): string => (string) $item, $value));
     }
 
     /** @param array<string, mixed> $body */

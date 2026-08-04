@@ -20,9 +20,14 @@ final readonly class BillingWebhookHandler implements RequestHandlerInterface
     {
         $provider = (string) $request->getAttribute('provider', '');
         $body = (string) $request->getBody();
+        /** @var array<string, list<string>> $headers */
+        $headers = array_map(
+            static fn (array $values): array => array_values(array_map('strval', $values)),
+            $request->getHeaders(),
+        );
 
         return new JsonResponse([
-            'status' => $this->billing->acceptWebhook($provider, $body, $request->getHeaders()),
+            'status' => $this->billing->acceptWebhook($provider, $body, $headers),
         ], 202);
     }
 }

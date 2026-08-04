@@ -345,7 +345,10 @@ final class AiService
         ];
     }
 
-    /** @param list<string> $extractionProfileIds @return array<string, mixed> */
+    /**
+     * @param list<string> $extractionProfileIds
+     * @return array<string, mixed>
+     */
     public function putOrchestrationPolicy(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -485,7 +488,7 @@ final class AiService
             $plannedCost = array_sum(array_map(
                 static fn (AiExecution $execution): int => $execution->estimatedCostMicros,
                 $plan,
-            )) + ($validator?->estimatedCostMicros ?? 0);
+            )) + ($validator->estimatedCostMicros ?? 0);
             if (
                 $plannedCost > 0
                 && count($observations) > intdiv(
@@ -628,7 +631,10 @@ final class AiService
         ];
     }
 
-    /** @param non-empty-list<string> $assetIds @return array<string, mixed> */
+    /**
+     * @param list<string> $assetIds
+     * @return array<string, mixed>
+     */
     public function extractStoredMedia(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -887,7 +893,10 @@ final class AiService
         return $profile;
     }
 
-    /** @param list<array<string, mixed>> $profiles @return list<array<string, mixed>> */
+    /**
+     * @param list<array<string, mixed>> $profiles
+     * @return list<array<string, mixed>>
+     */
     private function publicProfiles(array $profiles): array
     {
         return array_map(static function (array $profile): array {
@@ -899,7 +908,7 @@ final class AiService
     }
 
     /**
-     * @param non-empty-array<int, array<string, mixed>> $results
+     * @param array<int, array<string, mixed>> $results
      * @return array<string, mixed>
      */
     private function mergeObservationResults(array $results, string $kind, string $homeId, string $extractionId): array
