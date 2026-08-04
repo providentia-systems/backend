@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.8.0",
+    "version": "1.9.0",
     "summary": "Authoritative Providentia backend contract through the production-readiness programme",
-    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds passwordless authentication and durable encrypted notification delivery."
+    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds passwordless authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -200,6 +200,39 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SessionCredentials"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/step-up-links": {
+      "post": {
+        "operationId": "requestStepUpLink",
+        "tags": [
+          "Identity"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepUpRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "A single-use confirmation link was queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagicLinkAccepted"
                 }
               }
             }
@@ -586,6 +619,109 @@
         }
       }
     },
+    "/api/v1/homes/{homeId}/permission-policies": {
+      "get": {
+        "operationId": "listHomePermissionPolicies",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revisioned household role policies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/HomePermissionPolicy"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/permission-policies/{role}": {
+      "put": {
+        "operationId": "putHomePermissionPolicy",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/HomeRole"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "permissions",
+                  "expectedRevision"
+                ],
+                "properties": {
+                  "permissions": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/components/schemas/HomePermission"
+                    }
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Role policy replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomePermissionPolicy"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/api/v1/homes/{homeId}/memberships": {
       "get": {
         "operationId": "listHomeMemberships",
@@ -711,7 +847,8 @@
                 "additionalProperties": false,
                 "required": [
                   "targetUserId",
-                  "expectedTargetRevision"
+                  "expectedTargetRevision",
+                  "stepUpToken"
                 ],
                 "properties": {
                   "targetUserId": {
@@ -721,6 +858,10 @@
                   "expectedTargetRevision": {
                     "type": "integer",
                     "minimum": 1
+                  },
+                  "stepUpToken": {
+                    "type": "string",
+                    "minLength": 40
                   }
                 }
               }
@@ -728,8 +869,185 @@
           }
         },
         "responses": {
+          "202": {
+            "description": "Deprecated compatibility route; an accepted ownership proposal was created"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ownership-transfers": {
+      "get": {
+        "operationId": "listHomeOwnershipTransfers",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ownership proposals visible to the participant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/HomeOwnershipTransfer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "operationId": "proposeHomeOwnershipTransfer",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HomeOwnershipTransferProposal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ownership proposal created after step-up confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeOwnershipTransfer"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ownership-transfers/{transferId}/accept": {
+      "post": {
+        "operationId": "acceptHomeOwnershipTransfer",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "$ref": "#/components/parameters/OwnershipTransferId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
           "204": {
-            "description": "Ownership atomically transferred"
+            "description": "Recipient accepted and ownership changed atomically"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ownership-transfers/{transferId}/reject": {
+      "post": {
+        "operationId": "rejectHomeOwnershipTransfer",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "$ref": "#/components/parameters/OwnershipTransferId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Recipient rejected the proposal"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ownership-transfers/{transferId}/revoke": {
+      "post": {
+        "operationId": "revokeHomeOwnershipTransfer",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "$ref": "#/components/parameters/OwnershipTransferId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Proposer revoked the proposal"
           },
           "409": {
             "$ref": "#/components/responses/Problem"
@@ -738,6 +1056,43 @@
       }
     },
     "/api/v1/homes/{homeId}/invitations": {
+      "get": {
+        "operationId": "listHomeInvitations",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Visible home invitations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/HomeInvitation"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
       "post": {
         "operationId": "createHomeInvitation",
         "tags": [
@@ -789,6 +1144,46 @@
             }
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/invitations/{invitationId}/revoke": {
+      "post": {
+        "operationId": "revokeHomeInvitation",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "invitationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Invitation revoked"
+          },
+          "409": {
             "$ref": "#/components/responses/Problem"
           }
         }
@@ -3955,6 +4350,15 @@
           "format": "uuid"
         }
       },
+      "OwnershipTransferId": {
+        "name": "transferId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
       "SessionId": {
         "name": "sessionId",
         "in": "path",
@@ -4185,6 +4589,11 @@
             "type": "string",
             "writeOnly": true,
             "description": "Present only in an explicitly enabled non-production development profile."
+          },
+          "developmentStepUpToken": {
+            "type": "string",
+            "writeOnly": true,
+            "description": "Present only in an explicitly enabled non-production development profile."
           }
         }
       },
@@ -4220,6 +4629,18 @@
               "web"
             ],
             "default": "native"
+          }
+        }
+      },
+      "StepUpRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "const": "ownership-transfer"
           }
         }
       },
@@ -4379,6 +4800,144 @@
           "viewer"
         ]
       },
+      "HomePermission": {
+        "type": "string",
+        "enum": [
+          "home.read",
+          "members.read",
+          "members.invite",
+          "members.manage",
+          "permissions.manage",
+          "ownership.transfer",
+          "inventory.read",
+          "inventory.write",
+          "inventory.manage",
+          "purchases.read",
+          "purchases.write",
+          "shopping.read",
+          "shopping.write",
+          "shopping.manage",
+          "ai.read",
+          "ai.use",
+          "ai.manage",
+          "reports.read"
+        ]
+      },
+      "HomePermissionPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "revision",
+          "permissions"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/HomeRole"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "permissions": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/HomePermission"
+            }
+          },
+          "configurable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RevisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedRevision"
+        ],
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "HomeOwnershipTransferProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "targetUserId",
+          "expectedTargetRevision",
+          "stepUpToken"
+        ],
+        "properties": {
+          "targetUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedTargetRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "stepUpToken": {
+            "type": "string",
+            "minLength": 40
+          }
+        }
+      },
+      "HomeOwnershipTransfer": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeId",
+          "proposedByUserId",
+          "targetUserId",
+          "status",
+          "expiresAt",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proposedByUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedTargetRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected",
+              "revoked",
+              "expired"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
       "CreateHomeRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -4467,6 +5026,7 @@
         "required": [
           "invitationId",
           "expiresAt",
+          "revision",
           "delivery"
         ],
         "properties": {
@@ -4478,8 +5038,62 @@
             "type": "string",
             "format": "date-time"
           },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
           "delivery": {
             "const": "transactional-email"
+          }
+        }
+      },
+      "HomeInvitation": {
+        "type": "object",
+        "required": [
+          "id",
+          "homeId",
+          "inviterUserId",
+          "email",
+          "role",
+          "status",
+          "expiresAt",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inviterUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "role": {
+            "$ref": "#/components/schemas/HomeRole"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "accepted",
+              "revoked",
+              "expired"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       },
