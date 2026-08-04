@@ -11,13 +11,16 @@ use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Http\ProblemDetailsMiddleware;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Log\AbstractLogger;
 use RuntimeException;
+use Stringable;
 
 final class ProblemDetailsMiddlewareTest extends TestCase
 {
     public function testApplicationProblemIsRenderedAsRfcProblemDetails(): void
     {
-        $middleware = new ProblemDetailsMiddleware(false);
+        $logger = new RecordingProblemLogger();
+        $middleware = new ProblemDetailsMiddleware(false, $logger);
         $response = $middleware->process(
             $this->request(),
             new CallbackRequestHandler(static function (ServerRequestInterface $request): ResponseInterface {
@@ -37,13 +40,16 @@ final class ProblemDetailsMiddlewareTest extends TestCase
         self::assertSame('Validation failed', $body['title']);
         self::assertSame('The request value is invalid.', $body['detail']);
         self::assertSame('request-123', $body['requestId']);
-        self::assertSame('https://example.test/api', $body['instance']);
+        self::assertSame('/api', $body['instance']);
+        self::assertSame('warning', $logger->records[0]['level']);
+        self::assertSame(422, $logger->records[0]['context']['status']);
     }
 
     public function testUnexpectedFailuresAreHiddenOutsideDebugMode(): void
     {
-        $response = (new ProblemDetailsMiddleware(false))->process(
-            $this->request(),
+        $logger = new RecordingProblemLogger();
+        $response = (new ProblemDetailsMiddleware(false, $logger))->process(
+            $this->request('https://example.test/api?token=secret-token'),
             new CallbackRequestHandler(static function (ServerRequestInterface $request): ResponseInterface {
                 unset($request);
                 throw new RuntimeException('database credentials leaked');
@@ -54,11 +60,16 @@ final class ProblemDetailsMiddlewareTest extends TestCase
         self::assertSame(500, $response->getStatusCode());
         self::assertSame('The request could not be completed.', $body['detail']);
         self::assertStringNotContainsString('credentials', (string) $response->getBody());
+        self::assertSame('/api', $body['instance']);
+        self::assertSame('error', $logger->records[0]['level']);
+        $encodedLog = json_encode($logger->records, JSON_THROW_ON_ERROR);
+        self::assertStringNotContainsString('database credentials leaked', $encodedLog);
+        self::assertStringNotContainsString('secret-token', $encodedLog);
     }
 
     public function testDebugModeExposesUnexpectedFailureMessage(): void
     {
-        $response = (new ProblemDetailsMiddleware(true))->process(
+        $response = (new ProblemDetailsMiddleware(true, new RecordingProblemLogger()))->process(
             $this->request(),
             new CallbackRequestHandler(static function (ServerRequestInterface $request): ResponseInterface {
                 unset($request);
@@ -69,15 +80,37 @@ final class ProblemDetailsMiddlewareTest extends TestCase
         self::assertSame('diagnostic detail', $this->body($response)['detail']);
     }
 
-    private function request(): ServerRequestInterface
+    public function testInvalidRequestIdentifierIsNotWrittenToTheLogOrResponse(): void
     {
+        $logger = new RecordingProblemLogger();
+        $response = (new ProblemDetailsMiddleware(false, $logger))->process(
+            $this->request(
+                'https://example.test/api',
+                ['X-Request-Id' => ['attacker forged-log']],
+            ),
+            new CallbackRequestHandler(static function (ServerRequestInterface $request): ResponseInterface {
+                unset($request);
+                throw new RuntimeException('failure');
+            }),
+        );
+        $requestId = $response->getHeaderLine('X-Request-Id');
+
+        self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $requestId);
+        self::assertSame($requestId, $logger->records[0]['context']['request_id']);
+    }
+
+    /** @param array<non-empty-string, list<string>> $headers */
+    private function request(
+        string $uri = 'https://example.test/api',
+        array $headers = ['X-Request-Id' => ['request-123']],
+    ): ServerRequestInterface {
         return new ServerRequest(
             [],
             [],
-            new Uri('https://example.test/api'),
+            new Uri($uri),
             'POST',
             'php://memory',
-            ['X-Request-Id' => ['request-123']],
+            $headers,
         );
     }
 
@@ -90,5 +123,21 @@ final class ProblemDetailsMiddlewareTest extends TestCase
         }
 
         return $body;
+    }
+}
+
+final class RecordingProblemLogger extends AbstractLogger
+{
+    /** @var list<array{level: string, message: string, context: array<string, mixed>}> */
+    public array $records = [];
+
+    /** @param array<string, mixed> $context */
+    public function log($level, string|Stringable $message, array $context = []): void
+    {
+        $this->records[] = [
+            'level' => (string) $level,
+            'message' => (string) $message,
+            'context' => $context,
+        ];
     }
 }

@@ -66,6 +66,55 @@ jobs:
           php bin/providentia foundation:prove ci
           php bin/doctrine-migrations migrations:status
 
+  coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: "8.5"
+          extensions: intl, json, mbstring, pdo_sqlite, redis
+          coverage: xdebug
+          tools: composer:2.10.2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Generate coverage and enforce the release ratchet
+        run: |
+          composer test:coverage
+          composer coverage:check
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: coverage-evidence-${{ github.sha }}
+          path: var/coverage.xml
+          if-no-files-found: error
+          retention-days: 30
+
+  mutation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: "8.5"
+          extensions: intl, json, mbstring, pdo_sqlite, redis
+          coverage: xdebug
+          tools: composer:2.10.2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Mutate fixed-point inventory and shopping policy
+        run: composer test:mutation
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: mutation-evidence-${{ github.sha }}
+          path: |
+            var/infection.log
+            var/infection-summary.log
+            var/infection.json
+          if-no-files-found: warn
+          retention-days: 30
+
   database:
     strategy:
       fail-fast: false
