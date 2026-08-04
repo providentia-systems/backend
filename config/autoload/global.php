@@ -124,6 +124,10 @@ return [
         'credential_kek' => $aiCredentialKek,
         'credential_key_version' => max(1, (int) $env('AI_CREDENTIAL_KEY_VERSION', '1')),
         'openai_endpoint' => 'https://api.openai.com/v1/responses',
+        'anthropic_endpoint' => 'https://api.anthropic.com/v1/messages',
+        'gemini_endpoint_template' =>
+            'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
+        'xai_endpoint' => 'https://api.x.ai/v1/chat/completions',
         'compatible_endpoint' => $aiCompatibleEndpoint === ''
             ? ''
             : $aiCompatibleEndpoint . '/v1/chat/completions',

@@ -14,9 +14,12 @@ use Providentia\AiIntegration\Infrastructure\Doctrine\DbalAiStore;
 use Providentia\AiIntegration\Infrastructure\Factory\AiIntegrationFactory;
 use Providentia\AiIntegration\Infrastructure\Http\EndpointPolicy;
 use Providentia\AiIntegration\Infrastructure\Http\StreamJsonHttpClient;
+use Providentia\AiIntegration\Infrastructure\Provider\AnthropicMessagesProvider;
+use Providentia\AiIntegration\Infrastructure\Provider\GeminiGenerateContentProvider;
 use Providentia\AiIntegration\Infrastructure\Provider\OllamaProvider;
 use Providentia\AiIntegration\Infrastructure\Provider\OpenAiCompatibleProvider;
 use Providentia\AiIntegration\Infrastructure\Provider\OpenAiResponsesProvider;
+use Providentia\AiIntegration\Infrastructure\Provider\XaiChatCompletionsProvider;
 use Providentia\AiIntegration\Infrastructure\Security\NativeCredentialCipher;
 
 final class ConfigProvider
@@ -38,6 +41,9 @@ final class ConfigProvider
                     StreamJsonHttpClient::class => AiIntegrationFactory::class,
                     ExtractionSchema::class => AiIntegrationFactory::class,
                     OpenAiResponsesProvider::class => AiIntegrationFactory::class,
+                    AnthropicMessagesProvider::class => AiIntegrationFactory::class,
+                    GeminiGenerateContentProvider::class => AiIntegrationFactory::class,
+                    XaiChatCompletionsProvider::class => AiIntegrationFactory::class,
                     OpenAiCompatibleProvider::class => AiIntegrationFactory::class,
                     OllamaProvider::class => AiIntegrationFactory::class,
                     AiProviderRegistry::class => AiIntegrationFactory::class,
