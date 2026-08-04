@@ -82,6 +82,49 @@ final class AiOrchestratorTest extends TestCase
         );
     }
 
+    public function testAttemptObserverReceivesProfileMetadataAndCostBudgetStopsBeforeDispatch(): void
+    {
+        $calls = 0;
+        $provider = $this->provider('metered', static function () use (&$calls): ExtractionOutcome {
+            $calls++;
+
+            return self::outcome(null);
+        });
+        $recorded = [];
+        $result = $this->orchestrator()->execute(
+            'receipt',
+            'image/png',
+            'image bytes',
+            [new AiExecution($provider, 'vision', 'key', 'profile-1', 250)],
+            null,
+            250,
+            100,
+            static function (array $attempt) use (&$recorded): void {
+                $recorded[] = $attempt;
+            },
+        );
+
+        self::assertSame(1, $calls);
+        self::assertSame('profile-1', $recorded[0]['profileId']);
+        self::assertSame(250, $recorded[0]['estimatedCostMicros']);
+        self::assertSame($result->attempts, $recorded);
+
+        try {
+            $this->orchestrator()->execute(
+                'receipt',
+                'image/png',
+                'image bytes',
+                [new AiExecution($provider, 'vision', 'key', 'profile-1', 251)],
+                null,
+                250,
+            );
+            self::fail('An over-budget provider call was dispatched.');
+        } catch (AiProviderException $error) {
+            self::assertSame('orchestration_budget_exceeded', $error->safeCode);
+            self::assertSame(1, $calls);
+        }
+    }
+
     /** @param callable(ExtractionRequest): ExtractionOutcome $extract */
     private function provider(string $id, callable $extract): AiProvider
     {

@@ -48,15 +48,103 @@ final readonly class AiHandler implements RequestHandlerInterface
                 (string) ($body['credential'] ?? ''),
             )),
             'credentials.delete' => $this->removeCredential($identity, $homeId, $request),
+            'profiles.list' => new JsonResponse(['items' => $this->ai->providerProfiles($identity, $homeId)]),
+            'profiles.put' => new JsonResponse($this->ai->putProviderProfile(
+                $identity,
+                $homeId,
+                ($profileId = (string) $request->getAttribute('profileId', '')) === '' ? null : $profileId,
+                (string) ($body['label'] ?? ''),
+                (string) ($body['provider'] ?? ''),
+                (string) ($body['model'] ?? ''),
+                isset($body['credential']) ? (string) $body['credential'] : null,
+                (int) ($body['estimatedCostMicros'] ?? 0),
+                (int) ($body['expectedRevision'] ?? 0),
+            ), 201),
+            'profiles.delete' => $this->removeProfile($identity, $homeId, $request, $body),
+            'policy.get' => new JsonResponse($this->ai->orchestrationPolicy($identity, $homeId)),
+            'policy.put' => new JsonResponse($this->ai->putOrchestrationPolicy(
+                $identity,
+                $homeId,
+                is_array($body['extractionProfileIds'] ?? null) ? $body['extractionProfileIds'] : [],
+                isset($body['validationProfileId']) ? (string) $body['validationProfileId'] : null,
+                (int) ($body['maxAttempts'] ?? 4),
+                (int) ($body['maxTotalTokens'] ?? 50000),
+                (int) ($body['maxEstimatedCostMicros'] ?? 1000000),
+                (int) ($body['expectedRevision'] ?? 0),
+            )),
             'extractions.create' => $this->extract($identity, $homeId, $request, $body),
+            'extractions.create-stored' => new JsonResponse($this->ai->extractStoredMedia(
+                $identity,
+                $homeId,
+                (string) ($body['kind'] ?? ''),
+                isset($body['targetId']) ? (string) $body['targetId'] : null,
+                filter_var($body['transmissionConsent'] ?? false, FILTER_VALIDATE_BOOL),
+                is_array($body['assetIds'] ?? null) ? array_map('strval', $body['assetIds']) : [],
+            ), 201),
             'extractions.get' => new JsonResponse($this->ai->extraction(
                 $identity,
                 $homeId,
                 (string) $request->getAttribute('extractionId', ''),
             )),
             'candidates.review' => $this->reviewCandidate($identity, $homeId, $request, $body),
+            'observations.review' => $this->reviewObservation($identity, $homeId, $request, $body),
+            'discrepancies.review' => $this->reviewDiscrepancy($identity, $homeId, $request, $body),
             default => throw new \LogicException('Unknown AI integration action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function removeProfile(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        ServerRequestInterface $request,
+        array $body,
+    ): ResponseInterface {
+        $this->ai->removeProviderProfile(
+            $identity,
+            $homeId,
+            (string) $request->getAttribute('profileId', ''),
+            (int) ($body['expectedRevision'] ?? 0),
+        );
+
+        return new EmptyResponse(204);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function reviewObservation(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        ServerRequestInterface $request,
+        array $body,
+    ): ResponseInterface {
+        $this->ai->reviewObservationDecision(
+            $identity,
+            $homeId,
+            (string) $request->getAttribute('decisionId', ''),
+            (string) ($body['decision'] ?? ''),
+            (int) ($body['expectedRevision'] ?? 0),
+        );
+
+        return new EmptyResponse(204);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function reviewDiscrepancy(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        ServerRequestInterface $request,
+        array $body,
+    ): ResponseInterface {
+        $this->ai->reviewDiscrepancy(
+            $identity,
+            $homeId,
+            (string) $request->getAttribute('extractionId', ''),
+            (int) $request->getAttribute('position', -1),
+            (string) ($body['decision'] ?? ''),
+            (int) ($body['expectedRevision'] ?? 0),
+        );
+
+        return new EmptyResponse(204);
     }
 
     /** @param array<string, mixed> $body */
@@ -112,6 +200,30 @@ final readonly class AiHandler implements RequestHandlerInterface
             $stream->rewind();
         }
         $bytes = $stream->getContents();
+        $additional = [];
+        $uploads = $request->getUploadedFiles()['images'] ?? [];
+        if ($uploads instanceof UploadedFileInterface) {
+            $uploads = [$uploads];
+        }
+        if (is_array($uploads)) {
+            foreach ($uploads as $observation) {
+                if (! $observation instanceof UploadedFileInterface || $observation->getError() !== UPLOAD_ERR_OK) {
+                    throw new HttpProblem(422, 'Invalid extraction', 'Every uploaded observation must succeed.');
+                }
+                $observationSize = $observation->getSize();
+                if ($observationSize === null || $observationSize < 16 || $observationSize > $this->maxImageBytes) {
+                    throw new HttpProblem(413, 'Image rejected', 'Image size is outside the configured limit.');
+                }
+                $observationStream = $observation->getStream();
+                if ($observationStream->isSeekable()) {
+                    $observationStream->rewind();
+                }
+                $additional[] = [
+                    'mimeType' => (string) ($observation->getClientMediaType() ?? ''),
+                    'bytes' => $observationStream->getContents(),
+                ];
+            }
+        }
 
         return new JsonResponse($this->ai->extract(
             $identity,
@@ -121,6 +233,7 @@ final readonly class AiHandler implements RequestHandlerInterface
             filter_var($body['transmissionConsent'] ?? false, FILTER_VALIDATE_BOOL),
             (string) ($uploaded->getClientMediaType() ?? ''),
             $bytes,
+            $additional,
         ), 201);
     }
 

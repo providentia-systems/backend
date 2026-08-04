@@ -8,6 +8,8 @@ use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Interop\Queue\Context;
 use PHPUnit\Framework\TestCase;
+use Providentia\AiIntegration\Application\AiService;
+use Providentia\AiIntegration\Application\Media\PrivateMediaService;
 use Providentia\Catalog\Application\CatalogSeedService;
 use Providentia\Home\Application\HomeService;
 use Providentia\Identity\Application\AuthenticationService;
@@ -42,6 +44,11 @@ final class ContainerTest extends TestCase
         self::assertInstanceOf(AuthenticationService::class, $this->container->get(AuthenticationService::class));
         self::assertInstanceOf(HomeService::class, $this->container->get(HomeService::class));
         self::assertInstanceOf(CatalogSeedService::class, $this->container->get(CatalogSeedService::class));
+        self::assertInstanceOf(AiService::class, $this->container->get(AiService::class));
+        self::assertInstanceOf(
+            PrivateMediaService::class,
+            $this->container->get(PrivateMediaService::class),
+        );
         self::assertInstanceOf(
             SynchronizationService::class,
             $this->container->get(SynchronizationService::class),
