@@ -1,0 +1,41 @@
+{
+    auto_https off
+    admin off
+    persist_config off
+    servers {
+        trusted_proxies static private_ranges
+        client_ip_headers X-Forwarded-For X-Real-IP
+    }
+}
+
+:8080 {
+    root * /srv/public
+    encode zstd gzip
+
+    @blocked {
+        path /.env* /.git/* /composer.* /config/* /src/* /vendor/*
+    }
+    respond @blocked 404
+
+    @static path /assets/*
+    header @static Cache-Control "public, max-age=31536000, immutable"
+    file_server @static
+
+    @php path /*
+    php_fastcgi @php api:9000 {
+        root /app/public
+        capture_stderr
+    }
+
+    header {
+        -Server
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+
+    log {
+        output stdout
+        format json
+    }
+}
