@@ -14,6 +14,7 @@ x-app-environment: &app-environment
   MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
   PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
   CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
+  TRUSTED_PROXY_CIDRS: ${PROVIDENTIA_TRUSTED_PROXY_CIDRS:?PROVIDENTIA_TRUSTED_PROXY_CIDRS is required}
   EXPOSE_DEVELOPMENT_TOKENS: "0"
   AI_SERVER_PROXY_ENABLED: ${AI_SERVER_PROXY_ENABLED:-0}
   AI_CREDENTIAL_KEK: ${AI_CREDENTIAL_KEK:-}
@@ -52,14 +53,14 @@ services:
     command: ["php-fpm", "-F"]
     expose: ["9000"]
     healthcheck:
-      test: ["CMD", "php-fpm", "-t"]
+      test: ["CMD", "php", "bin/doctrine-migrations", "migrations:status", "--no-interaction"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 15s
 
   web:
-    image: caddy:2.10.2-alpine
+    image: ${PROVIDENTIA_WEB_IMAGE:?PROVIDENTIA_WEB_IMAGE is required}
     restart: unless-stopped
     init: true
     read_only: true
@@ -71,13 +72,18 @@ services:
       - /tmp:size=32m,mode=1777
     ports:
       - "${PROVIDENTIA_BIND_ADDRESS:-127.0.0.1}:${PROVIDENTIA_HTTP_PORT:-8080}:8080"
-    volumes:
-      - ./infrastructure/caddy/Caddyfile.production:/etc/caddy/Caddyfile:ro
-      - ./public:/srv/public:ro
+    environment:
+      PROVIDENTIA_TRUSTED_PROXY_CIDRS: ${PROVIDENTIA_TRUSTED_PROXY_CIDRS:?PROVIDENTIA_TRUSTED_PROXY_CIDRS is required}
     depends_on:
       api:
         condition: service_healthy
     networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   worker:
     <<: *cli
