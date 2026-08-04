@@ -11,6 +11,8 @@ $expected = [
     '/metrics' => 'getMetrics',
     '/api/v1/auth/register' => 'registerAccount',
     '/api/v1/auth/login' => 'login',
+    '/api/v1/auth/magic-links' => 'requestMagicLink',
+    '/api/v1/auth/magic-links/exchange' => 'exchangeMagicLink',
     '/api/v1/homes' => 'listHomes',
     '/api/v1/homes/{homeId}/ownership-transfer' => 'transferHomeOwnership',
     '/api/v1/catalog/products' => 'searchCatalogProducts',
@@ -37,6 +39,9 @@ foreach (
         'SystemInfo',
         'ProblemDetails',
         'RegisterRequest',
+        'MagicLinkRequest',
+        'MagicLinkExchangeRequest',
+        'MagicLinkAccepted',
         'Home',
         'HomeMembership',
         'SyncPrivateNotePayload',
@@ -70,7 +75,7 @@ if (
         $contract['components']['schemas']['RegisterResponse']['required'] ?? [],
         true,
     )
-    || ($contract['info']['version'] ?? '') !== '1.7.0'
+    || ($contract['info']['version'] ?? '') !== '1.8.0'
     || ($contract['components']['schemas']['PriceComparisonCollection']['properties']['currencyPolicy']['const']
         ?? '') !== 'never-compare-across-currencies'
 ) {
