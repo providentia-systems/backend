@@ -23,6 +23,7 @@
 - [Local development and deployment profiles](deployment/local-development.md)
 - [Authoritative catalog seed and reconciliation](operations/catalog-seed.md)
 - [Queue, outbox, retries, and failed review](operations/async-messaging.md)
+- [Phase 10 hardening and release evidence](operations/phase-10-hardening.md)
 - [Security posture](security/foundation-security.md)
 
 The unchanged handover ZIP remains external protected evidence and is

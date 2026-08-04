@@ -52,6 +52,8 @@ use Providentia\SharedKernel\Infrastructure\RuntimeSystemInformationProvider;
 use Providentia\SharedKernel\Infrastructure\Identifier\RamseyUuidGenerator;
 use Providentia\SharedKernel\Infrastructure\Identifier\NativeSecureTokenGenerator;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineDatabaseReadinessProbe;
+use Providentia\SharedKernel\Infrastructure\Logging\StderrJsonLogger;
+use Psr\Log\LoggerInterface;
 
 final class ConfigProvider
 {
@@ -73,6 +75,7 @@ final class ConfigProvider
                     SystemInformationProvider::class => RuntimeSystemInformationProvider::class,
                     SecureTokenGenerator::class => NativeSecureTokenGenerator::class,
                     UuidGenerator::class => RamseyUuidGenerator::class,
+                    LoggerInterface::class => StderrJsonLogger::class,
                 ],
                 'factories' => [
                     Connection::class => ConnectionFactory::class,
@@ -81,6 +84,7 @@ final class ConfigProvider
                     SystemClock::class => InvokableFactory::class,
                     RamseyUuidGenerator::class => InvokableFactory::class,
                     NativeSecureTokenGenerator::class => InvokableFactory::class,
+                    StderrJsonLogger::class => InvokableFactory::class,
                     EnqueueAsyncMessageBus::class => AdapterFactory::class,
                     DoctrineFoundationRecordStore::class => AdapterFactory::class,
                     DoctrineTransactionManager::class => AdapterFactory::class,

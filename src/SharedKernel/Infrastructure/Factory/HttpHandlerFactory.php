@@ -16,6 +16,7 @@ use Providentia\SharedKernel\Http\SystemInfoHandler;
 use Providentia\SharedKernel\Http\CorsMiddleware;
 use Providentia\SharedKernel\Application\Health\SyncMetricsProbe;
 use Psr\Container\ContainerInterface;
+use Psr\Log\LoggerInterface;
 
 final class HttpHandlerFactory
 {
@@ -32,7 +33,10 @@ final class HttpHandlerFactory
                 $container->get(QueueMetricsProbe::class),
                 $container->get(SyncMetricsProbe::class),
             ),
-            ProblemDetailsMiddleware::class => new ProblemDetailsMiddleware($config['app']['debug']),
+            ProblemDetailsMiddleware::class => new ProblemDetailsMiddleware(
+                $config['app']['debug'],
+                $container->get(LoggerInterface::class),
+            ),
             SystemInfoHandler::class => new SystemInfoHandler(
                 $container->get(SystemInformationProvider::class),
             ),

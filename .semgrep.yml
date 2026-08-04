@@ -1,0 +1,66 @@
+rules:
+  - id: providentia.php.dynamic-eval
+    message: Dynamic PHP evaluation is forbidden.
+    severity: ERROR
+    languages: [php]
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: assert($EXPRESSION)
+    metadata:
+      category: security
+      cwe: CWE-95
+
+  - id: providentia.php.native-unserialize
+    message: Native unserialize is forbidden at trust boundaries; use a typed format and schema validation.
+    severity: ERROR
+    languages: [php]
+    pattern: unserialize(...)
+    metadata:
+      category: security
+      cwe: CWE-502
+
+  - id: providentia.php.process-execution
+    message: Direct process execution is forbidden in application PHP.
+    severity: ERROR
+    languages: [php]
+    paths:
+      include:
+        - src/
+        - config/
+        - public/
+    pattern-either:
+      - pattern: exec(...)
+      - pattern: shell_exec(...)
+      - pattern: system(...)
+      - pattern: passthru(...)
+      - pattern: proc_open(...)
+      - pattern: popen(...)
+    metadata:
+      category: security
+      cwe: CWE-78
+
+  - id: providentia.php.insecure-tls-peer-verification
+    message: TLS peer and hostname verification must not be disabled.
+    severity: ERROR
+    languages: [php]
+    pattern-either:
+      - pattern: "'verify_peer' => false"
+      - pattern: "'verify_peer_name' => false"
+      - pattern: "'allow_self_signed' => true"
+    metadata:
+      category: security
+      cwe: CWE-295
+
+  - id: providentia.php.weak-security-randomness
+    message: rand and mt_rand are not suitable for identifiers, credentials, or security decisions.
+    severity: ERROR
+    languages: [php]
+    paths:
+      include:
+        - src/
+    pattern-either:
+      - pattern: rand(...)
+      - pattern: mt_rand(...)
+    metadata:
+      category: security
+      cwe: CWE-338

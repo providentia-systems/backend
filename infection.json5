@@ -1,0 +1,20 @@
+{
+  "$schema": "./vendor/infection/infection/resources/schema.json",
+  "timeout": 20,
+  "source": {
+    "directories": [
+      "src/Inventory/Domain",
+      "src/Shopping/Domain"
+    ]
+  },
+  "logs": {
+    "text": "var/infection.log",
+    "summary": "var/infection-summary.log",
+    "json": "var/infection.json"
+  },
+  "mutators": {
+    "@default": true
+  },
+  "testFramework": "phpunit",
+  "testFrameworkOptions": "--testsuite=Providentia"
+}
