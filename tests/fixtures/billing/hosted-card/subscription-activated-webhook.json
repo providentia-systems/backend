@@ -1,0 +1,12 @@
+{
+  "id": "card-event-fixture-1",
+  "type": "checkout.completed",
+  "created_at": "2026-08-04T12:00:00Z",
+  "data": {
+    "checkout_reference": "card-session-fixture-1",
+    "subscription_reference": "card-subscription-fixture-1",
+    "customer_reference": "card-customer-fixture-1",
+    "subscription_status": "active",
+    "current_period_ends_at": "2026-09-04T12:00:00Z"
+  }
+}

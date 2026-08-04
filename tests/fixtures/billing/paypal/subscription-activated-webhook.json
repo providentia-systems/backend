@@ -1,0 +1,15 @@
+{
+  "id": "WH-FIXTURE-1",
+  "event_type": "BILLING.SUBSCRIPTION.ACTIVATED",
+  "create_time": "2026-08-04T12:00:00Z",
+  "resource": {
+    "id": "I-SUBSCRIPTION-FIXTURE-1",
+    "status": "ACTIVE",
+    "subscriber": {
+      "payer_id": "PAYER-FIXTURE-1"
+    },
+    "billing_info": {
+      "next_billing_time": "2026-09-04T12:00:00Z"
+    }
+  }
+}

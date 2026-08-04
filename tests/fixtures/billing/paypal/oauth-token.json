@@ -1,0 +1,6 @@
+{
+  "scope": "https://uri.paypal.com/services/subscriptions",
+  "access_token": "access-token-fixture",
+  "token_type": "Bearer",
+  "expires_in": 3600
+}

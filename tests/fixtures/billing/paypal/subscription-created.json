@@ -1,0 +1,11 @@
+{
+  "id": "I-SUBSCRIPTION-FIXTURE-1",
+  "status": "APPROVAL_PENDING",
+  "links": [
+    {
+      "href": "https://www.sandbox.paypal.com/webapps/billing/subscriptions?ba_token=BA-FIXTURE-1",
+      "rel": "approve",
+      "method": "GET"
+    }
+  ]
+}
