@@ -1,0 +1,20 @@
+{
+  "id": "ORDER-FIXTURE-1",
+  "intent": "CAPTURE",
+  "status": "COMPLETED",
+  "payer": {
+    "payer_id": "PAYER-FIXTURE-1"
+  },
+  "purchase_units": [
+    {
+      "payments": {
+        "captures": [
+          {
+            "id": "CAPTURE-FIXTURE-1",
+            "status": "COMPLETED"
+          }
+        ]
+      }
+    }
+  ]
+}

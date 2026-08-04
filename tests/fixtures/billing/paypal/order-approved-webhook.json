@@ -1,0 +1,12 @@
+{
+  "id": "WH-ORDER-APPROVED-FIXTURE-1",
+  "event_type": "CHECKOUT.ORDER.APPROVED",
+  "create_time": "2026-08-04T12:00:00Z",
+  "resource": {
+    "id": "ORDER-FIXTURE-1",
+    "status": "APPROVED",
+    "payer": {
+      "payer_id": "PAYER-FIXTURE-1"
+    }
+  }
+}

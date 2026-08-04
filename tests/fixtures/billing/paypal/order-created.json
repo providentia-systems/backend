@@ -1,0 +1,11 @@
+{
+  "id": "ORDER-FIXTURE-1",
+  "status": "PAYER_ACTION_REQUIRED",
+  "links": [
+    {
+      "href": "https://www.sandbox.paypal.com/checkoutnow?token=ORDER-FIXTURE-1",
+      "rel": "payer-action",
+      "method": "GET"
+    }
+  ]
+}
