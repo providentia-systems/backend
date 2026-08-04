@@ -30,6 +30,25 @@ interface HomeStore extends HomeAuditRecorder
     /** @return list<array<string, mixed>> */
     public function memberships(string $homeId): array;
 
+    /**
+     * Return null when a home has no persisted policy for the role yet. This
+     * preserves the legacy role defaults during rolling deployments.
+     */
+    public function permissionDecision(string $homeId, string $role, string $permission): ?bool;
+
+    /** @return list<array{role: string, revision: int, permissions: list<string>}> */
+    public function permissionPolicies(string $homeId): array;
+
+    /** @param list<string> $permissions */
+    public function replaceRolePermissions(
+        string $homeId,
+        string $role,
+        array $permissions,
+        int $expectedRevision,
+        string $updatedByUserId,
+        DateTimeImmutable $at,
+    ): bool;
+
     public function createInvitation(
         string $id,
         string $homeId,
@@ -40,6 +59,20 @@ interface HomeStore extends HomeAuditRecorder
         DateTimeImmutable $expiresAt,
         DateTimeImmutable $at,
     ): void;
+
+    /** @return list<array<string, mixed>> */
+    public function invitations(string $homeId): array;
+
+    /** @return array<string, mixed>|null */
+    public function invitation(string $homeId, string $invitationId): ?array;
+
+    public function revokeInvitation(
+        string $homeId,
+        string $invitationId,
+        int $expectedRevision,
+        string $revokedByUserId,
+        DateTimeImmutable $at,
+    ): bool;
 
     /** @return array<string, mixed>|null */
     public function acceptInvitation(
@@ -60,6 +93,31 @@ interface HomeStore extends HomeAuditRecorder
     public function removeMembership(string $homeId, string $userId, DateTimeImmutable $at): bool;
 
     public function ownerCount(string $homeId): int;
+
+    public function createOwnershipTransfer(
+        string $id,
+        string $homeId,
+        string $proposedByUserId,
+        string $targetUserId,
+        int $expectedTargetRevision,
+        DateTimeImmutable $stepUpVerifiedAt,
+        DateTimeImmutable $expiresAt,
+        DateTimeImmutable $at,
+    ): void;
+
+    /** @return array<string, mixed>|null */
+    public function ownershipTransfer(string $homeId, string $transferId): ?array;
+
+    /** @return list<array<string, mixed>> */
+    public function ownershipTransfers(string $homeId, ?string $participantUserId): array;
+
+    public function transitionOwnershipTransfer(
+        string $homeId,
+        string $transferId,
+        int $expectedRevision,
+        string $status,
+        DateTimeImmutable $at,
+    ): bool;
 
     public function transferOwnership(
         string $homeId,

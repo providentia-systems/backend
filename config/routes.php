@@ -36,6 +36,11 @@ return static function (Application $app): void {
         [AuthenticationRateLimitMiddleware::class, 'identity.magic-link-exchange'],
         'api.auth.magic-links.exchange',
     );
+    $app->post(
+        '/api/v1/auth/step-up-links',
+        [BearerAuthenticationMiddleware::class, 'identity.step-up-request'],
+        'api.auth.step-up-links.request',
+    );
     $app->post('/api/v1/auth/verify-email', 'identity.verify', 'api.auth.verify-email');
     $app->post(
         '/api/v1/auth/verify-email/resend',
@@ -97,10 +102,30 @@ return static function (Application $app): void {
         [BearerAuthenticationMiddleware::class, 'home.memberships'],
         'api.home-memberships.list',
     );
+    $app->get(
+        '/api/v1/homes/{homeId}/permission-policies',
+        [BearerAuthenticationMiddleware::class, 'home.permission-policies'],
+        'api.home-permission-policies.list',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/permission-policies/{role}',
+        [BearerAuthenticationMiddleware::class, 'home.configure-permissions'],
+        'api.home-permission-policies.put',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/invitations',
+        [BearerAuthenticationMiddleware::class, 'home.invitations'],
+        'api.home-invitations.list',
+    );
     $app->post(
         '/api/v1/homes/{homeId}/invitations',
         [BearerAuthenticationMiddleware::class, 'home.invite'],
         'api.home-invitations.create',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/invitations/{invitationId}/revoke',
+        [BearerAuthenticationMiddleware::class, 'home.revoke-invitation'],
+        'api.home-invitations.revoke',
     );
     $app->patch(
         '/api/v1/homes/{homeId}/memberships/{userId}',
@@ -111,6 +136,31 @@ return static function (Application $app): void {
         '/api/v1/homes/{homeId}/memberships/me',
         [BearerAuthenticationMiddleware::class, 'home.leave'],
         'api.home-memberships.leave',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/ownership-transfers',
+        [BearerAuthenticationMiddleware::class, 'home.ownership-transfers'],
+        'api.home-ownership-transfers.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/ownership-transfers',
+        [BearerAuthenticationMiddleware::class, 'home.propose-ownership-transfer'],
+        'api.home-ownership-transfers.create',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/ownership-transfers/{transferId}/accept',
+        [BearerAuthenticationMiddleware::class, 'home.accept-ownership-transfer'],
+        'api.home-ownership-transfers.accept',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/ownership-transfers/{transferId}/reject',
+        [BearerAuthenticationMiddleware::class, 'home.reject-ownership-transfer'],
+        'api.home-ownership-transfers.reject',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/ownership-transfers/{transferId}/revoke',
+        [BearerAuthenticationMiddleware::class, 'home.revoke-ownership-transfer'],
+        'api.home-ownership-transfers.revoke',
     );
 
     $app->get('/api/v1/catalog/products', CatalogSearchHandler::class, 'api.catalog.products.search');

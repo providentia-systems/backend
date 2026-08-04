@@ -22,6 +22,11 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
         $this->deliver('magic-link', $email, ['token' => $token]);
     }
 
+    public function sendStepUpLink(string $email, string $token, string $action): void
+    {
+        $this->deliver('step-up-link', $email, ['token' => $token, 'action' => $action]);
+    }
+
     public function sendEmailVerification(string $email, string $token): void
     {
         $this->deliver('email-verification', $email, ['token' => $token]);
@@ -56,6 +61,16 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
             'email-verification' => [
                 'Verify your Providentia account',
                 "Verify your account:\n" . $this->publicBaseUrl . '/verify-email?token=' . $token,
+            ],
+            'step-up-link' => [
+                'Confirm a sensitive Providentia action',
+                sprintf(
+                    "Confirm %s:\n%s/step-up?token=%s&action=%s",
+                    (string) ($context['action'] ?? 'sensitive action'),
+                    $this->publicBaseUrl,
+                    $token,
+                    rawurlencode((string) ($context['action'] ?? '')),
+                ),
             ],
             'password-reset' => [
                 'Reset your Providentia password',

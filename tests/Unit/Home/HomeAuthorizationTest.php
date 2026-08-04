@@ -6,6 +6,7 @@ namespace ProvidentiaTest\Unit\Home;
 
 use PHPUnit\Framework\TestCase;
 use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermission;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\Problem;
@@ -56,6 +57,66 @@ final class HomeAuthorizationTest extends TestCase
             '01912345-6789-7abc-8def-0123456789ab',
             [HomeAuthorization::OWNER, HomeAuthorization::MANAGER],
         );
+    }
+
+    public function testPersistedPermissionGrantOverridesTheLegacyRoleDefault(): void
+    {
+        $store = $this->createMock(HomeStore::class);
+        $store->method('membership')->willReturn([
+            'status' => 'active',
+            'role' => HomeAuthorization::MEMBER,
+        ]);
+        $store->expects(self::once())
+            ->method('permissionDecision')
+            ->with(
+                '01912345-6789-7abc-8def-0123456789ab',
+                HomeAuthorization::MEMBER,
+                HomePermission::MEMBERS_INVITE,
+            )
+            ->willReturn(true);
+
+        $membership = (new HomeAuthorization($store))->requirePermission(
+            $this->identity(),
+            '01912345-6789-7abc-8def-0123456789ab',
+            HomePermission::MEMBERS_INVITE,
+        );
+
+        self::assertSame(HomeAuthorization::MEMBER, $membership['role']);
+    }
+
+    public function testPersistedDenialOverridesAManagerLegacyDefault(): void
+    {
+        $store = $this->createStub(HomeStore::class);
+        $store->method('membership')->willReturn([
+            'status' => 'active',
+            'role' => HomeAuthorization::MANAGER,
+        ]);
+        $store->method('permissionDecision')->willReturn(false);
+
+        $this->expectException(Problem::class);
+        (new HomeAuthorization($store))->requirePermission(
+            $this->identity(),
+            '01912345-6789-7abc-8def-0123456789ab',
+            HomePermission::MEMBERS_INVITE,
+        );
+    }
+
+    public function testMissingPersistedPolicyUsesTheLegacyDefaultDuringRollingDeployment(): void
+    {
+        $store = $this->createStub(HomeStore::class);
+        $store->method('membership')->willReturn([
+            'status' => 'active',
+            'role' => HomeAuthorization::MANAGER,
+        ]);
+        $store->method('permissionDecision')->willReturn(null);
+
+        $membership = (new HomeAuthorization($store))->requirePermission(
+            $this->identity(),
+            '01912345-6789-7abc-8def-0123456789ab',
+            HomePermission::MEMBERS_INVITE,
+        );
+
+        self::assertSame(HomeAuthorization::MANAGER, $membership['role']);
     }
 
     private function identity(): AuthenticatedIdentity

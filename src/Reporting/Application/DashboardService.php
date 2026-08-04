@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Reporting\Application;
 
 use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Application\InventorySummaryReader;
 use Providentia\Purchasing\Application\PurchaseSummaryReader;
@@ -23,7 +24,11 @@ final class DashboardService
     /** @return array<string, mixed> */
     public function dashboard(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $membership = $this->authorization->requireMember($identity, $homeId);
+        $membership = $this->authorization->requirePermission(
+            $identity,
+            $homeId,
+            HomePermission::REPORTS_READ,
+        );
 
         return [
             'homeId' => $homeId,

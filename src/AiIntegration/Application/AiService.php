@@ -7,6 +7,7 @@ namespace Providentia\AiIntegration\Application;
 use Providentia\AiIntegration\Domain\AiMode;
 use Providentia\AiIntegration\Domain\ExtractionRequest;
 use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
@@ -16,12 +17,6 @@ use Throwable;
 
 final class AiService
 {
-    private const WRITERS = [
-        HomeAuthorization::OWNER,
-        HomeAuthorization::MANAGER,
-        HomeAuthorization::MEMBER,
-    ];
-
     public function __construct(
         private readonly AiStore $store,
         private readonly AiProviderRegistry $providers,
@@ -38,7 +33,7 @@ final class AiService
     /** @return array<string, mixed> */
     public function settings(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_READ);
         $settings = $this->store->settings($homeId) ?? [
             'mode' => AiMode::ManualOnly->value,
             'provider' => null,
@@ -63,10 +58,7 @@ final class AiService
         ?string $model,
         int $expectedRevision,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, [
-            HomeAuthorization::OWNER,
-            HomeAuthorization::MANAGER,
-        ]);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
         $parsedMode = AiMode::tryFrom($mode);
         if ($parsedMode === null) {
             throw new Problem(422, 'Invalid AI settings', 'AI mode is not supported.');
@@ -129,10 +121,7 @@ final class AiService
         string $providerId,
         string $credential,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, [
-            HomeAuthorization::OWNER,
-            HomeAuthorization::MANAGER,
-        ]);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
         $provider = $this->providers->get($providerId);
         $credential = trim($credential);
         if ($provider === null || ! $provider->requiresCredential()) {
@@ -177,10 +166,7 @@ final class AiService
         string $homeId,
         string $providerId,
     ): void {
-        $this->authorization->requireRole($identity, $homeId, [
-            HomeAuthorization::OWNER,
-            HomeAuthorization::MANAGER,
-        ]);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
         $this->store->removeCredential($homeId, $providerId, $this->clock->now());
     }
 
@@ -194,7 +180,7 @@ final class AiService
         string $declaredMimeType,
         string $bytes,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_USE);
         if (! $transmissionConsent) {
             throw new Problem(
                 422,
@@ -306,7 +292,7 @@ final class AiService
     /** @return array<string, mixed> */
     public function extraction(AuthenticatedIdentity $identity, string $homeId, string $id): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_READ);
         $extraction = $this->store->extraction($homeId, $id);
         if ($extraction === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
@@ -323,7 +309,7 @@ final class AiService
         string $decision,
         int $expectedRevision,
     ): void {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_USE);
         if (! in_array($decision, ['accepted', 'rejected'], true)) {
             throw new Problem(422, 'Invalid AI review', 'Decision must be accepted or rejected.');
         }

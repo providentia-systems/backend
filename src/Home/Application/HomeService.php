@@ -7,6 +7,7 @@ namespace Providentia\Home\Application;
 use DateInterval;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Application\AccountNotificationSender;
+use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
 use Providentia\SharedKernel\Application\Clock;
@@ -27,6 +28,7 @@ final class HomeService
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
         private readonly SecureTokenGenerator $tokens,
+        private readonly ?AuthenticationService $authentication = null,
     ) {
     }
 
@@ -80,7 +82,7 @@ final class HomeService
     /** @return array<string, mixed> */
     public function get(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::HOME_READ);
         $home = $this->homes->findHome($homeId);
         if ($home === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
@@ -92,16 +94,121 @@ final class HomeService
     /** @return list<array<string, mixed>> */
     public function memberships(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireRole(
-            $identity,
-            $homeId,
-            [HomeAuthorization::OWNER, HomeAuthorization::MANAGER],
-        );
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::MEMBERS_READ);
 
         return $this->homes->memberships($homeId);
     }
 
-    /** @return array{invitationId: string, invitationToken: string, expiresAt: string} */
+    /** @return list<array{role: string, revision: int, permissions: list<string>, configurable: bool}> */
+    public function permissionPolicies(AuthenticatedIdentity $identity, string $homeId): array
+    {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PERMISSIONS_MANAGE);
+        /** @var array<string, array{role: string, revision: int, permissions: list<string>}> $persisted */
+        $persisted = [];
+        foreach ($this->homes->permissionPolicies($homeId) as $policy) {
+            $persisted[$policy['role']] = $policy;
+        }
+        $result = [];
+        foreach (
+            [
+                HomeAuthorization::OWNER,
+                HomeAuthorization::MANAGER,
+                HomeAuthorization::MEMBER,
+                HomeAuthorization::VIEWER,
+            ] as $role
+        ) {
+            $policy = $persisted[$role] ?? [
+                'role' => $role,
+                'revision' => 0,
+                'permissions' => HomePermission::defaultsForRole($role),
+            ];
+            $result[] = [
+                ...$policy,
+                'configurable' => $role !== HomeAuthorization::OWNER,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param list<string> $permissions
+     * @return array{role: string, revision: int, permissions: list<string>}
+     */
+    public function configureRolePermissions(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $role,
+        array $permissions,
+        int $expectedRevision,
+    ): array {
+        $actor = $this->authorization->requirePermission(
+            $identity,
+            $homeId,
+            HomePermission::PERMISSIONS_MANAGE,
+        );
+        $role = strtolower(trim($role));
+        if (
+            ! in_array(
+                $role,
+                [HomeAuthorization::MANAGER, HomeAuthorization::MEMBER, HomeAuthorization::VIEWER],
+                true,
+            )
+            || $expectedRevision < 0
+        ) {
+            throw new Problem(422, 'Validation failed', 'The role policy or expected revision is invalid.');
+        }
+        $permissions = array_values(array_unique(array_map('trim', $permissions)));
+        sort($permissions);
+        foreach ($permissions as $permission) {
+            if (! HomePermission::isKnown($permission)) {
+                throw new Problem(422, 'Validation failed', 'Unknown home permission: ' . $permission);
+            }
+            if ((string) $actor['role'] !== HomeAuthorization::OWNER) {
+                $this->authorization->requirePermission($identity, $homeId, $permission);
+            }
+        }
+
+        $now = $this->clock->now();
+        $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $role,
+            $permissions,
+            $expectedRevision,
+            $now,
+        ): void {
+            if (
+                ! $this->homes->replaceRolePermissions(
+                    $homeId,
+                    $role,
+                    $permissions,
+                    $expectedRevision,
+                    $identity->userId,
+                    $now,
+                )
+            ) {
+                throw new Problem(409, 'Revision conflict', 'The role permission policy changed.');
+            }
+            $this->audit(
+                $identity,
+                'home.permissions.changed',
+                'home_role_policy',
+                $role,
+                $homeId,
+                ['permissions' => $permissions],
+                $now,
+            );
+        });
+
+        return [
+            'role' => $role,
+            'revision' => $expectedRevision + 1,
+            'permissions' => $permissions,
+        ];
+    }
+
+    /** @return array{invitationId: string, invitationToken: string, expiresAt: string, revision: int} */
     public function invite(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -132,16 +239,16 @@ final class HomeService
             $expires,
             $now,
         ): void {
-            $actor = $this->authorization->requireRole(
+            $actor = $this->authorization->requirePermission(
                 $identity,
                 $homeId,
-                [HomeAuthorization::OWNER, HomeAuthorization::MANAGER],
+                HomePermission::MEMBERS_INVITE,
             );
             if (
-                (string) $actor['role'] === HomeAuthorization::MANAGER
+                (string) $actor['role'] !== HomeAuthorization::OWNER
                 && $role === HomeAuthorization::MANAGER
             ) {
-                throw new Problem(403, 'Forbidden', 'Managers cannot create peer manager memberships.');
+                throw new Problem(403, 'Forbidden', 'Only an owner can create a manager membership.');
             }
             $this->homes->createInvitation(
                 $id,
@@ -171,7 +278,12 @@ final class HomeService
             );
         });
 
-        return ['invitationId' => $id, 'invitationToken' => $token, 'expiresAt' => $expires->format(DATE_ATOM)];
+        return [
+            'invitationId' => $id,
+            'invitationToken' => $token,
+            'expiresAt' => $expires->format(DATE_ATOM),
+            'revision' => 1,
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -211,6 +323,84 @@ final class HomeService
         return $result;
     }
 
+    /** @return list<array<string, mixed>> */
+    public function invitations(AuthenticatedIdentity $identity, string $homeId): array
+    {
+        $actor = $this->authorization->requirePermission(
+            $identity,
+            $homeId,
+            HomePermission::MEMBERS_INVITE,
+        );
+        $invitations = $this->homes->invitations($homeId);
+        if ((string) $actor['role'] === HomeAuthorization::OWNER) {
+            return $invitations;
+        }
+
+        return array_values(array_filter(
+            $invitations,
+            static fn (array $invitation): bool =>
+                (string) ($invitation['inviterUserId'] ?? '') === $identity->userId
+                && (string) ($invitation['role'] ?? '') !== HomeAuthorization::MANAGER,
+        ));
+    }
+
+    public function revokeInvitation(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $invitationId,
+        int $expectedRevision,
+    ): void {
+        if ($expectedRevision < 1) {
+            throw new Problem(422, 'Validation failed', 'A current invitation revision is required.');
+        }
+        $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $invitationId,
+            $expectedRevision,
+        ): void {
+            $actor = $this->authorization->requirePermission(
+                $identity,
+                $homeId,
+                HomePermission::MEMBERS_INVITE,
+            );
+            $invitation = $this->homes->invitation($homeId, $invitationId);
+            if (
+                $invitation === null
+                || (
+                    (string) $actor['role'] !== HomeAuthorization::OWNER
+                    && (
+                        (string) $invitation['inviterUserId'] !== $identity->userId
+                        || (string) $invitation['role'] === HomeAuthorization::MANAGER
+                    )
+                )
+            ) {
+                throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+            }
+            $now = $this->clock->now();
+            if (
+                ! $this->homes->revokeInvitation(
+                    $homeId,
+                    $invitationId,
+                    $expectedRevision,
+                    $identity->userId,
+                    $now,
+                )
+            ) {
+                throw new Problem(409, 'Invitation conflict', 'The invitation is no longer pending at that revision.');
+            }
+            $this->audit(
+                $identity,
+                'home.invitation.revoked',
+                'home_invitation',
+                $invitationId,
+                $homeId,
+                [],
+                $now,
+            );
+        });
+    }
+
     /** @return array<string, mixed> */
     public function switch(AuthenticatedIdentity $identity, string $homeId): array
     {
@@ -248,7 +438,17 @@ final class HomeService
             $expectedRevision,
             $identity,
         ): void {
-            $this->authorization->requireRole($identity, $homeId, [HomeAuthorization::OWNER]);
+            $actor = $this->authorization->requirePermission(
+                $identity,
+                $homeId,
+                HomePermission::MEMBERS_MANAGE,
+            );
+            if (
+                (string) $actor['role'] !== HomeAuthorization::OWNER
+                && $role === HomeAuthorization::MANAGER
+            ) {
+                throw new Problem(403, 'Forbidden', 'Only an owner can assign the manager role.');
+            }
             $membership = $this->homes->membership($homeId, $userId);
             if ($membership === null) {
                 throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
@@ -316,40 +516,264 @@ final class HomeService
         string $homeId,
         string $targetUserId,
         int $expectedTargetRevision,
+        string $stepUpToken = '',
     ): void {
-        if ($targetUserId === $identity->userId) {
-            throw new Problem(422, 'Validation failed', 'The target is already the owner.');
-        }
-        $this->transactions->transactional(function () use (
+        $this->proposeOwnershipTransfer(
             $identity,
             $homeId,
             $targetUserId,
             $expectedTargetRevision,
-        ): void {
-            $this->authorization->requireRole($identity, $homeId, [HomeAuthorization::OWNER]);
-            $now = $this->clock->now();
-            if (
-                ! $this->homes->transferOwnership(
+            $stepUpToken,
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function proposeOwnershipTransfer(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $targetUserId,
+        int $expectedTargetRevision,
+        string $stepUpToken,
+    ): array {
+        if ($targetUserId === $identity->userId) {
+            throw new Problem(422, 'Validation failed', 'The target is already the owner.');
+        }
+        if ($expectedTargetRevision < 1 || $stepUpToken === '') {
+            throw new Problem(422, 'Validation failed', 'A current target revision and step-up token are required.');
+        }
+        if ($this->authentication === null) {
+            throw new \LogicException('Ownership transfer requires the authentication service.');
+        }
+        try {
+            return $this->transactions->transactional(function () use (
+                $identity,
+                $homeId,
+                $targetUserId,
+                $expectedTargetRevision,
+                $stepUpToken,
+            ): array {
+                $actor = $this->authorization->requirePermission(
+                    $identity,
+                    $homeId,
+                    HomePermission::OWNERSHIP_TRANSFER,
+                );
+                if ((string) $actor['role'] !== HomeAuthorization::OWNER) {
+                    throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+                }
+                $target = $this->homes->membership($homeId, $targetUserId);
+                if (
+                    $target === null
+                    || (string) $target['status'] !== 'active'
+                    || (string) $target['role'] === HomeAuthorization::OWNER
+                ) {
+                    throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+                }
+                if ((int) $target['revision'] !== $expectedTargetRevision) {
+                    throw new Problem(409, 'Revision conflict', 'The target membership changed.');
+                }
+                $this->authentication->consumeStepUp($identity, $stepUpToken, 'ownership-transfer');
+                $now = $this->clock->now();
+                $id = $this->ids->generate();
+                $expires = $now->add(new DateInterval('P1D'));
+                $this->homes->createOwnershipTransfer(
+                    $id,
                     $homeId,
                     $identity->userId,
                     $targetUserId,
                     $expectedTargetRevision,
                     $now,
+                    $expires,
+                    $now,
+                );
+                $this->audit(
+                    $identity,
+                    'home.ownership-transfer.proposed',
+                    'home_ownership_transfer',
+                    $id,
+                    $homeId,
+                    ['targetUserId' => $targetUserId],
+                    $now,
+                );
+
+                return [
+                    'id' => $id,
+                    'homeId' => $homeId,
+                    'proposedByUserId' => $identity->userId,
+                    'targetUserId' => $targetUserId,
+                    'status' => 'pending',
+                    'expiresAt' => $expires->format(DATE_ATOM),
+                    'revision' => 1,
+                ];
+            });
+        } catch (\DomainException $error) {
+            throw new Problem(409, 'Ownership transfer conflict', $error->getMessage());
+        }
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function ownershipTransfers(AuthenticatedIdentity $identity, string $homeId): array
+    {
+        $membership = $this->authorization->requireMember($identity, $homeId);
+
+        return $this->homes->ownershipTransfers(
+            $homeId,
+            (string) $membership['role'] === HomeAuthorization::OWNER ? null : $identity->userId,
+        );
+    }
+
+    public function acceptOwnershipTransfer(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $transferId,
+        int $expectedRevision,
+    ): void {
+        $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $transferId,
+            $expectedRevision,
+        ): void {
+            $this->authorization->requireMember($identity, $homeId);
+            $transfer = $this->requiredOwnershipTransfer($homeId, $transferId, $expectedRevision);
+            if ((string) $transfer['targetUserId'] !== $identity->userId) {
+                throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+            }
+            $target = $this->homes->membership($homeId, $identity->userId);
+            $owner = $this->homes->membership($homeId, (string) $transfer['proposedByUserId']);
+            if (
+                $target === null
+                || (string) $target['status'] !== 'active'
+                || (int) $target['revision'] !== (int) $transfer['expectedTargetRevision']
+                || $owner === null
+                || (string) $owner['status'] !== 'active'
+                || (string) $owner['role'] !== HomeAuthorization::OWNER
+            ) {
+                throw new Problem(409, 'Ownership transfer conflict', 'Ownership or membership changed.');
+            }
+            $now = $this->clock->now();
+            if (
+                ! $this->homes->transitionOwnershipTransfer(
+                    $homeId,
+                    $transferId,
+                    $expectedRevision,
+                    'accepted',
+                    $now,
                 )
             ) {
-                throw new Problem(
-                    409,
-                    'Ownership transfer conflict',
-                    'The target membership or ownership changed. Reload and retry explicitly.',
-                );
+                throw new Problem(409, 'Ownership transfer conflict', 'The proposal changed or expired.');
+            }
+            if (
+                ! $this->homes->transferOwnership(
+                    $homeId,
+                    (string) $transfer['proposedByUserId'],
+                    $identity->userId,
+                    (int) $transfer['expectedTargetRevision'],
+                    $now,
+                )
+            ) {
+                throw new Problem(409, 'Ownership transfer conflict', 'Ownership or membership changed.');
             }
             $this->audit(
                 $identity,
-                'home.ownership.transferred',
-                'home_membership',
-                $targetUserId,
+                'home.ownership-transfer.accepted',
+                'home_ownership_transfer',
+                $transferId,
                 $homeId,
-                ['previousOwnerUserId' => $identity->userId],
+                ['previousOwnerUserId' => (string) $transfer['proposedByUserId']],
+                $now,
+            );
+        });
+    }
+
+    public function rejectOwnershipTransfer(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $transferId,
+        int $expectedRevision,
+    ): void {
+        $this->transitionOwnershipTransferForActor(
+            $identity,
+            $homeId,
+            $transferId,
+            $expectedRevision,
+            'rejected',
+            'targetUserId',
+        );
+    }
+
+    public function revokeOwnershipTransfer(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $transferId,
+        int $expectedRevision,
+    ): void {
+        $this->transitionOwnershipTransferForActor(
+            $identity,
+            $homeId,
+            $transferId,
+            $expectedRevision,
+            'revoked',
+            'proposedByUserId',
+        );
+    }
+
+    /** @return array<string, mixed> */
+    private function requiredOwnershipTransfer(
+        string $homeId,
+        string $transferId,
+        int $expectedRevision,
+    ): array {
+        $transfer = $this->homes->ownershipTransfer($homeId, $transferId);
+        if ($transfer === null) {
+            throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+        }
+        if ((string) $transfer['status'] !== 'pending' || (int) $transfer['revision'] !== $expectedRevision) {
+            throw new Problem(409, 'Ownership transfer conflict', 'The proposal changed.');
+        }
+
+        return $transfer;
+    }
+
+    private function transitionOwnershipTransferForActor(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $transferId,
+        int $expectedRevision,
+        string $status,
+        string $actorField,
+    ): void {
+        $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $transferId,
+            $expectedRevision,
+            $status,
+            $actorField,
+        ): void {
+            $this->authorization->requireMember($identity, $homeId);
+            $transfer = $this->requiredOwnershipTransfer($homeId, $transferId, $expectedRevision);
+            if ((string) $transfer[$actorField] !== $identity->userId) {
+                throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+            }
+            $now = $this->clock->now();
+            if (
+                ! $this->homes->transitionOwnershipTransfer(
+                    $homeId,
+                    $transferId,
+                    $expectedRevision,
+                    $status,
+                    $now,
+                )
+            ) {
+                throw new Problem(409, 'Ownership transfer conflict', 'The proposal changed or expired.');
+            }
+            $this->audit(
+                $identity,
+                'home.ownership-transfer.' . $status,
+                'home_ownership_transfer',
+                $transferId,
+                $homeId,
+                [],
                 $now,
             );
         });
