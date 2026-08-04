@@ -152,10 +152,15 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
     /** @return iterable<string, array{string}> */
     public static function requiredCommandFields(): iterable
     {
-        foreach (
-            ['operationId', 'commandType', 'entityId', 'clientTimestamp', 'payloadSchemaVersion', 'payload']
-            as $field
-        ) {
+        $fields = [
+            'operationId',
+            'commandType',
+            'entityId',
+            'clientTimestamp',
+            'payloadSchemaVersion',
+            'payload',
+        ];
+        foreach ($fields as $field) {
             yield $field => [$field];
         }
     }
@@ -321,10 +326,11 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
         $nonStringId = $valid;
         $nonStringId['operationId'] = 42;
         self::assertSame(422, $this->problem(fn () => $validator->validate($nonStringId))->status);
-        foreach (
-            ['x2026-08-04T12:00:00+00:00', '2026-08-04T12:00:00+00:00x']
-            as $invalidTimestamp
-        ) {
+        $invalidTimestamps = [
+            'x2026-08-04T12:00:00+00:00',
+            '2026-08-04T12:00:00+00:00x',
+        ];
+        foreach ($invalidTimestamps as $invalidTimestamp) {
             $invalid = $valid;
             $invalid['clientTimestamp'] = $invalidTimestamp;
             self::assertStringContainsString(
