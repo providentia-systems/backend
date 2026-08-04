@@ -7,6 +7,7 @@ use Laminas\ConfigAggregator\ConfigAggregator;
 
 $providers = [
     Mezzio\ConfigProvider::class,
+    Mezzio\Router\ConfigProvider::class,
     Mezzio\Router\FastRouteRouter\ConfigProvider::class,
     Mezzio\Helper\ConfigProvider::class,
     Mezzio\LaminasView\ConfigProvider::class,

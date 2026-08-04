@@ -7,6 +7,7 @@ namespace ProvidentiaTest\Integration;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Interop\Queue\Context;
+use Mezzio\Application;
 use PHPUnit\Framework\TestCase;
 use Providentia\AiIntegration\Application\AiService;
 use Providentia\AiIntegration\Application\Media\PrivateMediaService;
@@ -34,6 +35,7 @@ final class ContainerTest extends TestCase
 
     public function testExplicitFactoriesCompileTheFoundationObjectGraph(): void
     {
+        self::assertInstanceOf(Application::class, $this->container->get(Application::class));
         self::assertInstanceOf(Connection::class, $this->container->get(Connection::class));
         self::assertInstanceOf(EntityManagerInterface::class, $this->container->get(EntityManagerInterface::class));
         self::assertInstanceOf(Context::class, $this->container->get(Context::class));
