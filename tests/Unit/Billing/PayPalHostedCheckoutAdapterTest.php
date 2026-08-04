@@ -131,7 +131,6 @@ final class PayPalHostedCheckoutAdapterTest extends TestCase
     {
         $this->http->enqueueFixture(200, 'paypal/oauth-token.json');
         $this->http->enqueueFixture(200, 'paypal/webhook-verified.json');
-        $this->http->enqueueFixture(201, 'paypal/order-captured.json');
         $rawBody = $this->fixture('paypal/order-approved-webhook.json');
 
         $event = $this->paypal->verifyWebhook($rawBody, [
@@ -144,9 +143,15 @@ final class PayPalHostedCheckoutAdapterTest extends TestCase
             'PAYPAL-TRANSMISSION-TIME' => ['2026-08-04T12:00:00Z'],
         ]);
 
-        self::assertSame('checkout.completed', $event->eventType);
+        self::assertSame('checkout.approved', $event->eventType);
         self::assertSame('ORDER-FIXTURE-1', $event->checkoutReference);
-        self::assertSame('active', $event->subscriptionStatus);
+        self::assertCount(2, $this->http->requests);
+
+        $this->http->enqueueFixture(201, 'paypal/order-captured.json');
+        $captured = $this->paypal->captureApprovedOrder($event);
+
+        self::assertSame('checkout.completed', $captured->eventType);
+        self::assertSame('active', $captured->subscriptionStatus);
         self::assertCount(3, $this->http->requests);
         $capture = $this->http->requests[2];
         self::assertSame(

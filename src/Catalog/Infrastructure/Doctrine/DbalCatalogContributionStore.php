@@ -6,6 +6,7 @@ namespace Providentia\Catalog\Infrastructure\Doctrine;
 
 use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Providentia\Catalog\Application\CatalogContributionStore;
 
@@ -173,8 +174,9 @@ final class DbalCatalogContributionStore implements CatalogContributionStore
                     reviewed_at AS reviewedAt, created_at AS createdAt, updated_at AS updatedAt
              FROM catalog_contributions
              WHERE home_id = :home
-             ORDER BY created_at DESC, id DESC LIMIT :limit OFFSET :offset',
+            ORDER BY created_at DESC, id DESC LIMIT :limit OFFSET :offset',
             ['home' => $homeId, 'limit' => $limit, 'offset' => $offset],
+            ['limit' => ParameterType::INTEGER, 'offset' => ParameterType::INTEGER],
         );
     }
 
@@ -188,8 +190,9 @@ final class DbalCatalogContributionStore implements CatalogContributionStore
              FROM catalog_contributions c
              INNER JOIN catalog_consent_receipts r ON r.id = c.consent_receipt_id
              WHERE c.moderation_status = :status
-             ORDER BY c.created_at, c.id LIMIT :limit OFFSET :offset',
+            ORDER BY c.created_at, c.id LIMIT :limit OFFSET :offset',
             ['status' => $status, 'limit' => $limit, 'offset' => $offset],
+            ['limit' => ParameterType::INTEGER, 'offset' => ParameterType::INTEGER],
         );
     }
 

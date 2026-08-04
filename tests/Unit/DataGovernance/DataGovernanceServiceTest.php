@@ -23,6 +23,7 @@ use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use ProvidentiaTest\Unit\Home\HomeFixedClock;
 use ProvidentiaTest\Unit\Home\RecordingTransactionManager;
+use Psr\Log\NullLogger;
 
 final class DataGovernanceServiceTest extends TestCase
 {
@@ -135,6 +136,7 @@ final class DataGovernanceServiceTest extends TestCase
             $this->createStub(DataExportGenerator::class),
             $this->createStub(DataArtifactStorage::class),
             $this->createStub(DataErasureExecutor::class),
+            new NullLogger(),
         );
 
         self::assertFalse($processor->processOnce());
@@ -159,6 +161,7 @@ final class DataGovernanceServiceTest extends TestCase
             $exports,
             $this->createStub(DataArtifactStorage::class),
             $this->createStub(DataErasureExecutor::class),
+            new NullLogger(),
         );
 
         self::assertTrue($processor->processOnce());

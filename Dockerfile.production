@@ -10,7 +10,8 @@ FROM ${PHP_IMAGE} AS php-base
 RUN apk add --no-cache icu-libs libzip oniguruma sqlite-libs \
     && apk add --no-cache --virtual .build-deps \
         ${PHPIZE_DEPS} icu-dev libzip-dev oniguruma-dev sqlite-dev \
-    && docker-php-ext-install -j"$(nproc)" intl mbstring opcache pdo_mysql pdo_sqlite \
+    && docker-php-ext-install -j"$(nproc)" intl mbstring pdo_mysql pdo_sqlite \
+    && docker-php-ext-install -j1 opcache \
     && pecl install redis-6.2.0 \
     && docker-php-ext-enable redis \
     && apk del .build-deps
@@ -39,8 +40,7 @@ COPY --from=dependencies /app /app
 COPY infrastructure/php/production.ini /usr/local/etc/php/conf.d/zz-providentia-production.ini
 RUN chmod +x bin/doctrine-migrations bin/providentia tool/*.sh \
     && mkdir -p var/cache var/log \
-    && chown -R www-data:www-data var \
-    && composer dump-autoload --no-dev --classmap-authoritative --no-interaction
+    && chown -R www-data:www-data var
 
 USER www-data
 EXPOSE 9000
@@ -48,6 +48,12 @@ CMD ["php-fpm", "-F"]
 
 FROM runtime AS cli
 CMD ["php", "bin/providentia", "list"]
+
+FROM runtime AS media-worker
+USER root
+RUN apk add --no-cache ffmpeg
+USER www-data
+CMD ["php", "bin/providentia", "ai:video:process"]
 
 FROM ${CADDY_IMAGE} AS web
 COPY infrastructure/caddy/Caddyfile.production /etc/caddy/Caddyfile

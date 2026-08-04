@@ -30,8 +30,10 @@ final class DataGovernanceProcessCommand extends Command
             $processed = $this->processor->processOnce();
             if ($processed) {
                 $output->writeln('Processed one data-governance request.');
+            } elseif (! $input->getOption('once')) {
+                usleep(500_000);
             }
-        } while (! $input->getOption('once') && $processed);
+        } while (! $input->getOption('once'));
 
         return Command::SUCCESS;
     }

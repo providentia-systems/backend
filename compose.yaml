@@ -18,6 +18,10 @@ x-app: &app
     PUBLIC_BASE_URL: http://127.0.0.1:${PROVIDENTIA_HTTP_PORT:-8080}
     CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:8081,http://localhost:8081}
     EXPOSE_DEVELOPMENT_TOKENS: ${EXPOSE_DEVELOPMENT_TOKENS:-0}
+    DATA_EXPORT_KEK: ${DATA_EXPORT_KEK:-}
+    DATA_EXPORT_ROOT: var/data-exports
+    AI_MEDIA_KEK: ${AI_MEDIA_KEK:-}
+    AI_MEDIA_ROOT: var/private-media
   healthcheck:
     test:
       - CMD
@@ -61,6 +65,8 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
+    volumes:
+      - app-artifacts:/app/var
 
   api-mariadb:
     <<: *app
@@ -75,6 +81,12 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+      valkey:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+    volumes:
+      - app-artifacts:/app/var
 
   mysql:
     image: mysql:8.4.6
@@ -130,6 +142,7 @@ services:
     image: redis:8.2.1-alpine
     profiles:
       - redis
+      - mysql
     restart: unless-stopped
     command:
       - redis-server
@@ -169,6 +182,121 @@ services:
       redis:
         condition: service_healthy
 
+  worker-mariadb:
+    <<: *app
+    profiles: [mariadb]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: mysql://providentia:${MARIADB_PASSWORD:-providentia-local-only}@mariadb:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://valkey:6379
+    command: [php, bin/providentia, queue:consume]
+    healthcheck:
+      disable: true
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+
+  data-governance-mysql:
+    <<: *app
+    profiles:
+      - mysql
+    environment:
+      <<: *app-environment
+      DATABASE_URL: mysql://providentia:${MYSQL_PASSWORD:-providentia-local-only}@mysql:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://redis:6379
+    command:
+      - php
+      - bin/providentia
+      - data-governance:process
+    healthcheck:
+      disable: true
+    volumes:
+      - app-artifacts:/app/var
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  data-governance-sqlite:
+    <<: *app
+    profiles: [sqlite]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: sqlite:///var/providentia.sqlite
+      QUEUE_DSN: redis+phpredis://valkey:6379
+      QUEUE_REQUIRED: "0"
+    command: [php, bin/providentia, data-governance:process]
+    healthcheck:
+      disable: true
+    volumes:
+      - sqlite-data:/app/var
+
+  data-governance-mariadb:
+    <<: *app
+    profiles:
+      - mariadb
+    environment:
+      <<: *app-environment
+      DATABASE_URL: mysql://providentia:${MARIADB_PASSWORD:-providentia-local-only}@mariadb:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://valkey:6379
+    command: [php, bin/providentia, data-governance:process]
+    healthcheck:
+      disable: true
+    volumes:
+      - app-artifacts:/app/var
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  ai-video-mysql:
+    <<: *app
+    profiles:
+      - mysql
+    environment:
+      <<: *app-environment
+      DATABASE_URL: mysql://providentia:${MYSQL_PASSWORD:-providentia-local-only}@mysql:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://redis:6379
+    command: [php, bin/providentia, ai:video:process]
+    healthcheck:
+      disable: true
+    volumes:
+      - app-artifacts:/app/var
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  ai-video-sqlite:
+    <<: *app
+    profiles: [sqlite]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: sqlite:///var/providentia.sqlite
+      QUEUE_DSN: redis+phpredis://valkey:6379
+      QUEUE_REQUIRED: "0"
+    command: [php, bin/providentia, ai:video:process]
+    healthcheck:
+      disable: true
+    volumes:
+      - sqlite-data:/app/var
+
+  ai-video-mariadb:
+    <<: *app
+    profiles:
+      - mariadb
+    environment:
+      <<: *app-environment
+      DATABASE_URL: mysql://providentia:${MARIADB_PASSWORD:-providentia-local-only}@mariadb:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://valkey:6379
+    command: [php, bin/providentia, ai:video:process]
+    healthcheck:
+      disable: true
+    volumes:
+      - app-artifacts:/app/var
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
   outbox-mysql:
     <<: *app
     profiles:
@@ -187,6 +315,74 @@ services:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  outbox-mariadb:
+    <<: *app
+    profiles: [mariadb]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: mysql://providentia:${MARIADB_PASSWORD:-providentia-local-only}@mariadb:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://valkey:6379
+    command:
+      - sh
+      - -c
+      - while true; do php bin/providentia outbox:relay --once || true; sleep 2; done
+    healthcheck:
+      disable: true
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+
+  notification-mysql:
+    <<: *app
+    profiles: [mysql]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: mysql://providentia:${MYSQL_PASSWORD:-providentia-local-only}@mysql:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://redis:6379
+    command: [php, bin/providentia, notification:deliver]
+    healthcheck:
+      disable: true
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
+  notification-sqlite:
+    <<: *app
+    profiles: [sqlite]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: sqlite:///var/providentia.sqlite
+      QUEUE_DSN: redis+phpredis://valkey:6379
+      QUEUE_REQUIRED: "0"
+    command: [php, bin/providentia, notification:deliver]
+    healthcheck:
+      disable: true
+    volumes:
+      - sqlite-data:/app/var
+    depends_on:
+      mailpit:
+        condition: service_healthy
+
+  notification-mariadb:
+    <<: *app
+    profiles: [mariadb]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: mysql://providentia:${MARIADB_PASSWORD:-providentia-local-only}@mariadb:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://valkey:6379
+    command: [php, bin/providentia, notification:deliver]
+    healthcheck:
+      disable: true
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      mailpit:
         condition: service_healthy
 
   mailpit:
@@ -211,6 +407,7 @@ services:
     image: valkey/valkey:8.1.3-alpine
     profiles:
       - valkey
+      - mariadb
     restart: unless-stopped
     command:
       - valkey-server
@@ -236,3 +433,4 @@ volumes:
   mariadb-data:
   redis-data:
   valkey-data:
+  app-artifacts:

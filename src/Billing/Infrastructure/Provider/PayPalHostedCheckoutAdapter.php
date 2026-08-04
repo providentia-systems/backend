@@ -98,6 +98,29 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
         return $this->normalizeWebhook($event);
     }
 
+    public function captureApprovedOrder(HostedCheckoutWebhook $approved): HostedCheckoutWebhook
+    {
+        if ($approved->eventType !== 'checkout.approved') {
+            throw new BillingProviderException(
+                'provider_capture_not_approved',
+                'Only an authenticated PayPal order approval may be captured.',
+            );
+        }
+        $capture = $this->postJson(
+            '/v2/checkout/orders/' . rawurlencode($approved->checkoutReference) . '/capture',
+            (object) [],
+            $approved->eventId . '-capture',
+        );
+        if (($capture['status'] ?? null) !== 'COMPLETED') {
+            throw new BillingProviderException(
+                'provider_capture_incomplete',
+                'PayPal did not confirm completion of the approved order.',
+            );
+        }
+
+        return $this->orderWebhook($approved->eventId, $approved->occurredAt, $capture);
+    }
+
     private function createOrder(HostedCheckoutRequest $request): HostedCheckoutSession
     {
         $response = $this->postJson('/v2/checkout/orders', [
@@ -238,19 +261,17 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
         array $resource,
     ): HostedCheckoutWebhook {
         $orderId = $this->requiredString($resource, 'id', 191);
-        $capture = $this->postJson(
-            '/v2/checkout/orders/' . rawurlencode($orderId) . '/capture',
-            (object) [],
-            $eventId . '-capture',
-        );
-        if (($capture['status'] ?? null) !== 'COMPLETED') {
-            throw new BillingProviderException(
-                'provider_capture_incomplete',
-                'PayPal did not confirm completion of the approved order.',
-            );
-        }
 
-        return $this->orderWebhook($eventId, $occurredAt, $capture);
+        return new HostedCheckoutWebhook(
+            $eventId,
+            'checkout.approved',
+            $orderId,
+            null,
+            $this->nestedString($resource, ['payer', 'payer_id']),
+            null,
+            null,
+            $occurredAt,
+        );
     }
 
     /** @param array<string, mixed> $resource */

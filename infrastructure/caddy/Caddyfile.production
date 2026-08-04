@@ -22,7 +22,7 @@
     respond @operational 404
 
     request_body {
-        max_size 20MB
+        max_size 160MB
     }
 
     @static path /assets/*
@@ -48,5 +48,25 @@
             request>uri regexp \\?.*$ ?REDACTED
             wrap json
         }
+    }
+}
+
+# Backend-network-only scrape listener. Compose does not publish this port to
+# the host, and Caddy requires an independent deployment secret before proxying
+# the otherwise public application metric handler.
+:9090 {
+    @metrics {
+        path /metrics
+        header Authorization "Bearer {$PROVIDENTIA_METRICS_TOKEN}"
+    }
+    php_fastcgi @metrics api:9000 {
+        root /app/public
+        capture_stderr
+    }
+    respond 404
+
+    log {
+        output stdout
+        format json
     }
 }

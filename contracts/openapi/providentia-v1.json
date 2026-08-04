@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.9.0",
+    "version": "1.10.0",
     "summary": "Authoritative Providentia backend contract through the production-readiness programme",
-    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds passwordless authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation."
+    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds passwordless authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation.\n\nVersion 1.10 adds typed pantry synchronization, catalog sharing/imports, data rights, commercial controls, multi-provider AI orchestration, encrypted private media, and production acceptance surfaces."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -1272,6 +1272,297 @@
         }
       }
     },
+    "/api/v1/homes/{homeId}/catalog-contributions/consent": {
+      "get": {
+        "operationId": "getCatalogContributionConsent",
+        "tags": ["Catalog governance"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "responses": {
+          "200": {"description": "Current revisioned sharing consent", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogSharingConsent"}}}},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "put": {
+        "operationId": "putCatalogContributionConsent",
+        "tags": ["Catalog governance"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogSharingConsentUpdate"}}}},
+        "responses": {
+          "200": {"description": "Updated sharing consent and immutable receipt", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogSharingConsent"}}}},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/catalog-contributions": {
+      "get": {
+        "operationId": "listHomeCatalogContributions",
+        "tags": ["Catalog governance"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}, {"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Offset"}],
+        "responses": {"200": {"description": "Home submissions without global disclosure", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/CatalogContribution"}}}}}}}}
+      },
+      "post": {
+        "operationId": "createCatalogContribution",
+        "tags": ["Catalog governance"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogContributionCreate"}}}},
+        "responses": {
+          "201": {"description": "Consent-bound pending contribution", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogContribution"}}}},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/catalog-contributions/review": {
+      "get": {
+        "operationId": "listCatalogContributionReviewQueue",
+        "tags": ["Catalog governance"],
+        "parameters": [
+          {"name": "status", "in": "query", "schema": {"enum": ["pending", "approved", "rejected", "withdrawn"], "default": "pending"}},
+          {"$ref": "#/components/parameters/Limit"},
+          {"$ref": "#/components/parameters/Offset"}
+        ],
+        "responses": {"200": {"description": "Attribution-free moderator queue", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/CatalogContribution"}}}}}}}, "404": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/catalog-contributions/{contributionId}/decision": {
+      "put": {
+        "operationId": "decideCatalogContribution",
+        "tags": ["Catalog governance"],
+        "parameters": [{"name": "contributionId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogContributionDecision"}}}},
+        "responses": {"204": {"description": "Decision recorded"}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/homes/{homeId}/catalog-imports": {
+      "post": {
+        "operationId": "stageHomeCatalogImport",
+        "tags": ["Catalog"],
+        "parameters": [
+          {"$ref": "#/components/parameters/HomeId"},
+          {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 8, "maxLength": 128}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogImportStage"}}}},
+        "responses": {"201": {"description": "Import staged for review", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogImportBatch"}}}}, "200": {"description": "Idempotent replay of an existing stage", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogImportBatch"}}}}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "413": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/homes/{homeId}/catalog-imports/{importId}": {
+      "get": {
+        "operationId": "getHomeCatalogImport",
+        "tags": ["Catalog"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}, {"$ref": "#/components/parameters/CatalogImportId"}],
+        "responses": {"200": {"description": "Staged or completed import review", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogImportBatch"}}}}, "404": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/homes/{homeId}/catalog-imports/{importId}/confirm": {
+      "post": {
+        "operationId": "confirmHomeCatalogImport",
+        "tags": ["Catalog"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}, {"$ref": "#/components/parameters/CatalogImportId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogImportConfirmation"}}}},
+        "responses": {"200": {"description": "Valid reviewed rows applied atomically", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogImportBatch"}}}}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/account/data-exports": {
+      "post": {
+        "operationId": "requestAccountDataExport",
+        "tags": ["Data governance"],
+        "responses": {"202": {"description": "Export queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DataGovernanceRequest"}}}}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/account/erasure-requests": {
+      "post": {
+        "operationId": "requestAccountErasure",
+        "tags": ["Data governance"],
+        "responses": {"202": {"description": "Erasure queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DataGovernanceRequest"}}}}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/account/data-governance-requests": {
+      "get": {
+        "operationId": "listAccountDataGovernanceRequests",
+        "tags": ["Data governance"],
+        "parameters": [{"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Offset"}],
+        "responses": {"200": {"description": "Account data requests", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/DataGovernanceRequest"}}}}}}}}
+      }
+    },
+    "/api/v1/homes/{homeId}/data-exports": {
+      "post": {
+        "operationId": "requestHomeDataExport",
+        "tags": ["Data governance"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "responses": {"202": {"description": "Export queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DataGovernanceRequest"}}}}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/homes/{homeId}/erasure-requests": {
+      "post": {
+        "operationId": "requestHomeErasure",
+        "tags": ["Data governance"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "responses": {"202": {"description": "Erasure queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DataGovernanceRequest"}}}}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/homes/{homeId}/data-governance-requests": {
+      "get": {
+        "operationId": "listHomeDataGovernanceRequests",
+        "tags": ["Data governance"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}, {"$ref": "#/components/parameters/Limit"}, {"$ref": "#/components/parameters/Offset"}],
+        "responses": {"200": {"description": "Home data requests", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/DataGovernanceRequest"}}}}}}}}
+      }
+    },
+    "/api/v1/data-governance-requests/{requestId}/cancel": {
+      "post": {
+        "operationId": "cancelDataGovernanceRequest",
+        "tags": ["Data governance"],
+        "parameters": [{"name": "requestId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ExpectedRevision"}}}},
+        "responses": {"204": {"description": "Queued request cancelled"}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/data-governance-requests/{requestId}/download-token": {
+      "post": {
+        "operationId": "issueDataExportDownloadToken",
+        "tags": ["Data governance"],
+        "parameters": [{"name": "requestId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ExpectedRevision"}}}},
+        "responses": {"200": {"description": "Short-lived one-time export token", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DataExportDownloadToken"}}}}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/data-governance-requests/{requestId}/download": {
+      "post": {
+        "operationId": "downloadDataExport",
+        "tags": ["Data governance"],
+        "parameters": [{"name": "requestId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DataExportDownloadRequest"}}}},
+        "responses": {"200": {"description": "Decrypted Providentia export; the token is consumed atomically", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}}, "404": {"$ref": "#/components/responses/Problem"}, "410": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/billing/plans": {
+      "get": {
+        "operationId": "listAvailableBillingPlans",
+        "tags": ["Billing"],
+        "security": [],
+        "responses": {
+          "200": {"description": "Enabled public plan catalog", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPlanCollection"}}}},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/operator/billing/plans": {
+      "get": {
+        "operationId": "listOperatorBillingPlans",
+        "tags": ["Billing operator"],
+        "responses": {"200": {"description": "Complete operator plan catalog", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPlanCollection"}}}}, "404": {"$ref": "#/components/responses/Problem"}}
+      },
+      "post": {
+        "operationId": "createBillingPlan",
+        "tags": ["Billing operator"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPlanCreate"}}}},
+        "responses": {"201": {"description": "Draft plan created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPlan"}}}}, "404": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/operator/billing/plans/{planId}": {
+      "put": {
+        "operationId": "updateBillingPlan",
+        "tags": ["Billing operator"],
+        "parameters": [{"$ref": "#/components/parameters/PlanId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPlanUpdate"}}}},
+        "responses": {"200": {"description": "Revisioned plan updated", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPlan"}}}}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/operator/billing/plans/{planId}/prices": {
+      "post": {
+        "operationId": "createBillingPrice",
+        "tags": ["Billing operator"],
+        "parameters": [{"$ref": "#/components/parameters/PlanId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPriceCreate"}}}},
+        "responses": {"201": {"description": "Immutable price created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPrice"}}}}, "404": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/operator/billing/prices/{priceId}/status": {
+      "put": {
+        "operationId": "setBillingPriceStatus",
+        "tags": ["Billing operator"],
+        "parameters": [{"$ref": "#/components/parameters/PriceId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPriceStatusUpdate"}}}},
+        "responses": {"200": {"description": "Price status updated", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPrice"}}}}, "409": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/operator/billing/prices/{priceId}/providers/{provider}": {
+      "put": {
+        "operationId": "putBillingProviderPriceReference",
+        "tags": ["Billing operator"],
+        "parameters": [
+          {"$ref": "#/components/parameters/PriceId"},
+          {"name": "provider", "in": "path", "required": true, "schema": {"enum": ["paypal", "hosted_card"]}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingProviderPriceReference"}}}},
+        "responses": {"204": {"description": "Provider price reference stored"}, "404": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/operator/billing/plans/{planId}/entitlements/{featureKey}": {
+      "put": {
+        "operationId": "putBillingEntitlement",
+        "tags": ["Billing operator"],
+        "parameters": [
+          {"$ref": "#/components/parameters/PlanId"},
+          {"name": "featureKey", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingEntitlementValue"}}}},
+        "responses": {"204": {"description": "Entitlement set"}, "404": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/operator/billing/promotions": {
+      "post": {
+        "operationId": "createBillingPromotion",
+        "tags": ["Billing operator"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingPromotionCreate"}}}},
+        "responses": {"201": {"description": "Promotion created", "content": {"application/json": {"schema": {"type": "object", "required": ["id", "code"], "properties": {"id": {"type": "string", "format": "uuid"}, "code": {"type": "string"}}}}}}, "422": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/operator/billing/homes/{homeId}/overrides": {
+      "post": {
+        "operationId": "createHomeBillingOverride",
+        "tags": ["Billing operator"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingOverrideCreate"}}}},
+        "responses": {"201": {"description": "Effective-dated override created", "content": {"application/json": {"schema": {"type": "object", "required": ["id", "featureKey"], "properties": {"id": {"type": "string", "format": "uuid"}, "featureKey": {"type": "string"}}}}}}, "404": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/operator/billing/overrides/{overrideId}": {
+      "delete": {
+        "operationId": "revokeHomeBillingOverride",
+        "tags": ["Billing operator"],
+        "parameters": [{"name": "overrideId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {"204": {"description": "Override revoked"}, "404": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/homes/{homeId}/billing": {
+      "get": {
+        "operationId": "getHomeBillingSummary",
+        "tags": ["Billing"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "responses": {"200": {"description": "Subscription and effective entitlements", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingHomeSummary"}}}}, "403": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/homes/{homeId}/billing/checkouts": {
+      "post": {
+        "operationId": "createHostedBillingCheckout",
+        "tags": ["Billing"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingCheckoutCreate"}}}},
+        "responses": {"201": {"description": "Provider-hosted checkout session", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BillingCheckoutSession"}}}}, "403": {"$ref": "#/components/responses/Problem"}, "422": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/api/v1/billing/webhooks/{provider}": {
+      "post": {
+        "operationId": "acceptBillingWebhook",
+        "tags": ["Billing"],
+        "security": [],
+        "parameters": [{"name": "provider", "in": "path", "required": true, "schema": {"enum": ["paypal", "hosted_card"]}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object"}}}},
+        "responses": {"202": {"description": "Verified event accepted or duplicate acknowledged", "content": {"application/json": {"schema": {"type": "object", "required": ["status"], "properties": {"status": {"enum": ["processed", "duplicate"]}}}}}}, "400": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/api/v1/homes/{homeId}/sync/push": {
       "post": {
         "operationId": "pushHomeSynchronization",
@@ -1367,6 +1658,24 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque signed snapshot page cursor from the preceding bootstrap page.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 250,
+              "default": 250
+            }
           }
         ],
         "responses": {
@@ -1380,7 +1689,48 @@
               }
             }
           },
-          "409": {
+          "410": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/sync/operation-status": {
+      "post": {
+        "operationId": "getSynchronizationOperationStatuses",
+        "tags": [
+          "Synchronization"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncOperationStatusRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Device-scoped immutable operation receipts and unknown placeholders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncOperationStatusResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
             "$ref": "#/components/responses/Problem"
           }
         }
@@ -2993,6 +3343,90 @@
         }
       }
     },
+    "/api/v1/homes/{homeId}/ai/profiles": {
+      "get": {
+        "operationId": "listAiProviderProfiles",
+        "tags": ["AI Integration"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "responses": {
+          "200": {
+            "description": "Household AI provider profiles without credential material",
+            "content": {"application/json": {"schema": {
+              "type": "object",
+              "required": ["items"],
+              "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/AiProviderProfile"}}}
+            }}}
+          },
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "post": {
+        "operationId": "createAiProviderProfile",
+        "tags": ["AI Integration"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PutAiProviderProfileRequest"}}}},
+        "responses": {
+          "201": {"description": "Provider profile created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiProviderProfile"}}}},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/profiles/{profileId}": {
+      "put": {
+        "operationId": "updateAiProviderProfile",
+        "tags": ["AI Integration"],
+        "parameters": [
+          {"$ref": "#/components/parameters/HomeId"},
+          {"name": "profileId", "in": "path", "required": true, "schema": {"type": "string", "maxLength": 36}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PutAiProviderProfileRequest"}}}},
+        "responses": {
+          "201": {"description": "Provider profile updated", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiProviderProfile"}}}},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "delete": {
+        "operationId": "deleteAiProviderProfile",
+        "tags": ["AI Integration"],
+        "parameters": [
+          {"$ref": "#/components/parameters/HomeId"},
+          {"name": "profileId", "in": "path", "required": true, "schema": {"type": "string", "maxLength": 36}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ExpectedRevisionRequest"}}}},
+        "responses": {
+          "204": {"description": "Provider profile revoked"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/policy": {
+      "get": {
+        "operationId": "getAiOrchestrationPolicy",
+        "tags": ["AI Integration"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "responses": {
+          "200": {"description": "AI orchestration policy", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiOrchestrationPolicy"}}}},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "put": {
+        "operationId": "putAiOrchestrationPolicy",
+        "tags": ["AI Integration"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PutAiOrchestrationPolicyRequest"}}}},
+        "responses": {
+          "200": {"description": "AI orchestration policy updated", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiOrchestrationPolicy"}}}},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/api/v1/homes/{homeId}/ai/extractions": {
       "post": {
         "operationId": "createAiExtraction",
@@ -3033,10 +3467,15 @@
                       true
                     ]
                   },
-                  "image": {
-                    "type": "string",
-                    "format": "binary"
-                  }
+                "image": {
+                  "type": "string",
+                  "format": "binary"
+                },
+                "images": {
+                  "type": "array",
+                  "maxItems": 7,
+                  "items": {"type": "string", "format": "binary"}
+                }
                 }
               }
             }
@@ -3071,6 +3510,21 @@
           "502": {
             "$ref": "#/components/responses/Problem"
           }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/extractions/stored-media": {
+      "post": {
+        "operationId": "createAiExtractionFromStoredMedia",
+        "tags": ["AI Integration"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateStoredMediaExtractionRequest"}}}},
+        "responses": {
+          "201": {"description": "Structured candidates ready for mandatory review", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiExtractionCreated"}}}},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "502": {"$ref": "#/components/responses/Problem"}
         }
       }
     },
@@ -3172,6 +3626,138 @@
           "422": {
             "$ref": "#/components/responses/Problem"
           }
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/extractions/{extractionId}/observations/{decisionId}": {
+      "put": {
+        "operationId": "reviewAiObservationDecision",
+        "tags": ["AI Integration"],
+        "parameters": [
+          {"$ref": "#/components/parameters/HomeId"},
+          {"name": "extractionId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "decisionId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReviewAiObservationRequest"}}}},
+        "responses": {
+          "204": {"description": "Duplicate-observation decision reviewed; inventory is unchanged"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/extractions/{extractionId}/discrepancies/{position}": {
+      "put": {
+        "operationId": "reviewAiExtractionDiscrepancy",
+        "tags": ["AI Integration"],
+        "parameters": [
+          {"$ref": "#/components/parameters/HomeId"},
+          {"name": "extractionId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "position", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 0}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReviewAiDiscrepancyRequest"}}}},
+        "responses": {
+          "204": {"description": "Independent-validation discrepancy reviewed; inventory is unchanged"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/media": {
+      "get": {
+        "operationId": "listPrivateAiMedia",
+        "tags": ["AI Integration"],
+        "parameters": [
+          {"$ref": "#/components/parameters/HomeId"},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+          {"name": "beforeId", "in": "query", "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "Private media and current household quota usage", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrivateMediaList"}}}},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "post": {
+        "operationId": "uploadPrivateAiMedia",
+        "tags": ["AI Integration"],
+        "parameters": [{"$ref": "#/components/parameters/HomeId"}],
+        "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["retention", "media"],
+          "properties": {
+            "retention": {"type": "string", "enum": ["transient", "retained"]},
+            "media": {"type": "string", "format": "binary"}
+          }
+        }}}},
+        "responses": {
+          "201": {"description": "Media encrypted and stored", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrivateMediaUploadResult"}}}},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "413": {"$ref": "#/components/responses/Problem"},
+          "415": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/media/export": {
+      "get": {
+        "operationId": "exportPrivateAiMediaMetadata",
+        "tags": ["AI Integration"],
+        "parameters": [
+          {"$ref": "#/components/parameters/HomeId"},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 1000}}
+        ],
+        "responses": {
+          "200": {"description": "Bounded encrypted private-media export", "content": {"application/json": {"schema": {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/PrivateMediaExportItem"}}}}}}},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "413": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/media/{assetId}": {
+      "get": {
+        "operationId": "downloadPrivateAiMedia",
+        "tags": ["AI Integration"],
+        "parameters": [
+          {"$ref": "#/components/parameters/HomeId"},
+          {"name": "assetId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "Decrypted private media", "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "delete": {
+        "operationId": "deletePrivateAiMedia",
+        "tags": ["AI Integration"],
+        "parameters": [
+          {"$ref": "#/components/parameters/HomeId"},
+          {"name": "assetId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "204": {"description": "Private media cryptographically deleted and quota released"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/homes/{homeId}/ai/media/{assetId}/retention": {
+      "put": {
+        "operationId": "updatePrivateAiMediaRetention",
+        "tags": ["AI Integration"],
+        "parameters": [
+          {"$ref": "#/components/parameters/HomeId"},
+          {"name": "assetId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdatePrivateMediaRetentionRequest"}}}},
+        "responses": {
+          "204": {"description": "Private media retention updated"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"}
         }
       }
     },
@@ -4359,6 +4945,15 @@
           "format": "uuid"
         }
       },
+      "CatalogImportId": {
+        "name": "importId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
       "SessionId": {
         "name": "sessionId",
         "in": "path",
@@ -4373,6 +4968,43 @@
         "in": "header",
         "required": true,
         "description": "Must equal batchId for stable identical batch retries.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      "Offset": {
+        "name": "offset",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "PlanId": {
+        "name": "planId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "PriceId": {
+        "name": "priceId",
+        "in": "path",
+        "required": true,
         "schema": {
           "type": "string",
           "format": "uuid"
@@ -5097,6 +5729,376 @@
           }
         }
       },
+      "ExpectedRevision": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedRevision"],
+        "properties": {"expectedRevision": {"type": "integer", "minimum": 1}}
+      },
+      "CatalogImportStage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["records"],
+        "properties": {"records": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"$ref": "#/components/schemas/CatalogImportRecord"}}}
+      },
+      "CatalogImportRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["recordType"],
+        "properties": {
+          "recordType": {"enum": ["catalog_product_reference", "home_product"]},
+          "productId": {"type": "string", "format": "uuid"},
+          "packId": {"type": "string", "format": "uuid"},
+          "barcode": {"type": "string", "maxLength": 64},
+          "name": {"type": "string", "maxLength": 191},
+          "brand": {"type": "string", "maxLength": 120},
+          "privateName": {"type": "string", "maxLength": 191},
+          "packText": {"type": "string", "maxLength": 191}
+        }
+      },
+      "CatalogImportConfirmation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedRevision", "confirmation"],
+        "properties": {
+          "expectedRevision": {"type": "integer", "minimum": 1},
+          "confirmation": {"const": "apply_catalog_records"}
+        }
+      },
+      "CatalogImportBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "homeId", "status", "rowCount", "validCount", "errorCount", "importedCount", "skippedCount", "revision", "rows"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "homeId": {"type": "string", "format": "uuid"},
+          "requestedByUserId": {"type": "string", "format": "uuid"},
+          "contentHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "status": {"enum": ["staged", "confirming", "confirmed"]},
+          "rowCount": {"type": "integer", "minimum": 1, "maximum": 500},
+          "validCount": {"type": "integer", "minimum": 0, "maximum": 500},
+          "errorCount": {"type": "integer", "minimum": 0, "maximum": 500},
+          "importedCount": {"type": "integer", "minimum": 0, "maximum": 500},
+          "skippedCount": {"type": "integer", "minimum": 0, "maximum": 500},
+          "revision": {"type": "integer", "minimum": 1},
+          "replayed": {"type": "boolean"},
+          "confirmedByUserId": {"type": ["string", "null"], "format": "uuid"},
+          "confirmedAt": {"type": ["string", "null"], "format": "date-time"},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "updatedAt": {"type": "string", "format": "date-time"},
+          "rows": {"type": "array", "maxItems": 500, "items": {"$ref": "#/components/schemas/CatalogImportRow"}}
+        }
+      },
+      "CatalogImportRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["position", "recordType", "record", "resolution"],
+        "properties": {
+          "position": {"type": "integer", "minimum": 0, "maximum": 499},
+          "recordType": {"type": "string"},
+          "record": {"type": "object", "additionalProperties": true},
+          "resolution": {"enum": ["already_present", "link_catalog", "create_private", "error"]},
+          "targetHomeProductId": {"type": ["string", "null"], "format": "uuid"},
+          "matchedHomeProductId": {"type": ["string", "null"], "format": "uuid"},
+          "productId": {"type": ["string", "null"], "format": "uuid"},
+          "packId": {"type": ["string", "null"], "format": "uuid"},
+          "privateName": {"type": ["string", "null"]},
+          "packText": {"type": ["string", "null"]},
+          "errorCode": {"type": ["string", "null"]},
+          "errorDetail": {"type": ["string", "null"]}
+        }
+      },
+      "CatalogSharingConsent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["homeId", "shareProductIdentity", "shareProductImages", "shareStorePrices", "noticeVersion", "revision"],
+        "properties": {
+          "homeId": {"type": "string", "format": "uuid"},
+          "shareProductIdentity": {"type": "boolean"},
+          "shareProductImages": {"type": "boolean"},
+          "shareStorePrices": {"type": "boolean"},
+          "noticeVersion": {"const": "catalog-sharing-v1"},
+          "revision": {"type": "integer", "minimum": 0}
+        }
+      },
+      "CatalogSharingConsentUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["shareProductIdentity", "shareProductImages", "shareStorePrices", "noticeVersion", "expectedRevision"],
+        "properties": {
+          "shareProductIdentity": {"type": "boolean"},
+          "shareProductImages": {"type": "boolean"},
+          "shareStorePrices": {"type": "boolean"},
+          "noticeVersion": {"const": "catalog-sharing-v1"},
+          "expectedRevision": {"type": "integer", "minimum": 0}
+        }
+      },
+      "CatalogContributionCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "expectedConsentRevision", "payload"],
+        "properties": {
+          "type": {"enum": ["product_identity", "product_image", "store_price"]},
+          "sourceEntityId": {"type": ["string", "null"], "format": "uuid"},
+          "expectedConsentRevision": {"type": "integer", "minimum": 1},
+          "payload": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/CatalogProductIdentityContribution"},
+              {"$ref": "#/components/schemas/CatalogProductImageContribution"},
+              {"$ref": "#/components/schemas/CatalogStorePriceContribution"}
+            ]
+          }
+        }
+      },
+      "CatalogProductIdentityContribution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["canonicalName"],
+        "properties": {
+          "canonicalName": {"type": "string", "minLength": 1, "maxLength": 191},
+          "brand": {"type": "string", "maxLength": 120},
+          "categoryLabel": {"type": "string", "maxLength": 191},
+          "barcode": {"type": "string", "pattern": "^[0-9A-Za-z-]{4,32}$"},
+          "packText": {"type": "string", "maxLength": 191}
+        }
+      },
+      "CatalogProductImageContribution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["assetDigest", "mediaType", "altText", "provenance"],
+        "properties": {
+          "assetDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "mediaType": {"enum": ["image/jpeg", "image/png", "image/webp"]},
+          "altText": {"type": "string", "minLength": 1, "maxLength": 191},
+          "provenance": {"type": "string", "minLength": 1, "maxLength": 191}
+        }
+      },
+      "CatalogStorePriceContribution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productId", "storeName", "price", "currency", "observedOn"],
+        "properties": {
+          "productId": {"type": "string", "format": "uuid"},
+          "storeName": {"type": "string", "minLength": 1, "maxLength": 191},
+          "storeLocation": {"type": "string", "maxLength": 191},
+          "price": {"type": "string", "pattern": "^(?:0|[1-9][0-9]{0,11})\\.[0-9]{2,4}$"},
+          "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+          "observedOn": {"type": "string", "format": "date"}
+        }
+      },
+      "CatalogContribution": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "contributionType": {"enum": ["product_identity", "product_image", "store_price"]},
+          "payload": {"type": "object"},
+          "status": {"enum": ["pending", "approved", "rejected", "withdrawn"]},
+          "moderationStatus": {"enum": ["pending", "approved", "rejected", "withdrawn"]},
+          "revision": {"type": "integer", "minimum": 1},
+          "createdAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "CatalogContributionDecision": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decision", "reason", "expectedRevision"],
+        "properties": {
+          "decision": {"enum": ["approved", "rejected"]},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+          "expectedRevision": {"type": "integer", "minimum": 1}
+        }
+      },
+      "DataGovernanceRequest": {
+        "type": "object",
+        "required": ["id", "requestKind", "scopeType", "status", "revision", "retainedDataDisclosure"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "requestKind": {"enum": ["account_export", "account_erasure", "home_export", "home_erasure"]},
+          "scopeType": {"enum": ["account", "home"]},
+          "status": {"enum": ["queued", "processing", "completed", "failed", "cancelled"]},
+          "revision": {"type": "integer", "minimum": 1},
+          "retainedDataDisclosure": {"type": "array", "items": {"$ref": "#/components/schemas/RetainedDataDisclosure"}},
+          "artifactExpiresAt": {"type": ["string", "null"], "format": "date-time"},
+          "failureReason": {"type": ["string", "null"]},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "updatedAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "DataExportDownloadToken": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["token", "expiresAt", "revision"],
+        "properties": {
+          "token": {"type": "string", "minLength": 40, "writeOnly": true},
+          "expiresAt": {"type": "string", "format": "date-time"},
+          "revision": {"type": "integer", "minimum": 2}
+        }
+      },
+      "DataExportDownloadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["token"],
+        "properties": {"token": {"type": "string", "minLength": 40, "writeOnly": true}}
+      },
+      "RetainedDataDisclosure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "treatment", "reason"],
+        "properties": {
+          "category": {"type": "string"},
+          "treatment": {"type": "string"},
+          "reason": {"type": "string"}
+        }
+      },
+      "BillingPlanCollection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data"],
+        "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/BillingPlan"}}}
+      },
+      "BillingPlan": {
+        "type": "object",
+        "required": ["id", "code", "status", "revision"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "code": {"type": "string"},
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "status": {"enum": ["draft", "active", "archived"]},
+          "revision": {"type": "integer", "minimum": 1},
+          "prices": {"type": "array", "items": {"$ref": "#/components/schemas/BillingPrice"}},
+          "entitlements": {"type": "object", "additionalProperties": {"type": ["boolean", "integer", "string", "null"]}}
+        }
+      },
+      "BillingPlanCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "name", "description"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$"},
+          "name": {"type": "string", "minLength": 2, "maxLength": 120},
+          "description": {"type": "string", "maxLength": 1000}
+        }
+      },
+      "BillingPlanUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "description", "status", "expectedRevision"],
+        "properties": {
+          "name": {"type": "string", "minLength": 2, "maxLength": 120},
+          "description": {"type": "string", "maxLength": 1000},
+          "status": {"enum": ["draft", "active", "archived"]},
+          "expectedRevision": {"type": "integer", "minimum": 1}
+        }
+      },
+      "BillingPrice": {
+        "type": "object",
+        "required": ["id", "status", "revision"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "planId": {"type": "string", "format": "uuid"},
+          "code": {"type": "string"},
+          "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+          "amountMinor": {"type": "integer", "minimum": 0},
+          "intervalUnit": {"enum": ["month", "year"]},
+          "intervalCount": {"type": "integer", "minimum": 1, "maximum": 36},
+          "trialDays": {"type": "integer", "minimum": 0, "maximum": 365},
+          "status": {"enum": ["active", "retired"]},
+          "revision": {"type": "integer", "minimum": 1}
+        }
+      },
+      "BillingPriceCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "currency", "amountMinor", "intervalUnit", "intervalCount", "trialDays"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$"},
+          "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+          "amountMinor": {"type": "integer", "minimum": 0},
+          "intervalUnit": {"enum": ["month", "year"]},
+          "intervalCount": {"type": "integer", "minimum": 1, "maximum": 36},
+          "trialDays": {"type": "integer", "minimum": 0, "maximum": 365}
+        }
+      },
+      "BillingPriceStatusUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "expectedRevision"],
+        "properties": {"status": {"enum": ["active", "retired"]}, "expectedRevision": {"type": "integer", "minimum": 1}}
+      },
+      "BillingProviderPriceReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["providerReference"],
+        "properties": {"providerReference": {"type": "string", "minLength": 1, "maxLength": 191}}
+      },
+      "BillingEntitlementValue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["value"],
+        "properties": {"value": {"type": ["boolean", "integer", "string", "null"]}}
+      },
+      "BillingPromotionCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "discountType", "validFrom"],
+        "properties": {
+          "code": {"type": "string"},
+          "planId": {"type": ["string", "null"], "format": "uuid"},
+          "discountType": {"enum": ["percent", "fixed"]},
+          "percentOffBps": {"type": ["integer", "null"], "minimum": 1, "maximum": 10000},
+          "amountOffMinor": {"type": ["integer", "null"], "minimum": 1},
+          "currency": {"type": ["string", "null"], "pattern": "^[A-Z]{3}$"},
+          "maximumRedemptions": {"type": ["integer", "null"], "minimum": 1},
+          "validFrom": {"type": "string", "format": "date-time"},
+          "validUntil": {"type": ["string", "null"], "format": "date-time"}
+        }
+      },
+      "BillingOverrideCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["featureKey", "value", "reason", "validFrom"],
+        "properties": {
+          "featureKey": {"type": "string"},
+          "value": {"type": ["boolean", "integer", "string", "null"]},
+          "reason": {"type": "string", "minLength": 3, "maxLength": 500},
+          "validFrom": {"type": "string", "format": "date-time"},
+          "validUntil": {"type": ["string", "null"], "format": "date-time"}
+        }
+      },
+      "BillingHomeSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subscription", "entitlements"],
+        "properties": {
+          "subscription": {"type": ["object", "null"]},
+          "entitlements": {"type": "object", "additionalProperties": {"type": ["boolean", "integer", "string", "null"]}}
+        }
+      },
+      "BillingCheckoutCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["priceId", "provider", "successUrl", "cancelUrl"],
+        "properties": {
+          "priceId": {"type": "string", "format": "uuid"},
+          "provider": {"enum": ["paypal", "hosted_card"]},
+          "successUrl": {"type": "string", "format": "uri", "pattern": "^https://"},
+          "cancelUrl": {"type": "string", "format": "uri", "pattern": "^https://"},
+          "promotionCode": {"type": ["string", "null"]}
+        }
+      },
+      "BillingCheckoutSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "provider", "redirectUrl", "expiresAt"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "provider": {"enum": ["paypal", "hosted_card"]},
+          "redirectUrl": {"type": "string", "format": "uri"},
+          "expiresAt": {"type": "string", "format": "date-time"}
+        }
+      },
       "SyncPrivateNotePayload": {
         "type": "object",
         "additionalProperties": false,
@@ -5262,6 +6264,19 @@
         ]
       },
       "SyncPushRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SyncPushRequestV1"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushRequestV2"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "protocolVersion"
+        }
+      },
+      "SyncPushRequestV1": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -5298,8 +6313,292 @@
           }
         }
       },
+      "SyncPushRequestV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocolVersion",
+          "batchId",
+          "deviceId",
+          "operations"
+        ],
+        "properties": {
+          "protocolVersion": {
+            "const": 2
+          },
+          "batchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lastPulledCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/SyncPantryCommand"
+            }
+          }
+        }
+      },
+      "SyncPantryCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId",
+          "commandType",
+          "entityId",
+          "clientTimestamp",
+          "payloadSchemaVersion",
+          "payload"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "commandType": {
+            "enum": [
+              "inventory.location.create",
+              "inventory.home-product.create",
+              "inventory.adjustment.create",
+              "inventory.count-session.create",
+              "inventory.count-line.upsert",
+              "inventory.count-session.close",
+              "purchasing.store.create",
+              "purchasing.receipt.create",
+              "purchasing.receipt-line.create",
+              "purchasing.receipt-line.approve",
+              "purchasing.receipt.commit",
+              "shopping.list.create",
+              "shopping.list-line.create",
+              "shopping.list-line.checked"
+            ]
+          },
+          "entityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "baseRevision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "clientTimestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "payloadSchemaVersion": {
+            "const": 1
+          },
+          "payload": {
+            "type": "object"
+          }
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"commandType": {"const": "inventory.location.create"}}, "required": ["commandType"]},
+            "then": {"properties": {"payload": {"$ref": "#/components/schemas/SyncInventoryLocationCreatePayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "inventory.home-product.create"}}, "required": ["commandType"]},
+            "then": {"properties": {"payload": {"$ref": "#/components/schemas/SyncHomeProductCreatePayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "inventory.adjustment.create"}}, "required": ["commandType"]},
+            "then": {"properties": {"payload": {"$ref": "#/components/schemas/SyncInventoryAdjustmentPayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "inventory.count-session.create"}}, "required": ["commandType"]},
+            "then": {"properties": {"payload": {"$ref": "#/components/schemas/SyncCountSessionCreatePayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "inventory.count-line.upsert"}}, "required": ["commandType"]},
+            "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncCountLineUpsertPayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "inventory.count-session.close"}}, "required": ["commandType"]},
+            "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncEmptyPayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "purchasing.store.create"}}, "required": ["commandType"]},
+            "then": {"properties": {"payload": {"$ref": "#/components/schemas/SyncStoreCreatePayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "purchasing.receipt.create"}}, "required": ["commandType"]},
+            "then": {"properties": {"payload": {"$ref": "#/components/schemas/SyncReceiptCreatePayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "purchasing.receipt-line.create"}}, "required": ["commandType"]},
+            "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncReceiptLineCreatePayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "purchasing.receipt-line.approve"}}, "required": ["commandType"]},
+            "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncReceiptLineApprovePayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "purchasing.receipt.commit"}}, "required": ["commandType"]},
+            "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncEmptyPayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "shopping.list.create"}}, "required": ["commandType"]},
+            "then": {"properties": {"payload": {"$ref": "#/components/schemas/SyncShoppingListCreatePayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "shopping.list-line.create"}}, "required": ["commandType"]},
+            "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncShoppingListLineCreatePayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "shopping.list-line.checked"}}, "required": ["commandType"]},
+            "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncShoppingListLineCheckedPayload"}}}
+          }
+        ]
+      },
+      "SyncEmptyPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "maxProperties": 0
+      },
+      "SyncInventoryLocationCreatePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind"],
+        "properties": {
+          "name": {"type": "string"},
+          "kind": {"type": "string"}
+        }
+      },
+      "SyncHomeProductCreatePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productId", "packId", "privateName", "originalPackText"],
+        "properties": {
+          "productId": {"type": ["string", "null"], "format": "uuid"},
+          "packId": {"type": ["string", "null"], "format": "uuid"},
+          "privateName": {"type": ["string", "null"]},
+          "originalPackText": {"type": ["string", "null"]}
+        }
+      },
+      "SyncInventoryAdjustmentPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["quantityDelta", "reason"],
+        "properties": {
+          "quantityDelta": {"type": "string"},
+          "reason": {"type": "string"}
+        }
+      },
+      "SyncCountSessionCreatePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["locationId", "notes", "scopeComplete", "reliability"],
+        "properties": {
+          "locationId": {"type": ["string", "null"], "format": "uuid"},
+          "notes": {"type": "string"},
+          "scopeComplete": {"type": "boolean"},
+          "reliability": {"type": "string"}
+        }
+      },
+      "SyncCountLineUpsertPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sessionId", "homeProductId", "quantity", "confidence", "source", "notes"],
+        "properties": {
+          "sessionId": {"type": "string", "format": "uuid"},
+          "homeProductId": {"type": "string", "format": "uuid"},
+          "quantity": {"type": "string"},
+          "confidence": {"type": ["string", "null"]},
+          "source": {"type": "string"},
+          "notes": {"type": "string"}
+        }
+      },
+      "SyncStoreCreatePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "location"],
+        "properties": {
+          "name": {"type": "string"},
+          "location": {"type": "string"}
+        }
+      },
+      "SyncReceiptCreatePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["storeId", "purchaseDate", "currency", "totalAmount", "notes", "sourceReference"],
+        "properties": {
+          "storeId": {"type": ["string", "null"], "format": "uuid"},
+          "purchaseDate": {"type": "string", "format": "date"},
+          "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+          "totalAmount": {"type": ["string", "null"]},
+          "notes": {"type": "string"},
+          "sourceReference": {"type": ["string", "null"]}
+        }
+      },
+      "SyncReceiptLineCreatePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["receiptId", "rawDescription", "quantity", "originalPackText", "unitPrice", "lineTotal"],
+        "properties": {
+          "receiptId": {"type": "string", "format": "uuid"},
+          "rawDescription": {"type": "string"},
+          "quantity": {"type": "string"},
+          "originalPackText": {"type": ["string", "null"]},
+          "unitPrice": {"type": ["string", "null"]},
+          "lineTotal": {"type": ["string", "null"]}
+        }
+      },
+      "SyncReceiptLineApprovePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["receiptId", "homeProductId"],
+        "properties": {
+          "receiptId": {"type": "string", "format": "uuid"},
+          "homeProductId": {"type": "string", "format": "uuid"}
+        }
+      },
+      "SyncShoppingListCreatePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind"],
+        "properties": {
+          "name": {"type": "string"},
+          "kind": {"type": "string"}
+        }
+      },
+      "SyncShoppingListLineCreatePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["listId", "homeProductId", "description", "quantity"],
+        "properties": {
+          "listId": {"type": "string", "format": "uuid"},
+          "homeProductId": {"type": ["string", "null"], "format": "uuid"},
+          "description": {"type": "string"},
+          "quantity": {"type": "string"}
+        }
+      },
+      "SyncShoppingListLineCheckedPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["listId", "checked"],
+        "properties": {
+          "listId": {"type": "string", "format": "uuid"},
+          "checked": {"type": "boolean"}
+        }
+      },
       "SyncOperationResult": {
         "type": "object",
+        "additionalProperties": false,
         "required": [
           "operationId",
           "status"
@@ -5321,6 +6620,9 @@
           "entityType": {
             "type": "string"
           },
+          "commandType": {
+            "type": "string"
+          },
           "entityId": {
             "type": "string",
             "format": "uuid"
@@ -5339,6 +6641,12 @@
           },
           "detail": {
             "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "result": {
+            "type": "object"
           }
         }
       },
@@ -5354,7 +6662,10 @@
         ],
         "properties": {
           "protocolVersion": {
-            "const": 1
+            "enum": [
+              1,
+              2
+            ]
           },
           "batchId": {
             "type": "string",
@@ -5473,10 +6784,14 @@
       },
       "SyncBootstrapResponse": {
         "type": "object",
+        "additionalProperties": false,
         "required": [
           "protocolVersion",
           "requestId",
           "snapshotCursor",
+          "pageCursor",
+          "highWaterCursor",
+          "hasMore",
           "records"
         ],
         "properties": {
@@ -5487,13 +6802,93 @@
             "type": "string"
           },
           "snapshotCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Incremental pull cursor returned only on the final snapshot page."
+          },
+          "pageCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Signed frozen-snapshot cursor for the next page."
+          },
+          "highWaterCursor": {
             "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
           },
           "records": {
             "type": "array",
             "maxItems": 250,
             "items": {
               "type": "object"
+            }
+          }
+        }
+      },
+      "SyncOperationStatusRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deviceId",
+          "operationIds"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operationIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "SyncOperationStatusItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId",
+          "known"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "known": {
+            "type": "boolean"
+          },
+          "result": {
+            "$ref": "#/components/schemas/SyncOperationResult"
+          }
+        }
+      },
+      "SyncOperationStatusResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocolVersion",
+          "operations"
+        ],
+        "properties": {
+          "protocolVersion": {
+            "const": 2
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncOperationStatusItem"
             }
           }
         }
@@ -6510,7 +7905,7 @@
           "serverPersistsUploadedMedia": {
             "type": "boolean",
             "enum": [
-              false
+              true
             ]
           },
           "humanReviewRequired": {
@@ -6835,6 +8230,150 @@
             "type": "integer",
             "minimum": 1
           }
+        }
+      },
+      "AiProviderProfile": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "label", "provider", "model", "credentialConfigured", "estimatedCostMicros", "revision"],
+        "properties": {
+          "id": {"type": "string", "maxLength": 36},
+          "label": {"type": "string", "maxLength": 80},
+          "provider": {"type": "string", "enum": ["openai", "anthropic", "gemini", "xai", "openai-compatible", "ollama"]},
+          "model": {"type": "string", "maxLength": 120},
+          "credentialConfigured": {"type": "boolean"},
+          "lastFour": {"oneOf": [{"type": "string", "minLength": 4, "maxLength": 4}, {"type": "null"}]},
+          "estimatedCostMicros": {"type": "integer", "minimum": 0, "maximum": 1000000000},
+          "revision": {"type": "integer", "minimum": 1}
+        }
+      },
+      "PutAiProviderProfileRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "provider", "model", "estimatedCostMicros", "expectedRevision"],
+        "properties": {
+          "label": {"type": "string", "minLength": 1, "maxLength": 80},
+          "provider": {"type": "string", "enum": ["openai", "anthropic", "gemini", "xai", "openai-compatible", "ollama"]},
+          "model": {"type": "string", "minLength": 1, "maxLength": 120},
+          "credential": {"type": "string", "minLength": 16, "maxLength": 500, "writeOnly": true},
+          "estimatedCostMicros": {"type": "integer", "minimum": 0, "maximum": 1000000000},
+          "expectedRevision": {"type": "integer", "minimum": 0}
+        }
+      },
+      "AiOrchestrationPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["extractionProfileIds", "validationProfileId", "maxAttempts", "maxTotalTokens", "maxEstimatedCostMicros", "revision"],
+        "properties": {
+          "extractionProfileIds": {"type": "array", "minItems": 0, "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "maxLength": 36}},
+          "validationProfileId": {"oneOf": [{"type": "string", "maxLength": 36}, {"type": "null"}]},
+          "maxAttempts": {"type": "integer", "minimum": 1, "maximum": 8},
+          "maxTotalTokens": {"type": "integer", "minimum": 1, "maximum": 1000000},
+          "maxEstimatedCostMicros": {"type": "integer", "minimum": 0, "maximum": 1000000000},
+          "revision": {"type": "integer", "minimum": 0}
+        }
+      },
+      "PutAiOrchestrationPolicyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["extractionProfileIds", "validationProfileId", "maxAttempts", "maxTotalTokens", "maxEstimatedCostMicros", "expectedRevision"],
+        "properties": {
+          "extractionProfileIds": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "maxLength": 36}},
+          "validationProfileId": {"oneOf": [{"type": "string", "maxLength": 36}, {"type": "null"}]},
+          "maxAttempts": {"type": "integer", "minimum": 1, "maximum": 8},
+          "maxTotalTokens": {"type": "integer", "minimum": 1, "maximum": 1000000},
+          "maxEstimatedCostMicros": {"type": "integer", "minimum": 0, "maximum": 1000000000},
+          "expectedRevision": {"type": "integer", "minimum": 0}
+        }
+      },
+      "CreateStoredMediaExtractionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "transmissionConsent", "assetIds"],
+        "properties": {
+          "kind": {"type": "string", "enum": ["receipt", "stock"]},
+          "targetId": {"type": "string", "format": "uuid"},
+          "transmissionConsent": {"type": "boolean", "enum": [true]},
+          "assetIds": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "format": "uuid"}}
+        }
+      },
+      "ReviewAiObservationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decision", "expectedRevision"],
+        "properties": {
+          "decision": {"type": "string", "enum": ["confirmed_duplicate", "distinct"]},
+          "expectedRevision": {"type": "integer", "minimum": 1}
+        }
+      },
+      "ReviewAiDiscrepancyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decision", "expectedRevision"],
+        "properties": {
+          "decision": {"type": "string", "enum": ["accepted_primary", "rejected_extraction"]},
+          "expectedRevision": {"type": "integer", "minimum": 1}
+        }
+      },
+      "PrivateMediaUploadResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "duplicateOf", "sha256", "plaintextBytes", "processingStatus"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "duplicateOf": {"oneOf": [{"type": "string", "format": "uuid"}, {"type": "null"}]},
+          "mimeType": {"type": "string"},
+          "retention": {"type": "string", "enum": ["transient", "retained"]},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "plaintextBytes": {"type": "integer", "minimum": 16},
+          "processingStatus": {"type": "string", "enum": ["queued", "ready"]},
+          "quotaBytes": {"type": "integer", "minimum": 0},
+          "usageBytes": {"type": "integer", "minimum": 0}
+        }
+      },
+      "PrivateMediaAsset": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "retention", "purpose", "mimeType", "sha256", "plaintextBytes", "processingStatus", "revision"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "sourceAssetId": {"oneOf": [{"type": "string", "format": "uuid"}, {"type": "null"}]},
+          "retention": {"type": "string", "enum": ["transient", "retained"]},
+          "purpose": {"type": "string", "enum": ["image", "video", "derived_frame"]},
+          "mimeType": {"type": "string"},
+          "originalName": {"oneOf": [{"type": "string", "maxLength": 191}, {"type": "null"}]},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "plaintextBytes": {"type": "integer", "minimum": 16},
+          "processingStatus": {"type": "string", "enum": ["queued", "processing", "ready", "failed"]},
+          "revision": {"type": "integer", "minimum": 1}
+        }
+      },
+      "PrivateMediaList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "quotaBytes", "usageBytes"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/PrivateMediaAsset"}},
+          "quotaBytes": {"type": "integer", "minimum": 0},
+          "usageBytes": {"type": "integer", "minimum": 0}
+        }
+      },
+      "PrivateMediaExportItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metadata", "contentBase64"],
+        "properties": {
+          "metadata": {"$ref": "#/components/schemas/PrivateMediaAsset"},
+          "contentBase64": {"type": "string", "format": "byte"}
+        }
+      },
+      "UpdatePrivateMediaRetentionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["retention", "expectedRevision"],
+        "properties": {
+          "retention": {"type": "string", "enum": ["transient", "retained"]},
+          "expectedRevision": {"type": "integer", "minimum": 1}
         }
       },
       "AiTokenUsage": {

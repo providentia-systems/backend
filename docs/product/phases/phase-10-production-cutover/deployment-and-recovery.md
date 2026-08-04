@@ -5,11 +5,12 @@ PWA packaging, and store publication remain in the Flutter repository.
 
 ## Build and publish
 
-Build both targets from the same immutable commit:
+Build all three targets from the same immutable commit:
 
 ```bash
 docker build --file Dockerfile.production --target runtime --tag registry.example/providentia:<git-sha> .
 docker build --file Dockerfile.production --target cli --tag registry.example/providentia:<git-sha>-cli .
+docker build --file Dockerfile.production --target media-worker --tag registry.example/providentia:<git-sha>-media .
 ```
 
 The deployment variable `PROVIDENTIA_IMAGE` must resolve to the tested runtime
@@ -34,7 +35,8 @@ and `QUEUE_DSN` and start only the application services:
 ```bash
 docker compose --env-file .env.production -f compose.production.yaml pull
 docker compose --env-file .env.production -f compose.production.yaml --profile tools run --rm migrate
-docker compose --env-file .env.production -f compose.production.yaml up -d api web worker outbox
+docker compose --env-file .env.production -f compose.production.yaml up -d \
+  api web worker outbox notification data-governance sync-compactor ai-video-worker
 ```
 
 For self-hosted MySQL and Redis, also enable their profiles and use service DNS
@@ -48,7 +50,8 @@ QUEUE_DSN=redis+phpredis://:URL_ENCODED_PASSWORD@redis:6379
 ```bash
 docker compose --env-file .env.production -f compose.production.yaml --profile mysql --profile redis up -d mysql redis
 docker compose --env-file .env.production -f compose.production.yaml --profile tools run --rm migrate
-docker compose --env-file .env.production -f compose.production.yaml up -d api web worker outbox
+docker compose --env-file .env.production -f compose.production.yaml up -d \
+  api web worker outbox notification data-governance sync-compactor ai-video-worker
 ```
 
 Use the `mariadb` profile and MariaDB service DNS name for the supported
@@ -58,12 +61,13 @@ worker replicas never race to migrate at startup.
 ## Secrets
 
 Generate independent random values for authentication, synchronization, AI
-credential encryption, Redis, database, SMTP, and Restic. Store them through
-the deployment secret mechanism with least privilege. Never commit populated
-environment files.
+credential/media encryption, data-export encryption, metrics access, Redis,
+database, SMTP, and Restic. Store them through the deployment secret mechanism
+with least privilege. Never commit populated environment files.
 
-The AI credential encryption key needs separately controlled escrow. A database
-restore without the matching key cannot decrypt household provider credentials.
+The AI credential, media, and data-export encryption keys need separately
+controlled escrow. A restore without the matching keys cannot decrypt household
+provider credentials, retained media, or pending export artifacts.
 
 ## Persistent-data inventory
 

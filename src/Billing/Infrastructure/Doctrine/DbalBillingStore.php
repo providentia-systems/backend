@@ -483,8 +483,21 @@ final readonly class DbalBillingStore implements BillingStore
                 return 'conflict';
             }
 
-            return 'duplicate';
+            return (string) $existing['status'] === 'processing' ? 'in_progress' : 'duplicate';
         }
+    }
+
+    public function releaseWebhookClaim(
+        string $provider,
+        string $eventId,
+        string $payloadSha256,
+    ): void {
+        $this->connection->delete('billing_webhook_events', [
+            'provider' => $provider,
+            'provider_event_id' => $eventId,
+            'payload_sha256' => $payloadSha256,
+            'status' => 'processing',
+        ]);
     }
 
     public function applyWebhook(

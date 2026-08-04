@@ -37,6 +37,7 @@ jobs:
             -v "$PWD:/repo" \
             zricethezav/gitleaks:v8.28.0 \
             detect --source /repo --redact --no-banner \
+            --config /repo/.gitleaks.toml \
             --report-format sarif --report-path /repo/var/gitleaks.sarif
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -85,6 +86,8 @@ jobs:
             --tag providentia:security-ci .
           docker build --file Dockerfile.production --target web \
             --tag providentia-web:security-ci .
+          docker build --file Dockerfile.production --target media-worker \
+            --tag providentia-media-worker:security-ci .
       - name: Scan repository configuration and secrets
         run: |
           mkdir -p var
@@ -96,7 +99,7 @@ jobs:
             /workspace
       - name: Scan production images for actionable vulnerabilities
         run: |
-          for image in providentia:security-ci providentia-web:security-ci; do
+          for image in providentia:security-ci providentia-web:security-ci providentia-media-worker:security-ci; do
             report="$(printf '%s' "$image" | tr ':/' '--')"
             docker run --rm --entrypoint trivy \
               -v /var/run/docker.sock:/var/run/docker.sock \

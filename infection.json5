@@ -4,7 +4,11 @@
   "source": {
     "directories": [
       "src/Inventory/Domain",
-      "src/Shopping/Domain"
+      "src/Shopping/Domain",
+      "src/Synchronization/Application/Command",
+      "src/AiIntegration/Application/Orchestration",
+      "src/Billing/Domain",
+      "src/DataGovernance/Domain"
     ]
   },
   "logs": {
