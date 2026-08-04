@@ -2,9 +2,26 @@
 
 ARG PHP_IMAGE=php:8.5.9-fpm-alpine3.23
 ARG COMPOSER_IMAGE=composer:2.10.2
-ARG CADDY_IMAGE=caddy:2.11.4-alpine
+ARG GO_IMAGE=golang:1.26.5-alpine3.23
+ARG ALPINE_IMAGE=alpine:3.23
 
 FROM ${COMPOSER_IMAGE} AS composer-bin
+
+FROM ${GO_IMAGE} AS web-builder
+ARG CADDY_VERSION=2.11.4
+ARG GO_TEXT_VERSION=0.39.0
+ARG GO_GRPC_VERSION=1.82.1
+ENV CGO_ENABLED=0 \
+    GOPROXY=https://proxy.golang.org,direct \
+    GOSUMDB=sum.golang.org \
+    GOTOOLCHAIN=local
+WORKDIR /build
+RUN apk add --no-cache ca-certificates git \
+    && go mod init providentia.local/caddy-build \
+    && go get github.com/caddyserver/caddy/v2/cmd/caddy@v${CADDY_VERSION} \
+    && go get golang.org/x/text@v${GO_TEXT_VERSION} google.golang.org/grpc@v${GO_GRPC_VERSION} \
+    && go build -trimpath -ldflags="-s -w" \
+        -o /usr/local/bin/caddy github.com/caddyserver/caddy/v2/cmd/caddy
 
 FROM ${PHP_IMAGE} AS php-base
 RUN apk add --no-cache icu-libs libzip oniguruma sqlite-libs \
@@ -56,6 +73,18 @@ RUN apk add --no-cache ffmpeg
 USER www-data
 CMD ["php", "bin/providentia", "ai:video:process"]
 
-FROM ${CADDY_IMAGE} AS web
+FROM ${ALPINE_IMAGE} AS web
+RUN apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates \
+    && addgroup -S caddy \
+    && adduser -S -D -H -G caddy caddy \
+    && mkdir -p /data /config \
+    && chown -R caddy:caddy /data /config
+COPY --from=web-builder /usr/local/bin/caddy /usr/bin/caddy
 COPY infrastructure/caddy/Caddyfile.production /etc/caddy/Caddyfile
 COPY public /srv/public
+USER caddy
+EXPOSE 8080 9090
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["wget", "-q", "--spider", "http://127.0.0.1:8080/health/live"]
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

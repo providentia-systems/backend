@@ -116,6 +116,10 @@ jobs:
           push: false
           load: true
           tags: providentia-web:production-ci
+      - name: Inspect patched non-root web boundary
+        run: |
+          test "$(docker image inspect providentia-web:production-ci --format '{{.Config.User}}')" = "caddy"
+          docker run --rm providentia-web:production-ci caddy version | grep -Fq 'v2.11.4'
       - name: Exercise production containers
         env:
           APP_ENV: production
