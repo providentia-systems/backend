@@ -524,7 +524,7 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                     'entity_type' => $entityType,
                     'entity_id' => $entityId,
                 ]);
-                $deleted += $this->connection->delete('record_tombstones', [
+                $deleted += (int) $this->connection->delete('record_tombstones', [
                     'home_id' => $homeId,
                     'entity_type' => $entityType,
                     'entity_id' => $entityId,

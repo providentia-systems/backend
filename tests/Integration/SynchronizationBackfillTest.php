@@ -210,6 +210,8 @@ final readonly class BackfillDbalTransactionManager implements TransactionManage
 
     public function transactional(callable $operation): mixed
     {
-        return $this->connection->transactional($operation);
+        return $this->connection->transactional(
+            static fn (Connection $_connection): mixed => $operation(),
+        );
     }
 }

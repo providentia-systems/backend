@@ -233,7 +233,10 @@ final readonly class PrivateMediaService
         return $result;
     }
 
-    /** @param non-empty-list<string> $assetIds @return non-empty-list<array{mimeType: string, bytes: string}> */
+    /**
+     * @param list<string> $assetIds
+     * @return list<array{mimeType: string, bytes: string}>
+     */
     public function extractionImages(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -305,7 +308,10 @@ final readonly class PrivateMediaService
         return count($expired);
     }
 
-    /** @param array<string, mixed> $asset @param array{offsetMs: int, mimeType: string, bytes: string} $frame */
+    /**
+     * @param array<string, mixed> $asset
+     * @param array{offsetMs: int, mimeType: string, bytes: string} $frame
+     */
     private function storeDerivedFrame(array $asset, array $frame): void
     {
         $digest = hash('sha256', $frame['bytes']);
@@ -414,7 +420,10 @@ final readonly class PrivateMediaService
         );
     }
 
-    /** @param array<string, mixed> $asset @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $asset
+     * @return array<string, mixed>
+     */
     private function publicAsset(array $asset): array
     {
         unset($asset['objectKey'], $asset['wrappedKey'], $asset['wrapNonce'], $asset['keyVersion']);

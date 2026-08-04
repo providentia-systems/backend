@@ -162,7 +162,11 @@ final class SynchronizationService
         $incrementalCursor = null;
         $nextPageCursor = null;
         if ($snapshot->hasMore) {
-            $last = $snapshot->records[array_key_last($snapshot->records)];
+            $lastKey = array_key_last($snapshot->records);
+            if ($lastKey === null) {
+                throw new \LogicException('A continuing synchronization snapshot must contain a record.');
+            }
+            $last = $snapshot->records[$lastKey];
             $snapshotCursors = $this->snapshotCursors
                 ?? throw new \LogicException('Snapshot cursor support is not configured.');
             $nextPageCursor = $snapshotCursors->encode(

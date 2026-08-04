@@ -263,7 +263,10 @@ final class CatalogContributionService
         };
     }
 
-    /** @param array<string, mixed> $input @return array<string, string> */
+    /**
+     * @param array<string, mixed> $input
+     * @return array<string, string>
+     */
     private function productIdentity(array $input): array
     {
         $name = trim((string) ($input['canonicalName'] ?? ''));
@@ -288,7 +291,10 @@ final class CatalogContributionService
         ], static fn (string $value): bool => $value !== '');
     }
 
-    /** @param array<string, mixed> $input @return array<string, string> */
+    /**
+     * @param array<string, mixed> $input
+     * @return array<string, string>
+     */
     private function productImage(array $input): array
     {
         $digest = strtolower(trim((string) ($input['assetDigest'] ?? '')));
@@ -312,7 +318,10 @@ final class CatalogContributionService
         ];
     }
 
-    /** @param array<string, mixed> $input @return array<string, string> */
+    /**
+     * @param array<string, mixed> $input
+     * @return array<string, string>
+     */
     private function storePrice(array $input): array
     {
         $productId = trim((string) ($input['productId'] ?? ''));

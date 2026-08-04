@@ -243,7 +243,10 @@ final class SyncCommandValidator
         }
     }
 
-    /** @param list<string> $allowed @param array<string, mixed> $value */
+    /**
+     * @param array<string, mixed> $value
+     * @param list<string> $allowed
+     */
     private function rejectUnknownKeys(array $value, array $allowed, string $label): void
     {
         $unknown = array_values(array_diff(array_keys($value), $allowed));
