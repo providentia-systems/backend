@@ -23,6 +23,7 @@ final class ProductionConfigurationTest extends TestCase
                 'PUBLIC_BASE_URL',
                 'AI_SERVER_PROXY_ENABLED',
                 'AI_CREDENTIAL_KEK',
+                'NOTIFICATION_PAYLOAD_KEK',
             ] as $name
         ) {
             $this->previous[$name] = getenv($name);
@@ -73,6 +74,7 @@ final class ProductionConfigurationTest extends TestCase
         $this->productionEnvironment();
         putenv('AI_SERVER_PROXY_ENABLED=1');
         putenv('AI_CREDENTIAL_KEK=');
+        putenv('NOTIFICATION_PAYLOAD_KEK=' . base64_encode(str_repeat('n', 32)));
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('AI_CREDENTIAL_KEK');

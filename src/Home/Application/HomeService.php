@@ -162,14 +162,14 @@ final class HomeService
                 ['role' => $role],
                 $now,
             );
+            $home = $this->homes->findHome($homeId);
+            $this->notifications->sendHomeInvitation(
+                $email,
+                (string) ($home['name'] ?? 'Providentia home'),
+                $role,
+                $token,
+            );
         });
-        $home = $this->homes->findHome($homeId);
-        $this->notifications->sendHomeInvitation(
-            $email,
-            (string) ($home['name'] ?? 'Providentia home'),
-            $role,
-            $token,
-        );
 
         return ['invitationId' => $id, 'invitationToken' => $token, 'expiresAt' => $expires->format(DATE_ATOM)];
     }

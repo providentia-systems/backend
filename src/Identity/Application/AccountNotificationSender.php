@@ -6,6 +6,8 @@ namespace Providentia\Identity\Application;
 
 interface AccountNotificationSender
 {
+    public function sendMagicLink(string $email, string $token): void;
+
     public function sendEmailVerification(string $email, string $token): void;
 
     public function sendPasswordReset(string $email, string $token): void;

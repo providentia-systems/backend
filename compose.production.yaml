@@ -9,6 +9,11 @@ x-app-environment: &app-environment
   QUEUE_NAME: ${QUEUE_NAME:-providentia.default}
   QUEUE_REQUIRED: "1"
   AUTH_TOKEN_PEPPER: ${AUTH_TOKEN_PEPPER:?AUTH_TOKEN_PEPPER is required}
+  AUTH_PASSWORD_LOGIN_ENABLED: ${AUTH_PASSWORD_LOGIN_ENABLED:-0}
+  NOTIFICATION_PAYLOAD_KEK: ${NOTIFICATION_PAYLOAD_KEK:?NOTIFICATION_PAYLOAD_KEK is required}
+  NOTIFICATION_KEY_VERSION: ${NOTIFICATION_KEY_VERSION:-1}
+  NOTIFICATION_BATCH_SIZE: ${NOTIFICATION_BATCH_SIZE:-100}
+  NOTIFICATION_MAX_ATTEMPTS: ${NOTIFICATION_MAX_ATTEMPTS:-10}
   SYNC_CURSOR_SECRET: ${SYNC_CURSOR_SECRET:?SYNC_CURSOR_SECRET is required}
   MAIL_DSN: ${MAIL_DSN:?MAIL_DSN is required}
   MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
@@ -101,6 +106,11 @@ services:
           php bin/providentia outbox:relay --once
           sleep "${OUTBOX_POLL_SECONDS:-2}"
         done
+
+  notification:
+    <<: *cli
+    stop_grace_period: 30s
+    command: ["php", "bin/providentia", "notification:deliver"]
 
   mysql:
     image: mysql:8.4.6

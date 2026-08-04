@@ -29,6 +29,8 @@ final class IdentityHandler implements RequestHandlerInterface
 
         return match ($this->action) {
             'register' => $this->register($body),
+            'magic-link-request' => $this->magicLinkRequest($body),
+            'magic-link-exchange' => $this->magicLinkExchange($body),
             'verify' => $this->verify($body),
             'resend-verification' => $this->resendVerification($body),
             'login' => $this->login($body),
@@ -40,6 +42,38 @@ final class IdentityHandler implements RequestHandlerInterface
             'logout' => $this->logout($request),
             default => throw new \LogicException('Unknown identity action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function magicLinkRequest(array $body): ResponseInterface
+    {
+        $token = $this->authentication->requestMagicLink(
+            (string) ($body['email'] ?? ''),
+            (string) ($body['displayName'] ?? ''),
+            (string) ($body['locale'] ?? 'en-NA'),
+            (string) ($body['timezone'] ?? 'Africa/Windhoek'),
+        );
+        $response = ['accepted' => true];
+        if ($token !== null && $this->exposeDevelopmentTokens) {
+            $response['developmentMagicLinkToken'] = $token;
+        }
+
+        return new JsonResponse($response, 202);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function magicLinkExchange(array $body): ResponseInterface
+    {
+        $tokens = $this->authentication->exchangeMagicLink(
+            (string) ($body['token'] ?? ''),
+            (string) ($body['deviceId'] ?? ''),
+            (string) ($body['deviceName'] ?? ''),
+            (string) ($body['platform'] ?? ''),
+        );
+
+        return ($body['transport'] ?? 'native') === 'web'
+            ? $this->webSessionResponse($tokens)
+            : new JsonResponse($tokens);
     }
 
     /** @param array<string, mixed> $body */
