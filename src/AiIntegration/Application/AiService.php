@@ -242,7 +242,11 @@ final class AiService
                 throw new Problem(422, 'Invalid AI credential', 'The provider credential is invalid.');
             }
             if (! $this->cipher->available()) {
-                throw new Problem(409, 'AI credential encryption unavailable', 'Configure credential encryption first.');
+                throw new Problem(
+                    409,
+                    'AI credential encryption unavailable',
+                    'Configure credential encryption first.',
+                );
             }
             try {
                 $encrypted = $this->cipher->encrypt($credential, $this->profileAssociatedData($homeId, $id));
@@ -919,7 +923,8 @@ final class AiService
                 $key = $this->candidateObservationKey($candidate);
                 $position = count($merged['candidates']);
                 if (isset($candidateKeys[$key])) {
-                    $candidate['warnings'][] = 'Possible overlap with another image; human duplicate review is required.';
+                    $candidate['warnings'][] =
+                        'Possible overlap with another image; human duplicate review is required.';
                     $this->maturity->recordObservationDecision(
                         $this->ids->generate(),
                         $homeId,
