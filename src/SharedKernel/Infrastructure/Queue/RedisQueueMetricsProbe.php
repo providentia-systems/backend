@@ -27,10 +27,7 @@ final class RedisQueueMetricsProbe implements QueueMetricsProbe
             $redis = new Redis();
             $redis->connect($parts['host'], (int) ($parts['port'] ?? 6379), 1.0);
             if (isset($parts['pass'])) {
-                $credentials = isset($parts['user'])
-                    ? [$parts['user'], $parts['pass']]
-                    : $parts['pass'];
-                $redis->auth($credentials);
+                $redis->auth(RedisAuthenticationCredentials::fromUrlParts($parts));
             }
             if (isset($parts['path']) && $parts['path'] !== '/') {
                 $redis->select((int) ltrim($parts['path'], '/'));
