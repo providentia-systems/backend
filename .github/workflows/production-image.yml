@@ -136,6 +136,13 @@ jobs:
           CORS_ALLOWED_ORIGINS: https://app.example.invalid
           EXPOSE_DEVELOPMENT_TOKENS: "0"
         run: |
+          dump_container_diagnostics() {
+            docker ps -a
+            docker logs api 2>&1 || true
+            docker logs web 2>&1 || true
+            docker logs redis 2>&1 || true
+          }
+          trap dump_container_diagnostics ERR
           docker network create providentia-smoke
           docker volume create providentia-smoke-var
           docker run --rm -v providentia-smoke-var:/data alpine:3.23 chown -R 82:82 /data
@@ -157,12 +164,17 @@ jobs:
             -e PROVIDENTIA_TRUSTED_PROXY_CIDRS=172.16.0.0/12 \
             -e PROVIDENTIA_METRICS_TOKEN=ci-metrics-token-at-least-32-bytes \
             providentia-web:production-ci
+          ready=0
           for attempt in $(seq 1 30); do
-            curl --fail --silent http://127.0.0.1:18080/health/ready && break
+            if curl --fail-with-body --silent http://127.0.0.1:18080/health/ready; then
+              ready=1
+              break
+            fi
             sleep 2
           done
-          curl --fail --silent http://127.0.0.1:18080/health/live
-          curl --fail --silent http://127.0.0.1:18080/api/v1/system/info
+          test "$ready" = "1"
+          curl --fail-with-body --silent http://127.0.0.1:18080/health/live
+          curl --fail-with-body --silent http://127.0.0.1:18080/api/v1/system/info
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/metrics)" = "404"
           docker stop --time 20 api web redis
         timeout-minutes: 10
