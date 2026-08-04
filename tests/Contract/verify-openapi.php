@@ -68,7 +68,8 @@ foreach (
 if (
     ($contract['components']['schemas']['ProblemDetails']['description'] ?? '') === ''
     || ($contract['openapi'] ?? '') !== '3.1.0'
-    || ($contract['components']['schemas']['SyncPushRequest']['properties']['protocolVersion']['const'] ?? null) !== 1
+    || ($contract['components']['schemas']['SyncPushRequestV1']['properties']['protocolVersion']['const'] ?? null) !== 1
+    || ($contract['components']['schemas']['SyncPushRequestV2']['properties']['protocolVersion']['const'] ?? null) !== 2
     || ! isset($contract['paths']['/api/v1/auth/register']['post']['responses']['202'])
     || isset($contract['paths']['/api/v1/auth/register']['post']['responses']['409'])
     || ! in_array(

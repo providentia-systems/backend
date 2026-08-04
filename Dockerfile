@@ -23,5 +23,7 @@ RUN chmod +x bin/doctrine-migrations bin/providentia infrastructure/compose/entr
 
 USER www-data
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["php", "-r", "exit(@fsockopen('127.0.0.1', 8080) === false ? 1 : 0);"]
 ENTRYPOINT ["/app/infrastructure/compose/entrypoint.sh"]
 CMD ["php", "-S", "0.0.0.0:8080", "-t", "public", "public/index.php"]

@@ -43,6 +43,8 @@ RUN chmod +x bin/doctrine-migrations bin/providentia tool/*.sh \
 
 USER www-data
 EXPOSE 9000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["php", "-r", "exit(is_readable('/proc/1/status') ? 0 : 1);"]
 CMD ["php-fpm", "-F"]
 
 FROM runtime AS cli
