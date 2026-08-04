@@ -215,6 +215,7 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
             'inventory.count-line.upsert' => $cases['count line'],
             'shopping.list.create' => $cases['shopping list'],
             'shopping.list-line.checked' => $cases['shopping checked'],
+            default => throw new InvalidArgumentException('Unsupported test command type.'),
         };
         [$commandType, $payload, $baseRevision] = $case;
         unset($payload[$missingField]);
@@ -399,7 +400,10 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
         }
     }
 
-    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
     private function command(string $type, array $payload, ?int $baseRevision): array
     {
         return [
