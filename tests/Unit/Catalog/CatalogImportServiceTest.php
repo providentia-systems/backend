@@ -47,8 +47,8 @@ final class CatalogImportServiceTest extends TestCase
             self::BATCH_ID,
             self::HOME_ID,
             self::USER_ID,
-            self::isType('string'),
-            self::isType('string'),
+            self::isString(),
+            self::isString(),
             self::callback(static function (array $rows): bool {
                 return count($rows) === 1
                     && $rows[0]['resolution'] === 'link_catalog'
@@ -85,8 +85,8 @@ final class CatalogImportServiceTest extends TestCase
             self::BATCH_ID,
             self::HOME_ID,
             self::USER_ID,
-            self::isType('string'),
-            self::isType('string'),
+            self::isString(),
+            self::isString(),
             self::callback(static function (array $rows): bool {
                 return $rows[0]['resolution'] === 'error'
                     && $rows[0]['errorCode'] === 'unsupported_mutation';

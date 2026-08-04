@@ -110,7 +110,7 @@ final class HomeReportServiceTest extends TestCase
 
     public function testSuggestionReportPreservesUnavailableEvidenceForTheClient(): void
     {
-        $intelligence = $this->createMock(ShoppingIntelligenceReader::class);
+        $intelligence = $this->createStub(ShoppingIntelligenceReader::class);
         $intelligence->method('latestSuggestions')->willReturn([
             ['homeProductId' => 'product-1', 'evidenceStatus' => 'unavailable'],
         ]);
