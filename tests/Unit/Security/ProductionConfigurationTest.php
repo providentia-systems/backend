@@ -91,5 +91,6 @@ final class ProductionConfigurationTest extends TestCase
         putenv('PUBLIC_BASE_URL=https://app.example.net');
         putenv('AI_SERVER_PROXY_ENABLED=0');
         putenv('AI_CREDENTIAL_KEK=');
+        putenv('NOTIFICATION_PAYLOAD_KEK=' . base64_encode(str_repeat('n', 32)));
     }
 }
