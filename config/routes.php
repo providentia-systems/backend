@@ -26,6 +26,16 @@ return static function (Application $app): void {
         [AuthenticationRateLimitMiddleware::class, 'identity.register'],
         'api.auth.register',
     );
+    $app->post(
+        '/api/v1/auth/magic-links',
+        [AuthenticationRateLimitMiddleware::class, 'identity.magic-link-request'],
+        'api.auth.magic-links.request',
+    );
+    $app->post(
+        '/api/v1/auth/magic-links/exchange',
+        [AuthenticationRateLimitMiddleware::class, 'identity.magic-link-exchange'],
+        'api.auth.magic-links.exchange',
+    );
     $app->post('/api/v1/auth/verify-email', 'identity.verify', 'api.auth.verify-email');
     $app->post(
         '/api/v1/auth/verify-email/resend',

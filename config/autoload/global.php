@@ -25,6 +25,11 @@ $aiAllowPrivateEndpoints = filter_var(
     $env('AI_ALLOW_PRIVATE_ENDPOINTS', '0'),
     FILTER_VALIDATE_BOOL,
 );
+$passwordLoginEnabled = filter_var($env('AUTH_PASSWORD_LOGIN_ENABLED', '0'), FILTER_VALIDATE_BOOL);
+$notificationPayloadKek = $env('NOTIFICATION_PAYLOAD_KEK', '');
+if ($notificationPayloadKek === '' && $environment !== 'production') {
+    $notificationPayloadKek = base64_encode(hash('sha256', $tokenPepper . ':notification', true));
+}
 
 if ($environment === 'production') {
     $placeholderSecrets = [
@@ -59,6 +64,12 @@ if ($environment === 'production') {
     if (! str_starts_with($publicBaseUrl, 'https://')) {
         throw new RuntimeException('Production PUBLIC_BASE_URL must use HTTPS.');
     }
+    $decodedNotificationKey = base64_decode($notificationPayloadKek, true);
+    if (! is_string($decodedNotificationKey) || strlen($decodedNotificationKey) !== 32) {
+        throw new RuntimeException(
+            'Production NOTIFICATION_PAYLOAD_KEK must contain exactly 32 base64-encoded bytes.',
+        );
+    }
     if ($aiServerProxyEnabled) {
         $decodedAiKey = base64_decode($aiCredentialKek, true);
         if (! is_string($decodedAiKey) || strlen($decodedAiKey) !== 32) {
@@ -90,11 +101,16 @@ return [
         'refresh_ttl_seconds' => max(3600, (int) $env('AUTH_REFRESH_TTL_SECONDS', '2592000')),
         'token_pepper' => $tokenPepper,
         'expose_development_tokens' => $exposeDevelopmentTokens,
+        'password_login_enabled' => $passwordLoginEnabled,
     ],
     'mail' => [
         'dsn' => $mailDsn,
         'from' => $env('MAIL_FROM', 'no-reply@providentia.local'),
         'public_base_url' => $publicBaseUrl,
+        'notification_payload_kek' => $notificationPayloadKek,
+        'notification_key_version' => max(1, (int) $env('NOTIFICATION_KEY_VERSION', '1')),
+        'batch_size' => max(1, min(500, (int) $env('NOTIFICATION_BATCH_SIZE', '100'))),
+        'max_attempts' => max(1, min(50, (int) $env('NOTIFICATION_MAX_ATTEMPTS', '10'))),
     ],
     'synchronization' => [
         'cursor_secret' => $cursorSecret,

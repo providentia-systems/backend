@@ -11,13 +11,21 @@ use Providentia\Identity\Application\AuthenticationRateLimitStore;
 use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
+use Providentia\Identity\Application\NotificationDeliveryService;
+use Providentia\Identity\Application\NotificationOutbox;
+use Providentia\Identity\Application\NotificationPayloadCipher;
+use Providentia\Identity\Application\NotificationTransport;
+use Providentia\Identity\Application\QueuedAccountNotificationSender;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
 use Providentia\Identity\Http\IdentityHandler;
 use Providentia\Identity\Infrastructure\Doctrine\DbalIdentityStore;
+use Providentia\Identity\Infrastructure\Doctrine\DbalNotificationOutbox;
+use Providentia\Identity\Infrastructure\Cli\NotificationDeliverCommand;
 use Providentia\Identity\Infrastructure\Doctrine\DbalAuthenticationRateLimitStore;
 use Providentia\Identity\Infrastructure\Notification\SmtpAccountNotificationSender;
 use Providentia\Identity\Infrastructure\Security\NativeCredentialHasher;
+use Providentia\Identity\Infrastructure\Security\NativeNotificationPayloadCipher;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Providentia\SharedKernel\Application\TransactionManager;
@@ -28,7 +36,7 @@ final class IdentityFactory
 {
     public function __invoke(ContainerInterface $container, string $requestedName): object
     {
-        /** @var array{identity: array{access_ttl_seconds: int, refresh_ttl_seconds: int, token_pepper: string, expose_development_tokens: bool}, mail: array{dsn: string, from: string, public_base_url: string}} $config */
+        /** @var array{identity: array{access_ttl_seconds: int, refresh_ttl_seconds: int, token_pepper: string, expose_development_tokens: bool, password_login_enabled: bool}, mail: array{dsn: string, from: string, public_base_url: string, notification_payload_kek: string, notification_key_version: int, batch_size: int, max_attempts: int}} $config */
         $config = $container->get('config');
 
         if ($requestedName === DbalIdentityStore::class) {
@@ -47,6 +55,37 @@ final class IdentityFactory
                 $config['mail']['public_base_url'],
             );
         }
+        if ($requestedName === NativeNotificationPayloadCipher::class) {
+            return new NativeNotificationPayloadCipher(
+                $config['mail']['notification_payload_kek'],
+                $config['mail']['notification_key_version'],
+            );
+        }
+        if ($requestedName === DbalNotificationOutbox::class) {
+            return new DbalNotificationOutbox(
+                $container->get(Connection::class),
+                $container->get(NotificationPayloadCipher::class),
+            );
+        }
+        if ($requestedName === QueuedAccountNotificationSender::class) {
+            return new QueuedAccountNotificationSender(
+                $container->get(NotificationOutbox::class),
+                $container->get(UuidGenerator::class),
+                $container->get(Clock::class),
+            );
+        }
+        if ($requestedName === NotificationDeliveryService::class) {
+            return new NotificationDeliveryService(
+                $container->get(NotificationOutbox::class),
+                $container->get(NotificationTransport::class),
+                $container->get(Clock::class),
+                $config['mail']['batch_size'],
+                $config['mail']['max_attempts'],
+            );
+        }
+        if ($requestedName === NotificationDeliverCommand::class) {
+            return new NotificationDeliverCommand($container->get(NotificationDeliveryService::class));
+        }
         if ($requestedName === AuthenticationService::class) {
             return new AuthenticationService(
                 $container->get(IdentityStore::class),
@@ -58,6 +97,7 @@ final class IdentityFactory
                 $container->get(SecureTokenGenerator::class),
                 $config['identity']['access_ttl_seconds'],
                 $config['identity']['refresh_ttl_seconds'],
+                $config['identity']['password_login_enabled'],
             );
         }
         if ($requestedName === BearerAuthenticationMiddleware::class) {

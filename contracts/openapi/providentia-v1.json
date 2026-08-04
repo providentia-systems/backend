@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.7.0",
-    "summary": "Authoritative Providentia backend contract through Phase 7",
-    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization prototype.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges."
+    "version": "1.8.0",
+    "summary": "Authoritative Providentia backend contract through the production-readiness programme",
+    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds passwordless authentication and durable encrypted notification delivery."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -132,6 +132,74 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RegisterResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/magic-links": {
+      "post": {
+        "operationId": "requestMagicLink",
+        "security": [],
+        "tags": [
+          "Identity"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MagicLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted without revealing whether the account already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagicLinkAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/magic-links/exchange": {
+      "post": {
+        "operationId": "exchangeMagicLink",
+        "security": [],
+        "tags": [
+          "Identity"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MagicLinkExchangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Native credentials or secure cookie session issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCredentials"
                 }
               }
             }
@@ -4075,6 +4143,83 @@
             "type": "string",
             "writeOnly": true,
             "description": "Present only in an explicitly enabled non-production development profile."
+          }
+        }
+      },
+      "MagicLinkRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "displayName": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "locale": {
+            "type": "string",
+            "default": "en-NA"
+          },
+          "timezone": {
+            "type": "string",
+            "default": "Africa/Windhoek"
+          }
+        }
+      },
+      "MagicLinkAccepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "const": true
+          },
+          "developmentMagicLinkToken": {
+            "type": "string",
+            "writeOnly": true,
+            "description": "Present only in an explicitly enabled non-production development profile."
+          }
+        }
+      },
+      "MagicLinkExchangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "token",
+          "deviceId",
+          "deviceName",
+          "platform"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 40
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceName": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "platform": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "transport": {
+            "enum": [
+              "native",
+              "web"
+            ],
+            "default": "native"
           }
         }
       },

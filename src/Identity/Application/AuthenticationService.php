@@ -23,6 +23,7 @@ final class AuthenticationService
         private readonly SecureTokenGenerator $tokens,
         private readonly int $accessTtlSeconds,
         private readonly int $refreshTtlSeconds,
+        private readonly bool $passwordLoginEnabled = true,
     ) {
     }
 
@@ -34,6 +35,7 @@ final class AuthenticationService
         string $locale = 'en-NA',
         string $timezone = 'Africa/Windhoek',
     ): array {
+        $this->requirePasswordLogin();
         $normalizedEmail = $this->normalizeEmail($email);
         $this->assertPassword($password);
         $displayName = trim($displayName);
@@ -77,12 +79,10 @@ final class AuthenticationService
                 $now->add(new DateInterval('P1D')),
                 $now,
             );
+            $this->notifications->sendEmailVerification($normalizedEmail, $token);
 
             return ['verificationToken' => $token];
         });
-        if ($result['verificationToken'] !== null) {
-            $this->notifications->sendEmailVerification($normalizedEmail, $result['verificationToken']);
-        }
 
         return $result;
     }
@@ -100,6 +100,108 @@ final class AuthenticationService
                 throw new Problem(422, 'Invalid token', 'The verification token is invalid or expired.');
             }
             $this->store->markEmailVerified($userId, $now);
+        });
+    }
+
+    public function requestMagicLink(
+        string $email,
+        string $displayName = '',
+        string $locale = 'en-NA',
+        string $timezone = 'Africa/Windhoek',
+    ): ?string {
+        $normalizedEmail = $this->normalizeEmail($email);
+        $displayName = trim($displayName);
+        if ($displayName !== '' && mb_strlen($displayName) > 120) {
+            throw new Problem(422, 'Validation failed', 'Display name must not exceed 120 characters.');
+        }
+
+        return $this->transactions->transactional(function () use (
+            $normalizedEmail,
+            $displayName,
+            $locale,
+            $timezone,
+        ): ?string {
+            $user = $this->store->findUserByEmail($normalizedEmail);
+            $now = $this->clock->now();
+            if ($user === null) {
+                $userId = $this->ids->generate();
+                $fallbackName = strstr($normalizedEmail, '@', true);
+                $this->store->createUser(
+                    $userId,
+                    $normalizedEmail,
+                    $this->hasher->hashPassword($this->tokens->generate()),
+                    $displayName !== '' ? $displayName : (is_string($fallbackName) ? $fallbackName : 'Member'),
+                    $locale,
+                    $timezone,
+                    $now,
+                );
+            } else {
+                if ((string) $user['status'] !== 'active') {
+                    return null;
+                }
+                $userId = (string) $user['id'];
+            }
+            $token = $this->tokens->generate();
+            $this->store->issueOneTimeToken(
+                $this->ids->generate(),
+                $userId,
+                'magic-sign-in',
+                $this->hasher->hashToken($token),
+                $now->add(new DateInterval('PT15M')),
+                $now,
+            );
+            $this->notifications->sendMagicLink($normalizedEmail, $token);
+
+            return $token;
+        });
+    }
+
+    /**
+     * @return array{
+     *     accessToken: string,
+     *     refreshToken: string,
+     *     csrfToken: string,
+     *     accessExpiresAt: string,
+     *     sessionId: string,
+     *     deviceId: string,
+     *     userId: string
+     * }
+     */
+    public function exchangeMagicLink(
+        string $token,
+        string $deviceId,
+        string $deviceName,
+        string $platform,
+    ): array {
+        return $this->transactions->transactional(function () use (
+            $token,
+            $deviceId,
+            $deviceName,
+            $platform,
+        ): array {
+            $now = $this->clock->now();
+            $userId = $this->store->consumeOneTimeToken(
+                'magic-sign-in',
+                $this->hasher->hashToken($token),
+                $now,
+            );
+            if ($userId === null) {
+                throw new Problem(422, 'Invalid token', 'The sign-in link is invalid or expired.');
+            }
+            $user = $this->store->findUserById($userId);
+            if ($user === null || (string) $user['status'] !== 'active') {
+                throw new Problem(403, 'Account unavailable', 'This account is not active.');
+            }
+            if ($user['email_verified_at'] === null) {
+                $this->store->markEmailVerified($userId, $now);
+            }
+
+            return $this->issueSession(
+                $userId,
+                $this->assertUuid($deviceId, 'deviceId'),
+                trim($deviceName),
+                trim($platform),
+            );
         });
     }
 
@@ -121,6 +223,7 @@ final class AuthenticationService
         string $deviceName,
         string $platform,
     ): array {
+        $this->requirePasswordLogin();
         $user = $this->store->findUserByEmail($this->normalizeEmail($email));
         if (
             $user !== null
@@ -262,48 +365,59 @@ final class AuthenticationService
 
     public function requestPasswordReset(string $email): ?string
     {
-        $user = $this->store->findUserByEmail($this->normalizeEmail($email));
-        if ($user === null) {
-            return null;
-        }
-        $token = $this->tokens->generate();
-        $now = $this->clock->now();
-        $this->store->issueOneTimeToken(
-            $this->ids->generate(),
-            (string) $user['id'],
-            'password-reset',
-            $this->hasher->hashToken($token),
-            $now->add(new DateInterval('PT1H')),
-            $now,
-        );
-        $this->notifications->sendPasswordReset((string) $user['email'], $token);
+        $this->requirePasswordLogin();
+        $normalizedEmail = $this->normalizeEmail($email);
 
-        return $token;
+        return $this->transactions->transactional(function () use ($normalizedEmail): ?string {
+            $user = $this->store->findUserByEmail($normalizedEmail);
+            if ($user === null) {
+                return null;
+            }
+            $token = $this->tokens->generate();
+            $now = $this->clock->now();
+            $this->store->issueOneTimeToken(
+                $this->ids->generate(),
+                (string) $user['id'],
+                'password-reset',
+                $this->hasher->hashToken($token),
+                $now->add(new DateInterval('PT1H')),
+                $now,
+            );
+            $this->notifications->sendPasswordReset((string) $user['email'], $token);
+
+            return $token;
+        });
     }
 
     public function resendVerification(string $email): ?string
     {
-        $user = $this->store->findUserByEmail($this->normalizeEmail($email));
-        if ($user === null || $user['email_verified_at'] !== null) {
-            return null;
-        }
-        $token = $this->tokens->generate();
-        $now = $this->clock->now();
-        $this->store->issueOneTimeToken(
-            $this->ids->generate(),
-            (string) $user['id'],
-            'verify-email',
-            $this->hasher->hashToken($token),
-            $now->add(new DateInterval('P1D')),
-            $now,
-        );
-        $this->notifications->sendEmailVerification((string) $user['email'], $token);
+        $this->requirePasswordLogin();
+        $normalizedEmail = $this->normalizeEmail($email);
 
-        return $token;
+        return $this->transactions->transactional(function () use ($normalizedEmail): ?string {
+            $user = $this->store->findUserByEmail($normalizedEmail);
+            if ($user === null || $user['email_verified_at'] !== null) {
+                return null;
+            }
+            $token = $this->tokens->generate();
+            $now = $this->clock->now();
+            $this->store->issueOneTimeToken(
+                $this->ids->generate(),
+                (string) $user['id'],
+                'verify-email',
+                $this->hasher->hashToken($token),
+                $now->add(new DateInterval('P1D')),
+                $now,
+            );
+            $this->notifications->sendEmailVerification((string) $user['email'], $token);
+
+            return $token;
+        });
     }
 
     public function resetPassword(string $token, string $password): void
     {
+        $this->requirePasswordLogin();
         $this->assertPassword($password);
         $this->transactions->transactional(function () use ($token, $password): void {
             $now = $this->clock->now();
@@ -387,6 +501,17 @@ final class AuthenticationService
                 422,
                 'Validation failed',
                 'Password must be 12 to 1024 characters and contain letters and non-letters.',
+            );
+        }
+    }
+
+    private function requirePasswordLogin(): void
+    {
+        if (! $this->passwordLoginEnabled) {
+            throw new Problem(
+                410,
+                'Password authentication disabled',
+                'Request a passwordless email sign-in link instead.',
             );
         }
     }

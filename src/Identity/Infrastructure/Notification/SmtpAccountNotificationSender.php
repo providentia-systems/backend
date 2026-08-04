@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace Providentia\Identity\Infrastructure\Notification;
 
 use Providentia\Identity\Application\AccountNotificationSender;
+use Providentia\Identity\Application\NotificationTransport;
 use RuntimeException;
 
-final class SmtpAccountNotificationSender implements AccountNotificationSender
+final class SmtpAccountNotificationSender implements AccountNotificationSender, NotificationTransport
 {
     public function __construct(
         private readonly string $dsn,
@@ -16,22 +17,19 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender
     ) {
     }
 
+    public function sendMagicLink(string $email, string $token): void
+    {
+        $this->deliver('magic-link', $email, ['token' => $token]);
+    }
+
     public function sendEmailVerification(string $email, string $token): void
     {
-        $this->send(
-            $email,
-            'Verify your Providentia account',
-            "Verify your account:\n" . $this->publicBaseUrl . '/verify-email?token=' . rawurlencode($token),
-        );
+        $this->deliver('email-verification', $email, ['token' => $token]);
     }
 
     public function sendPasswordReset(string $email, string $token): void
     {
-        $this->send(
-            $email,
-            'Reset your Providentia password',
-            "Reset your password:\n" . $this->publicBaseUrl . '/password-reset?token=' . rawurlencode($token),
-        );
+        $this->deliver('password-reset', $email, ['token' => $token]);
     }
 
     public function sendHomeInvitation(
@@ -40,17 +38,42 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender
         string $role,
         string $token,
     ): void {
-        $this->send(
-            $email,
-            'You were invited to a Providentia home',
-            sprintf(
-                "You were invited to %s as %s.\n%s/home-invitations/accept?token=%s",
-                $homeName,
-                $role,
-                $this->publicBaseUrl,
-                rawurlencode($token),
-            ),
-        );
+        $this->deliver('home-invitation', $email, [
+            'homeName' => $homeName,
+            'role' => $role,
+            'token' => $token,
+        ]);
+    }
+
+    public function deliver(string $template, string $recipient, array $context): void
+    {
+        $token = rawurlencode((string) ($context['token'] ?? ''));
+        [$subject, $body] = match ($template) {
+            'magic-link' => [
+                'Sign in to Providentia',
+                "Sign in securely:\n" . $this->publicBaseUrl . '/magic-link?token=' . $token,
+            ],
+            'email-verification' => [
+                'Verify your Providentia account',
+                "Verify your account:\n" . $this->publicBaseUrl . '/verify-email?token=' . $token,
+            ],
+            'password-reset' => [
+                'Reset your Providentia password',
+                "Reset your password:\n" . $this->publicBaseUrl . '/password-reset?token=' . $token,
+            ],
+            'home-invitation' => [
+                'You were invited to a Providentia home',
+                sprintf(
+                    "You were invited to %s as %s.\n%s/home-invitations/accept?token=%s",
+                    (string) ($context['homeName'] ?? 'a Providentia home'),
+                    (string) ($context['role'] ?? 'member'),
+                    $this->publicBaseUrl,
+                    $token,
+                ),
+            ],
+            default => throw new RuntimeException('Unsupported notification template.'),
+        };
+        $this->send($recipient, $subject, $body);
     }
 
     private function send(string $recipient, string $subject, string $body): void
