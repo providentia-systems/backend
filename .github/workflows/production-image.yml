@@ -1,0 +1,77 @@
+name: Production image
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile.production
+      - compose.production.yaml
+      - infrastructure/caddy/Caddyfile.production
+      - infrastructure/php/production.ini
+      - composer.json
+      - composer.lock
+      - src/**
+      - config/**
+      - public/**
+      - .github/workflows/production-image.yml
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-compose:
+    runs-on: ubuntu-24.04
+    env:
+      APP_VERSION: ci
+      PROVIDENTIA_IMAGE: providentia:ci
+      DATABASE_URL: mysql://providentia:test@mysql:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://:test@redis:6379
+      AUTH_TOKEN_PEPPER: ci-authentication-pepper-at-least-32-bytes
+      SYNC_CURSOR_SECRET: ci-synchronization-secret-at-least-32-bytes
+      MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
+      MAIL_FROM: no-reply@example.invalid
+      PUBLIC_BASE_URL: https://app.example.invalid
+      CORS_ALLOWED_ORIGINS: https://app.example.invalid
+      MYSQL_PASSWORD: test
+      MYSQL_ROOT_PASSWORD: test-root
+      MARIADB_PASSWORD: test
+      MARIADB_ROOT_PASSWORD: test-root
+      REDIS_PASSWORD: test
+      RESTIC_REPOSITORY: /tmp/restic
+      RESTIC_PASSWORD_FILE: /tmp/restic-password
+      BACKUP_STAGING_DIRECTORY: /tmp
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate all production profiles
+        run: |
+          docker compose -f compose.production.yaml --profile tools --profile mysql --profile mariadb --profile redis --profile backup config --quiet
+
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build production runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.production
+          target: runtime
+          push: false
+          load: true
+          tags: providentia:production-ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Inspect non-root runtime
+        run: |
+          test "$(docker image inspect providentia:production-ci --format '{{.Config.User}}')" = "www-data"
+          docker run --rm providentia:production-ci php --version
+          docker run --rm providentia:production-ci php -m | grep -E 'pdo_mysql|pdo_sqlite|redis|sodium'
