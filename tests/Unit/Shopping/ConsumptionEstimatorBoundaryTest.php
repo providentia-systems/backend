@@ -101,7 +101,7 @@ final class ConsumptionEstimatorBoundaryTest extends TestCase
         bool $stale,
     ): void {
         $counts = $this->counts($intervalDays);
-        $latest = $counts[array_key_last($counts)]['at'];
+        $latest = $counts[count($counts) - 1]['at'];
         $estimate = (new ConsumptionEstimator())->estimate(
             $counts,
             [],
@@ -217,7 +217,10 @@ final class ConsumptionEstimatorBoundaryTest extends TestCase
         yield 'one day after cadence' => ['2026-01-22', '2026-01-31'];
     }
 
-    /** @param list<int> $intervalDays @return list<array{at: DateTimeImmutable, quantity: string}> */
+    /**
+     * @param list<int> $intervalDays
+     * @return non-empty-list<array{at: DateTimeImmutable, quantity: string}>
+     */
     private function counts(array $intervalDays): array
     {
         $at = new DateTimeImmutable('2026-01-01T00:00:00+00:00');
