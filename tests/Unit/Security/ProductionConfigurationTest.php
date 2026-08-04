@@ -95,8 +95,6 @@ final class ProductionConfigurationTest extends TestCase
         putenv('AI_SERVER_PROXY_ENABLED=1');
         putenv('AI_CREDENTIAL_KEK=');
         putenv('NOTIFICATION_PAYLOAD_KEK=' . base64_encode(str_repeat('n', 32)));
-        putenv('DATA_EXPORT_KEK=' . base64_encode(str_repeat('e', 32)));
-        putenv('DATA_EXPORT_KEK=' . base64_encode(str_repeat('e', 32)));
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('AI_CREDENTIAL_KEK');
@@ -152,6 +150,7 @@ final class ProductionConfigurationTest extends TestCase
         putenv('AI_CREDENTIAL_KEK=');
         putenv('AI_MEDIA_KEK=' . base64_encode(str_repeat('m', 32)));
         putenv('NOTIFICATION_PAYLOAD_KEK=' . base64_encode(str_repeat('n', 32)));
+        putenv('DATA_EXPORT_KEK=' . base64_encode(str_repeat('e', 32)));
         putenv('BILLING_ENABLED=0');
         putenv('BILLING_ALLOW_PRIVATE_ENDPOINTS=0');
         putenv('PAYPAL_ENABLED=0');
