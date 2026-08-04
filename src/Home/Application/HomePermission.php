@@ -24,6 +24,13 @@ final class HomePermission
     public const AI_USE = 'ai.use';
     public const AI_MANAGE = 'ai.manage';
     public const REPORTS_READ = 'reports.read';
+    public const CATALOG_CONTRIBUTE = 'catalog.contribute';
+    public const CATALOG_IMPORT = 'catalog.import';
+    public const CATALOG_CONSENT_MANAGE = 'catalog.consent.manage';
+    public const DATA_EXPORT = 'data.export';
+    public const DATA_ERASURE = 'data.erasure';
+    public const BILLING_READ = 'billing.read';
+    public const BILLING_MANAGE = 'billing.manage';
 
     /** @return list<string> */
     public static function all(): array
@@ -47,6 +54,13 @@ final class HomePermission
             self::AI_USE,
             self::AI_MANAGE,
             self::REPORTS_READ,
+            self::CATALOG_CONTRIBUTE,
+            self::CATALOG_IMPORT,
+            self::CATALOG_CONSENT_MANAGE,
+            self::DATA_EXPORT,
+            self::DATA_ERASURE,
+            self::BILLING_READ,
+            self::BILLING_MANAGE,
         ];
     }
 
@@ -71,6 +85,9 @@ final class HomePermission
                 self::AI_USE,
                 self::AI_MANAGE,
                 self::REPORTS_READ,
+                self::CATALOG_CONTRIBUTE,
+                self::CATALOG_IMPORT,
+                self::BILLING_READ,
             ],
             HomeAuthorization::MEMBER => [
                 self::HOME_READ,
@@ -83,6 +100,8 @@ final class HomePermission
                 self::AI_READ,
                 self::AI_USE,
                 self::REPORTS_READ,
+                self::CATALOG_CONTRIBUTE,
+                self::CATALOG_IMPORT,
             ],
             HomeAuthorization::VIEWER => [
                 self::HOME_READ,
