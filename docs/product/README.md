@@ -17,6 +17,8 @@ engineering material remains under `docs/architecture`, `docs/security`,
 | 6 | Privacy-controlled AI provider integration | [Phase 6](phases/phase-06-ai-integration/README.md) |
 | 7 | Governed catalog administration | [Phase 7](phases/phase-07-catalog-administration/README.md) |
 | 8 | Movement-derived intelligence and reporting | [Phase 8](phases/phase-08-intelligence-reporting/README.md) |
+| 9 | Launch-facing governance, commercial controls, and distribution contracts | [Phase 9](phases/phase-09-launch-readiness/README.md) |
+| 10 | Hardened deployment, recovery, security, and production acceptance | [Phase 10](phases/phase-10-production-cutover/README.md) |
 
 The controlling scope remains
 [`providentia_master_implementation_prompt_V1.md`](providentia_master_implementation_prompt_V1.md).

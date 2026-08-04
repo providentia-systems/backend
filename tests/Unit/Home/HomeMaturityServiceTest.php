@@ -15,6 +15,7 @@ use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
+use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Providentia\SharedKernel\Application\UuidGenerator;
 
@@ -79,6 +80,29 @@ final class HomeMaturityServiceTest extends TestCase
             ->willReturn(true);
         $homes->expects(self::once())->method('recordAudit');
 
+        $this->service($homes)->revokeInvitation(
+            $this->identity(self::OWNER_ID),
+            self::HOME_ID,
+            self::TRANSFER_ID,
+            4,
+        );
+    }
+
+    public function testManagerCannotRevokeAnotherInvitersInvitation(): void
+    {
+        $homes = $this->createMock(HomeStore::class);
+        $homes->method('membership')->willReturn($this->membership(self::OWNER_ID, HomeAuthorization::MANAGER));
+        $homes->method('permissionDecision')->willReturn(null);
+        $homes->method('invitation')->willReturn([
+            'id' => self::TRANSFER_ID,
+            'inviterUserId' => self::TARGET_ID,
+            'role' => HomeAuthorization::MEMBER,
+            'status' => 'pending',
+            'revision' => 4,
+        ]);
+        $homes->expects(self::never())->method('revokeInvitation');
+
+        $this->expectException(Problem::class);
         $this->service($homes)->revokeInvitation(
             $this->identity(self::OWNER_ID),
             self::HOME_ID,
@@ -173,6 +197,31 @@ final class HomeMaturityServiceTest extends TestCase
         );
 
         self::assertSame(1, $transactions->invocations);
+    }
+
+    public function testProposerCannotAcceptTheirOwnOwnershipProposal(): void
+    {
+        $homes = $this->createMock(HomeStore::class);
+        $homes->method('membership')->willReturn($this->membership(self::OWNER_ID, HomeAuthorization::OWNER));
+        $homes->method('ownershipTransfer')->willReturn([
+            'id' => self::TRANSFER_ID,
+            'homeId' => self::HOME_ID,
+            'proposedByUserId' => self::OWNER_ID,
+            'targetUserId' => self::TARGET_ID,
+            'expectedTargetRevision' => 7,
+            'status' => 'pending',
+            'revision' => 1,
+        ]);
+        $homes->expects(self::never())->method('transitionOwnershipTransfer');
+        $homes->expects(self::never())->method('transferOwnership');
+
+        $this->expectException(Problem::class);
+        $this->service($homes)->acceptOwnershipTransfer(
+            $this->identity(self::OWNER_ID),
+            self::HOME_ID,
+            self::TRANSFER_ID,
+            1,
+        );
     }
 
     public function testTargetCanRejectPendingOwnershipTransfer(): void

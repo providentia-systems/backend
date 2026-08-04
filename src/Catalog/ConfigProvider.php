@@ -10,13 +10,21 @@ use Providentia\Catalog\Application\CatalogStore;
 use Providentia\Catalog\Application\CatalogAuthorization;
 use Providentia\Catalog\Application\CatalogGovernanceService;
 use Providentia\Catalog\Application\CatalogGovernanceStore;
+use Providentia\Catalog\Application\CatalogContributionService;
+use Providentia\Catalog\Application\CatalogContributionStore;
+use Providentia\Catalog\Application\CatalogImportService;
+use Providentia\Catalog\Application\CatalogImportStore;
 use Providentia\Catalog\Http\CatalogProductHandler;
 use Providentia\Catalog\Http\CatalogSearchHandler;
 use Providentia\Catalog\Infrastructure\Cli\CatalogSeedCommand;
 use Providentia\Catalog\Infrastructure\Cli\CatalogRoleCommand;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogGovernanceStore;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogStore;
+use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogContributionStore;
+use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogImportStore;
+use Providentia\Catalog\Infrastructure\Factory\CatalogContributionFactory;
 use Providentia\Catalog\Infrastructure\Factory\CatalogFactory;
+use Providentia\Catalog\Infrastructure\Factory\CatalogImportFactory;
 
 final class ConfigProvider
 {
@@ -28,10 +36,16 @@ final class ConfigProvider
                 'aliases' => [
                     CatalogStore::class => DbalCatalogStore::class,
                     CatalogGovernanceStore::class => DbalCatalogGovernanceStore::class,
+                    CatalogContributionStore::class => DbalCatalogContributionStore::class,
+                    CatalogImportStore::class => DbalCatalogImportStore::class,
                 ],
                 'factories' => [
                     DbalCatalogStore::class => CatalogFactory::class,
                     DbalCatalogGovernanceStore::class => CatalogFactory::class,
+                    DbalCatalogContributionStore::class => CatalogContributionFactory::class,
+                    CatalogContributionService::class => CatalogContributionFactory::class,
+                    DbalCatalogImportStore::class => CatalogImportFactory::class,
+                    CatalogImportService::class => CatalogImportFactory::class,
                     CatalogQueryService::class => CatalogFactory::class,
                     CatalogSeedService::class => CatalogFactory::class,
                     CatalogAuthorization::class => CatalogFactory::class,
@@ -46,6 +60,15 @@ final class ConfigProvider
                     'catalog.governance.merges.preview' => CatalogFactory::class,
                     'catalog.governance.merges.apply' => CatalogFactory::class,
                     'catalog.governance.merges.reverse' => CatalogFactory::class,
+                    'catalog.contributions.consent.get' => CatalogContributionFactory::class,
+                    'catalog.contributions.consent.put' => CatalogContributionFactory::class,
+                    'catalog.contributions.submit' => CatalogContributionFactory::class,
+                    'catalog.contributions.list' => CatalogContributionFactory::class,
+                    'catalog.contributions.review.list' => CatalogContributionFactory::class,
+                    'catalog.contributions.review.decide' => CatalogContributionFactory::class,
+                    'catalog.imports.stage' => CatalogImportFactory::class,
+                    'catalog.imports.get' => CatalogImportFactory::class,
+                    'catalog.imports.confirm' => CatalogImportFactory::class,
                     CatalogSeedCommand::class => CatalogFactory::class,
                     CatalogRoleCommand::class => CatalogFactory::class,
                 ],
