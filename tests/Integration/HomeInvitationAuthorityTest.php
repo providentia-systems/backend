@@ -51,7 +51,28 @@ final class HomeInvitationAuthorityTest extends TestCase
                 accepted_by_user_id VARCHAR(36) NULL,
                 accepted_at DATETIME NULL,
                 revoked_at DATETIME NULL,
-                created_at DATETIME NOT NULL
+                revoked_by_user_id VARCHAR(36) NULL,
+                revision INTEGER NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )',
+        );
+        $this->connection->executeStatement(
+            'CREATE TABLE home_role_policies (
+                home_id VARCHAR(36) NOT NULL,
+                role VARCHAR(16) NOT NULL,
+                revision INTEGER NOT NULL,
+                updated_by_user_id VARCHAR(36) NULL,
+                updated_at DATETIME NOT NULL,
+                PRIMARY KEY (home_id, role)
+            )',
+        );
+        $this->connection->executeStatement(
+            'CREATE TABLE home_role_permission_grants (
+                home_id VARCHAR(36) NOT NULL,
+                role VARCHAR(16) NOT NULL,
+                permission VARCHAR(80) NOT NULL,
+                PRIMARY KEY (home_id, role, permission)
             )',
         );
         $this->connection->insert('home_memberships', [
@@ -76,7 +97,10 @@ final class HomeInvitationAuthorityTest extends TestCase
             'accepted_by_user_id' => null,
             'accepted_at' => null,
             'revoked_at' => null,
+            'revoked_by_user_id' => null,
+            'revision' => 1,
             'created_at' => '2026-07-30 10:00:00',
+            'updated_at' => '2026-07-30 10:00:00',
         ]);
         $this->store = new DbalHomeStore($this->connection);
     }

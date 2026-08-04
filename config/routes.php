@@ -439,10 +439,45 @@ return static function (Application $app): void {
         [BearerAuthenticationMiddleware::class, 'ai.credentials.delete'],
         'api.ai.credentials.delete',
     );
+    $app->get(
+        '/api/v1/homes/{homeId}/ai/profiles',
+        [BearerAuthenticationMiddleware::class, 'ai.profiles.list'],
+        'api.ai.profiles.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/ai/profiles',
+        [BearerAuthenticationMiddleware::class, 'ai.profiles.put'],
+        'api.ai.profiles.create',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/ai/profiles/{profileId}',
+        [BearerAuthenticationMiddleware::class, 'ai.profiles.put'],
+        'api.ai.profiles.update',
+    );
+    $app->delete(
+        '/api/v1/homes/{homeId}/ai/profiles/{profileId}',
+        [BearerAuthenticationMiddleware::class, 'ai.profiles.delete'],
+        'api.ai.profiles.delete',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/ai/policy',
+        [BearerAuthenticationMiddleware::class, 'ai.policy.get'],
+        'api.ai.policy.get',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/ai/policy',
+        [BearerAuthenticationMiddleware::class, 'ai.policy.put'],
+        'api.ai.policy.put',
+    );
     $app->post(
         '/api/v1/homes/{homeId}/ai/extractions',
         [BearerAuthenticationMiddleware::class, 'ai.extractions.create'],
         'api.ai.extractions.create',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/ai/extractions/stored-media',
+        [BearerAuthenticationMiddleware::class, 'ai.extractions.create-stored'],
+        'api.ai.extractions.create-stored',
     );
     $app->get(
         '/api/v1/homes/{homeId}/ai/extractions/{extractionId}',
@@ -453,6 +488,206 @@ return static function (Application $app): void {
         '/api/v1/homes/{homeId}/ai/extractions/{extractionId}/candidates/{position}',
         [BearerAuthenticationMiddleware::class, 'ai.candidates.review'],
         'api.ai.candidates.review',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/ai/extractions/{extractionId}/observations/{decisionId}',
+        [BearerAuthenticationMiddleware::class, 'ai.observations.review'],
+        'api.ai.observations.review',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/ai/extractions/{extractionId}/discrepancies/{position}',
+        [BearerAuthenticationMiddleware::class, 'ai.discrepancies.review'],
+        'api.ai.discrepancies.review',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/ai/media',
+        [BearerAuthenticationMiddleware::class, 'ai.media.upload'],
+        'api.ai.media.upload',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/ai/media',
+        [BearerAuthenticationMiddleware::class, 'ai.media.list'],
+        'api.ai.media.list',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/ai/media/export',
+        [BearerAuthenticationMiddleware::class, 'ai.media.export'],
+        'api.ai.media.export',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/ai/media/{assetId}',
+        [BearerAuthenticationMiddleware::class, 'ai.media.download'],
+        'api.ai.media.download',
+    );
+    $app->delete(
+        '/api/v1/homes/{homeId}/ai/media/{assetId}',
+        [BearerAuthenticationMiddleware::class, 'ai.media.delete'],
+        'api.ai.media.delete',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/ai/media/{assetId}/retention',
+        [BearerAuthenticationMiddleware::class, 'ai.media.retention'],
+        'api.ai.media.retention',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/catalog-contributions/consent',
+        [BearerAuthenticationMiddleware::class, 'catalog.contributions.consent.get'],
+        'api.catalog.contributions.consent.get',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/catalog-contributions/consent',
+        [BearerAuthenticationMiddleware::class, 'catalog.contributions.consent.put'],
+        'api.catalog.contributions.consent.put',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/catalog-contributions',
+        [BearerAuthenticationMiddleware::class, 'catalog.contributions.list'],
+        'api.catalog.contributions.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/catalog-contributions',
+        [BearerAuthenticationMiddleware::class, 'catalog.contributions.submit'],
+        'api.catalog.contributions.submit',
+    );
+    $app->get(
+        '/api/v1/catalog-contributions/review',
+        [BearerAuthenticationMiddleware::class, 'catalog.contributions.review.list'],
+        'api.catalog.contributions.review.list',
+    );
+    $app->put(
+        '/api/v1/catalog-contributions/{contributionId}/decision',
+        [BearerAuthenticationMiddleware::class, 'catalog.contributions.review.decide'],
+        'api.catalog.contributions.review.decide',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/catalog-imports',
+        [BearerAuthenticationMiddleware::class, 'catalog.imports.stage'],
+        'api.catalog.imports.stage',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/catalog-imports/{importId}',
+        [BearerAuthenticationMiddleware::class, 'catalog.imports.get'],
+        'api.catalog.imports.get',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/catalog-imports/{importId}/confirm',
+        [BearerAuthenticationMiddleware::class, 'catalog.imports.confirm'],
+        'api.catalog.imports.confirm',
+    );
+    $app->post(
+        '/api/v1/account/data-exports',
+        [BearerAuthenticationMiddleware::class, 'data-governance.account.export'],
+        'api.data-governance.account.export',
+    );
+    $app->post(
+        '/api/v1/account/erasure-requests',
+        [BearerAuthenticationMiddleware::class, 'data-governance.account.erasure'],
+        'api.data-governance.account.erasure',
+    );
+    $app->get(
+        '/api/v1/account/data-governance-requests',
+        [BearerAuthenticationMiddleware::class, 'data-governance.account.requests'],
+        'api.data-governance.account.requests',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/data-exports',
+        [BearerAuthenticationMiddleware::class, 'data-governance.home.export'],
+        'api.data-governance.home.export',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/erasure-requests',
+        [BearerAuthenticationMiddleware::class, 'data-governance.home.erasure'],
+        'api.data-governance.home.erasure',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/data-governance-requests',
+        [BearerAuthenticationMiddleware::class, 'data-governance.home.requests'],
+        'api.data-governance.home.requests',
+    );
+    $app->post(
+        '/api/v1/data-governance-requests/{requestId}/cancel',
+        [BearerAuthenticationMiddleware::class, 'data-governance.request.cancel'],
+        'api.data-governance.requests.cancel',
+    );
+    $app->post(
+        '/api/v1/data-governance-requests/{requestId}/download-token',
+        [BearerAuthenticationMiddleware::class, 'data-governance.request.download-token'],
+        'api.data-governance.requests.download-token',
+    );
+    $app->post(
+        '/api/v1/data-governance-requests/{requestId}/download',
+        [BearerAuthenticationMiddleware::class, 'data-governance.request.download'],
+        'api.data-governance.requests.download',
+    );
+    $app->get(
+        '/api/v1/billing/plans',
+        'billing.plans.available',
+        'api.billing.plans.available',
+    );
+    $app->get(
+        '/api/v1/operator/billing/plans',
+        [BearerAuthenticationMiddleware::class, 'billing.operator.plans.list'],
+        'api.billing.operator.plans.list',
+    );
+    $app->post(
+        '/api/v1/operator/billing/plans',
+        [BearerAuthenticationMiddleware::class, 'billing.operator.plans.create'],
+        'api.billing.operator.plans.create',
+    );
+    $app->put(
+        '/api/v1/operator/billing/plans/{planId}',
+        [BearerAuthenticationMiddleware::class, 'billing.operator.plans.update'],
+        'api.billing.operator.plans.update',
+    );
+    $app->post(
+        '/api/v1/operator/billing/plans/{planId}/prices',
+        [BearerAuthenticationMiddleware::class, 'billing.operator.prices.create'],
+        'api.billing.operator.prices.create',
+    );
+    $app->put(
+        '/api/v1/operator/billing/prices/{priceId}/status',
+        [BearerAuthenticationMiddleware::class, 'billing.operator.prices.status'],
+        'api.billing.operator.prices.status',
+    );
+    $app->put(
+        '/api/v1/operator/billing/prices/{priceId}/providers/{provider}',
+        [BearerAuthenticationMiddleware::class, 'billing.operator.provider-prices.put'],
+        'api.billing.operator.provider-prices.put',
+    );
+    $app->put(
+        '/api/v1/operator/billing/plans/{planId}/entitlements/{featureKey}',
+        [BearerAuthenticationMiddleware::class, 'billing.operator.entitlements.put'],
+        'api.billing.operator.entitlements.put',
+    );
+    $app->post(
+        '/api/v1/operator/billing/promotions',
+        [BearerAuthenticationMiddleware::class, 'billing.operator.promotions.create'],
+        'api.billing.operator.promotions.create',
+    );
+    $app->post(
+        '/api/v1/operator/billing/homes/{homeId}/overrides',
+        [BearerAuthenticationMiddleware::class, 'billing.operator.overrides.put'],
+        'api.billing.operator.overrides.put',
+    );
+    $app->delete(
+        '/api/v1/operator/billing/overrides/{overrideId}',
+        [BearerAuthenticationMiddleware::class, 'billing.operator.overrides.revoke'],
+        'api.billing.operator.overrides.revoke',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/billing',
+        [BearerAuthenticationMiddleware::class, 'billing.home.summary'],
+        'api.billing.home.summary',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/billing/checkouts',
+        [BearerAuthenticationMiddleware::class, 'billing.checkout.create'],
+        'api.billing.checkouts.create',
+    );
+    $app->post(
+        '/api/v1/billing/webhooks/{provider}',
+        'billing.webhook',
+        'api.billing.webhooks.accept',
     );
     $app->post(
         '/api/v1/homes/{homeId}/sync/push',
@@ -468,5 +703,10 @@ return static function (Application $app): void {
         '/api/v1/homes/{homeId}/sync/bootstrap',
         [BearerAuthenticationMiddleware::class, 'synchronization.bootstrap'],
         'api.synchronization.bootstrap',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/sync/operation-status',
+        [BearerAuthenticationMiddleware::class, 'synchronization.operation-status'],
+        'api.synchronization.operation-status',
     );
 };

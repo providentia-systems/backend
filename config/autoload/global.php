@@ -19,6 +19,7 @@ $exposeDevelopmentTokens = filter_var(
 );
 $aiServerProxyEnabled = filter_var($env('AI_SERVER_PROXY_ENABLED', '0'), FILTER_VALIDATE_BOOL);
 $aiCredentialKek = $env('AI_CREDENTIAL_KEK', '');
+$aiMediaKek = $env('AI_MEDIA_KEK', '');
 $aiCompatibleEndpoint = rtrim($env('AI_COMPATIBLE_ENDPOINT', ''), '/');
 $aiOllamaEndpoint = rtrim($env('AI_OLLAMA_ENDPOINT', ''), '/');
 $aiAllowPrivateEndpoints = filter_var(
@@ -27,8 +28,34 @@ $aiAllowPrivateEndpoints = filter_var(
 );
 $passwordLoginEnabled = filter_var($env('AUTH_PASSWORD_LOGIN_ENABLED', '0'), FILTER_VALIDATE_BOOL);
 $notificationPayloadKek = $env('NOTIFICATION_PAYLOAD_KEK', '');
+$billingEnabled = filter_var($env('BILLING_ENABLED', '0'), FILTER_VALIDATE_BOOL);
+$billingAllowPrivateEndpoints = filter_var(
+    $env('BILLING_ALLOW_PRIVATE_ENDPOINTS', '0'),
+    FILTER_VALIDATE_BOOL,
+);
+$paypalEnabled = filter_var($env('PAYPAL_ENABLED', '0'), FILTER_VALIDATE_BOOL);
+$paypalEnvironment = mb_strtolower($env('PAYPAL_ENVIRONMENT', 'sandbox'));
+if (! in_array($paypalEnvironment, ['sandbox', 'live'], true)) {
+    throw new RuntimeException('PAYPAL_ENVIRONMENT must be sandbox or live.');
+}
+$paypalApiBase = $paypalEnvironment === 'live'
+    ? 'https://api-m.paypal.com'
+    : 'https://api-m.sandbox.paypal.com';
+$hostedCardEnabled = filter_var($env('HOSTED_CARD_ENABLED', '0'), FILTER_VALIDATE_BOOL);
+$hostedCardApiBase = rtrim($env('HOSTED_CARD_API_BASE', ''), '/');
+$hostedCardRedirectHosts = array_values(array_filter(array_map(
+    static fn (string $host): string => mb_strtolower(trim($host)),
+    explode(',', $env('HOSTED_CARD_REDIRECT_HOSTS', '')),
+)));
+$dataExportKek = $env('DATA_EXPORT_KEK', '');
 if ($notificationPayloadKek === '' && $environment !== 'production') {
     $notificationPayloadKek = base64_encode(hash('sha256', $tokenPepper . ':notification', true));
+}
+if ($dataExportKek === '' && $environment !== 'production') {
+    $dataExportKek = base64_encode(hash('sha256', $tokenPepper . ':data-export', true));
+}
+if ($aiMediaKek === '' && $environment !== 'production') {
+    $aiMediaKek = base64_encode(hash('sha256', $tokenPepper . ':private-media', true));
 }
 
 if ($environment === 'production') {
@@ -70,6 +97,10 @@ if ($environment === 'production') {
             'Production NOTIFICATION_PAYLOAD_KEK must contain exactly 32 base64-encoded bytes.',
         );
     }
+    $decodedDataExportKey = base64_decode($dataExportKek, true);
+    if (! is_string($decodedDataExportKey) || strlen($decodedDataExportKey) !== 32) {
+        throw new RuntimeException('Production DATA_EXPORT_KEK must contain exactly 32 base64-encoded bytes.');
+    }
     if ($aiServerProxyEnabled) {
         $decodedAiKey = base64_decode($aiCredentialKek, true);
         if (! is_string($decodedAiKey) || strlen($decodedAiKey) !== 32) {
@@ -82,6 +113,39 @@ if ($environment === 'production') {
             && ! str_starts_with($aiCompatibleEndpoint, 'https://')
         ) {
             throw new RuntimeException('Production AI-compatible endpoints must use HTTPS.');
+        }
+    }
+    $decodedMediaKey = base64_decode($aiMediaKek, true);
+    if (! is_string($decodedMediaKey) || strlen($decodedMediaKey) !== 32) {
+        throw new RuntimeException('Production AI_MEDIA_KEK must contain exactly 32 base64-encoded bytes.');
+    }
+    if ($billingAllowPrivateEndpoints) {
+        throw new RuntimeException('BILLING_ALLOW_PRIVATE_ENDPOINTS cannot be enabled in production.');
+    }
+    if ($billingEnabled && ! $paypalEnabled && ! $hostedCardEnabled) {
+        throw new RuntimeException('Production billing requires at least one enabled checkout provider.');
+    }
+    if ($paypalEnabled) {
+        if (
+            trim($env('PAYPAL_CLIENT_ID', '')) === ''
+            || trim($env('PAYPAL_CLIENT_SECRET', '')) === ''
+            || preg_match('/^[A-Za-z0-9]{1,50}$/', $env('PAYPAL_WEBHOOK_ID', '')) !== 1
+        ) {
+            throw new RuntimeException(
+                'Enabled PayPal billing requires client ID, client secret, and webhook ID.',
+            );
+        }
+    }
+    if ($hostedCardEnabled) {
+        if (
+            ! str_starts_with($hostedCardApiBase, 'https://')
+            || $hostedCardRedirectHosts === []
+            || trim($env('HOSTED_CARD_API_KEY', '')) === ''
+            || strlen($env('HOSTED_CARD_WEBHOOK_SECRET', '')) < 32
+        ) {
+            throw new RuntimeException(
+                'Enabled hosted-card billing requires HTTPS, an API key, and a 32-byte webhook secret.',
+            );
         }
     }
 }
@@ -118,11 +182,14 @@ return [
         'max_batch_operations' => 100,
         'max_payload_bytes' => 65536,
         'page_size' => 250,
+        'offline_window_days' => max(1, (int) $env('SYNC_OFFLINE_WINDOW_DAYS', '90')),
+        'tombstone_retention_days' => max(1, (int) $env('SYNC_TOMBSTONE_RETENTION_DAYS', '120')),
     ],
     'ai' => [
         'server_proxy_enabled' => $aiServerProxyEnabled,
         'credential_kek' => $aiCredentialKek,
         'credential_key_version' => max(1, (int) $env('AI_CREDENTIAL_KEY_VERSION', '1')),
+        'orchestration_max_attempts' => max(2, min(8, (int) $env('AI_ORCHESTRATION_MAX_ATTEMPTS', '8'))),
         'openai_endpoint' => 'https://api.openai.com/v1/responses',
         'anthropic_endpoint' => 'https://api.anthropic.com/v1/messages',
         'gemini_endpoint_template' =>
@@ -137,6 +204,81 @@ return [
             1048576,
             min(16777216, (int) $env('AI_MAX_IMAGE_BYTES', '8388608')),
         ),
+        'max_images' => max(1, min(16, (int) $env('AI_MAX_IMAGES', '8'))),
+        'media_root' => $env('AI_MEDIA_ROOT', 'var/private-media'),
+        'media_kek' => $aiMediaKek,
+        'media_key_version' => max(1, (int) $env('AI_MEDIA_KEY_VERSION', '1')),
+        'media_default_quota_bytes' => max(
+            1048576,
+            (int) $env('AI_MEDIA_DEFAULT_QUOTA_BYTES', '2147483648'),
+        ),
+        'media_transient_ttl_seconds' => max(
+            3600,
+            (int) $env('AI_MEDIA_TRANSIENT_TTL_SECONDS', '86400'),
+        ),
+        'media_max_export_bytes' => max(
+            1048576,
+            (int) $env('AI_MEDIA_MAX_EXPORT_BYTES', '67108864'),
+        ),
+        'max_video_bytes' => max(
+            1048576,
+            min(536870912, (int) $env('AI_MAX_VIDEO_BYTES', '134217728')),
+        ),
+        'max_video_duration_seconds' => max(
+            1,
+            min(3600, (int) $env('AI_MAX_VIDEO_DURATION_SECONDS', '300')),
+        ),
+        'max_video_frames' => max(1, min(60, (int) $env('AI_MAX_VIDEO_FRAMES', '12'))),
+        'video_processing_timeout_seconds' => max(
+            30,
+            min(900, (int) $env('AI_VIDEO_PROCESS_TIMEOUT_SECONDS', '180')),
+        ),
+        'ffprobe_binary' => $env('AI_FFPROBE_BINARY', '/usr/bin/ffprobe'),
+        'ffmpeg_binary' => $env('AI_FFMPEG_BINARY', '/usr/bin/ffmpeg'),
+    ],
+    'billing' => [
+        'enabled' => $billingEnabled,
+        'allow_private_endpoints' => $billingAllowPrivateEndpoints,
+        'http_timeout_seconds' => max(
+            2,
+            min(30, (int) $env('BILLING_HTTP_TIMEOUT_SECONDS', '10')),
+        ),
+        'maximum_response_bytes' => max(
+            65536,
+            min(4194304, (int) $env('BILLING_MAXIMUM_RESPONSE_BYTES', '1048576')),
+        ),
+        'providers' => [
+            'paypal' => [
+                'enabled' => $paypalEnabled,
+                'api_base' => $paypalApiBase,
+                'client_id' => $env('PAYPAL_CLIENT_ID', ''),
+                'client_secret' => $env('PAYPAL_CLIENT_SECRET', ''),
+                'webhook_id' => $env('PAYPAL_WEBHOOK_ID', ''),
+            ],
+            'hosted_card' => [
+                'enabled' => $hostedCardEnabled,
+                'api_base' => $hostedCardApiBase,
+                'checkout_path' => $env(
+                    'HOSTED_CARD_CHECKOUT_PATH',
+                    '/v1/checkout/sessions',
+                ),
+                'allowed_redirect_hosts' => $hostedCardRedirectHosts,
+                'api_key' => $env('HOSTED_CARD_API_KEY', ''),
+                'webhook_secret' => $env('HOSTED_CARD_WEBHOOK_SECRET', ''),
+                'webhook_signature_header' => $env(
+                    'HOSTED_CARD_WEBHOOK_SIGNATURE_HEADER',
+                    'X-Webhook-Signature',
+                ),
+                'webhook_timestamp_header' => $env(
+                    'HOSTED_CARD_WEBHOOK_TIMESTAMP_HEADER',
+                    'X-Webhook-Timestamp',
+                ),
+                'webhook_tolerance_seconds' => max(
+                    30,
+                    min(900, (int) $env('HOSTED_CARD_WEBHOOK_TOLERANCE_SECONDS', '300')),
+                ),
+            ],
+        ],
     ],
     'http' => [
         'allowed_origins' => array_values(array_filter(array_map(
@@ -153,6 +295,11 @@ return [
         'required' => filter_var($env('QUEUE_REQUIRED', '0'), FILTER_VALIDATE_BOOL),
         'outbox_batch_size' => max(1, (int) $env('OUTBOX_BATCH_SIZE', '100')),
         'outbox_max_attempts' => max(1, (int) $env('OUTBOX_MAX_ATTEMPTS', '10')),
+    ],
+    'data_governance' => [
+        'artifact_root' => $env('DATA_EXPORT_ROOT', 'var/data-exports'),
+        'artifact_kek' => $dataExportKek,
+        'page_size' => max(25, min(1000, (int) $env('DATA_EXPORT_PAGE_SIZE', '250'))),
     ],
     'templates' => [
         'paths' => [

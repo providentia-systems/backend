@@ -7,6 +7,7 @@ namespace Providentia\DataGovernance\Application;
 use DateTimeImmutable;
 use DateInterval;
 use Providentia\SharedKernel\Application\Clock;
+use Psr\Log\LoggerInterface;
 use Throwable;
 
 final class DataGovernanceProcessor
@@ -17,6 +18,7 @@ final class DataGovernanceProcessor
         private readonly DataExportGenerator $exports,
         private readonly DataArtifactStorage $artifacts,
         private readonly DataErasureExecutor $eraser,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -52,11 +54,15 @@ final class DataGovernanceProcessor
                 }
             }
         } catch (Throwable $error) {
-            $reason = trim($error->getMessage());
+            $this->logger->error('Data-governance processing failed.', [
+                'requestId' => $id,
+                'requestKind' => (string) $request['requestKind'],
+                'exception' => $error,
+            ]);
             $this->fail(
                 $id,
                 $revision + 1,
-                $reason === '' ? 'Data-governance processing failed.' : mb_substr($reason, 0, 500),
+                'Data-governance processing failed. An operator can retry the request.',
             );
         }
 

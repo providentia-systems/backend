@@ -11,9 +11,7 @@ use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Http\ProblemDetailsMiddleware;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Psr\Log\AbstractLogger;
 use RuntimeException;
-use Stringable;
 
 final class ProblemDetailsMiddlewareTest extends TestCase
 {
@@ -123,21 +121,5 @@ final class ProblemDetailsMiddlewareTest extends TestCase
         }
 
         return $body;
-    }
-}
-
-final class RecordingProblemLogger extends AbstractLogger
-{
-    /** @var list<array{level: string, message: string, context: array<string, mixed>}> */
-    public array $records = [];
-
-    /** @param array<string, mixed> $context */
-    public function log($level, string|Stringable $message, array $context = []): void
-    {
-        $this->records[] = [
-            'level' => (string) $level,
-            'message' => (string) $message,
-            'context' => $context,
-        ];
     }
 }

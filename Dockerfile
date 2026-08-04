@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.10
 FROM composer:2.10.2 AS composer
 
-FROM php:8.5.8-cli-alpine3.22 AS runtime
+FROM php:8.5.9-cli-alpine3.23 AS runtime
 
-RUN apk add --no-cache icu-libs libzip oniguruma sqlite-libs \
+RUN apk add --no-cache ffmpeg icu-libs libzip oniguruma sqlite-libs \
     && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS icu-dev libzip-dev oniguruma-dev sqlite-dev \
     && docker-php-ext-install -j"$(nproc)" intl mbstring opcache pdo_mysql pdo_sqlite \
     && pecl install redis-6.2.0 \

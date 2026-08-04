@@ -15,7 +15,7 @@ jobs:
   structural:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Install structural-check dependency
         run: |
           sudo apt-get update
@@ -27,8 +27,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: "8.5"
           extensions: intl, json, mbstring, pdo_sqlite, redis
@@ -102,7 +102,7 @@ jobs:
           coverage: xdebug
           tools: composer:2.10.2
       - run: composer install --no-interaction --prefer-dist --no-progress
-      - name: Mutate fixed-point inventory and shopping policy
+      - name: Mutate high-risk inventory, sync, AI, billing, and data policy
         run: composer test:mutation
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -151,8 +151,8 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: "8.5"
           extensions: intl, json, mbstring, pdo_mysql, redis
@@ -168,6 +168,8 @@ jobs:
           php bin/providentia foundation:prove "${{ matrix.name }}"
           php bin/doctrine-migrations migrations:migrate prev --no-interaction
           php bin/doctrine-migrations migrations:migrate latest --no-interaction
+          php bin/doctrine-migrations migrations:up-to-date --no-interaction
+          composer test
 
   queue:
     strategy:
@@ -188,8 +190,8 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: "8.5"
           extensions: intl, json, mbstring, pdo_sqlite, redis

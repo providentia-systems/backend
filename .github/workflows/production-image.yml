@@ -35,11 +35,15 @@ jobs:
       APP_VERSION: ci
       PROVIDENTIA_IMAGE: providentia:ci
       PROVIDENTIA_WEB_IMAGE: providentia-web:ci
+      PROVIDENTIA_MEDIA_IMAGE: providentia-media-worker:ci
       PROVIDENTIA_TRUSTED_PROXY_CIDRS: 172.16.0.0/12
+      PROVIDENTIA_METRICS_TOKEN: ci-metrics-token-at-least-32-bytes
       DATABASE_URL: mysql://providentia:test@mysql:3306/providentia?charset=utf8mb4
       QUEUE_DSN: redis+phpredis://:test@redis:6379
       AUTH_TOKEN_PEPPER: ci-authentication-pepper-at-least-32-bytes
       NOTIFICATION_PAYLOAD_KEK: Y2ktbm90aWZpY2F0aW9uLWtleS0zMi1ieXRlcy1vayE=
+      AI_MEDIA_KEK: bW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW0=
+      DATA_EXPORT_KEK: ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGQ=
       SYNC_CURSOR_SECRET: ci-synchronization-secret-at-least-32-bytes
       MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
       MAIL_FROM: no-reply@example.invalid
@@ -54,7 +58,7 @@ jobs:
       RESTIC_PASSWORD_FILE: /tmp/restic-password
       BACKUP_STAGING_DIRECTORY: /tmp
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Validate all production profiles
         run: |
           docker compose -f compose.production.yaml --profile tools --profile mysql --profile mariadb --profile redis --profile backup config --quiet
@@ -64,10 +68,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
       - name: Build production runtime
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile.production
@@ -88,8 +92,23 @@ jobs:
             docker run --rm providentia:production-ci php -m | grep -Fxq "$extension"
           done
           test "$(docker run --rm providentia:production-ci sh -c 'command -v composer || true')" = ""
+          test "$(docker run --rm providentia:production-ci sh -c 'command -v ffmpeg || true')" = ""
+      - name: Build isolated media worker
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: Dockerfile.production
+          target: media-worker
+          push: false
+          load: true
+          tags: providentia-media-worker:production-ci
+      - name: Inspect media worker boundary
+        run: |
+          test "$(docker image inspect providentia-media-worker:production-ci --format '{{.Config.User}}')" = "www-data"
+          docker run --rm providentia-media-worker:production-ci ffmpeg -version
+          docker run --rm providentia-media-worker:production-ci ffprobe -version
       - name: Build immutable web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile.production
@@ -108,6 +127,8 @@ jobs:
           QUEUE_REQUIRED: "1"
           AUTH_TOKEN_PEPPER: ci-authentication-pepper-at-least-32-bytes
           NOTIFICATION_PAYLOAD_KEK: Y2ktbm90aWZpY2F0aW9uLWtleS0zMi1ieXRlcy1vayE=
+          AI_MEDIA_KEK: bW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW0=
+          DATA_EXPORT_KEK: ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGQ=
           SYNC_CURSOR_SECRET: ci-synchronization-secret-at-least-32-bytes
           MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
           MAIL_FROM: no-reply@example.invalid
@@ -122,7 +143,7 @@ jobs:
           COMMON_ENV=(
             -e APP_ENV -e APP_VERSION -e APP_DEBUG -e DATABASE_URL -e QUEUE_DSN
             -e QUEUE_NAME -e QUEUE_REQUIRED -e AUTH_TOKEN_PEPPER -e NOTIFICATION_PAYLOAD_KEK
-            -e SYNC_CURSOR_SECRET
+            -e SYNC_CURSOR_SECRET -e AI_MEDIA_KEK -e DATA_EXPORT_KEK
             -e MAIL_DSN -e MAIL_FROM -e PUBLIC_BASE_URL -e CORS_ALLOWED_ORIGINS
             -e EXPOSE_DEVELOPMENT_TOKENS
           )
@@ -133,7 +154,9 @@ jobs:
             --tmpfs /tmp:size=64m,mode=1777 -v providentia-smoke-var:/app/var \
             "${COMMON_ENV[@]}" providentia:production-ci
           docker run -d --name web --network providentia-smoke -p 18080:8080 \
-            -e PROVIDENTIA_TRUSTED_PROXY_CIDRS=172.16.0.0/12 providentia-web:production-ci
+            -e PROVIDENTIA_TRUSTED_PROXY_CIDRS=172.16.0.0/12 \
+            -e PROVIDENTIA_METRICS_TOKEN=ci-metrics-token-at-least-32-bytes \
+            providentia-web:production-ci
           for attempt in $(seq 1 30); do
             curl --fail --silent http://127.0.0.1:18080/health/ready && break
             sleep 2

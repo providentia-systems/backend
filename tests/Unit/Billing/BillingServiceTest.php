@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Providentia\Billing\Application\BillingAuthorization;
 use Providentia\Billing\Application\BillingConfiguration;
+use Providentia\Billing\Application\BillingProviderException;
 use Providentia\Billing\Application\BillingService;
 use Providentia\Billing\Application\BillingStore;
 use Providentia\Billing\Application\CheckoutGatewayRegistry;
@@ -137,6 +138,63 @@ final class BillingServiceTest extends TestCase
         self::assertSame('{"id":"event-1"}', $gateway->webhookBody);
     }
 
+    public function testApprovedPayPalWebhookIsClaimedBeforeServerSideCapture(): void
+    {
+        $claimed = false;
+        $store = $this->createMock(BillingStore::class);
+        $store->expects(self::once())->method('claimWebhook')->willReturnCallback(
+            static function () use (&$claimed): string {
+                $claimed = true;
+
+                return 'claimed';
+            },
+        );
+        $store->method('checkoutByProviderReference')->willReturn([
+            'id' => 'checkout-1',
+            'homeId' => 'home-1',
+            'planId' => 'plan-1',
+            'priceId' => 'price-1',
+            'promotionId' => null,
+            'provider' => 'paypal',
+        ]);
+        $store->expects(self::once())->method('applyWebhook');
+        $store->expects(self::once())->method('markWebhookProcessed');
+        $store->expects(self::never())->method('releaseWebhookClaim');
+        $gateway = new FakePayPalGateway();
+        $gateway->webhookEventType = 'checkout.approved';
+        $gateway->onCapture = static function () use (&$claimed): void {
+            self::assertTrue($claimed, 'PayPal capture ran before the signed event was claimed.');
+        };
+
+        $result = $this->service($store, $gateway, true)->acceptWebhook(
+            'paypal',
+            '{"id":"event-1"}',
+            ['PayPal-Transmission-Sig' => ['verified-by-adapter']],
+        );
+
+        self::assertSame('processed', $result);
+        self::assertSame(1, $gateway->captureCalls);
+    }
+
+    public function testFailedCaptureReleasesTheClaimForProviderRetry(): void
+    {
+        $store = $this->createMock(BillingStore::class);
+        $store->expects(self::once())->method('claimWebhook')->willReturn('claimed');
+        $store->expects(self::once())->method('releaseWebhookClaim');
+        $store->expects(self::never())->method('applyWebhook');
+        $gateway = new FakePayPalGateway();
+        $gateway->webhookEventType = 'checkout.approved';
+        $gateway->failCapture = true;
+
+        $this->expectException(Problem::class);
+        $this->expectExceptionMessage('should be retried');
+        $this->service($store, $gateway, true)->acceptWebhook(
+            'paypal',
+            '{"id":"event-1"}',
+            ['PayPal-Transmission-Sig' => ['verified-by-adapter']],
+        );
+    }
+
     public function testHomeSummaryCombinesPlanEntitlementsWithActiveOperatorOverrides(): void
     {
         $store = $this->createStub(BillingStore::class);
@@ -191,6 +249,10 @@ final class FakePayPalGateway implements PayPalHostedCheckoutGateway
 {
     public ?HostedCheckoutRequest $request = null;
     public ?string $webhookBody = null;
+    public string $webhookEventType = 'checkout.completed';
+    public int $captureCalls = 0;
+    public bool $failCapture = false;
+    public ?\Closure $onCapture = null;
 
     public function provider(): string
     {
@@ -216,13 +278,35 @@ final class FakePayPalGateway implements PayPalHostedCheckoutGateway
 
         return new HostedCheckoutWebhook(
             'event-1',
-            'checkout.completed',
+            $this->webhookEventType,
             'provider-session-1',
             'subscription-1',
             'customer-1',
             'active',
             new DateTimeImmutable('2026-09-04T12:00:00+00:00'),
             new DateTimeImmutable(BillingServiceTest::NOW),
+        );
+    }
+
+    public function captureApprovedOrder(HostedCheckoutWebhook $approved): HostedCheckoutWebhook
+    {
+        ++$this->captureCalls;
+        if ($this->onCapture !== null) {
+            ($this->onCapture)();
+        }
+        if ($this->failCapture) {
+            throw new BillingProviderException('capture_failed', 'The capture failed safely.');
+        }
+
+        return new HostedCheckoutWebhook(
+            $approved->eventId,
+            'checkout.completed',
+            $approved->checkoutReference,
+            null,
+            $approved->customerReference,
+            'active',
+            null,
+            $approved->occurredAt,
         );
     }
 }

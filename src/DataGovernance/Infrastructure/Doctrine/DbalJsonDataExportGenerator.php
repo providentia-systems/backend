@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\DataGovernance\Infrastructure\Doctrine;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\ParameterType;
 use Providentia\DataGovernance\Application\DataExportGenerator;
 
 final readonly class DbalJsonDataExportGenerator implements DataExportGenerator
@@ -108,6 +109,7 @@ final readonly class DbalJsonDataExportGenerator implements DataExportGenerator
             $page = $this->connection->fetchAllAssociative(
                 $sql . ' LIMIT :limit OFFSET :offset',
                 ['scope' => $scope, 'limit' => $this->pageSize, 'offset' => $offset],
+                ['limit' => ParameterType::INTEGER, 'offset' => ParameterType::INTEGER],
             );
             array_push($rows, ...$page);
             if (count($page) < $this->pageSize) {

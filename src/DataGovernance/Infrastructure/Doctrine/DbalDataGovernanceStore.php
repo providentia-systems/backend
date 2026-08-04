@@ -6,6 +6,7 @@ namespace Providentia\DataGovernance\Infrastructure\Doctrine;
 
 use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Providentia\DataGovernance\Application\DataGovernanceStore;
 
@@ -105,6 +106,7 @@ final class DbalDataGovernanceStore implements DataGovernanceStore
             . ' WHERE scope_type = :scope AND subject_user_id = :user'
             . ' ORDER BY created_at DESC, id DESC LIMIT :limit OFFSET :offset',
             ['scope' => 'account', 'user' => $userId, 'limit' => $limit, 'offset' => $offset],
+            ['limit' => ParameterType::INTEGER, 'offset' => ParameterType::INTEGER],
         );
     }
 
@@ -115,6 +117,7 @@ final class DbalDataGovernanceStore implements DataGovernanceStore
             . ' WHERE scope_type = :scope AND home_id = :home'
             . ' ORDER BY created_at DESC, id DESC LIMIT :limit OFFSET :offset',
             ['scope' => 'home', 'home' => $homeId, 'limit' => $limit, 'offset' => $offset],
+            ['limit' => ParameterType::INTEGER, 'offset' => ParameterType::INTEGER],
         );
     }
 

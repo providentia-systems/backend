@@ -25,6 +25,7 @@ use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Psr\Container\ContainerInterface;
+use Psr\Log\LoggerInterface;
 
 final class DataGovernanceFactory
 {
@@ -50,6 +51,7 @@ final class DataGovernanceFactory
                 $container->get(DataExportGenerator::class),
                 $container->get(DataArtifactStorage::class),
                 $container->get(DataErasureExecutor::class),
+                $container->get(LoggerInterface::class),
             ),
             $requestedName === DataGovernanceDownloadService::class => new DataGovernanceDownloadService(
                 $container->get(DataGovernanceStore::class),

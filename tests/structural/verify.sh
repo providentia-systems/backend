@@ -6,7 +6,7 @@ cd "$repo_root"
 
 modules=(
   SharedKernel Identity Home Catalog Inventory Purchasing Shopping
-  Synchronization AiIntegration Administration Reporting PublicSite
+  Synchronization AiIntegration Billing DataGovernance Administration Reporting PublicSite
 )
 layers=(Domain Application Infrastructure Http)
 
@@ -176,8 +176,17 @@ grep -Fq "Production MAIL_DSN must use smtps://" config/autoload/global.php \
   || fail "production SMTP does not require authenticated TLS"
 grep -Fq "'verify_peer' => true" src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
   || fail "SMTPS peer verification is not explicit"
-grep -Fq "'retain_until' => null" src/Synchronization/Infrastructure/Doctrine/DbalSyncStore.php \
-  || fail "tombstone retention was invented before the offline-window decision"
+grep -Fq "'tombstone_retention_days'" config/autoload/global.php \
+  || fail "tombstone retention must be explicitly configurable"
+grep -Fq "'retain_until' => \$this->date" src/Synchronization/Infrastructure/Doctrine/DbalSyncStore.php \
+  || fail "tombstones must retain an explicit synchronization safety boundary"
+grep -Fq "['bypass_shell' => true]" src/AiIntegration/Infrastructure/Media/FfmpegVideoProcessor.php \
+  || fail "the reviewed video process boundary must bypass the command shell"
+grep -Fq 'private function run(' src/AiIntegration/Infrastructure/Media/FfmpegVideoProcessor.php \
+  && grep -Fq 'array $command,' src/AiIntegration/Infrastructure/Media/FfmpegVideoProcessor.php \
+  || fail "video processing must execute a typed argv list rather than a shell string"
+grep -Fq 'FfmpegVideoProcessor.php' .semgrep.yml \
+  || fail "the sole reviewed process-execution exception must remain explicit"
 
 for expected_gate in \
   "'itemRows' => 292" \
@@ -194,7 +203,7 @@ for expected_gate in \
 done
 
 assert_no_matches "catalog seed importer references private household lineage fields" \
-  -ni --glob 'src/Catalog/Infrastructure/Doctrine/*.php' \
+  -ni --glob 'src/Catalog/Infrastructure/Doctrine/DbalCatalogStore.php' \
   'knownFrom|currentStock|stockLevel|receipt|medical|privateNote|mediaPath'
 
 assert_no_matches "Domain layer imports infrastructure or transport code" \

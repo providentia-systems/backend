@@ -76,7 +76,7 @@ if (
         $contract['components']['schemas']['RegisterResponse']['required'] ?? [],
         true,
     )
-    || ($contract['info']['version'] ?? '') !== '1.9.0'
+    || ($contract['info']['version'] ?? '') !== '1.10.0'
     || ($contract['components']['schemas']['PriceComparisonCollection']['properties']['currencyPolicy']['const']
         ?? '') !== 'never-compare-across-currencies'
 ) {

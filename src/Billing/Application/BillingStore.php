@@ -142,8 +142,8 @@ interface BillingStore
     public function checkoutByProviderReference(string $provider, string $providerReference): ?array;
 
     /**
-     * Returns claimed, duplicate, or conflict. A conflict means the provider
-     * reused an event identifier for different signed bytes.
+     * Returns claimed, in_progress, duplicate, or conflict. A conflict means
+     * the provider reused an event identifier for different signed bytes.
      */
     public function claimWebhook(
         string $provider,
@@ -153,6 +153,12 @@ interface BillingStore
         DateTimeImmutable $occurredAt,
         DateTimeImmutable $receivedAt,
     ): string;
+
+    public function releaseWebhookClaim(
+        string $provider,
+        string $eventId,
+        string $payloadSha256,
+    ): void;
 
     /** @param array<string, mixed> $checkout */
     public function applyWebhook(

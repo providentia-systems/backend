@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Providentia\Billing\Application;
 
 use DateTimeImmutable;
+use Providentia\Billing\Domain\SubscriptionStatus;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
+use Throwable;
 
 final readonly class BillingService
 {
@@ -439,45 +441,85 @@ final readonly class BillingService
         if ($rawBody === '' || strlen($rawBody) > 1048576) {
             throw new Problem(413, 'Webhook rejected', 'Webhook payload size is outside policy.');
         }
+        $gateway = $this->gateways->require($provider);
         try {
-            $event = $this->gateways->require($provider)->verifyWebhook($rawBody, $headers);
+            $event = $gateway->verifyWebhook($rawBody, $headers);
         } catch (BillingProviderException) {
             throw new Problem(400, 'Webhook rejected', 'Webhook authentication or content is invalid.');
         }
         $this->validateWebhook($event);
         $now = $this->clock->now();
+        $payloadSha256 = hash('sha256', $rawBody);
 
-        return $this->transactions->transactional(function () use ($provider, $rawBody, $event, $now): string {
+        $claim = $this->transactions->transactional(function () use (
+            $provider,
+            $event,
+            $payloadSha256,
+            $now,
+        ): string {
             $claim = $this->billing->claimWebhook(
                 $provider,
                 $event->eventId,
                 $event->eventType,
-                hash('sha256', $rawBody),
+                $payloadSha256,
                 $event->occurredAt,
                 $now,
             );
-            if ($claim === 'duplicate') {
-                return 'duplicate';
-            }
-            if ($claim !== 'claimed') {
-                throw new Problem(
-                    409,
-                    'Webhook identifier conflict',
-                    'The provider event identifier was reused for different content.',
-                );
-            }
-            $checkout = $this->billing->checkoutByProviderReference(
-                $provider,
-                $event->checkoutReference,
-            );
-            if ($checkout === null) {
-                throw new Problem(422, 'Webhook rejected', 'The checkout reference is unknown.');
-            }
-            $this->billing->applyWebhook($checkout, $event, $now);
-            $this->billing->markWebhookProcessed($provider, $event->eventId, $now);
 
-            return 'processed';
+            return $claim;
         });
+        if ($claim === 'duplicate') {
+            return 'duplicate';
+        }
+        if ($claim === 'in_progress') {
+            throw new Problem(409, 'Webhook in progress', 'The provider should retry this event.');
+        }
+        if ($claim !== 'claimed') {
+            throw new Problem(
+                409,
+                'Webhook identifier conflict',
+                'The provider event identifier was reused for different content.',
+            );
+        }
+
+        try {
+            if ($event->eventType === 'checkout.approved') {
+                if (! $gateway instanceof PayPalHostedCheckoutGateway) {
+                    throw new BillingProviderException(
+                        'provider_capture_unsupported',
+                        'The provider cannot capture an approved checkout.',
+                    );
+                }
+                $event = $gateway->captureApprovedOrder($event);
+                $this->validateWebhook($event);
+            }
+
+            return $this->transactions->transactional(function () use ($provider, $event, $now): string {
+                $checkout = $this->billing->checkoutByProviderReference(
+                    $provider,
+                    $event->checkoutReference,
+                );
+                if ($checkout === null) {
+                    throw new Problem(422, 'Webhook rejected', 'The checkout reference is unknown.');
+                }
+                $this->billing->applyWebhook($checkout, $event, $now);
+                $this->billing->markWebhookProcessed($provider, $event->eventId, $now);
+
+                return 'processed';
+            });
+        } catch (Throwable $error) {
+            $this->transactions->transactional(function () use (
+                $provider,
+                $event,
+                $payloadSha256,
+            ): void {
+                $this->billing->releaseWebhookClaim($provider, $event->eventId, $payloadSha256);
+            });
+            if ($error instanceof Problem) {
+                throw $error;
+            }
+            throw new Problem(502, 'Webhook processing failed', 'The provider event should be retried.');
+        }
     }
 
     /** @return array<string, mixed>|null */
@@ -531,6 +573,7 @@ final readonly class BillingService
             preg_match('/^[A-Za-z0-9._:-]{1,191}$/', $event->eventId) !== 1
             || preg_match('/^[A-Za-z0-9._:-]{1,191}$/', $event->checkoutReference) !== 1
             || ! in_array($event->eventType, [
+                'checkout.approved',
                 'checkout.completed',
                 'subscription.updated',
                 'subscription.cancelled',
@@ -538,13 +581,7 @@ final readonly class BillingService
             ], true)
             || (
                 $event->subscriptionStatus !== null
-                && ! in_array($event->subscriptionStatus, [
-                    'trialing',
-                    'active',
-                    'past_due',
-                    'paused',
-                    'cancelled',
-                ], true)
+                && ! in_array($event->subscriptionStatus, SubscriptionStatus::values(), true)
             )
         ) {
             throw new Problem(422, 'Webhook rejected', 'The verified webhook event is invalid.');

@@ -66,11 +66,11 @@ final class StderrJsonLogger extends AbstractLogger
         if ($value === null || is_bool($value) || is_int($value) || is_float($value)) {
             return $value;
         }
-        if (is_string($value) || $value instanceof Stringable) {
-            return $this->safeString((string) $value, 2048);
-        }
         if ($value instanceof Throwable) {
             return ['class' => $value::class];
+        }
+        if (is_string($value) || $value instanceof Stringable) {
+            return $this->safeString((string) $value, 2048);
         }
         if (is_array($value)) {
             $safe = [];

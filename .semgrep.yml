@@ -28,6 +28,11 @@ rules:
         - src/
         - config/
         - public/
+      exclude:
+        # Video frame extraction is the sole reviewed process boundary. It
+        # passes an argv list directly to proc_open with bypass_shell=true,
+        # fixed binary paths, resource limits, and no user-controlled flags.
+        - src/AiIntegration/Infrastructure/Media/FfmpegVideoProcessor.php
     pattern-either:
       - pattern: exec(...)
       - pattern: shell_exec(...)
