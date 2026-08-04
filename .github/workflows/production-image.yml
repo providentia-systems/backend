@@ -119,10 +119,10 @@ jobs:
       - name: Inspect patched non-root web boundary
         run: |
           test "$(docker image inspect providentia-web:production-ci --format '{{.Config.User}}')" = "caddy"
-          docker run --rm providentia-web:production-ci caddy build-info > /tmp/caddy-build-info
-          grep -Fq 'github.com/caddyserver/caddy/v2 v2.11.4' /tmp/caddy-build-info
-          grep -Fq 'golang.org/x/text v0.39.0' /tmp/caddy-build-info
-          grep -Fq 'google.golang.org/grpc v1.82.1' /tmp/caddy-build-info
+          docker run --rm providentia-web:production-ci caddy build-info | tee /tmp/caddy-build-info
+          grep -Eq 'github\.com/caddyserver/caddy/v2[[:space:]]+v2\.11\.4' /tmp/caddy-build-info
+          grep -Eq 'golang\.org/x/text[[:space:]]+v0\.39\.0' /tmp/caddy-build-info
+          grep -Eq 'google\.golang\.org/grpc[[:space:]]+v1\.82\.1' /tmp/caddy-build-info
       - name: Exercise production containers
         env:
           APP_ENV: production
