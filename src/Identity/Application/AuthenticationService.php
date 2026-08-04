@@ -205,6 +205,43 @@ final class AuthenticationService
         });
     }
 
+    public function requestStepUp(AuthenticatedIdentity $identity, string $action): ?string
+    {
+        $purpose = $this->stepUpPurpose($action);
+
+        return $this->transactions->transactional(function () use ($identity, $action, $purpose): ?string {
+            $user = $this->store->findUserById($identity->userId);
+            if ($user === null || (string) $user['status'] !== 'active') {
+                return null;
+            }
+            $token = $this->tokens->generate();
+            $now = $this->clock->now();
+            $this->store->issueOneTimeToken(
+                $this->ids->generate(),
+                $identity->userId,
+                $purpose,
+                $this->hasher->hashToken($token),
+                $now->add(new DateInterval('PT10M')),
+                $now,
+            );
+            $this->notifications->sendStepUpLink((string) $user['email'], $token, $action);
+
+            return $token;
+        });
+    }
+
+    public function consumeStepUp(AuthenticatedIdentity $identity, string $token, string $action): void
+    {
+        $userId = $this->store->consumeOneTimeToken(
+            $this->stepUpPurpose($action),
+            $this->hasher->hashToken($token),
+            $this->clock->now(),
+        );
+        if ($userId === null || ! hash_equals($identity->userId, $userId)) {
+            throw new Problem(422, 'Invalid step-up proof', 'The confirmation link is invalid or expired.');
+        }
+    }
+
     /**
      * @return array{
      *     accessToken: string,
@@ -514,6 +551,15 @@ final class AuthenticationService
                 'Request a passwordless email sign-in link instead.',
             );
         }
+    }
+
+    private function stepUpPurpose(string $action): string
+    {
+        if ($action !== 'ownership-transfer') {
+            throw new Problem(422, 'Validation failed', 'The requested step-up action is not supported.');
+        }
+
+        return 'step-up-ownership';
     }
 
     private function assertUuid(string $id, string $field): string

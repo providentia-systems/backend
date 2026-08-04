@@ -12,6 +12,7 @@ use Providentia\Home\Http\HomeHandler;
 use Providentia\Home\Infrastructure\Doctrine\DbalHomeStore;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\AccountNotificationSender;
+use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\IdentityStore;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\SecureTokenGenerator;
@@ -41,6 +42,7 @@ final class HomeFactory
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
                 $container->get(SecureTokenGenerator::class),
+                $container->get(AuthenticationService::class),
             ),
             str_starts_with($requestedName, 'home.') => new HomeHandler(
                 $container->get(HomeService::class),

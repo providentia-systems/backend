@@ -7,6 +7,7 @@ namespace Providentia\Reporting\Application;
 use DateTimeImmutable;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeAuditRecorder;
+use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Application\InventoryAnalyticsReader;
 use Providentia\Purchasing\Application\PurchaseAnalyticsReader;
@@ -37,7 +38,7 @@ final class HomeReportService
         ?string $from,
         ?string $through,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::REPORTS_READ);
         $asOf = $this->clock->now();
 
         $report = match ($type) {

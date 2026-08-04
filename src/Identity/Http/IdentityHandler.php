@@ -31,6 +31,7 @@ final class IdentityHandler implements RequestHandlerInterface
             'register' => $this->register($body),
             'magic-link-request' => $this->magicLinkRequest($body),
             'magic-link-exchange' => $this->magicLinkExchange($body),
+            'step-up-request' => $this->stepUpRequest($request, $body),
             'verify' => $this->verify($body),
             'resend-verification' => $this->resendVerification($body),
             'login' => $this->login($body),
@@ -42,6 +43,21 @@ final class IdentityHandler implements RequestHandlerInterface
             'logout' => $this->logout($request),
             default => throw new \LogicException('Unknown identity action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function stepUpRequest(ServerRequestInterface $request, array $body): ResponseInterface
+    {
+        $token = $this->authentication->requestStepUp(
+            $this->identity($request),
+            (string) ($body['action'] ?? ''),
+        );
+        $response = ['accepted' => true];
+        if ($token !== null && $this->exposeDevelopmentTokens) {
+            $response['developmentStepUpToken'] = $token;
+        }
+
+        return new JsonResponse($response, 202);
     }
 
     /** @param array<string, mixed> $body */

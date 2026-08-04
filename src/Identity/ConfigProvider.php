@@ -59,6 +59,7 @@ final class ConfigProvider
                     'identity.register' => IdentityFactory::class,
                     'identity.magic-link-request' => IdentityFactory::class,
                     'identity.magic-link-exchange' => IdentityFactory::class,
+                    'identity.step-up-request' => IdentityFactory::class,
                     'identity.verify' => IdentityFactory::class,
                     'identity.resend-verification' => IdentityFactory::class,
                     'identity.login' => IdentityFactory::class,

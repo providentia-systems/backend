@@ -21,6 +21,11 @@ final class QueuedAccountNotificationSender implements AccountNotificationSender
         $this->enqueue('magic-link', $email, ['token' => $token]);
     }
 
+    public function sendStepUpLink(string $email, string $token, string $action): void
+    {
+        $this->enqueue('step-up-link', $email, ['token' => $token, 'action' => $action]);
+    }
+
     public function sendEmailVerification(string $email, string $token): void
     {
         $this->enqueue('email-verification', $email, ['token' => $token]);

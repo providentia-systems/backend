@@ -41,13 +41,56 @@ final class HomeHandler implements RequestHandlerInterface
             'list' => new JsonResponse(['data' => $this->homes->list($identity)]),
             'get' => new JsonResponse($this->homes->get($identity, $homeId)),
             'memberships' => new JsonResponse(['data' => $this->homes->memberships($identity, $homeId)]),
+            'permission-policies' => new JsonResponse([
+                'data' => $this->homes->permissionPolicies($identity, $homeId),
+            ]),
+            'configure-permissions' => new JsonResponse($this->homes->configureRolePermissions(
+                $identity,
+                $homeId,
+                (string) $request->getAttribute('role', ''),
+                $this->stringList($body['permissions'] ?? null),
+                (int) ($body['expectedRevision'] ?? -1),
+            )),
+            'invitations' => new JsonResponse(['data' => $this->homes->invitations($identity, $homeId)]),
             'invite' => $this->invite($identity, $homeId, $body),
+            'revoke-invitation' => $this->revokeInvitation($identity, $homeId, $request, $body),
             'accept-invitation' => new JsonResponse(
                 $this->homes->acceptInvitation($identity, (string) ($body['token'] ?? '')),
             ),
             'switch' => new JsonResponse($this->homes->switch($identity, $homeId)),
             'change-role' => $this->changeRole($identity, $homeId, $request, $body),
             'transfer-ownership' => $this->transferOwnership($identity, $homeId, $body),
+            'ownership-transfers' => new JsonResponse([
+                'data' => $this->homes->ownershipTransfers($identity, $homeId),
+            ]),
+            'propose-ownership-transfer' => new JsonResponse($this->homes->proposeOwnershipTransfer(
+                $identity,
+                $homeId,
+                (string) ($body['targetUserId'] ?? ''),
+                (int) ($body['expectedTargetRevision'] ?? 0),
+                (string) ($body['stepUpToken'] ?? ''),
+            ), 201),
+            'accept-ownership-transfer' => $this->ownershipTransition(
+                $identity,
+                $homeId,
+                $request,
+                $body,
+                'accept',
+            ),
+            'reject-ownership-transfer' => $this->ownershipTransition(
+                $identity,
+                $homeId,
+                $request,
+                $body,
+                'reject',
+            ),
+            'revoke-ownership-transfer' => $this->ownershipTransition(
+                $identity,
+                $homeId,
+                $request,
+                $body,
+                'revoke',
+            ),
             'leave' => $this->leave($identity, $homeId),
             default => throw new \LogicException('Unknown home action.'),
         };
@@ -65,6 +108,7 @@ final class HomeHandler implements RequestHandlerInterface
         $response = [
             'invitationId' => $invitation['invitationId'],
             'expiresAt' => $invitation['expiresAt'],
+            'revision' => $invitation['revision'],
             'delivery' => 'transactional-email',
         ];
         if ($this->exposeDevelopmentTokens) {
@@ -92,6 +136,23 @@ final class HomeHandler implements RequestHandlerInterface
         return new EmptyResponse(204);
     }
 
+    /** @param array<string, mixed> $body */
+    private function revokeInvitation(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        ServerRequestInterface $request,
+        array $body,
+    ): ResponseInterface {
+        $this->homes->revokeInvitation(
+            $identity,
+            $homeId,
+            (string) $request->getAttribute('invitationId', ''),
+            (int) ($body['expectedRevision'] ?? 0),
+        );
+
+        return new EmptyResponse(204);
+    }
+
     private function leave(AuthenticatedIdentity $identity, string $homeId): ResponseInterface
     {
         $this->homes->leave($identity, $homeId);
@@ -110,7 +171,43 @@ final class HomeHandler implements RequestHandlerInterface
             $homeId,
             (string) ($body['targetUserId'] ?? ''),
             (int) ($body['expectedTargetRevision'] ?? 0),
+            (string) ($body['stepUpToken'] ?? ''),
         );
+
+        return new EmptyResponse(202);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function ownershipTransition(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        ServerRequestInterface $request,
+        array $body,
+        string $transition,
+    ): ResponseInterface {
+        $transferId = (string) $request->getAttribute('transferId', '');
+        $expectedRevision = (int) ($body['expectedRevision'] ?? 0);
+        match ($transition) {
+            'accept' => $this->homes->acceptOwnershipTransfer(
+                $identity,
+                $homeId,
+                $transferId,
+                $expectedRevision,
+            ),
+            'reject' => $this->homes->rejectOwnershipTransfer(
+                $identity,
+                $homeId,
+                $transferId,
+                $expectedRevision,
+            ),
+            'revoke' => $this->homes->revokeOwnershipTransfer(
+                $identity,
+                $homeId,
+                $transferId,
+                $expectedRevision,
+            ),
+            default => throw new \LogicException('Unknown ownership-transfer transition.'),
+        };
 
         return new EmptyResponse(204);
     }
@@ -123,5 +220,15 @@ final class HomeHandler implements RequestHandlerInterface
         }
 
         return $identity;
+    }
+
+    /** @return list<string> */
+    private function stringList(mixed $value): array
+    {
+        if (! is_array($value) || ! array_is_list($value)) {
+            return [];
+        }
+
+        return array_values(array_filter($value, 'is_string'));
     }
 }
