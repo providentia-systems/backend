@@ -4,9 +4,13 @@ on:
   pull_request:
     paths:
       - Dockerfile.production
+      - .dockerignore
       - compose.production.yaml
-      - infrastructure/caddy/Caddyfile.production
-      - infrastructure/php/production.ini
+      - infrastructure/**
+      - bin/**
+      - migrations/**
+      - templates/**
+      - tool/**
       - composer.json
       - composer.lock
       - src/**
@@ -30,6 +34,8 @@ jobs:
     env:
       APP_VERSION: ci
       PROVIDENTIA_IMAGE: providentia:ci
+      PROVIDENTIA_WEB_IMAGE: providentia-web:ci
+      PROVIDENTIA_TRUSTED_PROXY_CIDRS: 172.16.0.0/12
       DATABASE_URL: mysql://providentia:test@mysql:3306/providentia?charset=utf8mb4
       QUEUE_DSN: redis+phpredis://:test@redis:6379
       AUTH_TOKEN_PEPPER: ci-authentication-pepper-at-least-32-bytes
@@ -68,10 +74,69 @@ jobs:
           push: false
           load: true
           tags: providentia:production-ci
+          build-args: |
+            APP_VERSION=ci
+            VCS_REF=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Inspect non-root runtime
         run: |
           test "$(docker image inspect providentia:production-ci --format '{{.Config.User}}')" = "www-data"
           docker run --rm providentia:production-ci php --version
-          docker run --rm providentia:production-ci php -m | grep -E 'pdo_mysql|pdo_sqlite|redis|sodium'
+          for extension in pdo_mysql pdo_sqlite redis sodium; do
+            docker run --rm providentia:production-ci php -m | grep -Fxq "$extension"
+          done
+          test "$(docker run --rm providentia:production-ci sh -c 'command -v composer || true')" = ""
+      - name: Build immutable web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.production
+          target: web
+          push: false
+          load: true
+          tags: providentia-web:production-ci
+      - name: Exercise production containers
+        env:
+          APP_ENV: production
+          APP_VERSION: ci
+          APP_DEBUG: "0"
+          DATABASE_URL: sqlite:////app/var/production-smoke.sqlite
+          QUEUE_DSN: redis+phpredis://:test@redis:6379
+          QUEUE_NAME: providentia.smoke
+          QUEUE_REQUIRED: "1"
+          AUTH_TOKEN_PEPPER: ci-authentication-pepper-at-least-32-bytes
+          SYNC_CURSOR_SECRET: ci-synchronization-secret-at-least-32-bytes
+          MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
+          MAIL_FROM: no-reply@example.invalid
+          PUBLIC_BASE_URL: https://app.example.invalid
+          CORS_ALLOWED_ORIGINS: https://app.example.invalid
+          EXPOSE_DEVELOPMENT_TOKENS: "0"
+        run: |
+          docker network create providentia-smoke
+          docker volume create providentia-smoke-var
+          docker run --rm -v providentia-smoke-var:/data alpine:3.23 chown -R 82:82 /data
+          docker run -d --name redis --network providentia-smoke redis:8.2.1-alpine redis-server --requirepass test
+          COMMON_ENV=(
+            -e APP_ENV -e APP_VERSION -e APP_DEBUG -e DATABASE_URL -e QUEUE_DSN
+            -e QUEUE_NAME -e QUEUE_REQUIRED -e AUTH_TOKEN_PEPPER -e SYNC_CURSOR_SECRET
+            -e MAIL_DSN -e MAIL_FROM -e PUBLIC_BASE_URL -e CORS_ALLOWED_ORIGINS
+            -e EXPOSE_DEVELOPMENT_TOKENS
+          )
+          docker run --rm --network providentia-smoke -v providentia-smoke-var:/app/var \
+            "${COMMON_ENV[@]}" providentia:production-ci \
+            php bin/doctrine-migrations migrations:migrate --no-interaction
+          docker run -d --name api --network providentia-smoke --read-only \
+            --tmpfs /tmp:size=64m,mode=1777 -v providentia-smoke-var:/app/var \
+            "${COMMON_ENV[@]}" providentia:production-ci
+          docker run -d --name web --network providentia-smoke -p 18080:8080 \
+            -e PROVIDENTIA_TRUSTED_PROXY_CIDRS=172.16.0.0/12 providentia-web:production-ci
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:18080/health/ready && break
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:18080/health/live
+          curl --fail --silent http://127.0.0.1:18080/api/v1/system/info
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/metrics)" = "404"
+          docker stop --time 20 api web redis
+        timeout-minutes: 10

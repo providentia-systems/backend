@@ -3,7 +3,8 @@
     admin off
     persist_config off
     servers {
-        trusted_proxies static private_ranges
+        trusted_proxies static {$PROVIDENTIA_TRUSTED_PROXY_CIDRS}
+        trusted_proxies_strict
         client_ip_headers X-Forwarded-For X-Real-IP
     }
 }
@@ -16,6 +17,13 @@
         path /.env* /.git/* /composer.* /config/* /src/* /vendor/*
     }
     respond @blocked 404
+
+    @operational path /metrics
+    respond @operational 404
+
+    request_body {
+        max_size 20MB
+    }
 
     @static path /assets/*
     header @static Cache-Control "public, max-age=31536000, immutable"
@@ -31,11 +39,14 @@
         -Server
         X-Content-Type-Options nosniff
         Referrer-Policy strict-origin-when-cross-origin
-        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        Permissions-Policy "camera=(self), microphone=(), geolocation=()"
     }
 
     log {
         output stdout
-        format json
+        format filter {
+            request>uri regexp \\?.*$ ?REDACTED
+            wrap json
+        }
     }
 }
