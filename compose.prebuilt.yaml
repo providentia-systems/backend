@@ -1,0 +1,305 @@
+name: providentia-prebuilt
+
+x-app-environment: &app-environment
+  APP_ENV: development
+  APP_VERSION: ${PROVIDENTIA_VERSION:-edge}
+  APP_DEBUG: "0"
+  DATABASE_URL: mysql://providentia:${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}@mysql:3306/providentia?charset=utf8mb4
+  QUEUE_DSN: redis+phpredis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+  QUEUE_NAME: providentia.default
+  QUEUE_REQUIRED: "1"
+  AUTH_TOKEN_PEPPER: ${AUTH_TOKEN_PEPPER:?AUTH_TOKEN_PEPPER is required}
+  AUTH_PASSWORD_LOGIN_ENABLED: "1"
+  AUTH_ACCESS_TTL_SECONDS: "900"
+  AUTH_REFRESH_TTL_SECONDS: "2592000"
+  NOTIFICATION_PAYLOAD_KEK: ${NOTIFICATION_PAYLOAD_KEK:?NOTIFICATION_PAYLOAD_KEK is required}
+  NOTIFICATION_KEY_VERSION: "1"
+  SYNC_CURSOR_SECRET: ${SYNC_CURSOR_SECRET:?SYNC_CURSOR_SECRET is required}
+  SYNC_CURSOR_TTL_SECONDS: "2592000"
+  SYNC_OFFLINE_WINDOW_DAYS: "90"
+  SYNC_TOMBSTONE_RETENTION_DAYS: "120"
+  MAIL_DSN: smtp://mailpit:1025
+  MAIL_FROM: no-reply@providentia.local
+  PUBLIC_BASE_URL: http://127.0.0.1:${PROVIDENTIA_HTTP_PORT:-8080}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:8081,http://localhost:8081}
+  EXPOSE_DEVELOPMENT_TOKENS: "1"
+  AI_SERVER_PROXY_ENABLED: "0"
+  AI_ALLOW_PRIVATE_ENDPOINTS: "0"
+  AI_MEDIA_ROOT: var/private-media
+  AI_MEDIA_KEK: ${AI_MEDIA_KEK:?AI_MEDIA_KEK is required}
+  AI_MEDIA_KEY_VERSION: "1"
+  BILLING_ENABLED: "0"
+  BILLING_ALLOW_PRIVATE_ENDPOINTS: "0"
+  PAYPAL_ENABLED: "0"
+  HOSTED_CARD_ENABLED: "0"
+  DATA_EXPORT_KEK: ${DATA_EXPORT_KEK:?DATA_EXPORT_KEK is required}
+  DATA_EXPORT_ROOT: var/data-exports
+  OUTBOX_BATCH_SIZE: "100"
+  OUTBOX_MAX_ATTEMPTS: "10"
+
+x-app: &app
+  image: ${PROVIDENTIA_IMAGE:-ghcr.io/vast-development-method/providentia-laminas:edge}
+  pull_policy: always
+  restart: unless-stopped
+  init: true
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  volumes:
+    - app-var:/app/var
+  environment: *app-environment
+  networks:
+    - backend
+
+services:
+  volume-init:
+    <<: *app
+    profiles:
+      - tools
+    restart: "no"
+    user: root
+    cap_add:
+      - CHOWN
+    entrypoint:
+      - /bin/sh
+      - -ec
+    command:
+      - chown -R www-data:www-data /app/var
+
+  migrate:
+    <<: *app
+    profiles:
+      - tools
+    restart: "no"
+    command:
+      - php
+      - bin/doctrine-migrations
+      - migrations:migrate
+      - --no-interaction
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    command:
+      - php-fpm
+      - -F
+    expose:
+      - "9000"
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - bin/doctrine-migrations
+        - migrations:up-to-date
+        - --no-interaction
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
+  web:
+    image: ${PROVIDENTIA_WEB_IMAGE:-ghcr.io/vast-development-method/providentia-laminas-web:edge}
+    pull_policy: always
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /config:size=16m
+      - /data:size=16m
+      - /tmp:size=32m,mode=1777
+    ports:
+      - ${PROVIDENTIA_BIND_ADDRESS:-127.0.0.1}:${PROVIDENTIA_HTTP_PORT:-8080}:8080
+    environment:
+      PROVIDENTIA_TRUSTED_PROXY_CIDRS: ${PROVIDENTIA_TRUSTED_PROXY_CIDRS:-172.16.0.0/12}
+      PROVIDENTIA_METRICS_TOKEN: ${PROVIDENTIA_METRICS_TOKEN:?PROVIDENTIA_METRICS_TOKEN is required}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - --spider
+        - http://127.0.0.1:8080/health/ready
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    <<: *app
+    stop_grace_period: 30s
+    command:
+      - php
+      - bin/providentia
+      - queue:consume
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  outbox:
+    <<: *app
+    stop_grace_period: 30s
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while true; do
+          php bin/providentia outbox:relay --once
+          sleep "${OUTBOX_POLL_SECONDS:-2}"
+        done
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  notification:
+    <<: *app
+    stop_grace_period: 30s
+    command:
+      - php
+      - bin/providentia
+      - notification:deliver
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
+  data-governance:
+    <<: *app
+    stop_grace_period: 30s
+    command:
+      - php
+      - bin/providentia
+      - data-governance:process
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  sync-compactor:
+    <<: *app
+    stop_grace_period: 30s
+    command:
+      - php
+      - bin/providentia
+      - sync:compact
+      - --interval=3600
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  ai-video-worker:
+    <<: *app
+    image: ${PROVIDENTIA_MEDIA_IMAGE:-ghcr.io/vast-development-method/providentia-laminas-media-worker:edge}
+    stop_grace_period: 60s
+    command:
+      - php
+      - bin/providentia
+      - ai:video:process
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4.6
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: providentia
+      MYSQL_USER: providentia
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping -h 127.0.0.1 -uroot -p"$${MYSQL_ROOT_PASSWORD}" --silent
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - backend
+
+  redis:
+    image: redis:8.2.1-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -a "$${REDIS_PASSWORD}" --no-auth-warning ping | grep -q PONG
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+
+  mailpit:
+    image: axllent/mailpit:v1.27.8
+    restart: unless-stopped
+    ports:
+      - ${PROVIDENTIA_BIND_ADDRESS:-127.0.0.1}:${PROVIDENTIA_MAILPIT_PORT:-8025}:8025
+    healthcheck:
+      test:
+        - CMD
+        - /mailpit
+        - readyz
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      - backend
+
+networks:
+  frontend:
+  backend:
+
+volumes:
+  app-var:
+  mysql-data:
+  redis-data:
