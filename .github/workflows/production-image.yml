@@ -216,20 +216,23 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
-      - name: Resolve immutable and convenience tags
+      - name: Resolve immutable and promotion tags
         id: tags
         shell: bash
         run: |
           set -Eeuo pipefail
           short_sha="${GITHUB_SHA:0:12}"
-          runtime=("ghcr.io/vast-development-method/providentia-laminas:sha-${short_sha}")
-          web=("ghcr.io/vast-development-method/providentia-laminas-web:sha-${short_sha}")
-          media=("ghcr.io/vast-development-method/providentia-laminas-media-worker:sha-${short_sha}")
+          runtime="ghcr.io/vast-development-method/providentia-laminas:sha-${short_sha}"
+          web="ghcr.io/vast-development-method/providentia-laminas-web:sha-${short_sha}"
+          media="ghcr.io/vast-development-method/providentia-laminas-media-worker:sha-${short_sha}"
+          runtime_promotions=()
+          web_promotions=()
+          media_promotions=()
 
           if [[ "$GITHUB_REF" == refs/heads/main ]]; then
-            runtime+=("ghcr.io/vast-development-method/providentia-laminas:edge")
-            web+=("ghcr.io/vast-development-method/providentia-laminas-web:edge")
-            media+=("ghcr.io/vast-development-method/providentia-laminas-media-worker:edge")
+            runtime_promotions+=("ghcr.io/vast-development-method/providentia-laminas:edge")
+            web_promotions+=("ghcr.io/vast-development-method/providentia-laminas-web:edge")
+            media_promotions+=("ghcr.io/vast-development-method/providentia-laminas-media-worker:edge")
           fi
 
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
@@ -238,20 +241,23 @@ jobs:
               printf 'Release tag must be vX.Y.Z: %s\n' "$GITHUB_REF_NAME" >&2
               exit 2
             fi
-            runtime+=("ghcr.io/vast-development-method/providentia-laminas:${version}" "ghcr.io/vast-development-method/providentia-laminas:latest")
-            web+=("ghcr.io/vast-development-method/providentia-laminas-web:${version}" "ghcr.io/vast-development-method/providentia-laminas-web:latest")
-            media+=("ghcr.io/vast-development-method/providentia-laminas-media-worker:${version}" "ghcr.io/vast-development-method/providentia-laminas-media-worker:latest")
+            runtime_promotions+=("ghcr.io/vast-development-method/providentia-laminas:${version}" "ghcr.io/vast-development-method/providentia-laminas:latest")
+            web_promotions+=("ghcr.io/vast-development-method/providentia-laminas-web:${version}" "ghcr.io/vast-development-method/providentia-laminas-web:latest")
+            media_promotions+=("ghcr.io/vast-development-method/providentia-laminas-media-worker:${version}" "ghcr.io/vast-development-method/providentia-laminas-media-worker:latest")
           fi
 
           {
-            echo 'runtime<<EOF'
-            printf '%s\n' "${runtime[@]}"
+            printf 'runtime=%s\n' "$runtime"
+            printf 'web=%s\n' "$web"
+            printf 'media=%s\n' "$media"
+            echo 'runtime_promotions<<EOF'
+            printf '%s\n' "${runtime_promotions[@]}"
             echo 'EOF'
-            echo 'web<<EOF'
-            printf '%s\n' "${web[@]}"
+            echo 'web_promotions<<EOF'
+            printf '%s\n' "${web_promotions[@]}"
             echo 'EOF'
-            echo 'media<<EOF'
-            printf '%s\n' "${media[@]}"
+            echo 'media_promotions<<EOF'
+            printf '%s\n' "${media_promotions[@]}"
             echo 'EOF'
           } >>"$GITHUB_OUTPUT"
       - name: Publish runtime image
@@ -308,7 +314,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=production-media
           provenance: mode=max
           sbom: true
-      - name: Record and inspect published digests
+      - name: Record and inspect immutable published digests
         run: |
           cat >published-images.txt <<EOF
           ghcr.io/vast-development-method/providentia-laminas@${{ steps.runtime.outputs.digest }}
@@ -318,9 +324,126 @@ jobs:
           while IFS= read -r image; do
             docker buildx imagetools inspect "$image"
           done <published-images.txt
+      - name: Scan each published platform by immutable digest
+        run: |
+          mkdir -p var/published-image-scans
+          while IFS= read -r image; do
+            for platform in linux/amd64 linux/arm64; do
+              report="$(printf '%s-%s' "$image" "$platform" | tr ':/' '-')"
+              docker run --rm --entrypoint trivy \
+                -v "$HOME/.docker:/root/.docker:ro" \
+                -v "$PWD/var/published-image-scans:/reports" \
+                aquasec/trivy:0.65.0 \
+                image --platform "$platform" --ignore-unfixed \
+                --severity HIGH,CRITICAL --exit-code 1 \
+                --format sarif --output "/reports/${report}.sarif" \
+                "$image"
+            done
+          done <published-images.txt
+      - name: Exercise the immutable published runtime
+        env:
+          APP_ENV: production
+          APP_VERSION: ${{ github.ref_name }}
+          APP_DEBUG: "0"
+          DATABASE_URL: sqlite:////app/var/published-smoke.sqlite
+          QUEUE_DSN: redis+phpredis://:test@redis:6379
+          QUEUE_NAME: providentia.published-smoke
+          QUEUE_REQUIRED: "1"
+          AUTH_TOKEN_PEPPER: published-authentication-pepper-at-least-32-bytes
+          NOTIFICATION_PAYLOAD_KEK: Y2ktbm90aWZpY2F0aW9uLWtleS0zMi1ieXRlcy1vayE=
+          AI_MEDIA_KEK: bW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW0=
+          DATA_EXPORT_KEK: ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGQ=
+          SYNC_CURSOR_SECRET: published-synchronization-secret-at-least-32-bytes
+          MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
+          MAIL_FROM: no-reply@example.invalid
+          PUBLIC_BASE_URL: https://app.example.invalid
+          CORS_ALLOWED_ORIGINS: https://app.example.invalid
+          EXPOSE_DEVELOPMENT_TOKENS: "0"
+          RUNTIME_IMAGE: ghcr.io/vast-development-method/providentia-laminas@${{ steps.runtime.outputs.digest }}
+          WEB_IMAGE: ghcr.io/vast-development-method/providentia-laminas-web@${{ steps.web.outputs.digest }}
+          MEDIA_IMAGE: ghcr.io/vast-development-method/providentia-laminas-media-worker@${{ steps.media.outputs.digest }}
+        run: |
+          cleanup() {
+            docker rm --force providentia-published-api providentia-published-web providentia-published-redis >/dev/null 2>&1 || true
+            docker network rm providentia-published >/dev/null 2>&1 || true
+            docker volume rm providentia-published-var >/dev/null 2>&1 || true
+          }
+          diagnostics() {
+            local status=$?
+            if ((status != 0)); then
+              docker ps -a
+              docker logs providentia-published-api 2>&1 || true
+              docker logs providentia-published-web 2>&1 || true
+              docker logs providentia-published-redis 2>&1 || true
+            fi
+            cleanup
+            exit "$status"
+          }
+          trap diagnostics EXIT
+          docker network create providentia-published
+          docker volume create providentia-published-var
+          docker run --rm -v providentia-published-var:/data alpine:3.23 chown -R 82:82 /data
+          docker run -d --name providentia-published-redis --network providentia-published \
+            --network-alias redis redis:8.2.1-alpine redis-server --requirepass test
+          COMMON_ENV=(
+            -e APP_ENV -e APP_VERSION -e APP_DEBUG -e DATABASE_URL -e QUEUE_DSN
+            -e QUEUE_NAME -e QUEUE_REQUIRED -e AUTH_TOKEN_PEPPER -e NOTIFICATION_PAYLOAD_KEK
+            -e SYNC_CURSOR_SECRET -e AI_MEDIA_KEK -e DATA_EXPORT_KEK
+            -e MAIL_DSN -e MAIL_FROM -e PUBLIC_BASE_URL -e CORS_ALLOWED_ORIGINS
+            -e EXPOSE_DEVELOPMENT_TOKENS
+          )
+          docker run --rm --network providentia-published -v providentia-published-var:/app/var \
+            "${COMMON_ENV[@]}" "$RUNTIME_IMAGE" \
+            php bin/doctrine-migrations migrations:migrate --no-interaction
+          docker run -d --name providentia-published-api --network providentia-published \
+            --network-alias api --read-only --tmpfs /tmp:size=64m,mode=1777 \
+            -v providentia-published-var:/app/var \
+            "${COMMON_ENV[@]}" "$RUNTIME_IMAGE"
+          docker run -d --name providentia-published-web --network providentia-published \
+            -p 18080:8080 -e PROVIDENTIA_TRUSTED_PROXY_CIDRS=172.16.0.0/12 \
+            -e PROVIDENTIA_METRICS_TOKEN=published-metrics-token-at-least-32-bytes \
+            "$WEB_IMAGE"
+          docker run --rm "$MEDIA_IMAGE" ffmpeg -version
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl --fail-with-body --silent http://127.0.0.1:18080/health/ready; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = "1"
+          curl --fail-with-body --silent http://127.0.0.1:18080/health/live
+          curl --fail-with-body --silent http://127.0.0.1:18080/api/v1/system/info
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/metrics)" = "404"
+      - name: Promote only scanned and exercised digests
+        env:
+          RUNTIME_IMAGE: ghcr.io/vast-development-method/providentia-laminas@${{ steps.runtime.outputs.digest }}
+          WEB_IMAGE: ghcr.io/vast-development-method/providentia-laminas-web@${{ steps.web.outputs.digest }}
+          MEDIA_IMAGE: ghcr.io/vast-development-method/providentia-laminas-media-worker@${{ steps.media.outputs.digest }}
+          RUNTIME_PROMOTIONS: ${{ steps.tags.outputs.runtime_promotions }}
+          WEB_PROMOTIONS: ${{ steps.tags.outputs.web_promotions }}
+          MEDIA_PROMOTIONS: ${{ steps.tags.outputs.media_promotions }}
+        run: |
+          promote() {
+            local source="$1"
+            local tags="$2"
+            local tag
+            while IFS= read -r tag; do
+              [[ -n "$tag" ]] || continue
+              docker buildx imagetools create --tag "$tag" "$source"
+              docker buildx imagetools inspect "$tag"
+            done <<<"$tags"
+          }
+          promote "$RUNTIME_IMAGE" "$RUNTIME_PROMOTIONS"
+          promote "$WEB_IMAGE" "$WEB_PROMOTIONS"
+          promote "$MEDIA_IMAGE" "$MEDIA_PROMOTIONS"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
         with:
           name: published-container-digests-${{ github.sha }}
-          path: published-images.txt
-          if-no-files-found: error
+          path: |
+            published-images.txt
+            var/published-image-scans/*.sarif
+          if-no-files-found: warn
           retention-days: 90
