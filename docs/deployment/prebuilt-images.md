@@ -19,10 +19,13 @@ only in this loopback profile.
 | Caddy public edge and immutable public files | `ghcr.io/vast-development-method/providentia-laminas-web` |
 | Isolated FFmpeg/FFprobe video worker | `ghcr.io/vast-development-method/providentia-laminas-media-worker` |
 
-Every successful publication produces `sha-<12-character-commit>` tags.
-Merges to `main` also update `edge`. A `vX.Y.Z` Git tag publishes `X.Y.Z` and
-`latest`. Production deployments must pin the three recorded digests; `edge`
-and `latest` are convenience tags, not immutable release identities.
+Every publication first produces `sha-<12-character-commit>` candidate tags.
+The workflow scans both published platforms and exercises the exact registry
+digests before a merge to `main` may update `edge`, or a `vX.Y.Z` tag may
+update `X.Y.Z` and `latest`. A failed candidate can therefore retain a `sha-*`
+tag for investigation but is never promoted. Production deployments must pin
+the three recorded successful digests; `edge` and `latest` are convenience
+tags, not immutable release identities.
 
 The repository is private, so the packages normally require GitHub Container
 Registry authentication. Use a token that can read the repository packages:
@@ -101,9 +104,10 @@ docker compose \
 ```
 
 Readiness proves database connectivity and migration state through the actual
-Caddy-to-PHP-FPM path. The workflow also starts freshly built images, migrates
-an empty database, and calls the same live, ready, and system endpoints before
-it is allowed to publish packages.
+Caddy-to-PHP-FPM path. The workflow starts freshly built images before initial
+publication, then scans both platforms and repeats migration plus live, ready,
+and system probes against the exact published digests before any convenience
+tag is promoted.
 
 ## Point Flutter at it
 
