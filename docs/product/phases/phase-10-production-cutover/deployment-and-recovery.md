@@ -14,16 +14,21 @@ manual dispatch publishes:
 - `ghcr.io/vast-development-method/providentia-laminas-web`; and
 - `ghcr.io/vast-development-method/providentia-laminas-media-worker`.
 
-Each publication includes an immutable `sha-<12-character-commit>` tag. `main`
-also updates `edge`; a `vX.Y.Z` Git tag publishes `X.Y.Z` and `latest`. The
-workflow publishes Linux AMD64 and ARM64 manifests, provenance, SBOM
-attestations, and a 90-day `published-container-digests-<commit>` artifact.
+Each publication begins with an immutable `sha-<12-character-commit>` tag. The
+workflow publishes Linux AMD64 and ARM64 manifests with provenance and SBOM
+attestations, scans both platforms at their registry digests, and exercises the
+actual published runtime through Caddy and PHP-FPM. Only then may `main` update
+`edge`, or a `vX.Y.Z` Git tag update `X.Y.Z` and `latest`. A failed candidate
+can remain addressable by `sha-*` for investigation but is never promoted. The
+90-day `published-container-digests-<commit>` artifact records the accepted
+digests and scan reports.
 
 The publish job cannot run until the workflow has built all targets, inspected
 their non-root/tool boundaries, migrated an empty database, and successfully
-called liveness, readiness, and system-information endpoints through Caddy and
-PHP-FPM. The separate Security workflow remains a required promotion gate for
-container vulnerability scanning.
+called liveness, readiness, and system-information endpoints. Its own
+digest-addressed scan and second HTTP smoke protect promotion against rebuild
+drift. The separate Security workflow remains an independent defence-in-depth
+gate before merge.
 
 For private packages, authenticate before pulling:
 
