@@ -24,6 +24,28 @@ The resolved production dependency graph is committed in `composer.lock`.
 Normal CI and deployments use `composer install`; they never update
 dependencies implicitly.
 
+## Fastest local runtime: published images
+
+No PHP, Composer, Caddy, or FFmpeg build is required on the workstation. After
+authenticating to GHCR when the private packages require it, run:
+
+```bash
+bash scripts/setup-prebuilt.sh
+```
+
+This pulls the production API, web, and media-worker images, starts MySQL,
+Redis, Mailpit, migrations, and all long-running workers, proves the live HTTP
+runtime, provisions a verified local account/home, and writes the protected
+`.providentia-development.json` handoff for Flutter.
+
+- API: `http://127.0.0.1:8080`
+- readiness: `http://127.0.0.1:8080/health/ready`
+- Mailpit: `http://127.0.0.1:8025`
+
+See [published-image local deployment](docs/deployment/prebuilt-images.md) for
+GHCR login, immutable tags, Flutter emulator/device URLs, updates, logs, reset,
+and the production boundary.
+
 ## Golden development environment
 
 The supported full local path uses MySQL, Redis, Mailpit, the API, queue worker,
@@ -70,7 +92,7 @@ Then open:
 `/metrics` must be private in a deployed environment. The supplied Caddy
 baseline denies it at the public edge.
 
-## Compose profiles
+## Source-build Compose profiles
 
 ```bash
 make sqlite
@@ -133,6 +155,9 @@ bash tests/structural/verify.sh
 
 CI additionally applies, rolls back, and reapplies the same migration on
 SQLite, MySQL, and MariaDB, and executes queue proofs against Redis and Valkey.
+The production-image workflow smoke-tests the runtime targets before publishing
+multi-architecture GHCR images with provenance, SBOM attestations, and recorded
+digests.
 
 ## Contracts
 
