@@ -6,11 +6,13 @@ on:
       - Dockerfile.production
       - .dockerignore
       - compose.production.yaml
+      - compose.prebuilt.yaml
       - infrastructure/**
       - bin/**
       - migrations/**
       - templates/**
       - tool/**
+      - scripts/setup-prebuilt.sh
       - composer.json
       - composer.lock
       - src/**
@@ -18,7 +20,10 @@ on:
       - public/**
       - .github/workflows/production-image.yml
   push:
-    branches: [main]
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
 
 permissions:
@@ -59,9 +64,11 @@ jobs:
       BACKUP_STAGING_DIRECTORY: /tmp
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - name: Validate all production profiles
+      - name: Validate production and prebuilt profiles
         run: |
           docker compose -f compose.production.yaml --profile tools --profile mysql --profile mariadb --profile redis --profile backup config --quiet
+          docker compose -f compose.prebuilt.yaml --profile tools config --quiet
+          bash -n scripts/setup-prebuilt.sh
 
   build:
     runs-on: ubuntu-24.04
@@ -82,8 +89,8 @@ jobs:
           build-args: |
             APP_VERSION=ci
             VCS_REF=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=production-runtime
+          cache-to: type=gha,mode=max,scope=production-runtime
       - name: Inspect non-root runtime
         run: |
           test "$(docker image inspect providentia:production-ci --format '{{.Config.User}}')" = "www-data"
@@ -102,6 +109,8 @@ jobs:
           push: false
           load: true
           tags: providentia-media-worker:production-ci
+          cache-from: type=gha,scope=production-media
+          cache-to: type=gha,mode=max,scope=production-media
       - name: Inspect media worker boundary
         run: |
           test "$(docker image inspect providentia-media-worker:production-ci --format '{{.Config.User}}')" = "www-data"
@@ -116,6 +125,8 @@ jobs:
           push: false
           load: true
           tags: providentia-web:production-ci
+          cache-from: type=gha,scope=production-web
+          cache-to: type=gha,mode=max,scope=production-web
       - name: Inspect patched non-root web boundary
         run: |
           test "$(docker image inspect providentia-web:production-ci --format '{{.Config.User}}')" = "caddy"
@@ -185,3 +196,131 @@ jobs:
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/metrics)" = "404"
           docker stop --time 20 api web redis
         timeout-minutes: 10
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs:
+      - validate-compose
+      - build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: docker/setup-qemu-action@e77e8065d9f7ec6abdd9838668cd7b43924dd64d # v3.6.0
+      - uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
+      - name: Authenticate to GitHub Container Registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+      - name: Resolve immutable and convenience tags
+        id: tags
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          short_sha="${GITHUB_SHA:0:12}"
+          runtime=("ghcr.io/vast-development-method/providentia-laminas:sha-${short_sha}")
+          web=("ghcr.io/vast-development-method/providentia-laminas-web:sha-${short_sha}")
+          media=("ghcr.io/vast-development-method/providentia-laminas-media-worker:sha-${short_sha}")
+
+          if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            runtime+=("ghcr.io/vast-development-method/providentia-laminas:edge")
+            web+=("ghcr.io/vast-development-method/providentia-laminas-web:edge")
+            media+=("ghcr.io/vast-development-method/providentia-laminas-media-worker:edge")
+          fi
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              printf 'Release tag must be vX.Y.Z: %s\n' "$GITHUB_REF_NAME" >&2
+              exit 2
+            fi
+            runtime+=("ghcr.io/vast-development-method/providentia-laminas:${version}" "ghcr.io/vast-development-method/providentia-laminas:latest")
+            web+=("ghcr.io/vast-development-method/providentia-laminas-web:${version}" "ghcr.io/vast-development-method/providentia-laminas-web:latest")
+            media+=("ghcr.io/vast-development-method/providentia-laminas-media-worker:${version}" "ghcr.io/vast-development-method/providentia-laminas-media-worker:latest")
+          fi
+
+          {
+            echo 'runtime<<EOF'
+            printf '%s\n' "${runtime[@]}"
+            echo 'EOF'
+            echo 'web<<EOF'
+            printf '%s\n' "${web[@]}"
+            echo 'EOF'
+            echo 'media<<EOF'
+            printf '%s\n' "${media[@]}"
+            echo 'EOF'
+          } >>"$GITHUB_OUTPUT"
+      - name: Publish runtime image
+        id: runtime
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: Dockerfile.production
+          target: runtime
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.runtime }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
+            VCS_REF=${{ github.sha }}
+          cache-from: type=gha,scope=production-runtime
+          cache-to: type=gha,mode=max,scope=production-runtime
+          provenance: mode=max
+          sbom: true
+      - name: Publish web image
+        id: web
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: Dockerfile.production
+          target: web
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.web }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=production-web
+          cache-to: type=gha,mode=max,scope=production-web
+          provenance: mode=max
+          sbom: true
+      - name: Publish media-worker image
+        id: media
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: Dockerfile.production
+          target: media-worker
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.media }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=production-media
+          cache-to: type=gha,mode=max,scope=production-media
+          provenance: mode=max
+          sbom: true
+      - name: Record and inspect published digests
+        run: |
+          cat >published-images.txt <<EOF
+          ghcr.io/vast-development-method/providentia-laminas@${{ steps.runtime.outputs.digest }}
+          ghcr.io/vast-development-method/providentia-laminas-web@${{ steps.web.outputs.digest }}
+          ghcr.io/vast-development-method/providentia-laminas-media-worker@${{ steps.media.outputs.digest }}
+          EOF
+          while IFS= read -r image; do
+            docker buildx imagetools inspect "$image"
+          done <published-images.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: published-container-digests-${{ github.sha }}
+          path: published-images.txt
+          if-no-files-found: error
+          retention-days: 90
