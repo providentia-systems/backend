@@ -1,21 +1,67 @@
 # Phase 9–10 production deployment and recovery
 
-This runbook describes the backend release topology. Flutter installers, signing,
-PWA packaging, and store publication remain in the Flutter repository.
+This runbook describes the backend release topology. Flutter installers,
+signing, PWA packaging, and store publication remain in the Flutter repository.
 
-## Build and publish
+## Build, verify, and publish
 
-Build all three targets from the same immutable commit:
+`.github/workflows/production-image.yml` is the authoritative container release
+pipeline. Pull requests build and exercise the production runtime, Caddy edge,
+and isolated FFmpeg worker without publishing. A successful `main` build or
+manual dispatch publishes:
+
+- `ghcr.io/vast-development-method/providentia-laminas`;
+- `ghcr.io/vast-development-method/providentia-laminas-web`; and
+- `ghcr.io/vast-development-method/providentia-laminas-media-worker`.
+
+Each publication includes an immutable `sha-<12-character-commit>` tag. `main`
+also updates `edge`; a `vX.Y.Z` Git tag publishes `X.Y.Z` and `latest`. The
+workflow publishes Linux AMD64 and ARM64 manifests, provenance, SBOM
+attestations, and a 90-day `published-container-digests-<commit>` artifact.
+
+The publish job cannot run until the workflow has built all targets, inspected
+their non-root/tool boundaries, migrated an empty database, and successfully
+called liveness, readiness, and system-information endpoints through Caddy and
+PHP-FPM. The separate Security workflow remains a required promotion gate for
+container vulnerability scanning.
+
+For private packages, authenticate before pulling:
 
 ```bash
-docker build --file Dockerfile.production --target runtime --tag registry.example/providentia:<git-sha> .
-docker build --file Dockerfile.production --target cli --tag registry.example/providentia:<git-sha>-cli .
-docker build --file Dockerfile.production --target media-worker --tag registry.example/providentia:<git-sha>-media .
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io \
+  --username YOUR_GITHUB_LOGIN \
+  --password-stdin
 ```
 
-The deployment variable `PROVIDENTIA_IMAGE` must resolve to the tested runtime
-image by immutable digest in production. Image publication must include an SBOM,
-vulnerability scan, provenance, and signature before promotion.
+Production must replace every mutable tag with the three exact digest
+coordinates from the workflow artifact, for example:
+
+```dotenv
+PROVIDENTIA_IMAGE=ghcr.io/vast-development-method/providentia-laminas@sha256:...
+PROVIDENTIA_WEB_IMAGE=ghcr.io/vast-development-method/providentia-laminas-web@sha256:...
+PROVIDENTIA_MEDIA_IMAGE=ghcr.io/vast-development-method/providentia-laminas-media-worker@sha256:...
+```
+
+Manual builds are useful for investigation but are not release publication:
+
+```bash
+docker build --file Dockerfile.production --target runtime --tag providentia:local .
+docker build --file Dockerfile.production --target web --tag providentia-web:local .
+docker build --file Dockerfile.production --target media-worker --tag providentia-media-worker:local .
+```
+
+## Local prebuilt-image proof
+
+Before staging, prove the published image set and Flutter connection locally:
+
+```bash
+bash scripts/setup-prebuilt.sh --version sha-0123456789ab
+```
+
+The command pulls images instead of compiling them, starts the full MySQL and
+Redis application topology, migrates, waits for readiness, provisions a local
+verified account/home, and writes `.providentia-development.json`. See
+[prebuilt-image local deployment](../../../deployment/prebuilt-images.md).
 
 ## Domain-neutral edge
 
@@ -126,8 +172,8 @@ reconciliation, export device-local data, validate MySQL and MariaDB profiles,
 and take a pre-cutover backup.
 
 Deploy with a canary, observe API errors/latency, DB saturation, queue lag,
-outbox failures, authentication abuse, and AI/payment failure metrics. Roll back
-application containers to the prior digest only when the schema is
+outbox failures, authentication abuse, and AI/payment failure metrics. Roll
+back application containers to the prior digest only when the schema is
 backward-compatible. If a migration is not backward-compatible, use the
 release-specific, rehearsed forward-fix or restore plan; never improvise a
 production down-migration.
@@ -146,5 +192,5 @@ This file establishes the deployable topology but does not itself close Phase
 - multi-provider AI/media acceptance proof;
 - payment sandbox and webhook-idempotency proof;
 - backup/restore rehearsal evidence;
-- monitored canary and rollback exercise;
+- monitored canary and rollback exercise; and
 - reconciled Phase 0–8 acceptance checklists.
