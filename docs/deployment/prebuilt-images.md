@@ -1,0 +1,167 @@
+# Run the published backend images locally
+
+This is the fastest supported path for pointing Flutter at a complete local
+Providentia backend. It pulls the same production runtime, Caddy edge, and
+media-worker targets that the repository builds and smoke-tests. It does not
+compile PHP, Composer dependencies, Caddy, or FFmpeg on the workstation.
+
+The local profile runs those immutable application images with MySQL 8.4,
+Redis 8.2, Mailpit, migrations, the API, queue worker, outbox relay,
+notification worker, data-governance worker, synchronization compactor, and
+video worker. Development-only email tokens and password login are enabled
+only in this loopback profile.
+
+## Published packages and tags
+
+| Purpose | GHCR package |
+|---|---|
+| PHP-FPM API, CLI, migrations, and ordinary workers | `ghcr.io/vast-development-method/providentia-laminas` |
+| Caddy public edge and immutable public files | `ghcr.io/vast-development-method/providentia-laminas-web` |
+| Isolated FFmpeg/FFprobe video worker | `ghcr.io/vast-development-method/providentia-laminas-media-worker` |
+
+Every successful publication produces `sha-<12-character-commit>` tags.
+Merges to `main` also update `edge`. A `vX.Y.Z` Git tag publishes `X.Y.Z` and
+`latest`. Production deployments must pin the three recorded digests; `edge`
+and `latest` are convenience tags, not immutable release identities.
+
+The repository is private, so the packages normally require GitHub Container
+Registry authentication. Use a token that can read the repository packages:
+
+```bash
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io \
+  --username YOUR_GITHUB_LOGIN \
+  --password-stdin
+```
+
+If package visibility is changed to public, authentication is not required for
+pulls. Never put the token in Compose YAML, shell history, or a committed env
+file.
+
+## One-command local environment
+
+Requirements:
+
+- Docker Engine with the Compose v2 plugin;
+- `curl`, `jq`, and `openssl`;
+- access to all three GHCR packages.
+
+Clone the repository only to obtain the deployment files, then run the
+bootstrap:
+
+```bash
+git clone https://github.com/vast-development-method/providentia-laminas.git
+cd providentia-laminas
+bash scripts/setup-prebuilt.sh
+```
+
+The script:
+
+1. generates `.env.prebuilt.local` with independent random local secrets and
+   mode `0600`;
+2. pulls the published production images;
+3. starts and health-checks MySQL, Redis, and Mailpit;
+4. applies Doctrine migrations exactly once;
+5. starts every long-running application process and waits for readiness;
+6. proves liveness, readiness, and system information over HTTP;
+7. creates or reuses a verified developer account and active home; and
+8. writes `.providentia-development.json` with the API URL, home, device,
+   credentials, and tokens for Flutter development.
+
+Useful overrides are explicit and do not require editing YAML:
+
+```bash
+bash scripts/setup-prebuilt.sh \
+  --version sha-0123456789ab \
+  --dev-email developer@example.test \
+  --http-port 18080 \
+  --mailpit-port 18025
+```
+
+Use an immutable `sha-*` or `X.Y.Z` tag when reproducing a defect. Running the
+script again is safe: it pulls the selected tag, reapplies only pending
+migrations, reuses the account/home, and waits for the complete stack.
+
+## Verify the runtime
+
+The setup already performs these probes. They remain useful for manual checks:
+
+```bash
+curl --fail-with-body http://127.0.0.1:8080/health/live
+curl --fail-with-body http://127.0.0.1:8080/health/ready
+curl --fail-with-body http://127.0.0.1:8080/api/v1/system/info
+
+PROVIDENTIA_BASE_URL=http://127.0.0.1:8080 \
+PROVIDENTIA_ALLOW_HTTP=1 \
+  bash tests/Acceptance/production-http-smoke.sh
+
+docker compose \
+  --env-file .env.prebuilt.local \
+  -f compose.prebuilt.yaml \
+  ps
+```
+
+Readiness proves database connectivity and migration state through the actual
+Caddy-to-PHP-FPM path. The workflow also starts freshly built images, migrates
+an empty database, and calls the same live, ready, and system endpoints before
+it is allowed to publish packages.
+
+## Point Flutter at it
+
+Use `apiBaseUrl`, `homeId`, `deviceId`, and the development credentials from
+`.providentia-development.json`.
+
+| Flutter target | API base URL |
+|---|---|
+| Linux, Windows, or macOS on the Docker host | `http://127.0.0.1:8080` |
+| iOS Simulator on the Docker host | `http://127.0.0.1:8080` |
+| Android Emulator | `http://10.0.2.2:8080` |
+| Physical device on the trusted LAN | `http://<docker-host-lan-ip>:8080` |
+
+For a physical device, bind deliberately to the LAN interface and permit only
+the development device in the host firewall:
+
+```bash
+bash scripts/setup-prebuilt.sh --bind-address 0.0.0.0
+```
+
+Plain HTTP, exposed development tokens, and password login in this profile are
+for an isolated local network only. Never expose `compose.prebuilt.yaml` to the
+internet or reuse its secrets in staging or production.
+
+## Operate and update
+
+Show bounded logs:
+
+```bash
+docker compose --env-file .env.prebuilt.local -f compose.prebuilt.yaml \
+  logs --tail=200 api web worker outbox
+```
+
+Pull the current `edge` images and safely re-run migrations:
+
+```bash
+bash scripts/setup-prebuilt.sh --version edge
+```
+
+Stop containers while preserving MySQL, Redis, and application data:
+
+```bash
+docker compose --env-file .env.prebuilt.local -f compose.prebuilt.yaml down
+```
+
+The following reset permanently removes the local test database, queue, and
+application artifacts. It does not delete the protected env or Flutter handoff
+files:
+
+```bash
+docker compose --env-file .env.prebuilt.local -f compose.prebuilt.yaml down --volumes
+```
+
+## Production boundary
+
+`compose.prebuilt.yaml` proves deployability and provides Flutter integration;
+it is intentionally a development configuration. Production uses
+`compose.production.yaml`, `.env.production.example`, TLS at the trusted edge,
+real SMTP, external secret management, digest-pinned images, backups, and the
+Phase 10 operator acceptance gates. Follow the
+[production deployment and recovery runbook](../product/phases/phase-10-production-cutover/deployment-and-recovery.md).
