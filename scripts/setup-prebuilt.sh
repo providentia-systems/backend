@@ -1,0 +1,299 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+compose_file="${root_dir}/compose.prebuilt.yaml"
+env_file="${PROVIDENTIA_PREBUILT_ENV_FILE:-${root_dir}/.env.prebuilt.local}"
+handoff_file="${root_dir}/.providentia-development.json"
+version_override=""
+email_override=""
+password_override=""
+http_port_override=""
+mailpit_port_override=""
+bind_address_override=""
+skip_provision=0
+
+usage() {
+    cat <<'EOF'
+Usage: bash scripts/setup-prebuilt.sh [options]
+
+Pull and run the published Providentia production images for local testing.
+
+Options:
+  --version TAG          Image tag to run (default: edge)
+  --dev-email EMAIL     Development account email
+  --dev-password PASS   Development account password
+  --http-port PORT      Host API port (default: 8080)
+  --mailpit-port PORT   Host Mailpit port (default: 8025)
+  --bind-address IP     Host bind address (default: 127.0.0.1)
+  --skip-provision      Start and test the stack without creating an account/home
+  --help                Show this help
+EOF
+}
+
+while (($#)); do
+    case "$1" in
+        --version) version_override="${2:?--version requires a tag}"; shift 2 ;;
+        --dev-email) email_override="${2:?--dev-email requires a value}"; shift 2 ;;
+        --dev-password) password_override="${2:?--dev-password requires a value}"; shift 2 ;;
+        --http-port) http_port_override="${2:?--http-port requires a value}"; shift 2 ;;
+        --mailpit-port) mailpit_port_override="${2:?--mailpit-port requires a value}"; shift 2 ;;
+        --bind-address) bind_address_override="${2:?--bind-address requires a value}"; shift 2 ;;
+        --skip-provision) skip_provision=1; shift ;;
+        --help|-h) usage; exit 0 ;;
+        *) printf 'Unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    esac
+done
+
+for command_name in docker curl jq openssl; do
+    command -v "$command_name" >/dev/null 2>&1 || {
+        printf 'Required command is unavailable: %s\n' "$command_name" >&2
+        exit 1
+    }
+done
+docker compose version >/dev/null 2>&1 || {
+    printf 'Docker Compose v2 is required (docker compose).\n' >&2
+    exit 1
+}
+
+if [[ ! -f "$env_file" ]]; then
+    umask 077
+    generated_password="${password_override:-$(openssl rand -hex 16)}"
+    generated_version="${version_override:-edge}"
+    generated_email="${email_override:-developer@providentia.local}"
+    generated_http_port="${http_port_override:-8080}"
+    generated_mailpit_port="${mailpit_port_override:-8025}"
+    generated_bind_address="${bind_address_override:-127.0.0.1}"
+    {
+        printf 'PROVIDENTIA_VERSION=%s\n' "$generated_version"
+        printf 'PROVIDENTIA_IMAGE=ghcr.io/vast-development-method/providentia-laminas:%s\n' "$generated_version"
+        printf 'PROVIDENTIA_WEB_IMAGE=ghcr.io/vast-development-method/providentia-laminas-web:%s\n' "$generated_version"
+        printf 'PROVIDENTIA_MEDIA_IMAGE=ghcr.io/vast-development-method/providentia-laminas-media-worker:%s\n' "$generated_version"
+        printf 'PROVIDENTIA_BIND_ADDRESS=%s\n' "$generated_bind_address"
+        printf 'PROVIDENTIA_HTTP_PORT=%s\n' "$generated_http_port"
+        printf 'PROVIDENTIA_MAILPIT_PORT=%s\n' "$generated_mailpit_port"
+        printf 'PROVIDENTIA_TRUSTED_PROXY_CIDRS=172.16.0.0/12\n'
+        printf 'PROVIDENTIA_METRICS_TOKEN=%s\n' "$(openssl rand -hex 32)"
+        printf 'MYSQL_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+        printf 'MYSQL_ROOT_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+        printf 'REDIS_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+        printf 'AUTH_TOKEN_PEPPER=%s\n' "$(openssl rand -hex 32)"
+        printf 'SYNC_CURSOR_SECRET=%s\n' "$(openssl rand -hex 32)"
+        printf 'NOTIFICATION_PAYLOAD_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')"
+        printf 'AI_MEDIA_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')"
+        printf 'DATA_EXPORT_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')"
+        printf 'PROVIDENTIA_DEV_EMAIL=%s\n' "$generated_email"
+        printf 'PROVIDENTIA_DEV_PASSWORD=%s\n' "$generated_password"
+        printf 'PROVIDENTIA_DEV_DEVICE_ID=%s\n' "$(cat /proc/sys/kernel/random/uuid)"
+    } >"$env_file"
+    chmod 0600 "$env_file"
+fi
+
+set -a
+# This file is generated locally with fixed KEY=VALUE lines and mode 0600.
+source "$env_file"
+set +a
+
+export PROVIDENTIA_VERSION="${version_override:-${PROVIDENTIA_VERSION:?PROVIDENTIA_VERSION is required}}"
+export PROVIDENTIA_IMAGE="ghcr.io/vast-development-method/providentia-laminas:${PROVIDENTIA_VERSION}"
+export PROVIDENTIA_WEB_IMAGE="ghcr.io/vast-development-method/providentia-laminas-web:${PROVIDENTIA_VERSION}"
+export PROVIDENTIA_MEDIA_IMAGE="ghcr.io/vast-development-method/providentia-laminas-media-worker:${PROVIDENTIA_VERSION}"
+export PROVIDENTIA_DEV_EMAIL="${email_override:-${PROVIDENTIA_DEV_EMAIL:?PROVIDENTIA_DEV_EMAIL is required}}"
+export PROVIDENTIA_DEV_PASSWORD="${password_override:-${PROVIDENTIA_DEV_PASSWORD:?PROVIDENTIA_DEV_PASSWORD is required}}"
+export PROVIDENTIA_HTTP_PORT="${http_port_override:-${PROVIDENTIA_HTTP_PORT:?PROVIDENTIA_HTTP_PORT is required}}"
+export PROVIDENTIA_MAILPIT_PORT="${mailpit_port_override:-${PROVIDENTIA_MAILPIT_PORT:?PROVIDENTIA_MAILPIT_PORT is required}}"
+export PROVIDENTIA_BIND_ADDRESS="${bind_address_override:-${PROVIDENTIA_BIND_ADDRESS:?PROVIDENTIA_BIND_ADDRESS is required}}"
+
+if [[ ! "$PROVIDENTIA_HTTP_PORT" =~ ^[0-9]+$ ]] || ((PROVIDENTIA_HTTP_PORT < 1 || PROVIDENTIA_HTTP_PORT > 65535)); then
+    printf 'Invalid HTTP port: %s\n' "$PROVIDENTIA_HTTP_PORT" >&2
+    exit 2
+fi
+if [[ ! "$PROVIDENTIA_MAILPIT_PORT" =~ ^[0-9]+$ ]] || ((PROVIDENTIA_MAILPIT_PORT < 1 || PROVIDENTIA_MAILPIT_PORT > 65535)); then
+    printf 'Invalid Mailpit port: %s\n' "$PROVIDENTIA_MAILPIT_PORT" >&2
+    exit 2
+fi
+
+compose=(docker compose --env-file "$env_file" -f "$compose_file")
+
+diagnostics() {
+    local status=$?
+    if ((status != 0)); then
+        printf '\nProvidentia startup failed. Container state and bounded logs follow.\n' >&2
+        "${compose[@]}" ps >&2 || true
+        "${compose[@]}" logs --tail=100 api web mysql redis mailpit >&2 || true
+    fi
+    exit "$status"
+}
+trap diagnostics ERR
+
+printf 'Pulling Providentia %s production images...\n' "$PROVIDENTIA_VERSION"
+if ! "${compose[@]}" pull; then
+    cat >&2 <<'EOF'
+
+The GHCR pull failed. If the packages are private, authenticate first:
+
+  printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username YOUR_GITHUB_LOGIN --password-stdin
+
+The token needs read access to the repository packages.
+EOF
+    exit 1
+fi
+
+"${compose[@]}" --profile tools run --rm volume-init
+"${compose[@]}" up -d --wait mysql redis mailpit
+"${compose[@]}" --profile tools run --rm migrate
+"${compose[@]}" up -d --wait \
+    api web worker outbox notification data-governance sync-compactor ai-video-worker
+
+api_base="http://127.0.0.1:${PROVIDENTIA_HTTP_PORT}"
+curl --fail-with-body --silent --show-error "${api_base}/health/live" >/dev/null
+curl --fail-with-body --silent --show-error "${api_base}/health/ready" >/dev/null
+curl --fail-with-body --silent --show-error "${api_base}/api/v1/system/info" >/dev/null
+
+if ((skip_provision == 0)); then
+    post_json_exchange() {
+        local url="$1"
+        local payload="$2"
+        curl --silent --show-error --write-out $'\n%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -X POST "$url" \
+            --data "$payload"
+    }
+
+    problem_summary() {
+        local response="$1"
+        jq -r '.detail // .title // "No problem detail was returned."' <<<"$response" 2>/dev/null \
+            || printf 'The response was not valid problem JSON.'
+    }
+
+    verify_token() {
+        local token="$1"
+        local exchange status response
+        exchange="$(post_json_exchange \
+            "${api_base}/api/v1/auth/verify-email" \
+            "$(jq -n --arg token "$token" '{token:$token}')")"
+        status="${exchange##*$'\n'}"
+        response="${exchange%$'\n'*}"
+        if [[ "$status" != '204' ]]; then
+            printf 'Email verification failed (HTTP %s): %s\n' \
+                "$status" "$(problem_summary "$response")" >&2
+            exit 1
+        fi
+    }
+
+    resend_token() {
+        local exchange status response
+        exchange="$(post_json_exchange \
+            "${api_base}/api/v1/auth/verify-email/resend" \
+            "$(jq -n --arg email "$PROVIDENTIA_DEV_EMAIL" '{email:$email}')")"
+        status="${exchange##*$'\n'}"
+        response="${exchange%$'\n'*}"
+        if [[ "$status" != '202' ]]; then
+            printf 'Verification resend failed (HTTP %s): %s\n' \
+                "$status" "$(problem_summary "$response")" >&2
+            exit 1
+        fi
+        jq -r '.developmentVerificationToken // empty' <<<"$response"
+    }
+
+    login_payload="$(jq -n \
+        --arg email "$PROVIDENTIA_DEV_EMAIL" \
+        --arg password "$PROVIDENTIA_DEV_PASSWORD" \
+        --arg deviceId "$PROVIDENTIA_DEV_DEVICE_ID" \
+        '{email:$email,password:$password,deviceId:$deviceId,deviceName:"Providentia prebuilt",platform:"linux",transport:"native"}')"
+    login_exchange="$(post_json_exchange "${api_base}/api/v1/auth/login" "$login_payload")"
+    login_status="${login_exchange##*$'\n'}"
+    login_response="${login_exchange%$'\n'*}"
+
+    if [[ "$login_status" == '403' ]]; then
+        verification_token="$(resend_token)"
+        [[ -n "$verification_token" ]] || {
+            printf 'The existing account is unverified but no development token was returned.\n' >&2
+            exit 1
+        }
+        verify_token "$verification_token"
+    elif [[ "$login_status" == '401' ]]; then
+        registration_exchange="$(post_json_exchange \
+            "${api_base}/api/v1/auth/register" \
+            "$(jq -n \
+                --arg email "$PROVIDENTIA_DEV_EMAIL" \
+                --arg password "$PROVIDENTIA_DEV_PASSWORD" \
+                '{email:$email,password:$password,displayName:"Providentia Developer"}')")"
+        registration_status="${registration_exchange##*$'\n'}"
+        registration_response="${registration_exchange%$'\n'*}"
+        if [[ "$registration_status" != '202' ]]; then
+            printf 'Account registration failed (HTTP %s): %s\n' \
+                "$registration_status" "$(problem_summary "$registration_response")" >&2
+            exit 1
+        fi
+        verification_token="$(jq -r '.developmentVerificationToken // empty' <<<"$registration_response")"
+        [[ -n "$verification_token" ]] || verification_token="$(resend_token)"
+        [[ -n "$verification_token" ]] || {
+            printf 'No development verification token was returned.\n' >&2
+            exit 1
+        }
+        verify_token "$verification_token"
+    elif [[ "$login_status" != '200' ]]; then
+        printf 'Development login failed (HTTP %s): %s\n' \
+            "$login_status" "$(problem_summary "$login_response")" >&2
+        exit 1
+    fi
+
+    if [[ "$login_status" != '200' ]]; then
+        login_exchange="$(post_json_exchange "${api_base}/api/v1/auth/login" "$login_payload")"
+        login_status="${login_exchange##*$'\n'}"
+        login_response="${login_exchange%$'\n'*}"
+    fi
+    if [[ "$login_status" != '200' ]]; then
+        printf 'Development login still failed after verification (HTTP %s): %s\n' \
+            "$login_status" "$(problem_summary "$login_response")" >&2
+        exit 1
+    fi
+
+    access_token="$(jq -er '.accessToken' <<<"$login_response")"
+    actor_user_id="$(jq -er '.userId' <<<"$login_response")"
+    homes="$(curl --fail-with-body --silent --show-error \
+        -H "Authorization: Bearer ${access_token}" \
+        "${api_base}/api/v1/homes")"
+    home_id="$(jq -r '.data[0].id // empty' <<<"$homes")"
+    if [[ -z "$home_id" ]]; then
+        home="$(curl --fail-with-body --silent --show-error \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${access_token}" \
+            -X POST "${api_base}/api/v1/homes" \
+            --data '{"name":"Providentia Development Home","locale":"en-NA","currency":"NAD","timezone":"Africa/Windhoek"}')"
+        home_id="$(jq -er '.id' <<<"$home")"
+    fi
+    curl --fail-with-body --silent --show-error \
+        -H "Authorization: Bearer ${access_token}" \
+        -X POST "${api_base}/api/v1/homes/${home_id}/switch" >/dev/null
+
+    umask 077
+    jq -n \
+        --arg apiBaseUrl "$api_base" \
+        --arg homeId "$home_id" \
+        --arg userId "$actor_user_id" \
+        --arg email "$PROVIDENTIA_DEV_EMAIL" \
+        --arg password "$PROVIDENTIA_DEV_PASSWORD" \
+        --arg deviceId "$PROVIDENTIA_DEV_DEVICE_ID" \
+        --arg accessToken "$access_token" \
+        --arg refreshToken "$(jq -er '.refreshToken' <<<"$login_response")" \
+        '{apiBaseUrl:$apiBaseUrl,homeId:$homeId,userId:$userId,email:$email,password:$password,deviceId:$deviceId,accessToken:$accessToken,refreshToken:$refreshToken}' \
+        >"$handoff_file"
+    chmod 0600 "$handoff_file"
+fi
+
+trap - ERR
+printf '\nProvidentia prebuilt environment is ready.\n'
+printf 'Image tag:         %s\n' "$PROVIDENTIA_VERSION"
+printf 'API:               %s\n' "$api_base"
+printf 'Liveness:          %s/health/live\n' "$api_base"
+printf 'Readiness:         %s/health/ready\n' "$api_base"
+printf 'Mailpit:           http://127.0.0.1:%s\n' "$PROVIDENTIA_MAILPIT_PORT"
+if ((skip_provision == 0)); then
+    printf 'Developer email:   %s\n' "$PROVIDENTIA_DEV_EMAIL"
+    printf 'Developer pass:    %s\n' "$PROVIDENTIA_DEV_PASSWORD"
+    printf 'Flutter handoff:   %s (mode 0600; local development only)\n' "$handoff_file"
+fi
+printf 'Local secrets:     %s (mode 0600; never commit)\n' "$env_file"
