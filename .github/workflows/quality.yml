@@ -37,6 +37,8 @@ jobs:
       - run: test -f composer.lock
       - run: composer install --no-interaction --prefer-dist --no-progress
       - run: composer check
+      - name: Exercise built-in server logging without CLI stream constants
+        run: bash tests/Acceptance/development-http-smoke.sh
       - run: composer audit --locked
       - name: Generate and enforce dependency licence report
         run: |
