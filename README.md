@@ -20,6 +20,18 @@ offline policy.
 - PHP extensions: JSON, mbstring, PDO, PDO MySQL or PDO SQLite, and Redis
 - Docker Engine with Compose v2 for the full infrastructure matrix
 
+Before using the host-PHP SQLite path, verify that PHP exposes the selected
+PDO driver:
+
+```bash
+php -r 'printf("PDO drivers: %s\n", implode(", ", PDO::getAvailableDrivers()));'
+```
+
+On Ubuntu 26.04 with PHP 8.5, install a missing SQLite or MySQL driver with
+`sudo apt install php8.5-sqlite3` or `sudo apt install php8.5-mysql`, then
+restart the relevant PHP service. The application now stops with this same
+actionable guidance before Doctrine attempts a connection.
+
 The resolved production dependency graph is committed in `composer.lock`.
 Normal CI and deployments use `composer install`; they never update
 dependencies implicitly.
