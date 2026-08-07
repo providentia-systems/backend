@@ -61,6 +61,10 @@ protected secrets/handoff files remain for explicit manual handling.
 
 SQLite is the zero-configuration server demonstration and automated-test
 profile. It is not the production high-volume database.
+When running PHP directly on the host, confirm that `PDO::getAvailableDrivers()`
+contains `sqlite`; on Ubuntu 26.04 with PHP 8.5 the required package is
+`php8.5-sqlite3`. The supported container image already includes both SQLite
+and MySQL PDO drivers.
 
 ```bash
 docker compose --profile sqlite --profile valkey up --build --wait
