@@ -19,9 +19,7 @@ final class StderrJsonLogger extends AbstractLogger
     /** @param null|Closure(string): void $writer */
     public function __construct(?Closure $writer = null)
     {
-        $this->writer = $writer ?? static function (string $line): void {
-            fwrite(STDERR, $line);
-        };
+        $this->writer = $writer ?? Closure::fromCallable(new StderrLineWriter());
     }
 
     /** @param array<string, mixed> $context */
