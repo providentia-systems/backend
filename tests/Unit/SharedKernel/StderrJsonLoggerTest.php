@@ -6,6 +6,7 @@ namespace ProvidentiaTest\Unit\SharedKernel;
 
 use PHPUnit\Framework\TestCase;
 use Providentia\SharedKernel\Infrastructure\Logging\StderrJsonLogger;
+use Providentia\SharedKernel\Infrastructure\Logging\StderrLineWriter;
 use RuntimeException;
 
 final class StderrJsonLoggerTest extends TestCase
@@ -60,5 +61,36 @@ final class StderrJsonLoggerTest extends TestCase
         self::assertSame('line-one?line-two', $record['message']);
         self::assertSame(2048, strlen((string) $context['value']));
         self::assertSame(1, substr_count($output, "\n"));
+    }
+
+    public function testSapiIndependentWriterAppendsCompleteLogLines(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'providentia-log-');
+        self::assertIsString($path);
+
+        try {
+            $writer = new StderrLineWriter($path);
+            $writer("first\n");
+            $writer("second\n");
+
+            self::assertSame("first\nsecond\n", file_get_contents($path));
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function testSapiIndependentWriterFallsBackWhenTheStreamCannotOpen(): void
+    {
+        $fallbackOutput = '';
+        $writer = new StderrLineWriter(
+            'providentia-missing-wrapper://stderr',
+            static function (string $line) use (&$fallbackOutput): void {
+                $fallbackOutput .= $line;
+            },
+        );
+
+        $writer("fallback\n");
+
+        self::assertSame("fallback\n", $fallbackOutput);
     }
 }
