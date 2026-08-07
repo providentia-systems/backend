@@ -68,7 +68,8 @@ for executable in bin/doctrine-migrations bin/providentia \
 done
 
 for shell_script in infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
-  scripts/setup-development.sh scripts/reset-development.sh; do
+  scripts/setup-development.sh scripts/reset-development.sh \
+  tests/Acceptance/development-http-smoke.sh; do
   bash -n "$shell_script" || fail "$shell_script has invalid shell syntax"
 done
 
@@ -221,6 +222,10 @@ assert_no_matches "Application layer bypasses injected identifier or secure-toke
 assert_no_matches "HTTP layer imports persistence or queue implementation code" \
   -n --glob 'src/*/Http/**/*.php' \
   'Doctrine\\\\|Enqueue\\\\|Interop\\\\Queue|Redis\\\\|use Redis;'
+
+assert_no_matches "web-capable runtime code depends on CLI-only stream constants" \
+  -n --glob 'src/**/*.php' \
+  '\bSTD(IN|OUT|ERR)\b'
 
 assert_no_matches "A non-composition layer imports module Infrastructure" \
   -n --glob 'src/*/{Domain,Application,Http}/**/*.php' \
