@@ -20,7 +20,8 @@ final class ConnectionFactory
     /** @param null|Closure(): list<string> $availablePdoDrivers */
     public function __construct(?Closure $availablePdoDrivers = null)
     {
-        $this->availablePdoDrivers = $availablePdoDrivers ?? PDO::getAvailableDrivers(...);
+        $this->availablePdoDrivers = $availablePdoDrivers
+            ?? static fn (): array => array_values(PDO::getAvailableDrivers());
     }
 
     public function __invoke(ContainerInterface $container): Connection
