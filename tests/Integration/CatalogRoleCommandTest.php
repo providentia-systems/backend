@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 namespace ProvidentiaTest\Integration;
 
-use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use Providentia\Catalog\Infrastructure\Cli\CatalogRoleCommand;
-use Providentia\SharedKernel\Application\Clock;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -111,13 +109,5 @@ final class CatalogRoleCommandTest extends TestCase
             new CatalogRoleFixedClock(),
             new SequenceUuidGenerator(),
         ));
-    }
-}
-
-final class CatalogRoleFixedClock implements Clock
-{
-    public function now(): DateTimeImmutable
-    {
-        return new DateTimeImmutable('2026-08-08T12:00:00+00:00');
     }
 }
