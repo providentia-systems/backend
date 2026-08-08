@@ -237,6 +237,7 @@ final class IdentityHandler implements RequestHandlerInterface
             'deviceId' => $tokens['deviceId'],
             'userId' => $tokens['userId'],
             'accessExpiresAt' => $tokens['accessExpiresAt'],
+            'csrfToken' => $tokens['csrfToken'],
             'transport' => 'secure-cookie',
         ]);
 

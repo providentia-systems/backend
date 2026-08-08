@@ -256,7 +256,7 @@ if ((skip_provision == 0)); then
     homes="$(curl --fail-with-body --silent --show-error \
         -H "Authorization: Bearer ${access_token}" \
         "${api_base}/api/v1/homes")"
-    home_id="$(jq -r '.data[0].id // empty' <<<"$homes")"
+    home_id="$(jq -r '[.data[]? | select(.role == "owner")][0].id // empty' <<<"$homes")"
     if [[ -z "$home_id" ]]; then
         home="$(curl --fail-with-body --silent --show-error \
             -H 'Content-Type: application/json' \

@@ -60,6 +60,7 @@ if [[ ! -f "$env_file" ]]; then
     fi
     {
         printf 'AUTH_TOKEN_PEPPER=%s\n' "$(openssl rand -hex 32)"
+        printf 'AUTH_PASSWORD_LOGIN_ENABLED=1\n'
         printf 'SYNC_CURSOR_SECRET=%s\n' "$(openssl rand -hex 32)"
         printf 'MYSQL_PASSWORD=%s\n' "$(openssl rand -hex 18)"
         printf 'MYSQL_ROOT_PASSWORD=%s\n' "$(openssl rand -hex 18)"
@@ -272,7 +273,7 @@ homes="$(
         -H "Authorization: Bearer ${access_token}" \
         "${api_base}/api/v1/homes"
 )"
-home_id="$(jq -r '.data[0].id // empty' <<<"$homes")"
+home_id="$(jq -r '[.data[]? | select(.role == "owner")][0].id // empty' <<<"$homes")"
 if [[ -z "$home_id" ]]; then
     home="$(
         curl --fail-with-body --silent --show-error \
@@ -328,6 +329,7 @@ jq -n \
     --arg refreshToken "$(jq -r '.refreshToken' <<<"$login_response")" \
     '{apiBaseUrl:$apiBaseUrl,homeId:$homeId,userId:$userId,email:$email,password:$password,deviceId:$deviceId,accessToken:$accessToken,refreshToken:$refreshToken}' \
     >"$handoff_file"
+chmod 0600 "$handoff_file"
 
 printf '\nProvidentia development environment is ready.\n'
 printf 'API:              %s\n' "$api_base"

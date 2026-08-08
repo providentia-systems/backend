@@ -5177,7 +5177,7 @@
           },
           "developmentVerificationToken": {
             "type": "string",
-            "writeOnly": true,
+            "readOnly": true,
             "description": "Present only in an explicitly enabled non-production development profile."
           }
         }
@@ -5219,12 +5219,12 @@
           },
           "developmentMagicLinkToken": {
             "type": "string",
-            "writeOnly": true,
+            "readOnly": true,
             "description": "Present only in an explicitly enabled non-production development profile."
           },
           "developmentStepUpToken": {
             "type": "string",
-            "writeOnly": true,
+            "readOnly": true,
             "description": "Present only in an explicitly enabled non-production development profile."
           }
         }
@@ -5350,15 +5350,15 @@
         "properties": {
           "accessToken": {
             "type": "string",
-            "writeOnly": true
+            "readOnly": true
           },
           "refreshToken": {
             "type": "string",
-            "writeOnly": true
+            "readOnly": true
           },
           "csrfToken": {
             "type": "string",
-            "writeOnly": true
+            "readOnly": true
           },
           "sessionId": {
             "type": "string",
@@ -5676,6 +5676,11 @@
           },
           "delivery": {
             "const": "transactional-email"
+          },
+          "developmentInvitationToken": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Present only in an explicitly enabled non-production development profile."
           }
         }
       },

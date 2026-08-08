@@ -7,8 +7,8 @@
 - `StockHome` identifies only the former React/TypeScript prototype and its
   historical evidence. It is not a production identifier.
 - The canonical repositories are:
-  - `vast-development-method/providentia-laminas`
-  - `vast-development-method/providentia-flutter`
+  - `providentia-systems/backend`
+  - `providentia-systems/client`
 - The backend remains Mezzio plus selectively chosen Laminas components,
   explicit Laminas ServiceManager factories, Doctrine ORM/DBAL/Migrations, and
   a project-owned asynchronous bus with an Enqueue Redis adapter.

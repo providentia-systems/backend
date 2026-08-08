@@ -17,7 +17,7 @@ offline policy.
 
 - PHP 8.5
 - Composer 2.10.2
-- PHP extensions: JSON, mbstring, PDO, PDO MySQL or PDO SQLite, and Redis
+- PHP extensions: JSON, mbstring, PDO, PDO MySQL or PDO SQLite, Redis, and Sodium
 - Docker Engine with Compose v2 for the full infrastructure matrix
 
 Before using the host-PHP SQLite path, verify that PHP exposes the selected
@@ -58,6 +58,10 @@ See [published-image local deployment](docs/deployment/prebuilt-images.md) for
 GHCR login, immutable tags, Flutter emulator/device URLs, updates, logs, reset,
 and the production boundary.
 
+For the complete account handoff, first-home ownership, ordinary test users,
+household roles, explicit platform-administrator grant, and Flutter login, use
+[Client login, users, homes, and administrator testing](docs/deployment/client-user-testing.md).
+
 ## Golden development environment
 
 The supported full local path uses MySQL, Redis, Mailpit, the API, queue worker,
@@ -88,6 +92,7 @@ composer install
 export DATABASE_URL=sqlite:///var/providentia.sqlite
 export APP_ENV=development
 export AUTH_TOKEN_PEPPER="$(openssl rand -hex 32)"
+export AUTH_PASSWORD_LOGIN_ENABLED=1
 export SYNC_CURSOR_SECRET="$(openssl rand -hex 32)"
 php bin/doctrine-migrations migrations:migrate --no-interaction
 composer serve
@@ -133,7 +138,7 @@ queue message is never represented as equivalent to the database commit.
 
 ## Product surface
 
-- Generic-shape email/password registration (not timing-resistant while
+- Development-opt-in generic-shape email/password registration (not timing-resistant while
   verification SMTP remains synchronous), email verification,
   login, refresh rotation, password reset, logout, device sessions,
   secure-cookie and bearer transports.

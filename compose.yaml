@@ -12,6 +12,9 @@ x-app: &app
     QUEUE_NAME: providentia.default
     QUEUE_REQUIRED: "1"
     AUTH_TOKEN_PEPPER: ${AUTH_TOKEN_PEPPER:-providentia-development-token-pepper-change-me}
+    # Password credentials are enabled only by this source-development profile.
+    # Production Compose defaults the same switch to disabled.
+    AUTH_PASSWORD_LOGIN_ENABLED: ${AUTH_PASSWORD_LOGIN_ENABLED:-1}
     SYNC_CURSOR_SECRET: ${SYNC_CURSOR_SECRET:-providentia-development-cursor-secret-change-me}
     MAIL_DSN: smtp://mailpit:1025
     MAIL_FROM: no-reply@providentia.local

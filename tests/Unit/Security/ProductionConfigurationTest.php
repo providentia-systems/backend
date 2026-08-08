@@ -17,6 +17,7 @@ final class ProductionConfigurationTest extends TestCase
             [
                 'APP_ENV',
                 'AUTH_TOKEN_PEPPER',
+                'AUTH_PASSWORD_LOGIN_ENABLED',
                 'SYNC_CURSOR_SECRET',
                 'EXPOSE_DEVELOPMENT_TOKENS',
                 'MAIL_DSN',
@@ -79,7 +80,7 @@ final class ProductionConfigurationTest extends TestCase
          * @var array{
          *   app: array{environment: string},
          *   mail: array{dsn: string},
-         *   identity: array{expose_development_tokens: bool}
+         *   identity: array{expose_development_tokens: bool, password_login_enabled: bool}
          * } $config
          */
         $config = require dirname(__DIR__, 3) . '/config/autoload/global.php';
@@ -87,6 +88,7 @@ final class ProductionConfigurationTest extends TestCase
         self::assertSame('production', $config['app']['environment']);
         self::assertSame('smtps://smtp.example.net:465', $config['mail']['dsn']);
         self::assertFalse($config['identity']['expose_development_tokens']);
+        self::assertFalse($config['identity']['password_login_enabled']);
     }
 
     public function testProductionAiProxyRequiresAnIndependentEnvelopeEncryptionKey(): void
@@ -142,6 +144,7 @@ final class ProductionConfigurationTest extends TestCase
     {
         putenv('APP_ENV=production');
         putenv('AUTH_TOKEN_PEPPER=' . str_repeat('a', 32));
+        putenv('AUTH_PASSWORD_LOGIN_ENABLED');
         putenv('SYNC_CURSOR_SECRET=' . str_repeat('b', 32));
         putenv('EXPOSE_DEVELOPMENT_TOKENS=0');
         putenv('MAIL_DSN=smtps://smtp.example.net:465');

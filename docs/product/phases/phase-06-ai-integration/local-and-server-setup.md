@@ -11,8 +11,10 @@ For OpenAI:
 ```bash
 openssl rand -base64 32
 docker compose --env-file .env.development.local up -d --build
-docker compose --env-file .env.development.local exec -T api-mysql \
-  composer quality
+
+# Run quality tools from a host checkout with Composer development dependencies.
+composer check
+bash tests/structural/verify.sh
 ```
 
 The protected environment must supply:

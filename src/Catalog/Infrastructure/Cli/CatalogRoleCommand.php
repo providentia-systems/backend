@@ -65,44 +65,51 @@ final class CatalogRoleCommand extends Command
         }
         $userId = (string) $user['id'];
         $now = $this->date($this->clock->now());
-        $existing = $this->connection->fetchAssociative(
-            'SELECT role, revoked_at AS revokedAt FROM user_platform_roles
-             WHERE user_id = :user AND role = :role',
-            ['user' => $userId, 'role' => $role],
-        );
         $revoke = (bool) $input->getOption('revoke');
-        if ($revoke) {
-            if ($existing !== false && $existing['revokedAt'] === null) {
-                $this->connection->update(
+        $this->connection->transactional(function (Connection $connection) use (
+            $userId,
+            $role,
+            $revoke,
+            $now,
+        ): void {
+            $existing = $connection->fetchAssociative(
+                'SELECT role, revoked_at AS revokedAt FROM user_platform_roles
+                 WHERE user_id = :user AND role = :role',
+                ['user' => $userId, 'role' => $role],
+            );
+            if ($revoke) {
+                if ($existing !== false && $existing['revokedAt'] === null) {
+                    $connection->update(
+                        'user_platform_roles',
+                        ['revoked_at' => $now],
+                        ['user_id' => $userId, 'role' => $role],
+                    );
+                }
+            } elseif ($existing === false) {
+                $connection->insert('user_platform_roles', [
+                    'user_id' => $userId,
+                    'role' => $role,
+                    'granted_at' => $now,
+                    'revoked_at' => null,
+                ]);
+            } else {
+                $connection->update(
                     'user_platform_roles',
-                    ['revoked_at' => $now],
+                    ['granted_at' => $now, 'revoked_at' => null],
                     ['user_id' => $userId, 'role' => $role],
                 );
             }
-        } elseif ($existing === false) {
-            $this->connection->insert('user_platform_roles', [
-                'user_id' => $userId,
-                'role' => $role,
-                'granted_at' => $now,
-                'revoked_at' => null,
+            $connection->insert('audit_events', [
+                'id' => $this->ids->generate(),
+                'home_id' => null,
+                'actor_user_id' => null,
+                'action' => $revoke ? 'catalog.role.revoked' : 'catalog.role.granted',
+                'target_type' => 'user_platform_role',
+                'target_id' => $userId,
+                'details' => json_encode(['role' => $role], JSON_THROW_ON_ERROR),
+                'occurred_at' => $now,
             ]);
-        } else {
-            $this->connection->update(
-                'user_platform_roles',
-                ['granted_at' => $now, 'revoked_at' => null],
-                ['user_id' => $userId, 'role' => $role],
-            );
-        }
-        $this->connection->insert('audit_events', [
-            'id' => $this->ids->generate(),
-            'home_id' => null,
-            'actor_user_id' => null,
-            'action' => $revoke ? 'catalog.role.revoked' : 'catalog.role.granted',
-            'target_type' => 'user_platform_role',
-            'target_id' => $userId,
-            'details' => json_encode(['role' => $role], JSON_THROW_ON_ERROR),
-            'occurred_at' => $now,
-        ]);
+        });
         $output->writeln(sprintf(
             '<info>Catalog role %s for user %s.</info>',
             $revoke ? 'revoked' : 'granted',

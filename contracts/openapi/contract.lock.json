@@ -3,7 +3,7 @@
   "apiVersion": "1.10.0",
   "artifacts": {
     "providentia-v1.json": {
-      "sha256": "c69bc40d7daa2cac4b414a1390ae9a7b6f9fdc79b1776ed2903f8ded11529a6c"
+      "sha256": "7c2380aa0e6ea0dc2deeda4cd614e8a163d64ef32058adb7e38c12529ea552d6"
     },
     "../json-schema/problem-details-v1.json": {
       "sha256": "962fd4a9b8f4928e88925056a8343da69f04edf676a8866556d9e46dae96c8ee"
