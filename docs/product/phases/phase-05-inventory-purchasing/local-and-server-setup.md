@@ -30,7 +30,11 @@ Useful checks:
 docker compose --env-file .env.development.local ps
 curl --fail http://127.0.0.1:8080/health/ready
 docker compose --env-file .env.development.local exec -T api-mysql \
-  composer quality
+  php bin/doctrine-migrations migrations:status
+
+# Run quality tools from a host checkout with Composer development dependencies.
+composer check
+bash tests/structural/verify.sh
 ```
 
 ## Remote server deployment

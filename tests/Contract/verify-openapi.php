@@ -65,6 +65,38 @@ foreach (
     }
 }
 
+$sessionProperties = $contract['components']['schemas']['SessionCredentials']['properties'] ?? [];
+foreach (['accessToken', 'refreshToken', 'csrfToken'] as $responseCredential) {
+    if (
+        ($sessionProperties[$responseCredential]['readOnly'] ?? false) !== true
+        || isset($sessionProperties[$responseCredential]['writeOnly'])
+    ) {
+        throw new RuntimeException(
+            sprintf('SessionCredentials.%s must be a response-only field.', $responseCredential),
+        );
+    }
+}
+
+foreach (
+    [
+        ['RegisterResponse', 'developmentVerificationToken'],
+        ['MagicLinkAccepted', 'developmentMagicLinkToken'],
+        ['MagicLinkAccepted', 'developmentStepUpToken'],
+        ['InvitationCreated', 'developmentInvitationToken'],
+    ] as [$schema, $developmentToken]
+) {
+    $property = $contract['components']['schemas'][$schema]['properties'][$developmentToken] ?? [];
+    if (($property['readOnly'] ?? false) !== true || isset($property['writeOnly'])) {
+        throw new RuntimeException(sprintf('%s.%s must be response-only.', $schema, $developmentToken));
+    }
+}
+
+$refreshRequest = $contract['paths']['/api/v1/auth/refresh']['post']['requestBody'] ?? [];
+$refreshRequestToken = $refreshRequest['content']['application/json']['schema']['properties']['refreshToken'] ?? [];
+if (($refreshRequestToken['writeOnly'] ?? false) !== true || isset($refreshRequestToken['readOnly'])) {
+    throw new RuntimeException('The refresh request credential must remain request-only.');
+}
+
 if (
     ($contract['components']['schemas']['ProblemDetails']['description'] ?? '') === ''
     || ($contract['openapi'] ?? '') !== '3.1.0'

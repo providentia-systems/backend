@@ -16,9 +16,10 @@ The script:
    directory;
 2. verifies their two fixed Phase 0 SHA-256 digests;
 3. creates `.env.development.local` with mode `0600`, independent random
-   secrets, random MySQL passwords, and a stable local device ID;
+   secrets, random MySQL passwords, a stable local device ID, and password
+   login enabled only for this development profile;
 4. starts MySQL 8.4, Redis 8.2, Mailpit, the HTTP API, worker, and outbox relay;
-5. applies both Doctrine migrations through the container entrypoint;
+5. applies all pending Doctrine migrations through the container entrypoint;
 6. runs the catalog reconciliation dry run, committed import, and a second
    zero-delta import proof;
 7. provisions and verifies a developer account, safely recovers a prior
@@ -36,6 +37,11 @@ locked/rate-limited account stops with an actionable message; it does not
 blindly retry registration or delete local data. Development verification
 tokens are returned only because the isolated Compose profile explicitly sets
 `EXPOSE_DEVELOPMENT_TOKENS=1`; production startup forbids that setting.
+
+To create additional verified accounts and exercise `manager`, `member`, or
+`viewer` household membership, or to grant the separate initial platform
+administrator role, follow
+[Client login, users, homes, and administrator testing](client-user-testing.md).
 
 Default endpoints:
 
@@ -98,6 +104,10 @@ client configuration.
 The bundled database passwords are known local-development defaults. Override
 all password variables before using a shared host.
 
+Source Compose explicitly defaults `AUTH_PASSWORD_LOGIN_ENABLED=1` because
+these profiles are development-only. `.env.example` records the same setting.
+Production Compose and `.env.production.example` default it to `0`.
+
 ## Production configuration fail-closed rules
 
 Start from `.env.production.example` and inject values from the deployment
@@ -111,4 +121,7 @@ secret manager. With `APP_ENV=production`, startup rejects:
 
 The production SMTP connection verifies the certificate, hostname, and SNI.
 Plain `smtp://mailpit:1025` is permitted only for isolated non-production
-development. CORS origins must be explicit; no wildcard is configured.
+development. CORS origins must be explicit; no wildcard is configured. The
+development default includes the fixed Flutter Chrome origins
+`http://localhost:8081` and `http://127.0.0.1:8081`; custom ports must be added
+to `CORS_ALLOWED_ORIGINS` explicitly.

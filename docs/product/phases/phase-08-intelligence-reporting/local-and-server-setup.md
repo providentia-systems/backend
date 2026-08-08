@@ -11,8 +11,9 @@ Use the repository's supported setup and the verified Phase 0 handover:
 docker compose --env-file .env.development.local exec -T api-mysql \
   php bin/doctrine-migrations migrations:status
 
-docker compose --env-file .env.development.local exec -T api-mysql \
-  composer check
+# Run quality tools from a host checkout with Composer development dependencies.
+composer check
+bash tests/structural/verify.sh
 ```
 
 The application entrypoint applies `Version20260730000800`. Verify that its

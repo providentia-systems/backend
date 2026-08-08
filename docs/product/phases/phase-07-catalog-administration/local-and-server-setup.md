@@ -44,8 +44,9 @@ Use synthetic catalog names and a disposable account:
 Run the full quality suite:
 
 ```bash
-docker compose --env-file .env.development.local exec -T api-mysql \
-  composer quality
+# Run these from a host checkout with Composer development dependencies.
+composer check
+bash tests/structural/verify.sh
 ```
 
 ## Remote deployment

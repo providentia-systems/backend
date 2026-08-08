@@ -52,8 +52,8 @@ Clone the repository only to obtain the deployment files, then run the
 bootstrap:
 
 ```bash
-git clone https://github.com/vast-development-method/providentia-laminas.git
-cd providentia-laminas
+git clone https://github.com/providentia-systems/backend.git
+cd backend
 bash scripts/setup-prebuilt.sh
 ```
 
@@ -67,8 +67,8 @@ The script:
 5. starts every long-running application process and waits for readiness;
 6. proves liveness, readiness, and system information over HTTP;
 7. creates or reuses a verified developer account and active home; and
-8. writes `.providentia-development.json` with the API URL, home, device,
-   credentials, and tokens for Flutter development.
+8. writes `.providentia-development.json` with the API URL, home, device, and
+   protected development credentials.
 
 Useful overrides are explicit and do not require editing YAML:
 
@@ -83,6 +83,10 @@ bash scripts/setup-prebuilt.sh \
 Use an immutable `sha-*` or `X.Y.Z` tag when reproducing a defect. Running the
 script again is safe: it pulls the selected tag, reapplies only pending
 migrations, reuses the account/home, and waits for the complete stack.
+
+For additional users, role testing, the first platform-administrator grant,
+and the exact client login commands, follow
+[Client login, users, homes, and administrator testing](client-user-testing.md).
 
 ## Verify the runtime
 
@@ -111,26 +115,28 @@ tag is promoted.
 
 ## Point Flutter at it
 
-Use `apiBaseUrl`, `homeId`, `deviceId`, and the development credentials from
-`.providentia-development.json`.
+Use the development email/password from `.providentia-development.json` and
+perform a fresh client login. Do not use the saved setup-session bearer tokens
+as Flutter launch arguments.
 
 | Flutter target | API base URL |
 |---|---|
 | Linux, Windows, or macOS on the Docker host | `http://127.0.0.1:8080` |
-| iOS Simulator on the Docker host | `http://127.0.0.1:8080` |
-| Android Emulator | `http://10.0.2.2:8080` |
-| Physical device on the trusted LAN | `http://<docker-host-lan-ip>:8080` |
+| Chrome at `http://localhost:8081` | `http://localhost:8080` |
+| Android debug build after `adb reverse tcp:8080 tcp:8080` | `http://127.0.0.1:8080` |
 
-For a physical device, bind deliberately to the LAN interface and permit only
-the development device in the host firewall:
-
-```bash
-bash scripts/setup-prebuilt.sh --bind-address 0.0.0.0
-```
+Chrome must use one hostname consistently for the web origin and API because
+web sessions use credentialed CORS and strict secure cookies. The fixed
+development origin `http://localhost:8081` is allowed by default; a custom web
+port must be added to `CORS_ALLOWED_ORIGINS` explicitly. Credentialed CORS
+cannot use a wildcard.
 
 Plain HTTP, exposed development tokens, and password login in this profile are
-for an isolated local network only. Never expose `compose.prebuilt.yaml` to the
-internet or reuse its secrets in staging or production.
+for loopback testing only. The current client rejects non-loopback plain HTTP,
+so a USB-debuggable physical device needs the same `adb reverse` tunnel; an
+untethered device needs a trusted HTTPS development endpoint. Never expose
+`compose.prebuilt.yaml` to the internet or reuse its secrets in staging or
+production.
 
 ## Operate and update
 

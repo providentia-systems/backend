@@ -63,12 +63,14 @@ done
 for executable in bin/doctrine-migrations bin/providentia \
   infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
   tool/check-composer-licenses.php tests/structural/verify.sh \
-  scripts/setup-development.sh scripts/reset-development.sh; do
+  scripts/setup-development.sh scripts/provision-development-user.sh \
+  scripts/reset-development.sh; do
   test -x "$executable" || fail "$executable must be executable"
 done
 
 for shell_script in infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
-  scripts/setup-development.sh scripts/reset-development.sh \
+  scripts/setup-development.sh scripts/provision-development-user.sh \
+  scripts/reset-development.sh \
   tests/Acceptance/development-http-smoke.sh; do
   bash -n "$shell_script" || fail "$shell_script has invalid shell syntax"
 done
@@ -113,6 +115,28 @@ for (const schema of [
   if (!contract.components?.schemas?.[schema]) {
     throw new Error(`Missing schema ${schema}`);
   }
+}
+const sessionProperties = contract.components?.schemas?.SessionCredentials?.properties ?? {};
+for (const credential of ['accessToken', 'refreshToken', 'csrfToken']) {
+  if (sessionProperties[credential]?.readOnly !== true || 'writeOnly' in (sessionProperties[credential] ?? {})) {
+    throw new Error(`SessionCredentials.${credential} must be response-only`);
+  }
+}
+for (const [schema, credential] of [
+  ['RegisterResponse', 'developmentVerificationToken'],
+  ['MagicLinkAccepted', 'developmentMagicLinkToken'],
+  ['MagicLinkAccepted', 'developmentStepUpToken'],
+  ['InvitationCreated', 'developmentInvitationToken'],
+]) {
+  const property = contract.components?.schemas?.[schema]?.properties?.[credential] ?? {};
+  if (property.readOnly !== true || 'writeOnly' in property) {
+    throw new Error(`${schema}.${credential} must be response-only`);
+  }
+}
+const refreshRequestToken = contract.paths?.['/api/v1/auth/refresh']?.post?.requestBody
+  ?.content?.['application/json']?.schema?.properties?.refreshToken ?? {};
+if (refreshRequestToken.writeOnly !== true || 'readOnly' in refreshRequestToken) {
+  throw new Error('The refresh request credential must remain request-only');
 }
 const registrationResponses = contract.paths?.['/api/v1/auth/register']?.post?.responses ?? {};
 if (!registrationResponses['202'] || registrationResponses['409']) {
@@ -171,6 +195,14 @@ NODE
 
 grep -Fq "APP_ENV', 'development'" config/autoload/global.php \
   || fail "application environment must default to a non-production profile"
+grep -Fq 'AUTH_PASSWORD_LOGIN_ENABLED: ${AUTH_PASSWORD_LOGIN_ENABLED:-0}' compose.production.yaml \
+  || fail "production password login must remain disabled by default"
+grep -Fq 'chmod 0600 "$handoff_file"' scripts/setup-development.sh \
+  || fail "source setup must enforce protected handoff permissions after every write"
+for setup_script in scripts/setup-development.sh scripts/setup-prebuilt.sh; do
+  grep -Fq 'select(.role == "owner")' "$setup_script" \
+    || fail "$setup_script must hand off a home owned by the bootstrap account"
+done
 grep -Fq "Production requires two independent, non-placeholder" config/autoload/global.php \
   || fail "production placeholder secrets do not fail closed"
 grep -Fq "Production MAIL_DSN must use smtps://" config/autoload/global.php \

@@ -22,6 +22,7 @@
 - [Contracts and release order](architecture/contracts.md)
 - [Run published production images locally](deployment/prebuilt-images.md)
 - [Source-build local development and deployment profiles](deployment/local-development.md)
+- [Client login, test users, household roles, and platform administrator](deployment/client-user-testing.md)
 - [Authoritative catalog seed and reconciliation](operations/catalog-seed.md)
 - [Queue, outbox, retries, and failed review](operations/async-messaging.md)
 - [Phase 10 hardening and release evidence](operations/phase-10-hardening.md)
