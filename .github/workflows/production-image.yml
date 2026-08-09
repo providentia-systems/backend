@@ -210,9 +210,9 @@ jobs:
       - name: Exercise the complete prebuilt development setup
         run: |
           prebuilt_env="$PWD/var/prebuilt-ci.env"
+          compose=(docker compose --env-file "$prebuilt_env" -f compose.prebuilt.yaml)
           cleanup_prebuilt() {
-            docker compose --env-file "$prebuilt_env" -f compose.prebuilt.yaml \
-              down --volumes --remove-orphans >/dev/null 2>&1 || true
+            "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
           }
           trap cleanup_prebuilt EXIT
           mkdir -p var
@@ -241,7 +241,31 @@ jobs:
           PROVIDENTIA_DEV_PASSWORD=prebuilt-ci-password-1
           PROVIDENTIA_DEV_DEVICE_ID=01912345-6789-7abc-8def-0123456789ab
           EOF
-          PROVIDENTIA_PREBUILT_ENV_FILE="$prebuilt_env" bash scripts/setup-prebuilt.sh
+          if ! PROVIDENTIA_PREBUILT_ENV_FILE="$prebuilt_env" bash scripts/setup-prebuilt.sh; then
+            "${compose[@]}" exec -T api php -r '
+              $container = require "config/container.php";
+              $services = [
+                  \Doctrine\DBAL\Connection::class,
+                  \Providentia\Identity\Infrastructure\Doctrine\DbalAuthenticationRateLimitStore::class,
+                  \Providentia\Identity\Application\AuthenticationRateLimiter::class,
+                  \Providentia\Identity\Http\AuthenticationRateLimitMiddleware::class,
+                  "identity.login",
+              ];
+              foreach ($services as $service) {
+                  try {
+                      $container->get($service);
+                      fwrite(STDERR, "Container resolved {$service}.\n");
+                  } catch (\Throwable $error) {
+                      fwrite(STDERR, "Container failed to resolve {$service}:\n");
+                      do {
+                          fwrite(STDERR, $error::class . ": " . $error->getMessage() . "\n");
+                          $error = $error->getPrevious();
+                      } while ($error !== null);
+                  }
+              }
+            ' || true
+            exit 1
+          fi
           curl --fail-with-body --silent http://127.0.0.1:18083/ | grep -Fq '<title>Providentia</title>'
           jq -e '
             .apiBaseUrl == "http://127.0.0.1:18083"
