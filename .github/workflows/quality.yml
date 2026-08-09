@@ -171,6 +171,7 @@ jobs:
           php bin/doctrine-migrations migrations:migrate prev --no-interaction
           php bin/doctrine-migrations migrations:migrate latest --no-interaction
           php bin/doctrine-migrations migrations:up-to-date --no-interaction
+          bash tests/Acceptance/development-auth-http-smoke.sh
           composer test
 
   queue:
