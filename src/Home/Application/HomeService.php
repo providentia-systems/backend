@@ -418,8 +418,7 @@ final class HomeService
         AuthenticatedIdentity $identity,
         string $invitationId,
         int $expectedRevision,
-    ): array
-    {
+    ): array {
         if ($expectedRevision < 1) {
             throw new Problem(422, 'Validation failed', 'A positive expected revision is required.');
         }
