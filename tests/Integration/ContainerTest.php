@@ -7,6 +7,8 @@ namespace ProvidentiaTest\Integration;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Interop\Queue\Context;
+use Laminas\Diactoros\ServerRequest;
+use Laminas\Diactoros\Uri;
 use Mezzio\Application;
 use PHPUnit\Framework\TestCase;
 use Providentia\AiIntegration\Application\AiService;
@@ -55,5 +57,15 @@ final class ContainerTest extends TestCase
             SynchronizationService::class,
             $this->container->get(SynchronizationService::class),
         );
+    }
+
+    public function testPublicHomePageRendersThroughTheNamespacedTemplateResolver(): void
+    {
+        $response = $this->container->get(HomePageHandler::class)->handle(
+            new ServerRequest([], [], new Uri('http://127.0.0.1/')),
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertStringContainsString('<title>Providentia</title>', (string) $response->getBody());
     }
 }
