@@ -317,8 +317,7 @@ final class DbalIdentityStore implements IdentityStore
 
         return array_map(function (array $session): array {
             foreach (
-                ['createdAt', 'lastSeenAt', 'accessExpiresAt', 'refreshExpiresAt', 'idleExpiresAt']
-                as $field
+                ['createdAt', 'lastSeenAt', 'accessExpiresAt', 'refreshExpiresAt', 'idleExpiresAt'] as $field
             ) {
                 $session[$field] = $this->atom((string) $session[$field]);
             }

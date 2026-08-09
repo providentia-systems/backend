@@ -232,5 +232,4 @@ final class IdentityHandler implements RequestHandlerInterface
 
         return $identity;
     }
-
 }

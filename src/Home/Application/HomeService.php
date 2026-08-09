@@ -121,15 +121,17 @@ final class HomeService
         ): void {
             $this->authorization->requirePermission($identity, $homeId, HomePermission::HOME_MANAGE);
             $now = $this->clock->now();
-            if (! $this->homes->updateHome(
-                $homeId,
-                $name,
-                $locale,
-                $currency,
-                $timezone,
-                $expectedRevision,
-                $now,
-            )) {
+            if (
+                ! $this->homes->updateHome(
+                    $homeId,
+                    $name,
+                    $locale,
+                    $currency,
+                    $timezone,
+                    $expectedRevision,
+                    $now,
+                )
+            ) {
                 throw new Problem(409, 'Revision conflict', 'The home changed since it was read.');
             }
             $this->audit(

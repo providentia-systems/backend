@@ -309,7 +309,7 @@ final class LoginLinkServiceTest extends TestCase
     public function testExistingVerifiedAccountNeverReceivesAnOnboardingHome(): void
     {
         $requests = $this->approvalStore();
-        $identities = $this->createMock(IdentityStore::class);
+        $identities = $this->createStub(IdentityStore::class);
         $identities->method('findUserByEmail')->willReturn([
             'id' => self::USER_ID,
             'status' => 'active',
@@ -368,6 +368,8 @@ final class LoginLinkServiceTest extends TestCase
             'status' => 'pending',
             'normalized_email' => 'person@example.test',
             'approval_token_hash' => 'hash:approval-token',
+            'device_name' => 'Kitchen tablet',
+            'platform' => 'android',
             'expires_at' => '2026-08-09 12:15:00',
             'created_at' => '2026-08-09 12:00:00',
         ];

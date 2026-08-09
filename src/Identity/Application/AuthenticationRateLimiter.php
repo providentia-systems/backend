@@ -49,13 +49,15 @@ final class AuthenticationRateLimiter
         // attacker could otherwise create unbounded rows with random UUIDs.
         $buckets = ['login-link-ip:' . $ipAddress => 3000];
         foreach ($buckets as $bucket => $limit) {
-            if (! $this->store->consume(
-                hash_hmac('sha256', $bucket, $this->pepper),
-                $this->clock->now(),
-                900,
-                $limit,
-                900,
-            )) {
+            if (
+                ! $this->store->consume(
+                    hash_hmac('sha256', $bucket, $this->pepper),
+                    $this->clock->now(),
+                    900,
+                    $limit,
+                    900,
+                )
+            ) {
                 throw new Problem(
                     429,
                     'Too many login-link checks',

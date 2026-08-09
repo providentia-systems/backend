@@ -185,8 +185,14 @@ foreach (['pollToken', 'pollSecret', 'codeVerifier', 'accessToken', 'refreshToke
 
 $sessionRequired = $contract['components']['schemas']['SessionCredentials']['required'] ?? [];
 foreach (
-    ['transport', 'accessExpiresAt', 'refreshExpiresAt', 'idleExpiresAt', 'refreshIdleTtlSeconds', 'activeHomeId']
-    as $field
+    [
+        'transport',
+        'accessExpiresAt',
+        'refreshExpiresAt',
+        'idleExpiresAt',
+        'refreshIdleTtlSeconds',
+        'activeHomeId',
+    ] as $field
 ) {
     if (! in_array($field, $sessionRequired, true)) {
         throw new RuntimeException('SessionCredentials must require ' . $field . '.');
