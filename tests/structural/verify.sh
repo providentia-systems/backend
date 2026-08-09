@@ -90,7 +90,8 @@ done
 for shell_script in infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
   scripts/setup-development.sh scripts/provision-development-user.sh \
   scripts/reset-development.sh \
-  tests/Acceptance/development-http-smoke.sh; do
+  tests/Acceptance/development-http-smoke.sh \
+  tests/Acceptance/development-auth-http-smoke.sh; do
   bash -n "$shell_script" || fail "$shell_script has invalid shell syntax"
 done
 
