@@ -114,7 +114,7 @@ final class DbalAuthenticationRateLimitStore implements AuthenticationRateLimitS
         );
         $purged = 0;
         foreach ($ids as $id) {
-            $purged += $this->connection->executeStatement(
+            $purged += (int) $this->connection->executeStatement(
                 'DELETE FROM authentication_rate_limits
                  WHERE bucket_hash = :hash AND updated_at <= :cutoff
                    AND (blocked_until IS NULL OR blocked_until <= :now)',

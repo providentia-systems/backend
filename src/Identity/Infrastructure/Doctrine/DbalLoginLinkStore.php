@@ -231,7 +231,7 @@ final class DbalLoginLinkStore implements LoginLinkStore
         int $limit,
     ): array {
         $now = $this->date($at);
-        $expired = $this->connection->executeStatement(
+        $expired = (int) $this->connection->executeStatement(
             'UPDATE auth_login_link_requests
              SET status = :expired, approval_token_hash = NULL, updated_at = :at
              WHERE (status = :pending AND expires_at <= :at)
@@ -268,7 +268,7 @@ final class DbalLoginLinkStore implements LoginLinkStore
         );
         $purged = 0;
         foreach ($ids as $id) {
-            $purged += $this->connection->executeStatement(
+            $purged += (int) $this->connection->executeStatement(
                 'DELETE FROM auth_login_link_requests
                  WHERE id = :id AND status IN (:expired, :denied, :cancelled, :exchanged)',
                 [
