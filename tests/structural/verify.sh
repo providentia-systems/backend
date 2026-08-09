@@ -274,8 +274,16 @@ for setup_script in scripts/setup-development.sh scripts/setup-prebuilt.sh; do
   grep -Fq 'select(.role == "owner")' "$setup_script" \
     || fail "$setup_script must hand off a home owned by the bootstrap account"
 done
-grep -Fq 'official_image_repository="ghcr.io/providentia-systems/backend"' scripts/setup-prebuilt.sh \
-  || fail "prebuilt setup must pull from the repository-owned image namespace"
+grep -Fq 'default_image_namespace="providentia-systems/backend"' scripts/setup-prebuilt.sh \
+  || fail "prebuilt setup must retain the canonical namespace fallback"
+grep -Fq 'PROVIDENTIA_IMAGE_NAMESPACE' scripts/setup-prebuilt.sh \
+  || fail "prebuilt setup must support repository-derived image namespaces"
+grep -Fq 'agent/*)' scripts/setup-prebuilt.sh \
+  || fail "prebuilt setup must select immutable candidates for trusted agent branches"
+grep -Fq 'Pulled candidate image does not match this checkout' scripts/setup-prebuilt.sh \
+  || fail "prebuilt setup must verify candidate revision labels"
+grep -Fq -- '- "agent/**"' .github/workflows/production-image.yml \
+  || fail "trusted agent branches must publish immutable pre-merge candidates"
 for image in \
   'ghcr.io/providentia-systems/backend:edge' \
   'ghcr.io/providentia-systems/backend-web:edge' \

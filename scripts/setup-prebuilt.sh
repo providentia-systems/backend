@@ -7,6 +7,8 @@ compose_file="${root_dir}/compose.prebuilt.yaml"
 env_file="${PROVIDENTIA_PREBUILT_ENV_FILE:-${root_dir}/.env.prebuilt.local}"
 handoff_file="${root_dir}/.providentia-development.json"
 version_override=""
+registry_override=""
+image_namespace_override=""
 email_override=""
 password_override=""
 http_port_override=""
@@ -14,8 +16,53 @@ mailpit_port_override=""
 bind_address_override=""
 skip_provision=0
 
-official_image_repository="ghcr.io/providentia-systems/backend"
+registry_environment="${PROVIDENTIA_REGISTRY:-}"
+image_namespace_environment="${PROVIDENTIA_IMAGE_NAMESPACE:-}"
+version_environment="${PROVIDENTIA_VERSION:-}"
+default_registry="ghcr.io"
+default_image_namespace="providentia-systems/backend"
+canonical_image_repository="${default_registry}/${default_image_namespace}"
 legacy_image_repository="ghcr.io/vast-development-method/providentia-laminas"
+
+detect_image_namespace() {
+    local remote namespace
+    command -v git >/dev/null 2>&1 || return 1
+    remote="$(git -C "$root_dir" remote get-url origin 2>/dev/null || true)"
+    case "$remote" in
+        https://github.com/*|http://github.com/*)
+            namespace="${remote#*github.com/}"
+            ;;
+        git@github.com:*)
+            namespace="${remote#git@github.com:}"
+            ;;
+        ssh://git@github.com/*)
+            namespace="${remote#ssh://git@github.com/}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    namespace="${namespace%.git}"
+    namespace="${namespace,,}"
+    [[ "$namespace" =~ ^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$ ]] || return 1
+    printf '%s\n' "$namespace"
+}
+
+detect_checkout_candidate_version() {
+    local branch commit
+    command -v git >/dev/null 2>&1 || return 1
+    branch="$(git -C "$root_dir" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    case "$branch" in
+        agent/*)
+            commit="$(git -C "$root_dir" rev-parse --verify HEAD 2>/dev/null || true)"
+            [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || return 1
+            printf 'sha-%s\n' "${commit:0:12}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
 
 usage() {
     cat <<'EOF'
@@ -25,6 +72,8 @@ Pull and run the published Providentia production images for local testing.
 
 Options:
   --version TAG          Image tag to run (default: edge)
+  --registry HOST        Container registry (default: ghcr.io)
+  --image-namespace PATH Image owner/repository (default: detected Git remote)
   --dev-email EMAIL     Development account email
   --dev-password PASS   Development account password
   --http-port PORT      Host API port (default: 8080)
@@ -38,6 +87,8 @@ EOF
 while (($#)); do
     case "$1" in
         --version) version_override="${2:?--version requires a tag}"; shift 2 ;;
+        --registry) registry_override="${2:?--registry requires a host}"; shift 2 ;;
+        --image-namespace) image_namespace_override="${2:?--image-namespace requires owner/repository}"; shift 2 ;;
         --dev-email) email_override="${2:?--dev-email requires a value}"; shift 2 ;;
         --dev-password) password_override="${2:?--dev-password requires a value}"; shift 2 ;;
         --http-port) http_port_override="${2:?--http-port requires a value}"; shift 2 ;;
@@ -60,17 +111,32 @@ docker compose version >/dev/null 2>&1 || {
     exit 1
 }
 
+detected_image_namespace="$(detect_image_namespace || true)"
+checkout_candidate_version="$(detect_checkout_candidate_version || true)"
+generated_registry="${registry_override:-${registry_environment:-$default_registry}}"
+generated_image_namespace="${image_namespace_override:-${image_namespace_environment:-${detected_image_namespace:-$default_image_namespace}}}"
+
+if [[ ! "$generated_registry" =~ ^[a-z0-9][a-z0-9.-]*(:[0-9]+)?$ ]]; then
+    printf 'Invalid container registry host: %s\n' "$generated_registry" >&2
+    exit 2
+fi
+if [[ ! "$generated_image_namespace" =~ ^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)+$ ]]; then
+    printf 'Invalid image namespace; expected lowercase owner/repository: %s\n' "$generated_image_namespace" >&2
+    exit 2
+fi
+
 if [[ ! -f "$env_file" ]]; then
     umask 077
     generated_password="${password_override:-$(openssl rand -hex 16)}"
-    generated_version="${version_override:-edge}"
+    generated_version="${version_override:-${version_environment:-${checkout_candidate_version:-edge}}}"
     generated_email="${email_override:-developer@providentia.local}"
     generated_http_port="${http_port_override:-8080}"
     generated_mailpit_port="${mailpit_port_override:-8025}"
     generated_bind_address="${bind_address_override:-127.0.0.1}"
     {
         printf 'PROVIDENTIA_VERSION=%s\n' "$generated_version"
-        printf 'PROVIDENTIA_IMAGE_REPOSITORY=%s\n' "$official_image_repository"
+        printf 'PROVIDENTIA_REGISTRY=%s\n' "$generated_registry"
+        printf 'PROVIDENTIA_IMAGE_NAMESPACE=%s\n' "$generated_image_namespace"
         printf 'PROVIDENTIA_BIND_ADDRESS=%s\n' "$generated_bind_address"
         printf 'PROVIDENTIA_HTTP_PORT=%s\n' "$generated_http_port"
         printf 'PROVIDENTIA_MAILPIT_PORT=%s\n' "$generated_mailpit_port"
@@ -96,8 +162,25 @@ set -a
 source "$env_file"
 set +a
 
-export PROVIDENTIA_VERSION="${version_override:-${PROVIDENTIA_VERSION:?PROVIDENTIA_VERSION is required}}"
-export PROVIDENTIA_IMAGE_REPOSITORY="${PROVIDENTIA_IMAGE_REPOSITORY:-$official_image_repository}"
+using_checkout_candidate=0
+if [[ "${PROVIDENTIA_SKIP_PULL:-0}" == '1' ]]; then
+    checkout_candidate_version=""
+elif [[ -n "$checkout_candidate_version" && -z "$version_override" && -z "$version_environment" ]]; then
+    using_checkout_candidate=1
+fi
+
+export PROVIDENTIA_VERSION="${version_override:-${version_environment:-${checkout_candidate_version:-${PROVIDENTIA_VERSION:?PROVIDENTIA_VERSION is required}}}}"
+export PROVIDENTIA_REGISTRY="${registry_override:-${registry_environment:-${PROVIDENTIA_REGISTRY:-$generated_registry}}}"
+export PROVIDENTIA_IMAGE_NAMESPACE="${image_namespace_override:-${image_namespace_environment:-${detected_image_namespace:-${PROVIDENTIA_IMAGE_NAMESPACE:-$generated_image_namespace}}}}"
+if [[ ! "$PROVIDENTIA_REGISTRY" =~ ^[a-z0-9][a-z0-9.-]*(:[0-9]+)?$ ]]; then
+    printf 'Invalid container registry host: %s\n' "$PROVIDENTIA_REGISTRY" >&2
+    exit 2
+fi
+if [[ ! "$PROVIDENTIA_IMAGE_NAMESPACE" =~ ^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)+$ ]]; then
+    printf 'Invalid image namespace; expected lowercase owner/repository: %s\n' "$PROVIDENTIA_IMAGE_NAMESPACE" >&2
+    exit 2
+fi
+export PROVIDENTIA_IMAGE_REPOSITORY="${PROVIDENTIA_REGISTRY}/${PROVIDENTIA_IMAGE_NAMESPACE}"
 export PROVIDENTIA_WEB_IMAGE_REPOSITORY="${PROVIDENTIA_WEB_IMAGE_REPOSITORY:-${PROVIDENTIA_IMAGE_REPOSITORY}-web}"
 export PROVIDENTIA_MEDIA_IMAGE_REPOSITORY="${PROVIDENTIA_MEDIA_IMAGE_REPOSITORY:-${PROVIDENTIA_IMAGE_REPOSITORY}-media-worker}"
 
@@ -107,13 +190,13 @@ export PROVIDENTIA_MEDIA_IMAGE_REPOSITORY="${PROVIDENTIA_MEDIA_IMAGE_REPOSITORY:
 # this repository. Known official references are also derived again so
 # --version always changes the image tag on an existing installation.
 case "${PROVIDENTIA_IMAGE:-}" in
-    "${legacy_image_repository}:"*|"${official_image_repository}:"*) unset PROVIDENTIA_IMAGE ;;
+    "${legacy_image_repository}:"*|"${canonical_image_repository}:"*|"${PROVIDENTIA_IMAGE_REPOSITORY}:"*) unset PROVIDENTIA_IMAGE ;;
 esac
 case "${PROVIDENTIA_WEB_IMAGE:-}" in
-    "${legacy_image_repository}-web:"*|"${official_image_repository}-web:"*) unset PROVIDENTIA_WEB_IMAGE ;;
+    "${legacy_image_repository}-web:"*|"${canonical_image_repository}-web:"*|"${PROVIDENTIA_IMAGE_REPOSITORY}-web:"*) unset PROVIDENTIA_WEB_IMAGE ;;
 esac
 case "${PROVIDENTIA_MEDIA_IMAGE:-}" in
-    "${legacy_image_repository}-media-worker:"*|"${official_image_repository}-media-worker:"*) unset PROVIDENTIA_MEDIA_IMAGE ;;
+    "${legacy_image_repository}-media-worker:"*|"${canonical_image_repository}-media-worker:"*|"${PROVIDENTIA_IMAGE_REPOSITORY}-media-worker:"*) unset PROVIDENTIA_MEDIA_IMAGE ;;
 esac
 
 export PROVIDENTIA_IMAGE="${PROVIDENTIA_IMAGE:-${PROVIDENTIA_IMAGE_REPOSITORY}:${PROVIDENTIA_VERSION}}"
@@ -161,6 +244,21 @@ The GHCR pull failed. If the packages are private, authenticate first:
 The token needs read access to the repository packages.
 EOF
     exit 1
+fi
+
+if ((using_checkout_candidate == 1)); then
+    expected_revision="$(git -C "$root_dir" rev-parse --verify HEAD)"
+    for image in "$PROVIDENTIA_IMAGE" "$PROVIDENTIA_WEB_IMAGE" "$PROVIDENTIA_MEDIA_IMAGE"; do
+        image_revision="$(docker image inspect \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+            "$image" 2>/dev/null || true)"
+        if [[ "$image_revision" != "$expected_revision" ]]; then
+            printf 'Pulled candidate image does not match this checkout: %s\n' "$image" >&2
+            printf 'Expected revision %s, found %s.\n' \
+                "$expected_revision" "${image_revision:-no revision label}" >&2
+            exit 1
+        fi
+    done
 fi
 
 "${compose[@]}" --profile tools run --rm volume-init
@@ -307,7 +405,7 @@ if ((skip_provision == 0)); then
     chmod 0600 "$handoff_file"
 fi
 
-trap - ERR
+trap - EXIT
 printf '\nProvidentia prebuilt environment is ready.\n'
 printf 'Image tag:         %s\n' "$PROVIDENTIA_VERSION"
 printf 'API:               %s\n' "$api_base"

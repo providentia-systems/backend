@@ -27,6 +27,13 @@ tag for investigation but is never promoted. Production deployments must pin
 the three recorded successful digests; `edge` and `latest` are convenience
 tags, not immutable release identities.
 
+Trusted `agent/*` branches publish the same scanned immutable candidate tags
+without promoting `edge`. When this script runs from an `agent/*` checkout and
+no explicit version was supplied, it selects the checkout's own
+`sha-<12-character-commit>` tag automatically and verifies the revision label
+on all three pulled images before starting anything. This makes a pre-merge
+test exercise the checked-out code rather than the older `edge` build.
+
 The repository is private, so the packages normally require GitHub Container
 Registry authentication. Use a token that can read the repository packages:
 
@@ -83,6 +90,19 @@ bash scripts/setup-prebuilt.sh \
 Use an immutable `sha-*` or `X.Y.Z` tag when reproducing a defect. Running the
 script again is safe: it pulls the selected tag, reapplies only pending
 migrations, reuses the account/home, and waits for the complete stack.
+
+The registry and image namespace normally come from the Git `origin` remote.
+Forks, transfers, and private registries may override them without editing the
+script:
+
+```bash
+bash scripts/setup-prebuilt.sh \
+  --registry ghcr.io \
+  --image-namespace owner/repository
+```
+
+`PROVIDENTIA_REGISTRY` and `PROVIDENTIA_IMAGE_NAMESPACE` provide the equivalent
+environment-variable overrides. Command-line values take precedence.
 
 For additional users, role testing, the first platform-administrator grant,
 and the exact client login commands, follow
