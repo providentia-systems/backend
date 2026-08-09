@@ -243,6 +243,7 @@ jobs:
           EOF
           if ! PROVIDENTIA_PREBUILT_ENV_FILE="$prebuilt_env" bash scripts/setup-prebuilt.sh; then
             "${compose[@]}" exec -T api php -r '
+              require "vendor/autoload.php";
               $container = require "config/container.php";
               $services = [
                   \Doctrine\DBAL\Connection::class,
