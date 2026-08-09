@@ -25,6 +25,7 @@ on:
     # promoting the edge tag.
     branches:
       - main
+      - "agent/**"
     tags:
       - "v*.*.*"
   workflow_dispatch:
@@ -99,6 +100,7 @@ jobs:
           build-args: |
             APP_VERSION=ci
             VCS_REF=${{ github.sha }}
+            VCS_URL=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=production-runtime
           cache-to: type=gha,mode=max,scope=production-runtime
       - name: Inspect non-root runtime
@@ -121,6 +123,8 @@ jobs:
           tags: providentia-media-worker:production-ci
           cache-from: type=gha,scope=production-media
           cache-to: type=gha,mode=max,scope=production-media
+          build-args: |
+            VCS_URL=${{ github.server_url }}/${{ github.repository }}
       - name: Inspect media worker boundary
         run: |
           test "$(docker image inspect providentia-media-worker:production-ci --format '{{.Config.User}}')" = "www-data"
@@ -137,6 +141,8 @@ jobs:
           tags: providentia-web:production-ci
           cache-from: type=gha,scope=production-web
           cache-to: type=gha,mode=max,scope=production-web
+          build-args: |
+            VCS_URL=${{ github.server_url }}/${{ github.repository }}
       - name: Inspect patched non-root web boundary
         run: |
           test "$(docker image inspect providentia-web:production-ci --format '{{.Config.User}}')" = "caddy"
@@ -347,6 +353,7 @@ jobs:
           build-args: |
             APP_VERSION=${{ github.ref_name }}
             VCS_REF=${{ github.sha }}
+            VCS_URL=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=production-runtime
           cache-to: type=gha,mode=max,scope=production-runtime
           provenance: mode=max
@@ -366,6 +373,8 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=production-web
           cache-to: type=gha,mode=max,scope=production-web
+          build-args: |
+            VCS_URL=${{ github.server_url }}/${{ github.repository }}
           provenance: mode=max
           sbom: true
       - name: Publish media-worker image
@@ -383,6 +392,8 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=production-media
           cache-to: type=gha,mode=max,scope=production-media
+          build-args: |
+            VCS_URL=${{ github.server_url }}/${{ github.repository }}
           provenance: mode=max
           sbom: true
       - name: Record and inspect immutable published digests
