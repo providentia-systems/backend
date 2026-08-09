@@ -15,9 +15,9 @@ only in this loopback profile.
 
 | Purpose | GHCR package |
 |---|---|
-| PHP-FPM API, CLI, migrations, and ordinary workers | `ghcr.io/vast-development-method/providentia-laminas` |
-| Caddy public edge and immutable public files | `ghcr.io/vast-development-method/providentia-laminas-web` |
-| Isolated FFmpeg/FFprobe video worker | `ghcr.io/vast-development-method/providentia-laminas-media-worker` |
+| PHP-FPM API, CLI, migrations, and ordinary workers | `ghcr.io/providentia-systems/backend` |
+| Caddy public edge and immutable public files | `ghcr.io/providentia-systems/backend-web` |
+| Isolated FFmpeg/FFprobe video worker | `ghcr.io/providentia-systems/backend-media-worker` |
 
 Every publication first produces `sha-<12-character-commit>` candidate tags.
 The workflow scans both published platforms and exercises the exact registry

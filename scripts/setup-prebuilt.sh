@@ -14,6 +14,9 @@ mailpit_port_override=""
 bind_address_override=""
 skip_provision=0
 
+official_image_repository="ghcr.io/providentia-systems/backend"
+legacy_image_repository="ghcr.io/vast-development-method/providentia-laminas"
+
 usage() {
     cat <<'EOF'
 Usage: bash scripts/setup-prebuilt.sh [options]
@@ -67,9 +70,7 @@ if [[ ! -f "$env_file" ]]; then
     generated_bind_address="${bind_address_override:-127.0.0.1}"
     {
         printf 'PROVIDENTIA_VERSION=%s\n' "$generated_version"
-        printf 'PROVIDENTIA_IMAGE=ghcr.io/vast-development-method/providentia-laminas:%s\n' "$generated_version"
-        printf 'PROVIDENTIA_WEB_IMAGE=ghcr.io/vast-development-method/providentia-laminas-web:%s\n' "$generated_version"
-        printf 'PROVIDENTIA_MEDIA_IMAGE=ghcr.io/vast-development-method/providentia-laminas-media-worker:%s\n' "$generated_version"
+        printf 'PROVIDENTIA_IMAGE_REPOSITORY=%s\n' "$official_image_repository"
         printf 'PROVIDENTIA_BIND_ADDRESS=%s\n' "$generated_bind_address"
         printf 'PROVIDENTIA_HTTP_PORT=%s\n' "$generated_http_port"
         printf 'PROVIDENTIA_MAILPIT_PORT=%s\n' "$generated_mailpit_port"
@@ -96,9 +97,28 @@ source "$env_file"
 set +a
 
 export PROVIDENTIA_VERSION="${version_override:-${PROVIDENTIA_VERSION:?PROVIDENTIA_VERSION is required}}"
-export PROVIDENTIA_IMAGE="${PROVIDENTIA_IMAGE:-ghcr.io/vast-development-method/providentia-laminas:${PROVIDENTIA_VERSION}}"
-export PROVIDENTIA_WEB_IMAGE="${PROVIDENTIA_WEB_IMAGE:-ghcr.io/vast-development-method/providentia-laminas-web:${PROVIDENTIA_VERSION}}"
-export PROVIDENTIA_MEDIA_IMAGE="${PROVIDENTIA_MEDIA_IMAGE:-ghcr.io/vast-development-method/providentia-laminas-media-worker:${PROVIDENTIA_VERSION}}"
+export PROVIDENTIA_IMAGE_REPOSITORY="${PROVIDENTIA_IMAGE_REPOSITORY:-$official_image_repository}"
+export PROVIDENTIA_WEB_IMAGE_REPOSITORY="${PROVIDENTIA_WEB_IMAGE_REPOSITORY:-${PROVIDENTIA_IMAGE_REPOSITORY}-web}"
+export PROVIDENTIA_MEDIA_IMAGE_REPOSITORY="${PROVIDENTIA_MEDIA_IMAGE_REPOSITORY:-${PROVIDENTIA_IMAGE_REPOSITORY}-media-worker}"
+
+# PR #11 moved publication to the repository-owned GHCR namespace. Older
+# generated env files still contain full references to the former package; do
+# not let those stale values keep selecting an image that no longer represents
+# this repository. Known official references are also derived again so
+# --version always changes the image tag on an existing installation.
+case "${PROVIDENTIA_IMAGE:-}" in
+    "${legacy_image_repository}:"*|"${official_image_repository}:"*) unset PROVIDENTIA_IMAGE ;;
+esac
+case "${PROVIDENTIA_WEB_IMAGE:-}" in
+    "${legacy_image_repository}-web:"*|"${official_image_repository}-web:"*) unset PROVIDENTIA_WEB_IMAGE ;;
+esac
+case "${PROVIDENTIA_MEDIA_IMAGE:-}" in
+    "${legacy_image_repository}-media-worker:"*|"${official_image_repository}-media-worker:"*) unset PROVIDENTIA_MEDIA_IMAGE ;;
+esac
+
+export PROVIDENTIA_IMAGE="${PROVIDENTIA_IMAGE:-${PROVIDENTIA_IMAGE_REPOSITORY}:${PROVIDENTIA_VERSION}}"
+export PROVIDENTIA_WEB_IMAGE="${PROVIDENTIA_WEB_IMAGE:-${PROVIDENTIA_WEB_IMAGE_REPOSITORY}:${PROVIDENTIA_VERSION}}"
+export PROVIDENTIA_MEDIA_IMAGE="${PROVIDENTIA_MEDIA_IMAGE:-${PROVIDENTIA_MEDIA_IMAGE_REPOSITORY}:${PROVIDENTIA_VERSION}}"
 export PROVIDENTIA_DEV_EMAIL="${email_override:-${PROVIDENTIA_DEV_EMAIL:?PROVIDENTIA_DEV_EMAIL is required}}"
 export PROVIDENTIA_DEV_PASSWORD="${password_override:-${PROVIDENTIA_DEV_PASSWORD:?PROVIDENTIA_DEV_PASSWORD is required}}"
 export PROVIDENTIA_HTTP_PORT="${http_port_override:-${PROVIDENTIA_HTTP_PORT:?PROVIDENTIA_HTTP_PORT is required}}"
