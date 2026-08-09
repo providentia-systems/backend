@@ -491,7 +491,10 @@ final class LoginLinkService
         }
     }
 
-    /** @param array<string, mixed> $request @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $request
+     * @return array<string, mixed>
+     */
     private function statusResponse(array $request): array
     {
         $status = (string) $request['status'];

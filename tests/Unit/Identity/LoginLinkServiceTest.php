@@ -441,7 +441,7 @@ final class LoginLinkServiceTest extends TestCase
     private function ids(string ...$values): UuidGenerator
     {
         $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturnOnConsecutiveCalls(...$values);
+        $ids->method('generate')->willReturnOnConsecutiveCalls(...array_values($values));
 
         return $ids;
     }
