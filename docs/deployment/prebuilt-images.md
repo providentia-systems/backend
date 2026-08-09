@@ -115,9 +115,11 @@ tag is promoted.
 
 ## Point Flutter at it
 
-Use the development email/password from `.providentia-development.json` and
-perform a fresh client login. Do not use the saved setup-session bearer tokens
-as Flutter launch arguments.
+Use the development email address from `.providentia-development.json`, choose
+**Send login link** in Flutter, open the message in Mailpit, explicitly approve
+it, and return to the originating client. Ignore the handoff password; it is
+development compatibility data, not the production onboarding path. Do not
+use saved setup-session bearer tokens as Flutter launch arguments.
 
 | Flutter target | API base URL |
 |---|---|
@@ -126,7 +128,9 @@ as Flutter launch arguments.
 | Android debug build after `adb reverse tcp:8080 tcp:8080` | `http://127.0.0.1:8080` |
 
 Chrome must use one hostname consistently for the web origin and API because
-web sessions use credentialed CORS and strict secure cookies. The fixed
+web sessions use credentialed CORS plus HttpOnly, SameSite cookies. Production
+HTTPS cookies are also Secure; the isolated loopback HTTP profile deliberately
+relaxes only that Secure attribute. The fixed
 development origin `http://localhost:8081` is allowed by default; a custom web
 port must be added to `CORS_ALLOWED_ORIGINS` explicitly. Credentialed CORS
 cannot use a wildcard.

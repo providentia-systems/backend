@@ -9,9 +9,10 @@ The repository includes the Phase 1 production foundation, Phase 2
 identity/home/catalog increment, Phase 4 home-scoped synchronization protocol,
 Phase 5 ledger-backed household operations, Phase 6 privacy-controlled AI,
 Phase 7 governed catalog administration, and Phase 8 deterministic shopping
-intelligence and reporting. Synchronization remains explicitly allow-listed
-to `home-preference` and `private-note` until each newer aggregate has a typed
-offline policy.
+intelligence and reporting. The generic protocol-v1 synchronization allowlist
+remains limited to `home-preference` and `private-note`; API 1.11 also publishes
+typed protocol-v2 pantry commands for aggregates with an explicit offline
+policy.
 
 ## Requirements
 
@@ -138,10 +139,12 @@ queue message is never represented as equivalent to the database commit.
 
 ## Product surface
 
-- Development-opt-in generic-shape email/password registration (not timing-resistant while
-  verification SMTP remains synchronous), email verification,
-  login, refresh rotation, password reset, logout, device sessions,
-  secure-cookie and bearer transports.
+- Email-only login-link onboarding with explicit any-browser approval,
+  origin-client polling and PKCE exchange, automatic first-home ownership,
+  refresh rotation, logout, device sessions, and secure-cookie/bearer
+  transports. The approval browser never receives the application session.
+- Development-opt-in email/password compatibility for isolated loopback
+  diagnostics only; production clients and acceptance jobs use login links.
 - Home creation/switching, roles, invitations, membership lifecycle, explicit
   ownership transfer, tenant authorization, and audit records.
 - Reconciled global catalog seed and public product search.

@@ -13,8 +13,8 @@ candidate out of production.
 | Runtime image digest | Pending CI publication |
 | Media-worker image digest | Pending CI publication |
 | Web image digest | Pending CI publication |
-| OpenAPI contract | `1.10.0` locked digest |
-| Migration range | `Version20260729000100`–`Version20260804001500` |
+| OpenAPI contract | `1.11.0`, SHA-256 `6535298b37f99edb19d13afe1a2d36b8987ab4c051b091419eefe3ae8dbc469c` |
+| Migration range | `Version20260729000100`–`Version20260809001600` |
 
 ## Automated acceptance
 
@@ -33,7 +33,7 @@ candidate out of production.
 
 | Scenario | Required evidence | Status |
 |---|---|---|
-| Passwordless email and invitation delivery | Mailcow/SMTP retry and dead-letter rehearsal | Pending staging |
+| Login-link email and invitation delivery | Mailcow/SMTP retry and dead-letter rehearsal | Pending staging |
 | Two-device offline pantry convergence | Inventory, counts, receipts and lists over supported offline window | Pending client staging |
 | Cross-home authorization | Randomized tenant isolation suite and manual review | Pending staging |
 | AI extraction | OpenAI primary, alternate failover, independent validation and review | Pending sandbox keys |
