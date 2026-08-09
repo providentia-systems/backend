@@ -118,6 +118,7 @@ compose=(docker compose --env-file "$env_file" -f "$compose_file")
 
 diagnostics() {
     local status=$?
+    trap - EXIT
     if ((status != 0)); then
         printf '\nProvidentia startup failed. Container state and bounded logs follow.\n' >&2
         "${compose[@]}" ps >&2 || true
@@ -125,7 +126,7 @@ diagnostics() {
     fi
     exit "$status"
 }
-trap diagnostics ERR
+trap diagnostics EXIT
 
 printf 'Pulling Providentia %s production images...\n' "$PROVIDENTIA_VERSION"
 if [[ "${PROVIDENTIA_SKIP_PULL:-0}" == '1' ]]; then
