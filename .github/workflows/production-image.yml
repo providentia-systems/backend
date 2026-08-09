@@ -20,6 +20,9 @@ on:
       - public/**
       - .github/workflows/production-image.yml
   push:
+    # Triggers cannot contain expressions, so the usual default branch is named
+    # here; the publish job resolves the repository's real default branch before
+    # promoting the edge tag.
     branches:
       - main
     tags:
@@ -32,6 +35,13 @@ permissions:
 concurrency:
   group: production-image-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # Every published reference is derived from the repository that runs this
+  # workflow, so a fork, transfer, or rename publishes to its own namespace
+  # without editing this file. Set the optional CONTAINER_IMAGE_NAMESPACE
+  # repository variable (owner/name) only to publish somewhere else.
+  REGISTRY: ghcr.io
 
 jobs:
   validate-compose:
@@ -212,27 +222,40 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: docker/setup-qemu-action@e77e8065d9f7ec6abdd9838668cd7b43924dd64d # v3.6.0
       - uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
-      - name: Authenticate to GitHub Container Registry
+      - name: Authenticate to the container registry of this repository
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
-      - name: Resolve immutable and promotion tags
+        run: printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" --username "${{ github.actor }}" --password-stdin
+      - name: Resolve the image namespace, immutable tags, and promotion tags
         id: tags
         shell: bash
+        env:
+          NAMESPACE_OVERRIDE: ${{ vars.CONTAINER_IMAGE_NAMESPACE }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -Eeuo pipefail
+          namespace="${NAMESPACE_OVERRIDE:-$GITHUB_REPOSITORY}"
+          namespace="${namespace,,}"
+          if [[ ! "$namespace" =~ ^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)+$ ]]; then
+            printf 'The image namespace must be a lowercase owner/name path: %s\n' "$namespace" >&2
+            exit 2
+          fi
+          runtime_repository="${REGISTRY}/${namespace}"
+          web_repository="${runtime_repository}-web"
+          media_repository="${runtime_repository}-media-worker"
+          default_branch="${DEFAULT_BRANCH:-main}"
           short_sha="${GITHUB_SHA:0:12}"
-          runtime="ghcr.io/vast-development-method/providentia-laminas:sha-${short_sha}"
-          web="ghcr.io/vast-development-method/providentia-laminas-web:sha-${short_sha}"
-          media="ghcr.io/vast-development-method/providentia-laminas-media-worker:sha-${short_sha}"
+          runtime="${runtime_repository}:sha-${short_sha}"
+          web="${web_repository}:sha-${short_sha}"
+          media="${media_repository}:sha-${short_sha}"
           runtime_promotions=()
           web_promotions=()
           media_promotions=()
 
-          if [[ "$GITHUB_REF" == refs/heads/main ]]; then
-            runtime_promotions+=("ghcr.io/vast-development-method/providentia-laminas:edge")
-            web_promotions+=("ghcr.io/vast-development-method/providentia-laminas-web:edge")
-            media_promotions+=("ghcr.io/vast-development-method/providentia-laminas-media-worker:edge")
+          if [[ "$GITHUB_REF" == "refs/heads/${default_branch}" ]]; then
+            runtime_promotions+=("${runtime_repository}:edge")
+            web_promotions+=("${web_repository}:edge")
+            media_promotions+=("${media_repository}:edge")
           fi
 
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
@@ -241,12 +264,15 @@ jobs:
               printf 'Release tag must be vX.Y.Z: %s\n' "$GITHUB_REF_NAME" >&2
               exit 2
             fi
-            runtime_promotions+=("ghcr.io/vast-development-method/providentia-laminas:${version}" "ghcr.io/vast-development-method/providentia-laminas:latest")
-            web_promotions+=("ghcr.io/vast-development-method/providentia-laminas-web:${version}" "ghcr.io/vast-development-method/providentia-laminas-web:latest")
-            media_promotions+=("ghcr.io/vast-development-method/providentia-laminas-media-worker:${version}" "ghcr.io/vast-development-method/providentia-laminas-media-worker:latest")
+            runtime_promotions+=("${runtime_repository}:${version}" "${runtime_repository}:latest")
+            web_promotions+=("${web_repository}:${version}" "${web_repository}:latest")
+            media_promotions+=("${media_repository}:${version}" "${media_repository}:latest")
           fi
 
           {
+            printf 'runtime_repository=%s\n' "$runtime_repository"
+            printf 'web_repository=%s\n' "$web_repository"
+            printf 'media_repository=%s\n' "$media_repository"
             printf 'runtime=%s\n' "$runtime"
             printf 'web=%s\n' "$web"
             printf 'media=%s\n' "$media"
@@ -315,12 +341,12 @@ jobs:
           provenance: mode=max
           sbom: true
       - name: Record and inspect immutable published digests
+        env:
+          RUNTIME_IMAGE: ${{ steps.tags.outputs.runtime_repository }}@${{ steps.runtime.outputs.digest }}
+          WEB_IMAGE: ${{ steps.tags.outputs.web_repository }}@${{ steps.web.outputs.digest }}
+          MEDIA_IMAGE: ${{ steps.tags.outputs.media_repository }}@${{ steps.media.outputs.digest }}
         run: |
-          cat >published-images.txt <<EOF
-          ghcr.io/vast-development-method/providentia-laminas@${{ steps.runtime.outputs.digest }}
-          ghcr.io/vast-development-method/providentia-laminas-web@${{ steps.web.outputs.digest }}
-          ghcr.io/vast-development-method/providentia-laminas-media-worker@${{ steps.media.outputs.digest }}
-          EOF
+          printf '%s\n' "$RUNTIME_IMAGE" "$WEB_IMAGE" "$MEDIA_IMAGE" >published-images.txt
           while IFS= read -r image; do
             docker buildx imagetools inspect "$image"
           done <published-images.txt
@@ -359,9 +385,9 @@ jobs:
           PUBLIC_BASE_URL: https://app.example.invalid
           CORS_ALLOWED_ORIGINS: https://app.example.invalid
           EXPOSE_DEVELOPMENT_TOKENS: "0"
-          RUNTIME_IMAGE: ghcr.io/vast-development-method/providentia-laminas@${{ steps.runtime.outputs.digest }}
-          WEB_IMAGE: ghcr.io/vast-development-method/providentia-laminas-web@${{ steps.web.outputs.digest }}
-          MEDIA_IMAGE: ghcr.io/vast-development-method/providentia-laminas-media-worker@${{ steps.media.outputs.digest }}
+          RUNTIME_IMAGE: ${{ steps.tags.outputs.runtime_repository }}@${{ steps.runtime.outputs.digest }}
+          WEB_IMAGE: ${{ steps.tags.outputs.web_repository }}@${{ steps.web.outputs.digest }}
+          MEDIA_IMAGE: ${{ steps.tags.outputs.media_repository }}@${{ steps.media.outputs.digest }}
         run: |
           cleanup() {
             docker rm --force providentia-published-api providentia-published-web providentia-published-redis >/dev/null 2>&1 || true
@@ -418,9 +444,9 @@ jobs:
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/metrics)" = "404"
       - name: Promote only scanned and exercised digests
         env:
-          RUNTIME_IMAGE: ghcr.io/vast-development-method/providentia-laminas@${{ steps.runtime.outputs.digest }}
-          WEB_IMAGE: ghcr.io/vast-development-method/providentia-laminas-web@${{ steps.web.outputs.digest }}
-          MEDIA_IMAGE: ghcr.io/vast-development-method/providentia-laminas-media-worker@${{ steps.media.outputs.digest }}
+          RUNTIME_IMAGE: ${{ steps.tags.outputs.runtime_repository }}@${{ steps.runtime.outputs.digest }}
+          WEB_IMAGE: ${{ steps.tags.outputs.web_repository }}@${{ steps.web.outputs.digest }}
+          MEDIA_IMAGE: ${{ steps.tags.outputs.media_repository }}@${{ steps.media.outputs.digest }}
           RUNTIME_PROMOTIONS: ${{ steps.tags.outputs.runtime_promotions }}
           WEB_PROMOTIONS: ${{ steps.tags.outputs.web_promotions }}
           MEDIA_PROMOTIONS: ${{ steps.tags.outputs.media_promotions }}
