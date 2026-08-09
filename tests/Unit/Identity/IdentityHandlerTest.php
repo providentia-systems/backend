@@ -78,7 +78,114 @@ final class IdentityHandlerTest extends TestCase
         self::assertSame('csrf-token-value', $body['csrfToken']);
         self::assertArrayNotHasKey('accessToken', $body);
         self::assertArrayNotHasKey('refreshToken', $body);
-        self::assertSame('secure-cookie', $body['transport']);
+        self::assertSame('web', $body['transport']);
         self::assertCount(3, $response->getHeader('Set-Cookie'));
+        $cookies = implode("\n", $response->getHeader('Set-Cookie'));
+        self::assertStringContainsString('Max-Age=2592000', $cookies);
+        self::assertStringContainsString('Expires=', $cookies);
+        self::assertStringContainsString('Secure', $cookies);
+    }
+
+    public function testNativeLogoutUsesRefreshPossessionProofAndClearsCookies(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
+        $store->expects(self::once())->method('revokeSessionByRefreshHash')
+            ->with('hash:native-refresh', self::isInstanceOf(DateTimeImmutable::class))
+            ->willReturn(true);
+        $request = (new ServerRequest(
+            [],
+            [],
+            new Uri('https://api.example.test/api/v1/auth/logout'),
+            'POST',
+        ))->withParsedBody(['refreshToken' => 'native-refresh']);
+
+        $response = (new IdentityHandler($this->authentication($store), 'logout', false))->handle($request);
+
+        self::assertSame(204, $response->getStatusCode());
+        self::assertCount(3, $response->getHeader('Set-Cookie'));
+    }
+
+    public function testInvalidNativeLogoutProofReturnsUnauthorizedAndClearsCookies(): void
+    {
+        $store = $this->createStub(IdentityStore::class);
+        $store->method('revokeSessionByRefreshHash')->willReturn(false);
+        $request = (new ServerRequest(
+            [],
+            [],
+            new Uri('https://api.example.test/api/v1/auth/logout'),
+            'POST',
+        ))->withParsedBody(['refreshToken' => 'invalid-refresh']);
+
+        $response = (new IdentityHandler($this->authentication($store), 'logout', false))->handle($request);
+
+        self::assertSame(401, $response->getStatusCode());
+        self::assertCount(3, $response->getHeader('Set-Cookie'));
+    }
+
+    public function testWebLogoutUsesRefreshCookieAndMatchingCsrfProof(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
+        $store->expects(self::once())->method('revokeSessionByRefreshProof')->with(
+            'hash:web-refresh',
+            'hash:web-csrf',
+            self::isInstanceOf(DateTimeImmutable::class),
+        )->willReturn(true);
+        $request = (new ServerRequest(
+            [],
+            [],
+            new Uri('https://api.example.test/api/v1/auth/logout'),
+            'POST',
+            'php://memory',
+            ['X-CSRF-Token' => ['web-csrf']],
+        ))->withCookieParams([
+            'providentia_refresh' => 'web-refresh',
+            'providentia_csrf' => 'web-csrf',
+        ]);
+
+        $response = (new IdentityHandler($this->authentication($store), 'logout', false))->handle($request);
+
+        self::assertSame(204, $response->getStatusCode());
+    }
+
+    public function testWebLogoutRejectsMismatchedCsrfButStillClearsCookies(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
+        $store->expects(self::never())->method('revokeSessionByRefreshProof');
+        $request = (new ServerRequest(
+            [],
+            [],
+            new Uri('https://api.example.test/api/v1/auth/logout'),
+            'POST',
+            'php://memory',
+            ['X-CSRF-Token' => ['wrong-csrf']],
+        ))->withCookieParams([
+            'providentia_refresh' => 'web-refresh',
+            'providentia_csrf' => 'web-csrf',
+        ]);
+
+        $response = (new IdentityHandler($this->authentication($store), 'logout', false))->handle($request);
+
+        self::assertSame(403, $response->getStatusCode());
+        self::assertCount(3, $response->getHeader('Set-Cookie'));
+    }
+
+    private function authentication(IdentityStore $store): AuthenticationService
+    {
+        $hasher = $this->createStub(CredentialHasher::class);
+        $hasher->method('hashToken')->willReturnCallback(
+            static fn (string $token): string => 'hash:' . $token,
+        );
+
+        return new AuthenticationService(
+            $store,
+            $hasher,
+            $this->createStub(AccountNotificationSender::class),
+            $this->createStub(UuidGenerator::class),
+            new IdentityFixedClock(new DateTimeImmutable('2026-08-09T12:00:00+00:00')),
+            new IdentityTransactionManager(),
+            $this->createStub(SecureTokenGenerator::class),
+            900,
+            2592000,
+        );
     }
 }

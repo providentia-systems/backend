@@ -20,9 +20,9 @@ final class NotificationDeliveryServiceTest extends TestCase
         $outbox = $this->createMock(NotificationOutbox::class);
         $outbox->method('lease')->willReturn([[
             'id' => '01989f53-a000-7000-8000-000000000001',
-            'template' => 'magic-link',
+            'template' => 'login-link',
             'recipient' => 'member@example.test',
-            'context' => ['token' => 'secret'],
+            'context' => ['requestId' => 'request-id', 'approvalToken' => 'secret'],
         ]]);
         $outbox->expects(self::once())->method('fail')->with(
             '01989f53-a000-7000-8000-000000000001',

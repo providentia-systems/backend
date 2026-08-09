@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ProvidentiaTest\Unit\SharedKernel;
 
 use Laminas\Diactoros\Response\JsonResponse;
+use Laminas\Diactoros\Response\HtmlResponse;
 use Laminas\Diactoros\ServerRequest;
 use Laminas\Diactoros\Uri;
 use PHPUnit\Framework\TestCase;
@@ -74,6 +75,21 @@ final class HttpMiddlewareTest extends TestCase
         );
     }
 
+    public function testSecurityHeadersPreserveHandlerNoncePolicy(): void
+    {
+        $policy = "default-src 'none'; script-src 'nonce-test-nonce'; form-action 'self'";
+        $response = (new SecurityHeadersMiddleware())->process(
+            $this->request(),
+            new CallbackRequestHandler(
+                static fn (ServerRequestInterface $request): ResponseInterface =>
+                    (new HtmlResponse('launch'))->withHeader('Content-Security-Policy', $policy),
+            ),
+        );
+
+        self::assertSame($policy, $response->getHeaderLine('Content-Security-Policy'));
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
+    }
+
     public function testCorsPreflightForAllowedOriginDoesNotInvokeApplication(): void
     {
         $handler = new CallbackRequestHandler(
@@ -93,6 +109,28 @@ final class HttpMiddlewareTest extends TestCase
             $response->getHeaderLine('Access-Control-Allow-Origin'),
         );
         self::assertSame('Origin', $response->getHeaderLine('Vary'));
+    }
+
+    public function testPublicLoginFormPostPassesForConfiguredPublicOrigin(): void
+    {
+        $origin = 'http://127.0.0.1:8080';
+        $request = new ServerRequest(
+            [],
+            [],
+            new Uri($origin . '/login-links/01912345-6789-7abc-8def-0123456789ab/capture'),
+            'POST',
+            'php://memory',
+            ['Origin' => [$origin]],
+        );
+        $response = (new CorsMiddleware([$origin]))->process(
+            $request,
+            new CallbackRequestHandler(
+                static fn (ServerRequestInterface $request): ResponseInterface => new HtmlResponse('captured'),
+            ),
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame($origin, $response->getHeaderLine('Access-Control-Allow-Origin'));
     }
 
     public function testCorsRejectsUnknownOrigin(): void

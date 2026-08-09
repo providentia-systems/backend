@@ -13,7 +13,7 @@ final class NativeNotificationPayloadCipherTest extends TestCase
     public function testRoundTripAuthenticatesAssociatedData(): void
     {
         $cipher = new NativeNotificationPayloadCipher(base64_encode(str_repeat('k', 32)), 3);
-        $encrypted = $cipher->encrypt('{"token":"secret"}', 'message-id\0magic-link\0user@example.test');
+        $encrypted = $cipher->encrypt('{"token":"secret"}', 'message-id\0login-link\0user@example.test');
 
         self::assertNotSame('{"token":"secret"}', $encrypted['ciphertext']);
         self::assertSame(3, $encrypted['keyVersion']);
@@ -23,7 +23,7 @@ final class NativeNotificationPayloadCipherTest extends TestCase
                 $encrypted['ciphertext'],
                 $encrypted['nonce'],
                 $encrypted['keyVersion'],
-                'message-id\0magic-link\0user@example.test',
+                'message-id\0login-link\0user@example.test',
             ),
         );
     }

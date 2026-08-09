@@ -49,9 +49,13 @@ final class AuthenticationServiceTest extends TestCase
                 ),
                 self::callback(
                     static fn (DateTimeImmutable $date): bool => $date->format(DATE_ATOM)
-                        === '2026-08-29T12:00:00+00:00',
+                        === '2026-09-28T12:00:00+00:00',
                 ),
                 self::isInstanceOf(DateTimeImmutable::class),
+                'native',
+                5184000,
+                null,
+                null,
             );
         $hasher = $this->createMock(CredentialHasher::class);
         $hasher->method('verifyPassword')
@@ -75,6 +79,7 @@ final class AuthenticationServiceTest extends TestCase
         self::assertSame('refresh-token', $result['refreshToken']);
         self::assertSame('csrf-token', $result['csrfToken']);
         self::assertSame(self::DEVICE_ID, $result['deviceId']);
+        self::assertSame(5184000, $result['refreshIdleTtlSeconds']);
     }
 
     public function testInvalidPasswordRecordsFailureWithoutCreatingSession(): void
@@ -172,7 +177,7 @@ final class AuthenticationServiceTest extends TestCase
             'device_id' => self::DEVICE_ID,
             'active_home_id' => null,
         ]);
-        $store->method('platformRoles')->with(self::USER_ID)->willReturn(['support']);
+        $store->method('platformRoles')->with(self::USER_ID)->willReturn(['billing_operator']);
         $hasher = $this->createStub(CredentialHasher::class);
         $hasher->method('hashToken')->willReturn('access-hash');
 
@@ -181,7 +186,7 @@ final class AuthenticationServiceTest extends TestCase
         self::assertSame(self::USER_ID, $identity->userId);
         self::assertSame(self::SESSION_ID, $identity->sessionId);
         self::assertSame(self::DEVICE_ID, $identity->deviceId);
-        self::assertSame(['support'], $identity->platformRoles);
+        self::assertSame(['billing_operator'], $identity->platformRoles);
     }
 
     public function testPasswordResetChangesPasswordAndRevokesSessionsAtomically(): void

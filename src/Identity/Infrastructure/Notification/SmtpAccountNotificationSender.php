@@ -17,9 +17,12 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
     ) {
     }
 
-    public function sendMagicLink(string $email, string $token): void
+    public function sendLoginLink(string $email, string $requestId, string $approvalToken): void
     {
-        $this->deliver('magic-link', $email, ['token' => $token]);
+        $this->deliver('login-link', $email, [
+            'requestId' => $requestId,
+            'approvalToken' => $approvalToken,
+        ]);
     }
 
     public function sendStepUpLink(string $email, string $token, string $action): void
@@ -37,16 +40,19 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
         $this->deliver('password-reset', $email, ['token' => $token]);
     }
 
+    public function sendPlatformAdministratorInvitation(string $email): void
+    {
+        $this->deliver('platform-administrator-invitation', $email, []);
+    }
+
     public function sendHomeInvitation(
         string $email,
         string $homeName,
         string $role,
-        string $token,
     ): void {
         $this->deliver('home-invitation', $email, [
             'homeName' => $homeName,
             'role' => $role,
-            'token' => $token,
         ]);
     }
 
@@ -54,9 +60,15 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
     {
         $token = rawurlencode((string) ($context['token'] ?? ''));
         [$subject, $body] = match ($template) {
-            'magic-link' => [
-                'Sign in to Providentia',
-                "Sign in securely:\n" . $this->publicBaseUrl . '/magic-link?token=' . $token,
+            'login-link' => [
+                'Approve your Providentia login',
+                sprintf(
+                    "Review this login request:\n%s/login-links/%s#approval=%s\n\n"
+                    . 'This link approves the requesting client but does not sign this browser in.',
+                    $this->publicBaseUrl,
+                    rawurlencode((string) ($context['requestId'] ?? '')),
+                    rawurlencode((string) ($context['approvalToken'] ?? '')),
+                ),
             ],
             'email-verification' => [
                 'Verify your Providentia account',
@@ -76,14 +88,19 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
                 'Reset your Providentia password',
                 "Reset your password:\n" . $this->publicBaseUrl . '/password-reset?token=' . $token,
             ],
+            'platform-administrator-invitation' => [
+                'You were invited to administer Providentia',
+                'Open Providentia and request a login link using this exact email address. '
+                . 'Your platform-administrator access will activate after verification.',
+            ],
             'home-invitation' => [
                 'You were invited to a Providentia home',
                 sprintf(
-                    "You were invited to %s as %s.\n%s/home-invitations/accept?token=%s",
+                    "You were invited to %s as %s.\n"
+                    . 'Open Providentia and request a login link using this exact email address. '
+                    . 'The pending home invitation will appear after you sign in.',
                     (string) ($context['homeName'] ?? 'a Providentia home'),
                     (string) ($context['role'] ?? 'member'),
-                    $this->publicBaseUrl,
-                    $token,
                 ),
             ],
             default => throw new RuntimeException('Unsupported notification template.'),

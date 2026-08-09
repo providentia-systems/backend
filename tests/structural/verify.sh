@@ -60,6 +60,25 @@ for file in composer.json compose.yaml contracts/openapi/providentia-v1.json \
   test -s "$file" || fail "$file is missing or empty"
 done
 
+grep -Fq '#approval=' src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
+  || fail "login-link email must keep the approval capability in a browser fragment"
+assert_no_matches "login-link approval capability can leak through a query string" \
+  -n -F '?approval=' src templates docs config
+for caddyfile in infrastructure/caddy/Caddyfile infrastructure/caddy/Caddyfile.production; do
+  for header in X-Content-Type-Options Referrer-Policy Permissions-Policy Content-Security-Policy; do
+    grep -Fq "?$header" "$caddyfile" \
+      || fail "$caddyfile must set $header only when the application omitted it"
+  done
+done
+assert_no_matches "edge proxy must not overwrite application-owned dynamic security headers" \
+  -n '^[[:space:]]+(Content-Security-Policy|Referrer-Policy|Permissions-Policy|X-Content-Type-Options)[[:space:]]' \
+  infrastructure/caddy
+legacy_login_segment='magic''-links'
+assert_no_matches "legacy raw-token email login route remains reachable" \
+  -n -F "/api/v1/auth/${legacy_login_segment}" config/routes.php
+assert_no_matches "unverified login request IDs create persistent rate-limit buckets" \
+  -n -F 'login-link-request-ip:' src/Identity
+
 for executable in bin/doctrine-migrations bin/providentia \
   infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
   tool/check-composer-licenses.php tests/structural/verify.sh \
@@ -79,34 +98,50 @@ node <<'NODE'
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
-const contract = JSON.parse(fs.readFileSync('contracts/openapi/providentia-v1.json', 'utf8'));
+const contractSource = fs.readFileSync('contracts/openapi/providentia-v1.json', 'utf8');
+const contract = JSON.parse(contractSource);
 const routeSource = fs.readFileSync('config/routes.php', 'utf8');
 const expected = {
-  '/health/live': 'getLiveness',
-  '/health/ready': 'getReadiness',
-  '/api/v1/system/info': 'getSystemInfo',
-  '/metrics': 'getMetrics',
-  '/api/v1/auth/register': 'registerAccount',
-  '/api/v1/auth/login': 'login',
-  '/api/v1/homes': 'listHomes',
-  '/api/v1/homes/{homeId}/ownership-transfer': 'transferHomeOwnership',
-  '/api/v1/catalog/products': 'searchCatalogProducts',
-  '/api/v1/homes/{homeId}/sync/push': 'pushHomeSynchronization',
-  '/api/v1/homes/{homeId}/sync/pull': 'pullHomeSynchronization',
-  '/api/v1/homes/{homeId}/sync/bootstrap': 'bootstrapHomeSynchronization',
+  '/health/live': {get: 'getLiveness'},
+  '/health/ready': {get: 'getReadiness'},
+  '/api/v1/system/info': {get: 'getSystemInfo'},
+  '/metrics': {get: 'getMetrics'},
+  '/api/v1/auth/register': {post: 'registerAccount'},
+  '/api/v1/auth/login': {post: 'login'},
+  '/api/v1/auth/login-links': {post: 'startLoginLink'},
+  '/api/v1/auth/login-links/{requestId}/status': {post: 'getLoginLinkStatus'},
+  '/api/v1/auth/login-links/{requestId}/exchange': {post: 'exchangeLoginLink'},
+  '/api/v1/auth/login-links/{requestId}/cancel': {post: 'cancelLoginLink'},
+  '/api/v1/me': {get: 'getCurrentUser'},
+  '/api/v1/me/home-invitations': {get: 'listPendingHomeInvitations'},
+  '/api/v1/me/home-invitations/{invitationId}/accept': {post: 'acceptHomeInvitationById'},
+  '/api/v1/platform/administrators': {
+    get: 'listPlatformAdministrators', post: 'grantPlatformAdministrator',
+  },
+  '/api/v1/platform/administrators/{administratorId}/revoke': {post: 'revokePlatformAdministrator'},
+  '/api/v1/homes': {get: 'listHomes'},
+  '/api/v1/homes/{homeId}': {get: 'getHome', patch: 'updateHome'},
+  '/api/v1/homes/{homeId}/ownership-transfer': {post: 'transferHomeOwnership'},
+  '/api/v1/catalog/products': {get: 'searchCatalogProducts'},
+  '/api/v1/homes/{homeId}/sync/push': {post: 'pushHomeSynchronization'},
+  '/api/v1/homes/{homeId}/sync/pull': {get: 'pullHomeSynchronization'},
+  '/api/v1/homes/{homeId}/sync/bootstrap': {get: 'bootstrapHomeSynchronization'},
 };
-for (const [path, operationId] of Object.entries(expected)) {
-  const operations = contract.paths?.[path] ?? {};
-  const actual = ['get', 'post', 'put', 'patch', 'delete']
-    .map((method) => operations[method]?.operationId)
-    .find(Boolean);
-  if (actual !== operationId) {
-    throw new Error(`Missing ${operationId} on ${path}`);
+for (const [path, methods] of Object.entries(expected)) {
+  for (const [method, operationId] of Object.entries(methods)) {
+    const actual = contract.paths?.[path]?.[method]?.operationId;
+    if (actual !== operationId) {
+      throw new Error(`Missing ${operationId} on ${method.toUpperCase()} ${path}`);
+    }
   }
 }
 for (const schema of [
   'HealthStatus', 'ReadinessStatus', 'SystemInfo', 'ProblemDetails',
-  'RegisterRequest', 'Home', 'HomeMembership', 'SyncPushRequest',
+  'RegisterRequest', 'LoginLinkStartRequest', 'LoginLinkStarted',
+  'LoginLinkRequestProof', 'LoginLinkStatus', 'LoginLinkExchangeRequest',
+  'SessionCredentials', 'DeviceSession', 'CurrentUserBootstrap',
+  'PlatformAdministrator', 'RecipientHomeInvitation',
+  'HomeInvitationAcceptance', 'Home', 'UpdateHomeRequest', 'HomeMembership', 'SyncPushRequest',
   'SyncPrivateNotePayload', 'SyncHomePreferencePayload', 'SyncPushResponse',
   'SyncPullResponse', 'SyncBootstrapResponse', 'ConsumptionEstimate',
   'ShoppingSuggestion', 'SuggestionExplanation', 'PriceComparison',
@@ -124,14 +159,42 @@ for (const credential of ['accessToken', 'refreshToken', 'csrfToken']) {
 }
 for (const [schema, credential] of [
   ['RegisterResponse', 'developmentVerificationToken'],
-  ['MagicLinkAccepted', 'developmentMagicLinkToken'],
-  ['MagicLinkAccepted', 'developmentStepUpToken'],
+  ['StepUpLinkAccepted', 'developmentStepUpToken'],
   ['InvitationCreated', 'developmentInvitationToken'],
 ]) {
   const property = contract.components?.schemas?.[schema]?.properties?.[credential] ?? {};
   if (property.readOnly !== true || 'writeOnly' in property) {
     throw new Error(`${schema}.${credential} must be response-only`);
   }
+}
+for (const [schema, credential] of [
+  ['LoginLinkStartRequest', 'pollChallenge'],
+  ['LoginLinkStartRequest', 'codeChallenge'],
+  ['LoginLinkStartRequest', 'state'],
+  ['LoginLinkRequestProof', 'pollToken'],
+  ['LoginLinkExchangeRequest', 'pollToken'],
+  ['LoginLinkExchangeRequest', 'codeVerifier'],
+  ['LoginLinkExchangeRequest', 'state'],
+]) {
+  const property = contract.components?.schemas?.[schema]?.properties?.[credential] ?? {};
+  if (property.writeOnly !== true || 'readOnly' in property) {
+    throw new Error(`${schema}.${credential} must be request-only`);
+  }
+}
+const loginLinkStarted = contract.components?.schemas?.LoginLinkStarted ?? {};
+for (const secret of ['pollToken', 'pollSecret', 'codeVerifier', 'accessToken', 'refreshToken', 'csrfToken']) {
+  if (secret in (loginLinkStarted.properties ?? {})) {
+    throw new Error(`LoginLinkStarted must not return ${secret}`);
+  }
+}
+const currentUserBootstrap = contract.components?.schemas?.CurrentUserBootstrap ?? {};
+if (!(currentUserBootstrap.required ?? []).includes('pendingInvitations')
+    || currentUserBootstrap.properties?.pendingInvitations?.items?.$ref
+        !== '#/components/schemas/RecipientHomeInvitation') {
+  throw new Error('CurrentUserBootstrap must include pending recipient invitations');
+}
+if (/magic-?link/i.test(contractSource)) {
+  throw new Error('The authoritative contract must expose login-link terminology only');
 }
 const refreshRequestToken = contract.paths?.['/api/v1/auth/refresh']?.post?.requestBody
   ?.content?.['application/json']?.schema?.properties?.refreshToken ?? {};
@@ -148,8 +211,15 @@ let routeMatch;
 while ((routeMatch = routePattern.exec(routeSource)) !== null) {
   (runtimeRoutes[routeMatch[2]] ??= []).push(routeMatch[1]);
 }
+const undocumentedCompatibilityRoutes = new Set([
+  '/login-links/{requestId}',
+  '/login-links/{requestId}/capture',
+  '/login-links/{requestId}/review',
+  '/login-links/{requestId}/approve',
+  '/login-links/{requestId}/deny',
+]);
 for (const [runtimePath, methods] of Object.entries(runtimeRoutes)) {
-  if (runtimePath === '/') continue;
+  if (runtimePath === '/' || undocumentedCompatibilityRoutes.has(runtimePath)) continue;
   for (const method of methods) {
     if (!contract.paths?.[runtimePath]?.[method]) {
       throw new Error(`OpenAPI is missing ${method.toUpperCase()} ${runtimePath}`);
@@ -275,6 +345,10 @@ assert_no_matches "catalog governance transport imports household modules" \
   -n --glob 'src/Catalog/{Application,Http}/**/*.php' \
   'Providentia\\\\(Home|Inventory|Purchasing|Shopping|AiIntegration)\\\\'
 
+assert_no_matches "catalog role command bypasses safeguarded platform-administrator governance" \
+  -n --glob 'src/Catalog/Infrastructure/Cli/CatalogRoleCommand.php' \
+  'PLATFORM_ADMINISTRATOR|platform_administrator'
+
 assert_no_matches "catalog merge deletes canonical products or household history" \
   -ni --glob 'src/Catalog/Infrastructure/Doctrine/DbalCatalogGovernanceStore.php' \
   'DELETE FROM (products|home_products|stock_movements|receipts|receipt_lines|price_observations)'
@@ -314,6 +388,12 @@ assert_no_matches "Migration contains a known non-portable SQL construct" \
   -n -F --glob 'migrations/*.php' \
   -e 'ENUM(' -e 'JSON_EXTRACT' -e 'ON DUPLICATE' -e 'UNSIGNED BIGINT' \
   -e 'COLLATE utf8' -e 'ENGINE='
+
+assert_no_matches "login-link migration rollback deletes durable home permission policy" \
+  -ni -F --glob 'migrations/Version20260809001600.php' \
+  "DELETE FROM home_role_permission_grants"
+grep -Fq "p.role IN ('owner', 'manager')" migrations/Version20260809001600.php \
+  || fail "login-link migration must backfill home.manage for existing owner and manager policies"
 
 assert_no_matches "change log uses a potentially reserved physical cursor column" \
   -n -F --glob 'migrations/*.php' --glob 'src/Synchronization/**/*.php' \

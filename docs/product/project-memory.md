@@ -28,10 +28,29 @@ data, workflow, privacy, or architectural evidence.
 
 ## Production baseline — 4 August 2026
 
-- Passwordless, single-use email magic links are the default authentication
-  workflow. Password endpoints may remain disabled migration compatibility
-  surfaces; household invitations and ownership transfer require explicit
-  recipient action.
+- Email-only, single-use **login links** are the primary authentication
+  workflow. The originating client owns the private poll token and PKCE
+  verifier; an emailed link may be reviewed and deliberately approved in a
+  browser on another device; the originating client then polls and exchanges
+  the approval for its own session. Opening a link is never itself approval,
+  and the browser never receives the client session.
+- Starting a login-link request does not create an account. Deliberate approval
+  creates and verifies the account idempotently and creates one editable
+  `My home` with that person as `owner`; the originating client's successful
+  exchange issues its session and selects that home. Existing people keep all
+  existing memberships and receive no extra default home.
+- Access credentials last about 15 minutes. Web inactivity is sliding 30 days;
+  native Android, iOS, Windows, macOS, and Linux inactivity is sliding 60 days.
+  Rotation, replay detection, logout, revocation, and backend policy remain
+  authoritative. Password endpoints are development/migration compatibility
+  surfaces only, never the production onboarding fallback.
+- Household invitations and ownership transfer require explicit recipient
+  action. A person's `owner`, `manager`, `member`, or `viewer` role is scoped to
+  one home; platform roles are separate and never confer home access.
+- The bootstrap platform-administrator email becomes an administrator only
+  after login-link verification. Administrators may add pending email grants or
+  revoke peers through authenticated, actor-audited, revisioned APIs, but
+  cannot revoke the final active administrator.
 - Household authorization is permission based, configurable per role, and
   rechecked by every server use case. A person may belong to multiple homes.
 - All pantry mutations supported by the API must have typed, idempotent offline

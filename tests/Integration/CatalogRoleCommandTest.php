@@ -62,7 +62,7 @@ final class CatalogRoleCommandTest extends TestCase
     {
         $status = $this->tester()->execute([
             '--email' => 'admin@example.test',
-            '--role' => 'platform_administrator',
+            '--role' => 'catalog_curator',
         ]);
 
         self::assertSame(Command::SUCCESS, $status);
@@ -87,7 +87,7 @@ final class CatalogRoleCommandTest extends TestCase
         try {
             $this->tester()->execute([
                 '--email' => 'admin@example.test',
-                '--role' => 'platform_administrator',
+                '--role' => 'catalog_curator',
             ]);
             self::fail('The forced audit failure did not abort the command.');
         } catch (\Throwable $error) {
@@ -99,6 +99,19 @@ final class CatalogRoleCommandTest extends TestCase
         ));
         self::assertSame(0, (int) $this->connection->fetchOne(
             'SELECT COUNT(*) FROM audit_events',
+        ));
+    }
+
+    public function testPlatformAdministratorUsesSafeguardedApiInsteadOfCatalogCommand(): void
+    {
+        $status = $this->tester()->execute([
+            '--email' => 'admin@example.test',
+            '--role' => 'platform_administrator',
+        ]);
+
+        self::assertSame(Command::INVALID, $status);
+        self::assertSame(0, (int) $this->connection->fetchOne(
+            'SELECT COUNT(*) FROM user_platform_roles',
         ));
     }
 

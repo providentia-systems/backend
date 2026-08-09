@@ -18,6 +18,16 @@ interface HomeStore extends HomeAuditRecorder
         DateTimeImmutable $at,
     ): void;
 
+    public function updateHome(
+        string $homeId,
+        string $name,
+        string $locale,
+        string $currency,
+        string $timezone,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool;
+
     /** @return list<array<string, mixed>> */
     public function listForUser(string $userId): array;
 
@@ -63,6 +73,9 @@ interface HomeStore extends HomeAuditRecorder
     /** @return list<array<string, mixed>> */
     public function invitations(string $homeId): array;
 
+    /** @return list<array<string, mixed>> */
+    public function pendingInvitationsForEmail(string $normalizedEmail, DateTimeImmutable $at): array;
+
     /** @return array<string, mixed>|null */
     public function invitation(string $homeId, string $invitationId): ?array;
 
@@ -81,6 +94,15 @@ interface HomeStore extends HomeAuditRecorder
         string $normalizedEmail,
         DateTimeImmutable $at,
     ): ?array;
+
+    /** @return array<string, mixed> */
+    public function acceptInvitationById(
+        string $invitationId,
+        string $userId,
+        string $normalizedEmail,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): array;
 
     public function changeMembershipRole(
         string $homeId,

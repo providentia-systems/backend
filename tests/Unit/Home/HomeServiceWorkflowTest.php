@@ -60,6 +60,7 @@ final class HomeServiceWorkflowTest extends TestCase
         );
 
         self::assertSame(self::HOME_ID, $result['id']);
+        self::assertSame(HomeAuthorization::OWNER, $result['role']);
         self::assertSame(1, $transactions->invocations);
     }
 
@@ -130,6 +131,56 @@ final class HomeServiceWorkflowTest extends TestCase
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('transfer ownership');
         $this->service($homes)->leave($this->identity(), self::HOME_ID);
+    }
+
+    public function testInvitationAcceptanceRetryPreservesExistingRoleWithoutDuplicateAudit(): void
+    {
+        $homes = $this->createMock(HomeStore::class);
+        $homes->expects(self::once())->method('acceptInvitationById')->willReturn([
+            'outcome' => 'accepted',
+            'changed' => false,
+            'invitationId' => '01912345-6789-7abc-9def-1123456789ab',
+            'homeId' => self::HOME_ID,
+            'role' => HomeAuthorization::VIEWER,
+        ]);
+        $homes->expects(self::never())->method('recordAudit');
+        $identities = $this->createMock(IdentityStore::class);
+        $identities->method('findUserById')->willReturn([
+            'normalized_email' => 'user@example.test',
+            'email_verified_at' => '2026-07-30 10:00:00',
+        ]);
+        $identities->expects(self::never())->method('setActiveHome');
+
+        $result = $this->service($homes, identities: $identities)->acceptInvitationById(
+            $this->identity(),
+            '01912345-6789-7abc-9def-1123456789ab',
+            1,
+        );
+
+        self::assertSame(HomeAuthorization::VIEWER, $result['role']);
+        self::assertArrayNotHasKey('changed', $result);
+        self::assertArrayNotHasKey('outcome', $result);
+    }
+
+    public function testHomeUpdateRejectsMissingMutableFieldBeforePersistence(): void
+    {
+        $homes = $this->createMock(HomeStore::class);
+        $homes->expects(self::never())->method('updateHome');
+
+        try {
+            $this->service($homes)->update(
+                $this->identity(),
+                self::HOME_ID,
+                'My home',
+                'en-NA',
+                'NAD',
+                'Africa/Windhoek',
+                0,
+            );
+            self::fail('A non-positive home revision was accepted.');
+        } catch (Problem $problem) {
+            self::assertSame(422, $problem->status);
+        }
     }
 
     public function testOwnershipCannotTransferToCurrentOwner(): void

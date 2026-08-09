@@ -7,6 +7,7 @@ use Providentia\Catalog\Http\CatalogSearchHandler;
 use Providentia\Catalog\Http\CatalogProductHandler;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
+use Providentia\Identity\Http\LoginLinkProofRateLimitMiddleware;
 use Providentia\PublicSite\Http\HomePageHandler;
 use Providentia\Reporting\Http\DashboardHandler;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
@@ -16,6 +17,31 @@ use Providentia\SharedKernel\Http\SystemInfoHandler;
 
 return static function (Application $app): void {
     $app->get('/', HomePageHandler::class, 'public.home');
+    $app->get(
+        '/login-links/{requestId}',
+        'identity.login-link-browser-launch',
+        'public.login-links.launch',
+    );
+    $app->post(
+        '/login-links/{requestId}/capture',
+        'identity.login-link-browser-capture',
+        'public.login-links.capture',
+    );
+    $app->get(
+        '/login-links/{requestId}/review',
+        'identity.login-link-browser-review',
+        'public.login-links.review',
+    );
+    $app->post(
+        '/login-links/{requestId}/approve',
+        'identity.login-link-browser-approve',
+        'public.login-links.approve',
+    );
+    $app->post(
+        '/login-links/{requestId}/deny',
+        'identity.login-link-browser-deny',
+        'public.login-links.deny',
+    );
     $app->get('/health/live', LivenessHandler::class, 'health.live');
     $app->get('/health/ready', ReadinessHandler::class, 'health.ready');
     $app->get('/api/v1/system/info', SystemInfoHandler::class, 'api.system.info');
@@ -27,14 +53,24 @@ return static function (Application $app): void {
         'api.auth.register',
     );
     $app->post(
-        '/api/v1/auth/magic-links',
-        [AuthenticationRateLimitMiddleware::class, 'identity.magic-link-request'],
-        'api.auth.magic-links.request',
+        '/api/v1/auth/login-links',
+        [AuthenticationRateLimitMiddleware::class, 'identity.login-link-start'],
+        'api.auth.login-links.start',
     );
     $app->post(
-        '/api/v1/auth/magic-links/exchange',
-        [AuthenticationRateLimitMiddleware::class, 'identity.magic-link-exchange'],
-        'api.auth.magic-links.exchange',
+        '/api/v1/auth/login-links/{requestId}/status',
+        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-status'],
+        'api.auth.login-links.status',
+    );
+    $app->post(
+        '/api/v1/auth/login-links/{requestId}/exchange',
+        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-exchange'],
+        'api.auth.login-links.exchange',
+    );
+    $app->post(
+        '/api/v1/auth/login-links/{requestId}/cancel',
+        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-cancel'],
+        'api.auth.login-links.cancel',
     );
     $app->post(
         '/api/v1/auth/step-up-links',
@@ -76,12 +112,42 @@ return static function (Application $app): void {
     );
     $app->post(
         '/api/v1/auth/logout',
-        [BearerAuthenticationMiddleware::class, 'identity.logout'],
+        'identity.logout',
         'api.auth.logout',
+    );
+    $app->get(
+        '/api/v1/me',
+        [BearerAuthenticationMiddleware::class, 'identity.me'],
+        'api.me',
+    );
+    $app->get(
+        '/api/v1/platform/administrators',
+        [BearerAuthenticationMiddleware::class, 'identity.platform-administrators-list'],
+        'api.platform-administrators.list',
+    );
+    $app->post(
+        '/api/v1/platform/administrators',
+        [BearerAuthenticationMiddleware::class, 'identity.platform-administrators-grant'],
+        'api.platform-administrators.grant',
+    );
+    $app->post(
+        '/api/v1/platform/administrators/{administratorId}/revoke',
+        [BearerAuthenticationMiddleware::class, 'identity.platform-administrators-revoke'],
+        'api.platform-administrators.revoke',
     );
 
     $app->post('/api/v1/homes', [BearerAuthenticationMiddleware::class, 'home.create'], 'api.homes.create');
     $app->get('/api/v1/homes', [BearerAuthenticationMiddleware::class, 'home.list'], 'api.homes.list');
+    $app->get(
+        '/api/v1/me/home-invitations',
+        [BearerAuthenticationMiddleware::class, 'home.pending-invitations'],
+        'api.me.home-invitations.list',
+    );
+    $app->post(
+        '/api/v1/me/home-invitations/{invitationId}/accept',
+        [BearerAuthenticationMiddleware::class, 'home.accept-invitation-by-id'],
+        'api.me.home-invitations.accept',
+    );
     $app->post(
         '/api/v1/home-invitations/accept',
         [BearerAuthenticationMiddleware::class, 'home.accept-invitation'],
@@ -91,6 +157,11 @@ return static function (Application $app): void {
         '/api/v1/homes/{homeId}',
         [BearerAuthenticationMiddleware::class, 'home.get'],
         'api.homes.get',
+    );
+    $app->patch(
+        '/api/v1/homes/{homeId}',
+        [BearerAuthenticationMiddleware::class, 'home.update'],
+        'api.homes.update',
     );
     $app->post(
         '/api/v1/homes/{homeId}/switch',
