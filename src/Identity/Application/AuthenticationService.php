@@ -462,6 +462,11 @@ final class AuthenticationService
      *     refreshToken: string,
      *     csrfToken: string,
      *     accessExpiresAt: string,
+     *     refreshExpiresAt: string,
+     *     idleExpiresAt: string,
+     *     refreshIdleTtlSeconds: int,
+     *     transport: string,
+     *     activeHomeId: string|null,
      *     sessionId: string,
      *     deviceId: string,
      *     userId: string
