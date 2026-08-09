@@ -39,5 +39,4 @@ final class QueuedAccountNotificationSenderTest extends TestCase
             'approval-capability',
         );
     }
-
 }

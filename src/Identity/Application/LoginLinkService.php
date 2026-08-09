@@ -220,12 +220,14 @@ final class LoginLinkService
                 return ['status' => 'inactive'];
             }
             $exchangeExpiresAt = $now->add(new DateInterval('PT' . $this->exchangeTtlSeconds . 'S'));
-            if (! $this->requests->reserveApproval(
-                $requestId,
-                $this->hasher->hashToken($approvalToken),
-                $now,
-                $exchangeExpiresAt,
-            )) {
+            if (
+                ! $this->requests->reserveApproval(
+                    $requestId,
+                    $this->hasher->hashToken($approvalToken),
+                    $now,
+                    $exchangeExpiresAt,
+                )
+            ) {
                 throw new Problem(409, 'Login request unavailable', 'This login request was already handled.');
             }
 
@@ -453,7 +455,12 @@ final class LoginLinkService
     private function pollRequest(string $requestId, string $pollToken): array
     {
         $requestId = mb_strtolower(trim($requestId));
-        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $requestId) !== 1) {
+        if (
+            preg_match(
+                '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+                $requestId,
+            ) !== 1
+        ) {
             throw new Problem(401, 'Login proof rejected', 'The private login proof is invalid.');
         }
         $request = $this->requests->find($requestId);

@@ -460,10 +460,12 @@ final class DbalHomeStore implements HomeStore
              FROM home_invitations WHERE id = :id',
             ['id' => $invitationId],
         );
-        if ($invitation === null || ! hash_equals(
-            (string) $invitation['normalized_email'],
-            $normalizedEmail,
-        )) {
+        if (
+            $invitation === null || ! hash_equals(
+                (string) $invitation['normalized_email'],
+                $normalizedEmail,
+            )
+        ) {
             return ['outcome' => 'not-found'];
         }
         if (

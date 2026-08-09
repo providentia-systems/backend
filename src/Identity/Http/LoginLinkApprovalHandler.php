@@ -145,7 +145,10 @@ final class LoginLinkApprovalHandler implements RequestHandlerInterface
         [$heading, $message] = match ($problem->status) {
             410 => ['Login link expired', 'Request a new login link in Providentia. You can close this page.'],
             409 => ['Login link already handled', 'Return to the requesting client or request a new login link.'],
-            default => ['Login link unavailable', 'This confirmation is invalid or unavailable. You can close this page.'],
+            default => [
+                'Login link unavailable',
+                'This confirmation is invalid or unavailable. You can close this page.',
+            ],
         };
 
         return $this->secure((new HtmlResponse($this->renderer->render('public-site::login-link-result', [

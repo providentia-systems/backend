@@ -26,7 +26,10 @@ final class AuthenticationRateLimiterTest extends TestCase
                 int $window,
                 int $limit,
                 int $block,
-            ) use (&$actualBuckets, &$limits): bool {
+            ) use (
+                &$actualBuckets,
+                &$limits,
+            ): bool {
                 $actualBuckets[] = $bucket;
                 $limits[] = $limit;
                 self::assertSame('2026-07-30T12:00:00+00:00', $at->format(DATE_ATOM));

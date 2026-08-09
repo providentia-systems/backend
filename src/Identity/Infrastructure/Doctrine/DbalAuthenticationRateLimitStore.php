@@ -27,10 +27,12 @@ final class DbalAuthenticationRateLimitStore implements AuthenticationRateLimitS
         // Ensure a row exists in its own transaction. A concurrent first
         // writer can win the unique key; the loser rolls back this short
         // transaction cleanly before entering the serialized update below.
-        if ($this->connection->fetchOne(
-            'SELECT bucket_hash FROM authentication_rate_limits WHERE bucket_hash = :hash',
-            ['hash' => $bucketHash],
-        ) === false) {
+        if (
+            $this->connection->fetchOne(
+                'SELECT bucket_hash FROM authentication_rate_limits WHERE bucket_hash = :hash',
+                ['hash' => $bucketHash],
+            ) === false
+        ) {
             try {
                 $this->connection->transactional(function () use ($bucketHash, $now): void {
                     $this->connection->insert('authentication_rate_limits', [
