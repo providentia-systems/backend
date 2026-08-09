@@ -96,9 +96,9 @@ source "$env_file"
 set +a
 
 export PROVIDENTIA_VERSION="${version_override:-${PROVIDENTIA_VERSION:?PROVIDENTIA_VERSION is required}}"
-export PROVIDENTIA_IMAGE="ghcr.io/vast-development-method/providentia-laminas:${PROVIDENTIA_VERSION}"
-export PROVIDENTIA_WEB_IMAGE="ghcr.io/vast-development-method/providentia-laminas-web:${PROVIDENTIA_VERSION}"
-export PROVIDENTIA_MEDIA_IMAGE="ghcr.io/vast-development-method/providentia-laminas-media-worker:${PROVIDENTIA_VERSION}"
+export PROVIDENTIA_IMAGE="${PROVIDENTIA_IMAGE:-ghcr.io/vast-development-method/providentia-laminas:${PROVIDENTIA_VERSION}}"
+export PROVIDENTIA_WEB_IMAGE="${PROVIDENTIA_WEB_IMAGE:-ghcr.io/vast-development-method/providentia-laminas-web:${PROVIDENTIA_VERSION}}"
+export PROVIDENTIA_MEDIA_IMAGE="${PROVIDENTIA_MEDIA_IMAGE:-ghcr.io/vast-development-method/providentia-laminas-media-worker:${PROVIDENTIA_VERSION}}"
 export PROVIDENTIA_DEV_EMAIL="${email_override:-${PROVIDENTIA_DEV_EMAIL:?PROVIDENTIA_DEV_EMAIL is required}}"
 export PROVIDENTIA_DEV_PASSWORD="${password_override:-${PROVIDENTIA_DEV_PASSWORD:?PROVIDENTIA_DEV_PASSWORD is required}}"
 export PROVIDENTIA_HTTP_PORT="${http_port_override:-${PROVIDENTIA_HTTP_PORT:?PROVIDENTIA_HTTP_PORT is required}}"
@@ -128,7 +128,9 @@ diagnostics() {
 trap diagnostics ERR
 
 printf 'Pulling Providentia %s production images...\n' "$PROVIDENTIA_VERSION"
-if ! "${compose[@]}" pull; then
+if [[ "${PROVIDENTIA_SKIP_PULL:-0}" == '1' ]]; then
+    printf 'Using the explicitly supplied local images without pulling.\n'
+elif ! "${compose[@]}" pull; then
     cat >&2 <<'EOF'
 
 The GHCR pull failed. If the packages are private, authenticate first:

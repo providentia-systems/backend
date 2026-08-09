@@ -39,7 +39,7 @@ x-app-environment: &app-environment
 
 x-app: &app
   image: ${PROVIDENTIA_IMAGE:-ghcr.io/vast-development-method/providentia-laminas:edge}
-  pull_policy: always
+  pull_policy: ${PROVIDENTIA_PULL_POLICY:-always}
   restart: unless-stopped
   init: true
   read_only: true
@@ -114,7 +114,7 @@ services:
 
   web:
     image: ${PROVIDENTIA_WEB_IMAGE:-ghcr.io/vast-development-method/providentia-laminas-web:edge}
-    pull_policy: always
+    pull_policy: ${PROVIDENTIA_PULL_POLICY:-always}
     restart: unless-stopped
     init: true
     read_only: true
