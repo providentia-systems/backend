@@ -24,6 +24,8 @@ APP_ENV=development \
 APP_DEBUG=1 \
 AUTH_PASSWORD_LOGIN_ENABLED=1 \
 EXPOSE_DEVELOPMENT_TOKENS=1 \
+AUTH_TOKEN_PEPPER=acceptance-authentication-pepper-at-least-32-bytes \
+NOTIFICATION_PAYLOAD_KEK=Y2ktbm90aWZpY2F0aW9uLWtleS0zMi1ieXRlcy1vayE= \
 php -S "127.0.0.1:${port}" -t "${repo_root}/public" "${repo_root}/public/index.php" \
     >"$stdout_log" 2>"$stderr_log" &
 server_pid=$!
@@ -68,4 +70,54 @@ if [[ "$login_status" != '401' ]]; then
 fi
 
 jq -e '.status == 401 and .title == "Authentication failed"' <<<"$login_body" >/dev/null
+
+email='development-auth-smoke@example.test'
+password='development-auth-smoke-password-1'
+registration_response="$(curl --silent --show-error --write-out $'\n%{http_code}' \
+    -H 'Content-Type: application/json' \
+    -X POST "http://127.0.0.1:${port}/api/v1/auth/register" \
+    --data "$(jq -n --arg email "$email" --arg password "$password" \
+        '{email:$email,password:$password,displayName:"Authentication smoke"}')")"
+registration_status="${registration_response##*$'\n'}"
+registration_body="${registration_response%$'\n'*}"
+if [[ "$registration_status" != '202' ]]; then
+    printf 'Development registration failed (HTTP %s).\n%s\n' \
+        "$registration_status" "$registration_body" >&2
+    cat "$stderr_log" >&2
+    exit 1
+fi
+verification_token="$(jq -er '.developmentVerificationToken' <<<"$registration_body")"
+
+verification_status="$(curl --silent --show-error --output "${repo_root}/var/development-auth-verify.json" \
+    --write-out '%{http_code}' -H 'Content-Type: application/json' \
+    -X POST "http://127.0.0.1:${port}/api/v1/auth/verify-email" \
+    --data "$(jq -n --arg token "$verification_token" '{token:$token}')")"
+if [[ "$verification_status" != '204' ]]; then
+    printf 'Development email verification failed (HTTP %s).\n' "$verification_status" >&2
+    cat "${repo_root}/var/development-auth-verify.json" >&2
+    cat "$stderr_log" >&2
+    exit 1
+fi
+
+session_response="$(curl --silent --show-error --write-out $'\n%{http_code}' \
+    -H 'Content-Type: application/json' \
+    -X POST "http://127.0.0.1:${port}/api/v1/auth/login" \
+    --data "$(jq -n --arg email "$email" --arg password "$password" \
+        '{email:$email,password:$password,deviceId:"01912345-6789-7abc-8def-0123456789ab",deviceName:"Acceptance",platform:"linux",transport:"native"}')")"
+session_status="${session_response##*$'\n'}"
+session_body="${session_response%$'\n'*}"
+if [[ "$session_status" != '200' ]]; then
+    printf 'Verified development login failed (HTTP %s).\n%s\n' \
+        "$session_status" "$session_body" >&2
+    cat "$stderr_log" >&2
+    exit 1
+fi
+jq -e '
+    .transport == "native"
+    and (.accessToken | type == "string" and length >= 40)
+    and (.refreshToken | type == "string" and length >= 40)
+    and (.sessionId | type == "string")
+    and (.userId | type == "string")
+' <<<"$session_body" >/dev/null
+
 printf 'Development authentication HTTP smoke passed.\n'
