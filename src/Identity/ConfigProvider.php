@@ -9,7 +9,11 @@ use Providentia\Identity\Application\AuthenticationRateLimiter;
 use Providentia\Identity\Application\AuthenticationRateLimitStore;
 use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\CredentialHasher;
+use Providentia\Identity\Application\CurrentUserService;
 use Providentia\Identity\Application\IdentityStore;
+use Providentia\Identity\Application\LoginLinkService;
+use Providentia\Identity\Application\LoginLinkStore;
+use Providentia\Identity\Application\PlatformAdministratorService;
 use Providentia\Identity\Application\NotificationDeliveryService;
 use Providentia\Identity\Application\NotificationOutbox;
 use Providentia\Identity\Application\NotificationPayloadCipher;
@@ -17,8 +21,11 @@ use Providentia\Identity\Application\NotificationTransport;
 use Providentia\Identity\Application\QueuedAccountNotificationSender;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
+use Providentia\Identity\Http\LoginLinkProofRateLimitMiddleware;
 use Providentia\Identity\Infrastructure\Doctrine\DbalIdentityStore;
+use Providentia\Identity\Infrastructure\Doctrine\DbalLoginLinkStore;
 use Providentia\Identity\Infrastructure\Doctrine\DbalNotificationOutbox;
+use Providentia\Identity\Infrastructure\Cli\LoginLinkPurgeCommand;
 use Providentia\Identity\Infrastructure\Cli\NotificationDeliverCommand;
 use Providentia\Identity\Infrastructure\Doctrine\DbalAuthenticationRateLimitStore;
 use Providentia\Identity\Infrastructure\Factory\IdentityFactory;
@@ -35,6 +42,7 @@ final class ConfigProvider
             'dependencies' => [
                 'aliases' => [
                     IdentityStore::class => DbalIdentityStore::class,
+                    LoginLinkStore::class => DbalLoginLinkStore::class,
                     CredentialHasher::class => NativeCredentialHasher::class,
                     AccountNotificationSender::class => QueuedAccountNotificationSender::class,
                     NotificationOutbox::class => DbalNotificationOutbox::class,
@@ -44,6 +52,7 @@ final class ConfigProvider
                 ],
                 'factories' => [
                     DbalIdentityStore::class => IdentityFactory::class,
+                    DbalLoginLinkStore::class => IdentityFactory::class,
                     DbalAuthenticationRateLimitStore::class => IdentityFactory::class,
                     NativeCredentialHasher::class => IdentityFactory::class,
                     SmtpAccountNotificationSender::class => IdentityFactory::class,
@@ -52,13 +61,29 @@ final class ConfigProvider
                     QueuedAccountNotificationSender::class => IdentityFactory::class,
                     NotificationDeliveryService::class => IdentityFactory::class,
                     NotificationDeliverCommand::class => IdentityFactory::class,
+                    LoginLinkPurgeCommand::class => IdentityFactory::class,
                     AuthenticationService::class => IdentityFactory::class,
+                    CurrentUserService::class => IdentityFactory::class,
+                    LoginLinkService::class => IdentityFactory::class,
+                    PlatformAdministratorService::class => IdentityFactory::class,
                     BearerAuthenticationMiddleware::class => IdentityFactory::class,
                     AuthenticationRateLimiter::class => IdentityFactory::class,
                     AuthenticationRateLimitMiddleware::class => IdentityFactory::class,
+                    LoginLinkProofRateLimitMiddleware::class => IdentityFactory::class,
                     'identity.register' => IdentityFactory::class,
-                    'identity.magic-link-request' => IdentityFactory::class,
-                    'identity.magic-link-exchange' => IdentityFactory::class,
+                    'identity.login-link-start' => IdentityFactory::class,
+                    'identity.login-link-status' => IdentityFactory::class,
+                    'identity.login-link-exchange' => IdentityFactory::class,
+                    'identity.login-link-cancel' => IdentityFactory::class,
+                    'identity.login-link-browser-capture' => IdentityFactory::class,
+                    'identity.login-link-browser-launch' => IdentityFactory::class,
+                    'identity.login-link-browser-review' => IdentityFactory::class,
+                    'identity.login-link-browser-approve' => IdentityFactory::class,
+                    'identity.login-link-browser-deny' => IdentityFactory::class,
+                    'identity.platform-administrators-list' => IdentityFactory::class,
+                    'identity.platform-administrators-grant' => IdentityFactory::class,
+                    'identity.platform-administrators-revoke' => IdentityFactory::class,
+                    'identity.me' => IdentityFactory::class,
                     'identity.step-up-request' => IdentityFactory::class,
                     'identity.verify' => IdentityFactory::class,
                     'identity.resend-verification' => IdentityFactory::class,
@@ -74,6 +99,7 @@ final class ConfigProvider
             'laminas-cli' => [
                 'commands' => [
                     'notification:deliver' => NotificationDeliverCommand::class,
+                    'login-link:purge' => LoginLinkPurgeCommand::class,
                 ],
             ],
         ];

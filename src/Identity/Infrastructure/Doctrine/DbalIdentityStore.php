@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Identity\Infrastructure\Doctrine;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use Doctrine\DBAL\Connection;
 use Providentia\Identity\Application\IdentityStore;
 
@@ -114,6 +115,15 @@ final class DbalIdentityStore implements IdentityStore
         ], ['id' => $userId]);
     }
 
+    public function claimEmailVerification(string $userId, DateTimeImmutable $at): bool
+    {
+        return $this->connection->executeStatement(
+            'UPDATE users SET email_verified_at = :at, updated_at = :at
+             WHERE id = :id AND email_verified_at IS NULL',
+            ['at' => $this->date($at), 'id' => $userId],
+        ) === 1;
+    }
+
     public function changePassword(string $userId, string $passwordHash, DateTimeImmutable $at): void
     {
         $this->connection->update('users', [
@@ -135,6 +145,10 @@ final class DbalIdentityStore implements IdentityStore
         DateTimeImmutable $accessExpiresAt,
         DateTimeImmutable $refreshExpiresAt,
         DateTimeImmutable $createdAt,
+        string $transport = 'native',
+        int $refreshIdleTtlSeconds = 2592000,
+        ?string $installationId = null,
+        ?string $activeHomeId = null,
     ): void {
         $device = $this->one(
             'SELECT id, user_id FROM devices WHERE id = :id',
@@ -149,6 +163,7 @@ final class DbalIdentityStore implements IdentityStore
                 'user_id' => $userId,
                 'name' => $deviceName,
                 'platform' => $platform,
+                'installation_id' => $installationId,
                 'last_seen_at' => $this->date($createdAt),
                 'revoked_at' => null,
                 'created_at' => $this->date($createdAt),
@@ -157,6 +172,7 @@ final class DbalIdentityStore implements IdentityStore
             $this->connection->update('devices', [
                 'name' => $deviceName,
                 'platform' => $platform,
+                'installation_id' => $installationId,
                 'last_seen_at' => $this->date($createdAt),
                 'revoked_at' => null,
             ], ['id' => $deviceId, 'user_id' => $userId]);
@@ -168,7 +184,9 @@ final class DbalIdentityStore implements IdentityStore
             'access_token_hash' => $accessHash,
             'refresh_token_hash' => $refreshHash,
             'csrf_token_hash' => $csrfHash,
-            'active_home_id' => null,
+            'active_home_id' => $activeHomeId,
+            'transport' => $transport,
+            'refresh_idle_ttl_seconds' => $refreshIdleTtlSeconds,
             'access_expires_at' => $this->date($accessExpiresAt),
             'refresh_expires_at' => $this->date($refreshExpiresAt),
             'last_seen_at' => $this->date($createdAt),
@@ -185,7 +203,7 @@ final class DbalIdentityStore implements IdentityStore
              INNER JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
              WHERE s.access_token_hash = :hash AND s.revoked_at IS NULL
                AND d.revoked_at IS NULL AND u.status = :status
-               AND s.access_expires_at > :now',
+               AND s.access_expires_at > :now AND s.refresh_expires_at > :now',
             ['hash' => $accessHash, 'status' => 'active', 'now' => $this->date($now)],
         );
     }
@@ -282,17 +300,64 @@ final class DbalIdentityStore implements IdentityStore
 
     public function listSessions(string $userId): array
     {
-        return $this->connection->fetchAllAssociative(
+        $sessions = $this->connection->fetchAllAssociative(
             'SELECT s.id, s.device_id AS deviceId, d.name AS deviceName,
-                    d.platform, s.active_home_id AS activeHomeId,
+                    d.platform,
+                    CASE WHEN s.transport = :web THEN :web ELSE :native END AS transport,
+                    s.active_home_id AS activeHomeId,
                     s.created_at AS createdAt, s.last_seen_at AS lastSeenAt,
                     s.access_expires_at AS accessExpiresAt,
                     s.refresh_expires_at AS refreshExpiresAt,
+                    s.refresh_expires_at AS idleExpiresAt,
                     s.revoked_at AS revokedAt
              FROM auth_sessions s INNER JOIN devices d ON d.id = s.device_id
              WHERE s.user_id = :user ORDER BY s.created_at DESC',
-            ['user' => $userId],
+            ['user' => $userId, 'web' => 'web', 'native' => 'native'],
         );
+
+        return array_map(function (array $session): array {
+            foreach (
+                ['createdAt', 'lastSeenAt', 'accessExpiresAt', 'refreshExpiresAt', 'idleExpiresAt']
+                as $field
+            ) {
+                $session[$field] = $this->atom((string) $session[$field]);
+            }
+            $session['revokedAt'] = $session['revokedAt'] === null
+                ? null
+                : $this->atom((string) $session['revokedAt']);
+
+            return $session;
+        }, $sessions);
+    }
+
+    public function profile(string $userId): ?array
+    {
+        return $this->one(
+            'SELECT u.id AS userId, u.email, u.email_verified_at AS emailVerifiedAt,
+                    u.status, p.display_name AS displayName, p.locale, p.timezone
+             FROM users u INNER JOIN user_profiles p ON p.user_id = u.id
+             WHERE u.id = :id',
+            ['id' => $userId],
+        );
+    }
+
+    public function latestActiveHomeId(string $userId, DateTimeImmutable $now): ?string
+    {
+        $value = $this->connection->fetchOne(
+            'SELECT s.active_home_id FROM auth_sessions s
+             INNER JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
+             INNER JOIN homes h ON h.id = s.active_home_id AND h.status = :active
+             INNER JOIN home_memberships m
+                     ON m.home_id = s.active_home_id AND m.user_id = s.user_id
+                    AND m.status = :active
+             WHERE s.user_id = :user AND s.active_home_id IS NOT NULL
+               AND s.revoked_at IS NULL AND d.revoked_at IS NULL
+               AND s.refresh_expires_at > :now
+             ORDER BY s.last_seen_at DESC, s.created_at DESC',
+            ['user' => $userId, 'active' => 'active', 'now' => $this->date($now)],
+        );
+
+        return $value === false ? null : (string) $value;
     }
 
     public function revokeSession(string $userId, string $sessionId, DateTimeImmutable $at): bool
@@ -302,6 +367,54 @@ final class DbalIdentityStore implements IdentityStore
              WHERE id = :id AND user_id = :user AND revoked_at IS NULL',
             ['at' => $this->date($at), 'id' => $sessionId, 'user' => $userId],
         ) === 1;
+    }
+
+    public function revokeSessionByRefreshProof(
+        string $refreshHash,
+        string $csrfHash,
+        DateTimeImmutable $at,
+    ): bool {
+        $session = $this->one(
+            'SELECT id FROM auth_sessions
+             WHERE refresh_token_hash = :refresh AND csrf_token_hash = :csrf',
+            ['refresh' => $refreshHash, 'csrf' => $csrfHash],
+        );
+        if ($session === null) {
+            return false;
+        }
+        $this->connection->executeStatement(
+            'UPDATE auth_sessions SET revoked_at = :at
+             WHERE id = :id AND revoked_at IS NULL',
+            [
+                'at' => $this->date($at),
+                'id' => $session['id'],
+            ],
+        );
+
+        return true;
+    }
+
+    public function revokeSessionByRefreshHash(string $refreshHash, DateTimeImmutable $at): bool
+    {
+        $sessionId = $this->connection->fetchOne(
+            'SELECT id FROM auth_sessions WHERE refresh_token_hash = :hash',
+            ['hash' => $refreshHash],
+        );
+        if ($sessionId === false) {
+            $sessionId = $this->connection->fetchOne(
+                'SELECT session_id FROM auth_refresh_history WHERE token_hash = :hash',
+                ['hash' => $refreshHash],
+            );
+        }
+        if ($sessionId === false) {
+            return false;
+        }
+        $this->connection->executeStatement(
+            'UPDATE auth_sessions SET revoked_at = :at WHERE id = :id AND revoked_at IS NULL',
+            ['at' => $this->date($at), 'id' => $sessionId],
+        );
+
+        return true;
     }
 
     public function revokeAllSessions(string $userId, DateTimeImmutable $at): void
@@ -319,6 +432,15 @@ final class DbalIdentityStore implements IdentityStore
             'active_home_id' => $homeId,
             'last_seen_at' => $this->date($at),
         ], ['id' => $sessionId]);
+    }
+
+    public function clearActiveHome(string $userId, string $homeId, DateTimeImmutable $at): void
+    {
+        $this->connection->executeStatement(
+            'UPDATE auth_sessions SET active_home_id = NULL, last_seen_at = :at
+             WHERE user_id = :user AND active_home_id = :home',
+            ['at' => $this->date($at), 'user' => $userId, 'home' => $homeId],
+        );
     }
 
     public function verifyCsrf(string $sessionId, string $csrfHash): bool
@@ -340,6 +462,440 @@ final class DbalIdentityStore implements IdentityStore
                 ['user' => $userId],
             ),
         );
+    }
+
+    public function seedBootstrapAdministrator(
+        string $emailGrantId,
+        string $auditId,
+        string $userId,
+        string $normalizedEmail,
+        DateTimeImmutable $at,
+    ): bool {
+        $emailGrant = $this->one(
+            'SELECT status FROM platform_administrator_email_grants WHERE normalized_email = :email',
+            ['email' => $normalizedEmail],
+        );
+        $role = $this->one(
+            'SELECT revoked_at FROM user_platform_roles WHERE user_id = :user AND role = :role',
+            ['user' => $userId, 'role' => 'platform_administrator'],
+        );
+        if ($emailGrant !== null || $role !== null) {
+            return false;
+        }
+
+        $date = $this->date($at);
+        $this->connection->insert('platform_administrator_email_grants', [
+            'id' => $emailGrantId,
+            'normalized_email' => $normalizedEmail,
+            'status' => 'active',
+            'source' => 'bootstrap_env',
+            'revision' => 1,
+            'granted_by_user_id' => null,
+            'accepted_by_user_id' => $userId,
+            'accepted_at' => $date,
+            'revoked_at' => null,
+            'created_at' => $date,
+            'updated_at' => $date,
+        ]);
+        $this->connection->insert('user_platform_roles', [
+            'user_id' => $userId,
+            'role' => 'platform_administrator',
+            'granted_at' => $date,
+            'revoked_at' => null,
+            'granted_by_user_id' => null,
+            'source' => 'bootstrap_env',
+            'revision' => 1,
+            'updated_at' => $date,
+        ]);
+        $this->connection->insert('audit_events', [
+            'id' => $auditId,
+            'home_id' => null,
+            'actor_user_id' => null,
+            'action' => 'platform.administrator.bootstrap-granted',
+            'target_type' => 'user_platform_role',
+            'target_id' => $userId,
+            'details' => json_encode([
+                'source' => 'bootstrap_env',
+                'email' => $normalizedEmail,
+                'revision' => 1,
+            ], JSON_THROW_ON_ERROR),
+            'occurred_at' => $date,
+        ]);
+
+        return true;
+    }
+
+    public function activatePendingAdministratorGrant(
+        string $auditId,
+        string $userId,
+        string $normalizedEmail,
+        DateTimeImmutable $at,
+    ): bool {
+        $grant = $this->one(
+            'SELECT id, revision, granted_by_user_id FROM platform_administrator_email_grants
+             WHERE normalized_email = :email AND status = :status',
+            ['email' => $normalizedEmail, 'status' => 'pending'],
+        );
+        if ($grant === null) {
+            return false;
+        }
+        $date = $this->date($at);
+        $updated = $this->connection->executeStatement(
+            'UPDATE platform_administrator_email_grants
+             SET status = :active, accepted_by_user_id = :user, accepted_at = :at,
+                 revoked_at = NULL, revision = revision + 1, updated_at = :at
+             WHERE id = :id AND status = :pending AND revision = :revision',
+            [
+                'active' => 'active',
+                'user' => $userId,
+                'at' => $date,
+                'id' => $grant['id'],
+                'pending' => 'pending',
+                'revision' => $grant['revision'],
+            ],
+        );
+        if ($updated !== 1) {
+            return false;
+        }
+        $role = $this->one(
+            'SELECT revision FROM user_platform_roles WHERE user_id = :user AND role = :role',
+            ['user' => $userId, 'role' => 'platform_administrator'],
+        );
+        if ($role === null) {
+            $roleRevision = 1;
+            $this->connection->insert('user_platform_roles', [
+                'user_id' => $userId,
+                'role' => 'platform_administrator',
+                'granted_at' => $date,
+                'revoked_at' => null,
+                'granted_by_user_id' => $grant['granted_by_user_id'],
+                'source' => 'administrator',
+                'revision' => $roleRevision,
+                'updated_at' => $date,
+            ]);
+        } else {
+            $roleRevision = (int) $role['revision'] + 1;
+            $this->connection->update('user_platform_roles', [
+                'granted_at' => $date,
+                'revoked_at' => null,
+                'granted_by_user_id' => $grant['granted_by_user_id'],
+                'source' => 'administrator',
+                'revision' => $roleRevision,
+                'updated_at' => $date,
+            ], ['user_id' => $userId, 'role' => 'platform_administrator']);
+        }
+        $this->connection->insert('audit_events', [
+            'id' => $auditId,
+            'home_id' => null,
+            'actor_user_id' => $grant['granted_by_user_id'],
+            'action' => 'platform.administrator.granted',
+            'target_type' => 'user_platform_role',
+            'target_id' => $userId,
+            'details' => json_encode([
+                'source' => 'administrator',
+                'email' => $normalizedEmail,
+                'revision' => $roleRevision,
+            ], JSON_THROW_ON_ERROR),
+            'occurred_at' => $date,
+        ]);
+
+        return true;
+    }
+
+    public function listPlatformAdministrators(): array
+    {
+        $active = $this->connection->fetchAllAssociative(
+            'SELECT u.id, u.email, u.id AS userId, :active AS status,
+                    r.revision, r.granted_by_user_id AS grantedByUserId,
+                    r.granted_at AS createdAt, r.granted_at AS activatedAt
+             FROM user_platform_roles r INNER JOIN users u ON u.id = r.user_id
+             WHERE r.role = :role AND r.revoked_at IS NULL AND u.status = :user_status',
+            [
+                'active' => 'active',
+                'role' => 'platform_administrator',
+                'user_status' => 'active',
+            ],
+        );
+        $pending = $this->connection->fetchAllAssociative(
+            'SELECT id, normalized_email AS email, NULL AS userId, status,
+                    revision, granted_by_user_id AS grantedByUserId,
+                    created_at AS createdAt, NULL AS activatedAt
+             FROM platform_administrator_email_grants WHERE status = :status',
+            ['status' => 'pending'],
+        );
+
+        return array_map(function (array $administrator): array {
+            $administrator['createdAt'] = $this->atom((string) $administrator['createdAt']);
+            $administrator['activatedAt'] = $administrator['activatedAt'] === null
+                ? null
+                : $this->atom((string) $administrator['activatedAt']);
+
+            return $administrator;
+        }, array_merge($active, $pending));
+    }
+
+    public function grantPlatformAdministrator(
+        string $emailGrantId,
+        string $auditId,
+        string $actorUserId,
+        string $normalizedEmail,
+        DateTimeImmutable $at,
+    ): array {
+        $date = $this->date($at);
+        // Serialize administrator grant/revoke decisions across actors.
+        $this->connection->executeStatement(
+            'UPDATE user_platform_roles SET updated_at = updated_at
+             WHERE role = :role AND revoked_at IS NULL',
+            ['role' => 'platform_administrator'],
+        );
+        $user = $this->one(
+            'SELECT id FROM users WHERE normalized_email = :email
+               AND status = :status AND email_verified_at IS NOT NULL',
+            ['email' => $normalizedEmail, 'status' => 'active'],
+        );
+        $grant = $this->one(
+            'SELECT * FROM platform_administrator_email_grants WHERE normalized_email = :email',
+            ['email' => $normalizedEmail],
+        );
+        $existingRole = $user === null ? null : $this->one(
+            'SELECT revision, revoked_at, granted_by_user_id, granted_at
+             FROM user_platform_roles WHERE user_id = :user AND role = :role',
+            ['user' => $user['id'], 'role' => 'platform_administrator'],
+        );
+        if ($user === null && $grant !== null && (string) $grant['status'] === 'pending') {
+            return [
+                'changed' => false,
+                'id' => (string) $grant['id'],
+                'email' => $normalizedEmail,
+                'userId' => null,
+                'status' => 'pending',
+                'revision' => (int) $grant['revision'],
+                'grantedByUserId' => $grant['granted_by_user_id'],
+                'createdAt' => $this->atom((string) $grant['created_at']),
+                'activatedAt' => null,
+            ];
+        }
+        if (
+            $user !== null
+            && $grant !== null
+            && (string) $grant['status'] === 'active'
+            && $existingRole !== null
+            && $existingRole['revoked_at'] === null
+        ) {
+            return [
+                'changed' => false,
+                'id' => (string) $user['id'],
+                'email' => $normalizedEmail,
+                'userId' => (string) $user['id'],
+                'status' => 'active',
+                'revision' => (int) $existingRole['revision'],
+                'grantedByUserId' => $existingRole['granted_by_user_id'],
+                'createdAt' => $this->atom((string) $existingRole['granted_at']),
+                'activatedAt' => $this->atom((string) $existingRole['granted_at']),
+            ];
+        }
+        $grantId = $grant === null ? $emailGrantId : (string) $grant['id'];
+        $grantRevision = $grant === null ? 1 : (int) $grant['revision'] + 1;
+        $grantStatus = $user === null ? 'pending' : 'active';
+        if ($grant === null) {
+            $this->connection->insert('platform_administrator_email_grants', [
+                'id' => $grantId,
+                'normalized_email' => $normalizedEmail,
+                'status' => $grantStatus,
+                'source' => 'administrator',
+                'revision' => $grantRevision,
+                'granted_by_user_id' => $actorUserId,
+                'accepted_by_user_id' => $user['id'] ?? null,
+                'accepted_at' => $user === null ? null : $date,
+                'revoked_at' => null,
+                'created_at' => $date,
+                'updated_at' => $date,
+            ]);
+        } else {
+            $this->connection->update('platform_administrator_email_grants', [
+                'status' => $grantStatus,
+                'source' => 'administrator',
+                'revision' => $grantRevision,
+                'granted_by_user_id' => $actorUserId,
+                'accepted_by_user_id' => $user['id'] ?? null,
+                'accepted_at' => $user === null ? null : $date,
+                'revoked_at' => null,
+                'updated_at' => $date,
+            ], ['id' => $grantId]);
+        }
+
+        $roleRevision = null;
+        if ($user !== null) {
+            $userId = (string) $user['id'];
+            $role = $existingRole;
+            if ($role === null) {
+                $roleRevision = 1;
+                $this->connection->insert('user_platform_roles', [
+                    'user_id' => $userId,
+                    'role' => 'platform_administrator',
+                    'granted_at' => $date,
+                    'revoked_at' => null,
+                    'granted_by_user_id' => $actorUserId,
+                    'source' => 'administrator',
+                    'revision' => $roleRevision,
+                    'updated_at' => $date,
+                ]);
+            } elseif ($role['revoked_at'] === null) {
+                $roleRevision = (int) $role['revision'];
+            } else {
+                $roleRevision = (int) $role['revision'] + 1;
+                $this->connection->update('user_platform_roles', [
+                    'granted_at' => $date,
+                    'revoked_at' => null,
+                    'granted_by_user_id' => $actorUserId,
+                    'source' => 'administrator',
+                    'revision' => $roleRevision,
+                    'updated_at' => $date,
+                ], ['user_id' => $userId, 'role' => 'platform_administrator']);
+            }
+        }
+        $this->connection->insert('audit_events', [
+            'id' => $auditId,
+            'home_id' => null,
+            'actor_user_id' => $actorUserId,
+            'action' => $grantStatus === 'active'
+                ? 'platform.administrator.granted'
+                : 'platform.administrator.pending',
+            'target_type' => 'platform_administrator_email_grant',
+            'target_id' => $grantId,
+            'details' => json_encode([
+                'status' => $grantStatus,
+                'email' => $normalizedEmail,
+                'revision' => $roleRevision ?? $grantRevision,
+            ], JSON_THROW_ON_ERROR),
+            'occurred_at' => $date,
+        ]);
+
+        return [
+            'changed' => true,
+            'id' => $user === null ? $grantId : (string) $user['id'],
+            'email' => $normalizedEmail,
+            'userId' => $user === null ? null : (string) $user['id'],
+            'status' => $grantStatus,
+            'revision' => $roleRevision ?? $grantRevision,
+            'grantedByUserId' => $actorUserId,
+            'createdAt' => $grant === null
+                ? $at->format(DATE_ATOM)
+                : $this->atom((string) $grant['created_at']),
+            'activatedAt' => $user === null ? null : $at->format(DATE_ATOM),
+        ];
+    }
+
+    public function revokePlatformAdministrator(
+        string $auditId,
+        string $actorUserId,
+        string $administratorId,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): string {
+        $date = $this->date($at);
+        $pending = $this->one(
+            'SELECT id, normalized_email, revision FROM platform_administrator_email_grants
+             WHERE id = :id AND status = :status',
+            ['id' => $administratorId, 'status' => 'pending'],
+        );
+        if ($pending !== null) {
+            if ((int) $pending['revision'] !== $expectedRevision) {
+                return 'revision-conflict';
+            }
+            $updated = $this->connection->executeStatement(
+                'UPDATE platform_administrator_email_grants
+                 SET status = :revoked, revision = revision + 1,
+                     revoked_at = :at, updated_at = :at
+                 WHERE id = :id AND status = :pending AND revision = :revision',
+                [
+                    'revoked' => 'revoked',
+                    'at' => $date,
+                    'id' => $administratorId,
+                    'pending' => 'pending',
+                    'revision' => $expectedRevision,
+                ],
+            );
+            if ($updated !== 1) {
+                return 'revision-conflict';
+            }
+            $targetType = 'platform_administrator_email_grant';
+            $targetEmail = (string) $pending['normalized_email'];
+        } else {
+            // Acquire write locks for all active administrator rows before
+            // counting, including on databases without SELECT FOR UPDATE.
+            $this->connection->executeStatement(
+                'UPDATE user_platform_roles SET updated_at = updated_at
+                 WHERE role = :role AND revoked_at IS NULL',
+                ['role' => 'platform_administrator'],
+            );
+            $role = $this->one(
+                'SELECT r.revision, u.normalized_email
+                 FROM user_platform_roles r INNER JOIN users u ON u.id = r.user_id
+                 WHERE r.user_id = :user AND r.role = :role AND r.revoked_at IS NULL',
+                ['user' => $administratorId, 'role' => 'platform_administrator'],
+            );
+            if ($role === null) {
+                return 'not-found';
+            }
+            if ((int) $role['revision'] !== $expectedRevision) {
+                return 'revision-conflict';
+            }
+            $activeCount = (int) $this->connection->fetchOne(
+                'SELECT COUNT(*) FROM user_platform_roles r
+                 INNER JOIN users u ON u.id = r.user_id AND u.status = :active
+                 WHERE r.role = :role AND r.revoked_at IS NULL',
+                ['active' => 'active', 'role' => 'platform_administrator'],
+            );
+            if ($activeCount <= 1) {
+                return 'last-administrator';
+            }
+            $updated = $this->connection->executeStatement(
+                'UPDATE user_platform_roles
+                 SET revoked_at = :at, revision = revision + 1, updated_at = :at
+                 WHERE user_id = :user AND role = :role
+                   AND revoked_at IS NULL AND revision = :revision',
+                [
+                    'at' => $date,
+                    'user' => $administratorId,
+                    'role' => 'platform_administrator',
+                    'revision' => $expectedRevision,
+                ],
+            );
+            if ($updated !== 1) {
+                return 'revision-conflict';
+            }
+            $this->connection->executeStatement(
+                'UPDATE platform_administrator_email_grants
+                 SET status = :revoked, revoked_at = :at,
+                     revision = revision + 1, updated_at = :at
+                 WHERE accepted_by_user_id = :user AND status = :active',
+                [
+                    'revoked' => 'revoked',
+                    'at' => $date,
+                    'user' => $administratorId,
+                    'active' => 'active',
+                ],
+            );
+            $targetType = 'user_platform_role';
+            $targetEmail = (string) $role['normalized_email'];
+        }
+        $this->connection->insert('audit_events', [
+            'id' => $auditId,
+            'home_id' => null,
+            'actor_user_id' => $actorUserId,
+            'action' => 'platform.administrator.revoked',
+            'target_type' => $targetType,
+            'target_id' => $administratorId,
+            'details' => json_encode([
+                'email' => $targetEmail,
+                'expectedRevision' => $expectedRevision,
+                'revision' => $expectedRevision + 1,
+            ], JSON_THROW_ON_ERROR),
+            'occurred_at' => $date,
+        ]);
+
+        return 'revoked';
     }
 
     public function recordFailedLogin(string $userId, DateTimeImmutable $at): void
@@ -380,5 +936,12 @@ final class DbalIdentityStore implements IdentityStore
     private function date(DateTimeImmutable $date): string
     {
         return $date->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    }
+
+    private function atom(string $date): string
+    {
+        return (new DateTimeImmutable($date, new DateTimeZone('UTC')))
+            ->setTimezone(new DateTimeZone('UTC'))
+            ->format(DATE_ATOM);
     }
 }

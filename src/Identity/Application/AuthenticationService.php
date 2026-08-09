@@ -24,6 +24,8 @@ final class AuthenticationService
         private readonly int $accessTtlSeconds,
         private readonly int $refreshTtlSeconds,
         private readonly bool $passwordLoginEnabled = true,
+        private readonly int $webIdleTtlSeconds = 2592000,
+        private readonly int $nativeIdleTtlSeconds = 5184000,
     ) {
     }
 
@@ -103,108 +105,6 @@ final class AuthenticationService
         });
     }
 
-    public function requestMagicLink(
-        string $email,
-        string $displayName = '',
-        string $locale = 'en-NA',
-        string $timezone = 'Africa/Windhoek',
-    ): ?string {
-        $normalizedEmail = $this->normalizeEmail($email);
-        $displayName = trim($displayName);
-        if ($displayName !== '' && mb_strlen($displayName) > 120) {
-            throw new Problem(422, 'Validation failed', 'Display name must not exceed 120 characters.');
-        }
-
-        return $this->transactions->transactional(function () use (
-            $normalizedEmail,
-            $displayName,
-            $locale,
-            $timezone,
-        ): ?string {
-            $user = $this->store->findUserByEmail($normalizedEmail);
-            $now = $this->clock->now();
-            if ($user === null) {
-                $userId = $this->ids->generate();
-                $fallbackName = strstr($normalizedEmail, '@', true);
-                $this->store->createUser(
-                    $userId,
-                    $normalizedEmail,
-                    $this->hasher->hashPassword($this->tokens->generate()),
-                    $displayName !== '' ? $displayName : (is_string($fallbackName) ? $fallbackName : 'Member'),
-                    $locale,
-                    $timezone,
-                    $now,
-                );
-            } else {
-                if ((string) $user['status'] !== 'active') {
-                    return null;
-                }
-                $userId = (string) $user['id'];
-            }
-            $token = $this->tokens->generate();
-            $this->store->issueOneTimeToken(
-                $this->ids->generate(),
-                $userId,
-                'magic-sign-in',
-                $this->hasher->hashToken($token),
-                $now->add(new DateInterval('PT15M')),
-                $now,
-            );
-            $this->notifications->sendMagicLink($normalizedEmail, $token);
-
-            return $token;
-        });
-    }
-
-    /**
-     * @return array{
-     *     accessToken: string,
-     *     refreshToken: string,
-     *     csrfToken: string,
-     *     accessExpiresAt: string,
-     *     sessionId: string,
-     *     deviceId: string,
-     *     userId: string
-     * }
-     */
-    public function exchangeMagicLink(
-        string $token,
-        string $deviceId,
-        string $deviceName,
-        string $platform,
-    ): array {
-        return $this->transactions->transactional(function () use (
-            $token,
-            $deviceId,
-            $deviceName,
-            $platform,
-        ): array {
-            $now = $this->clock->now();
-            $userId = $this->store->consumeOneTimeToken(
-                'magic-sign-in',
-                $this->hasher->hashToken($token),
-                $now,
-            );
-            if ($userId === null) {
-                throw new Problem(422, 'Invalid token', 'The sign-in link is invalid or expired.');
-            }
-            $user = $this->store->findUserById($userId);
-            if ($user === null || (string) $user['status'] !== 'active') {
-                throw new Problem(403, 'Account unavailable', 'This account is not active.');
-            }
-            if ($user['email_verified_at'] === null) {
-                $this->store->markEmailVerified($userId, $now);
-            }
-
-            return $this->issueSession(
-                $userId,
-                $this->assertUuid($deviceId, 'deviceId'),
-                trim($deviceName),
-                trim($platform),
-            );
-        });
-    }
-
     public function requestStepUp(AuthenticatedIdentity $identity, string $action): ?string
     {
         $purpose = $this->stepUpPurpose($action);
@@ -259,6 +159,8 @@ final class AuthenticationService
         string $deviceId,
         string $deviceName,
         string $platform,
+        string $transport = 'native',
+        ?int $requestedSessionIdleSeconds = null,
     ): array {
         $this->requirePasswordLogin();
         $user = $this->store->findUserByEmail($this->normalizeEmail($email));
@@ -291,11 +193,15 @@ final class AuthenticationService
 
         $this->store->clearFailedLogin((string) $user['id']);
 
+        $transport = $this->normalizeTransport($transport);
+
         return $this->issueSession(
             (string) $user['id'],
             $this->assertUuid($deviceId, 'deviceId'),
             trim($deviceName),
             trim($platform),
+            $transport,
+            $this->requestedIdleTtl($transport, $requestedSessionIdleSeconds),
         );
     }
 
@@ -332,7 +238,15 @@ final class AuthenticationService
         $nextRefreshToken = $this->tokens->generate();
         $csrfToken = $this->tokens->generate();
         $accessExpiry = $now->add(new DateInterval('PT' . $this->accessTtlSeconds . 'S'));
-        $refreshExpiry = $now->add(new DateInterval('PT' . $this->refreshTtlSeconds . 'S'));
+        $transport = (string) ($session['transport'] ?? 'native');
+        $transportMaximum = $transport === 'web'
+            ? $this->webIdleTtlSeconds
+            : $this->nativeIdleTtlSeconds;
+        $refreshIdleTtl = max(900, min(
+            $transportMaximum,
+            (int) ($session['refresh_idle_ttl_seconds'] ?? $this->refreshTtlSeconds),
+        ));
+        $refreshExpiry = $now->add(new DateInterval('PT' . $refreshIdleTtl . 'S'));
         $rotated = $this->store->rotateSession(
             (string) $session['id'],
             (string) $session['refresh_token_hash'],
@@ -356,6 +270,13 @@ final class AuthenticationService
             'refreshToken' => $nextRefreshToken,
             'csrfToken' => $csrfToken,
             'accessExpiresAt' => $accessExpiry->format(DATE_ATOM),
+            'refreshExpiresAt' => $refreshExpiry->format(DATE_ATOM),
+            'idleExpiresAt' => $refreshExpiry->format(DATE_ATOM),
+            'refreshIdleTtlSeconds' => $refreshIdleTtl,
+            'transport' => $transport === 'web' ? 'web' : 'native',
+            'activeHomeId' => ($session['active_home_id'] ?? null) === null
+                ? null
+                : (string) $session['active_home_id'],
             'sessionId' => (string) $session['id'],
             'deviceId' => (string) $session['device_id'],
             'userId' => (string) $session['user_id'],
@@ -384,7 +305,36 @@ final class AuthenticationService
     /** @return list<array<string, mixed>> */
     public function listSessions(AuthenticatedIdentity $identity): array
     {
-        return $this->store->listSessions($identity->userId);
+        return array_map(
+            static function (array $session) use ($identity): array {
+                $session['current'] = (string) ($session['id'] ?? '') === $identity->sessionId;
+
+                return $session;
+            },
+            $this->store->listSessions($identity->userId),
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function issueLoginLinkSession(
+        string $userId,
+        string $installationId,
+        string $deviceName,
+        string $platform,
+        string $transport,
+        int $refreshIdleTtlSeconds,
+        ?string $activeHomeId,
+    ): array {
+        return $this->issueSession(
+            $userId,
+            $this->accountScopedDeviceId($userId, $installationId),
+            $deviceName,
+            $platform,
+            $transport,
+            $refreshIdleTtlSeconds,
+            $installationId,
+            $activeHomeId,
+        );
     }
 
     public function revokeSession(AuthenticatedIdentity $identity, string $sessionId): void
@@ -392,6 +342,31 @@ final class AuthenticationService
         if (! $this->store->revokeSession($identity->userId, $sessionId, $this->clock->now())) {
             throw new Problem(404, 'Not found', 'The requested session is unavailable.');
         }
+    }
+
+    public function revokeSessionByRefreshProof(string $refreshToken, string $csrfToken): bool
+    {
+        if ($refreshToken === '' || $csrfToken === '') {
+            return false;
+        }
+
+        return $this->store->revokeSessionByRefreshProof(
+            $this->hasher->hashToken($refreshToken),
+            $this->hasher->hashToken($csrfToken),
+            $this->clock->now(),
+        );
+    }
+
+    public function revokeSessionByRefreshToken(string $refreshToken): bool
+    {
+        if ($refreshToken === '') {
+            return false;
+        }
+
+        return $this->store->revokeSessionByRefreshHash(
+            $this->hasher->hashToken($refreshToken),
+            $this->clock->now(),
+        );
     }
 
     public function verifyCsrf(AuthenticatedIdentity $identity, string $token): bool
@@ -482,27 +457,46 @@ final class AuthenticationService
      *     userId: string
      * }
      */
-    private function issueSession(string $userId, string $deviceId, string $deviceName, string $platform): array
-    {
+    private function issueSession(
+        string $userId,
+        string $deviceId,
+        string $deviceName,
+        string $platform,
+        string $transport = 'native',
+        ?int $refreshIdleTtlSeconds = null,
+        ?string $installationId = null,
+        ?string $activeHomeId = null,
+    ): array {
+        $transport = $this->normalizeTransport($transport);
         $now = $this->clock->now();
         $accessToken = $this->tokens->generate();
         $refreshToken = $this->tokens->generate();
         $accessExpiry = $now->add(new DateInterval('PT' . $this->accessTtlSeconds . 'S'));
-        $refreshExpiry = $now->add(new DateInterval('PT' . $this->refreshTtlSeconds . 'S'));
+        $refreshIdleTtlSeconds = $this->requestedIdleTtl($transport, $refreshIdleTtlSeconds);
+        $refreshExpiry = $now->add(new DateInterval('PT' . $refreshIdleTtlSeconds . 'S'));
         $sessionId = $this->ids->generate();
         $csrfToken = $this->tokens->generate();
+        $storedDeviceName = $deviceName === '' ? 'Unnamed device' : mb_substr($deviceName, 0, 120);
+        $storedPlatform = $platform === '' ? 'unknown' : mb_substr($platform, 0, 40);
+        $accessHash = $this->hasher->hashToken($accessToken);
+        $refreshHash = $this->hasher->hashToken($refreshToken);
+        $csrfHash = $this->hasher->hashToken($csrfToken);
         $this->store->createSession(
             $sessionId,
             $userId,
             $deviceId,
-            $deviceName === '' ? 'Unnamed device' : mb_substr($deviceName, 0, 120),
-            $platform === '' ? 'unknown' : mb_substr($platform, 0, 40),
-            $this->hasher->hashToken($accessToken),
-            $this->hasher->hashToken($refreshToken),
-            $this->hasher->hashToken($csrfToken),
+            $storedDeviceName,
+            $storedPlatform,
+            $accessHash,
+            $refreshHash,
+            $csrfHash,
             $accessExpiry,
             $refreshExpiry,
             $now,
+            $transport,
+            $refreshIdleTtlSeconds,
+            $installationId,
+            $activeHomeId,
         );
 
         return [
@@ -510,6 +504,11 @@ final class AuthenticationService
             'refreshToken' => $refreshToken,
             'csrfToken' => $csrfToken,
             'accessExpiresAt' => $accessExpiry->format(DATE_ATOM),
+            'refreshExpiresAt' => $refreshExpiry->format(DATE_ATOM),
+            'idleExpiresAt' => $refreshExpiry->format(DATE_ATOM),
+            'refreshIdleTtlSeconds' => $refreshIdleTtlSeconds,
+            'transport' => $transport,
+            'activeHomeId' => $activeHomeId,
             'sessionId' => $sessionId,
             'deviceId' => $deviceId,
             'userId' => $userId,
@@ -524,6 +523,49 @@ final class AuthenticationService
         }
 
         return $email;
+    }
+
+    private function accountScopedDeviceId(string $userId, string $installationId): string
+    {
+        $hex = hash('sha256', $userId . "\0" . $installationId);
+        $hex = substr($hex, 0, 12) . '8' . substr($hex, 13, 3)
+            . dechex((hexdec($hex[16]) & 0x3) | 0x8) . substr($hex, 17, 15);
+
+        return sprintf(
+            '%s-%s-%s-%s-%s',
+            substr($hex, 0, 8),
+            substr($hex, 8, 4),
+            substr($hex, 12, 4),
+            substr($hex, 16, 4),
+            substr($hex, 20, 12),
+        );
+    }
+
+    private function normalizeTransport(string $transport): string
+    {
+        $transport = mb_strtolower(trim($transport));
+        if (! in_array($transport, ['web', 'native'], true)) {
+            throw new Problem(422, 'Validation failed', 'Transport must be web or native.');
+        }
+
+        return $transport;
+    }
+
+    private function requestedIdleTtl(string $transport, ?int $requested): int
+    {
+        $maximum = $transport === 'web' ? $this->webIdleTtlSeconds : $this->nativeIdleTtlSeconds;
+        if ($requested === null) {
+            return $maximum;
+        }
+        if ($requested < 900 || $requested > 5184000) {
+            throw new Problem(
+                422,
+                'Validation failed',
+                'Requested session idle time must be between 900 and 5184000 seconds.',
+            );
+        }
+
+        return min($requested, $maximum);
     }
 
     private function assertPassword(string $password): void
@@ -548,7 +590,7 @@ final class AuthenticationService
             throw new Problem(
                 410,
                 'Password authentication disabled',
-                'Request a passwordless email sign-in link instead.',
+                'Request an email login link instead.',
             );
         }
     }

@@ -52,6 +52,33 @@ final class DbalHomeStore implements HomeStore
         $this->createDefaultPermissionPolicies($id, $ownerUserId, $at);
     }
 
+    public function updateHome(
+        string $homeId,
+        string $name,
+        string $locale,
+        string $currency,
+        string $timezone,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool {
+        return $this->connection->executeStatement(
+            'UPDATE homes SET name = :name, default_locale = :locale,
+                    default_currency = :currency, default_timezone = :timezone,
+                    revision = revision + 1, updated_at = :at
+             WHERE id = :id AND status = :status AND revision = :revision',
+            [
+                'name' => $name,
+                'locale' => $locale,
+                'currency' => $currency,
+                'timezone' => $timezone,
+                'at' => $this->date($at),
+                'id' => $homeId,
+                'status' => 'active',
+                'revision' => $expectedRevision,
+            ],
+        ) === 1;
+    }
+
     public function listForUser(string $userId): array
     {
         return $this->connection->fetchAllAssociative(
@@ -243,6 +270,42 @@ final class DbalHomeStore implements HomeStore
         );
     }
 
+    public function pendingInvitationsForEmail(string $normalizedEmail, DateTimeImmutable $at): array
+    {
+        $invitations = $this->connection->fetchAllAssociative(
+            'SELECT i.id, i.home_id AS homeId, h.name AS homeName,
+                    i.inviter_user_id AS inviterUserId,
+                    inviter_profile.display_name AS inviterDisplayName,
+                    i.role, i.status, i.revision, i.expires_at AS expiresAt
+             FROM home_invitations i
+             INNER JOIN homes h ON h.id = i.home_id AND h.status = :home_status
+             INNER JOIN home_memberships inviter
+                     ON inviter.home_id = i.home_id
+                    AND inviter.user_id = i.inviter_user_id
+                    AND inviter.status = :member_status
+             LEFT JOIN user_profiles inviter_profile ON inviter_profile.user_id = i.inviter_user_id
+             WHERE i.normalized_email = :email AND i.status = :pending
+               AND i.expires_at > :at
+             ORDER BY i.created_at, i.id',
+            [
+                'home_status' => 'active',
+                'member_status' => 'active',
+                'email' => $normalizedEmail,
+                'pending' => 'pending',
+                'at' => $this->date($at),
+            ],
+        );
+
+        return array_map(static function (array $invitation): array {
+            $invitation['expiresAt'] = (new DateTimeImmutable(
+                (string) $invitation['expiresAt'],
+                new DateTimeZone('UTC'),
+            ))->setTimezone(new DateTimeZone('UTC'))->format(DATE_ATOM);
+
+            return $invitation;
+        }, $invitations);
+    }
+
     public function invitation(string $homeId, string $invitationId): ?array
     {
         return $this->one(
@@ -378,8 +441,84 @@ final class DbalHomeStore implements HomeStore
         return [
             'invitationId' => (string) $invitation['id'],
             'homeId' => (string) $invitation['home_id'],
-            'role' => (string) $invitation['role'],
+            'role' => $existing !== null && (string) $existing['status'] === 'active'
+                ? (string) $existing['role']
+                : (string) $invitation['role'],
         ];
+    }
+
+    public function acceptInvitationById(
+        string $invitationId,
+        string $userId,
+        string $normalizedEmail,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): array {
+        $invitation = $this->one(
+            'SELECT id, home_id, token_hash, role, status, revision,
+                    normalized_email, expires_at, accepted_by_user_id
+             FROM home_invitations WHERE id = :id',
+            ['id' => $invitationId],
+        );
+        if ($invitation === null || ! hash_equals(
+            (string) $invitation['normalized_email'],
+            $normalizedEmail,
+        )) {
+            return ['outcome' => 'not-found'];
+        }
+        if (
+            (string) $invitation['status'] === 'accepted'
+            && (string) $invitation['accepted_by_user_id'] === $userId
+        ) {
+            $membership = $this->membership((string) $invitation['home_id'], $userId);
+            if ($membership !== null && (string) $membership['status'] === 'active') {
+                return [
+                    'outcome' => 'accepted',
+                    'changed' => false,
+                    'invitationId' => (string) $invitation['id'],
+                    'homeId' => (string) $invitation['home_id'],
+                    'role' => (string) $membership['role'],
+                ];
+            }
+        }
+        if ((string) $invitation['status'] !== 'pending') {
+            return ['outcome' => 'not-found'];
+        }
+        if (
+            new DateTimeImmutable(
+                (string) $invitation['expires_at'],
+                new DateTimeZone('UTC'),
+            ) <= $at
+        ) {
+            $this->connection->executeStatement(
+                'UPDATE home_invitations SET status = :expired,
+                        revision = revision + 1, updated_at = :at
+                 WHERE id = :id AND status = :pending',
+                [
+                    'expired' => 'expired',
+                    'at' => $this->date($at),
+                    'id' => $invitationId,
+                    'pending' => 'pending',
+                ],
+            );
+
+            return ['outcome' => 'expired'];
+        }
+        if ((int) $invitation['revision'] !== $expectedRevision) {
+            return ['outcome' => 'revision-conflict'];
+        }
+
+        $result = $this->acceptInvitation(
+            (string) $invitation['token_hash'],
+            $userId,
+            $normalizedEmail,
+            $at,
+        );
+        if ($result === null) {
+            return ['outcome' => 'revision-conflict'];
+        }
+
+        return ['outcome' => 'accepted', 'changed' => true] + $result;
     }
 
     public function changeMembershipRole(

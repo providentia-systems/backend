@@ -53,6 +53,25 @@ final readonly class DbalJsonDataExportGenerator implements DataExportGenerator
                  FROM home_memberships WHERE user_id = :scope ORDER BY home_id',
                 $userId,
             ),
+            'loginRequests' => $this->page(
+                'SELECT r.id, r.device_name, r.platform, r.transport, r.status, r.expires_at,
+                    r.approved_at, r.exchanged_at, r.denied_at, r.cancelled_at,
+                    r.created_at, r.updated_at
+                 FROM auth_login_link_requests r
+                 INNER JOIN users u ON u.id = :scope
+                 WHERE r.user_id = u.id OR r.normalized_email = u.normalized_email
+                 ORDER BY r.id',
+                $userId,
+            ),
+            'platformAdministratorGrants' => $this->page(
+                'SELECT g.id, g.status, g.source, g.revision, g.accepted_at, g.revoked_at,
+                    g.created_at, g.updated_at
+                 FROM platform_administrator_email_grants g
+                 INNER JOIN users u ON u.id = :scope
+                 WHERE g.accepted_by_user_id = u.id OR g.normalized_email = u.normalized_email
+                 ORDER BY g.id',
+                $userId,
+            ),
             'catalogContributions' => $this->page(
                 'SELECT id, contribution_type, payload_json, moderation_status, revision, created_at
                  FROM catalog_contributions WHERE submitted_by_user_id = :scope ORDER BY id',

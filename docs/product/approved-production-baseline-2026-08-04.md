@@ -9,6 +9,10 @@ Providentia is a commercial, proprietary SaaS product. The authenticated Flutter
 application must support Android, iOS, Windows, macOS, Linux, and modern web
 browsers. Platform packaging belongs to the Flutter repository; this backend
 must expose one versioned, platform-neutral API and synchronization contract.
+The backend has no authenticated operational GUI. It may render the public
+site and narrowly scoped login-link review/result pages, while every signed-in
+account, home, invitation, device-session, and platform-administration screen
+belongs to the Flutter client, including its web build.
 
 There is no artificial household, product, inventory, or catalog-size product
 limit. Operational limits exist only to protect availability and must use
@@ -30,21 +34,62 @@ authoritative for every replayed operation.
 
 ## Identity and homes
 
-The default sign-in is passwordless email magic-link authentication. A user
-enters an email address and receives a single-use, short-lived link. The API
-must not disclose whether an account already exists.
+The only primary sign-in workflow is an email-only **login link**. The
+user enters their email address in the originating client. That client creates
+a private poll token and PKCE verifier and sends only their challenges, a state
+value, and device metadata when it starts the login-link request. The API gives
+the same generic response whether or not the account already exists.
 
-A user may belong to multiple homes. A home has one owner and may have multiple
-administrators and members with adjustable roles and granular permissions.
-Invitations are email-address based, revocable, expiring, and accepted by the
-recipient. Ownership transfer requires an explicit proposal, recipient
-acceptance, and recent/step-up magic-link verification. Device sessions are
-listed and individually revocable. Industry-standard short access sessions,
-rotating refresh credentials, replay detection, and inactivity controls apply.
+The emailed link may be opened in a browser on a different device. Opening it
+must show a review page and must not approve the request: approval or denial is
+a separate deliberate POST. The browser approves only the pending request; it
+does not receive the client session. The originating client polls with its
+private token and exchanges the approved request with the PKCE verifier. An app
+or universal link may make returning to the client more convenient, but polling
+is the authoritative cross-device handoff.
 
-Passwords are not the primary product workflow. Existing password support may
-remain temporarily for migration compatibility until passwordless acceptance is
-complete, but marketing and generated clients must default to magic links.
+Access, refresh, session, poll, and PKCE credentials must never appear in the
+email URL, browser address bar, referrer, page, or logs. The email carries only
+a short-lived, single-use browser approval credential; the initial browser
+request moves it into a narrowly scoped secure cookie and redirects to a clean
+review URL. Requests expire, are cancellable, and are single-exchange. Email
+scanners, replay, a wrong state, a wrong poll token, or a wrong PKCE verifier
+must not create a session.
+
+An unknown address is not provisioned merely because a request was started.
+Deliberate approval creates and verifies the account idempotently, creates one
+editable home named `My home`, and grants that user its `owner` membership. The
+originating client's successful exchange issues its session and selects that
+home. An existing account retains its homes and receives no additional default
+home.
+
+A user may belong to multiple homes, with a distinct role in each. The
+household roles are `owner`, `manager`, `member`, and `viewer`; platform roles
+are separate and never imply home membership. Invitations are email-address
+based, revocable, expiring, discoverable after sign-in, and accepted explicitly
+by the intended verified recipient. Ownership transfer requires an explicit
+proposal, recipient acceptance, and recent login-link step-up verification.
+
+Device sessions are listed and individually revocable. Access credentials last
+approximately 15 minutes. Web sessions have a sliding 30-day inactivity limit;
+native Android, iOS, Windows, macOS, and Linux sessions have a sliding 60-day
+inactivity limit. Normal refresh/use extends the relevant inactivity deadline
+up to the backend policy; a client may request a shorter duration but never a
+longer one. Rotation, replay detection, logout, revocation, and security events
+end or constrain sessions regardless of those maximums.
+
+The first platform administrator is configured by normalized email through the
+deployment bootstrap setting and receives that role only after successfully
+verifying the address through a login link. That grant creates no home access.
+An administrator may list, add, and revoke other administrators through the
+authenticated, audited API, including a pending email grant for a person who
+has not signed in yet. Revisions prevent stale mutations, every change records
+its actor, and the final active administrator cannot be revoked.
+
+Password registration, verification, reset, and login may remain temporarily
+as explicitly enabled development or migration-compatibility surfaces. They
+are not a production onboarding fallback and must not appear as the default in
+marketing, generated clients, tester instructions, or release acceptance.
 
 ## AI and media
 

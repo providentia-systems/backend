@@ -15,4 +15,10 @@ interface AuthenticationRateLimitStore
         int $maximumAttempts,
         int $blockSeconds,
     ): bool;
+
+    public function purgeInactive(
+        DateTimeImmutable $now,
+        DateTimeImmutable $retentionCutoff,
+        int $limit,
+    ): int;
 }

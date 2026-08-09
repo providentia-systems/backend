@@ -17,7 +17,8 @@ final class AuthenticationRateLimiterTest extends TestCase
         $pepper = str_repeat('p', 32);
         $actualBuckets = [];
         $store = $this->createMock(AuthenticationRateLimitStore::class);
-        $store->expects(self::exactly(2))
+        $limits = [];
+        $store->expects(self::exactly(3))
             ->method('consume')
             ->willReturnCallback(function (
                 string $bucket,
@@ -25,10 +26,11 @@ final class AuthenticationRateLimiterTest extends TestCase
                 int $window,
                 int $limit,
                 int $block,
-            ) use (&$actualBuckets): bool {
+            ) use (&$actualBuckets, &$limits): bool {
                 $actualBuckets[] = $bucket;
+                $limits[] = $limit;
                 self::assertSame('2026-07-30T12:00:00+00:00', $at->format(DATE_ATOM));
-                self::assertSame([900, 20, 900], [$window, $limit, $block]);
+                self::assertSame([900, 900], [$window, $block]);
 
                 return true;
             });
@@ -42,8 +44,38 @@ final class AuthenticationRateLimiterTest extends TestCase
 
         self::assertSame([
             hash_hmac('sha256', 'ip:192.0.2.10', $pepper),
+            hash_hmac('sha256', 'email:user@example.test', $pepper),
             hash_hmac('sha256', 'email-ip:user@example.test|192.0.2.10', $pepper),
         ], $actualBuckets);
+        self::assertSame([20, 5, 10], $limits);
+    }
+
+    public function testLoginLinkPollingAllowsDocumentedThreeSecondInterval(): void
+    {
+        $limits = [];
+        $store = $this->createMock(AuthenticationRateLimitStore::class);
+        $store->expects(self::once())->method('consume')->willReturnCallback(
+            static function (
+                string $bucket,
+                DateTimeImmutable $at,
+                int $window,
+                int $limit,
+                int $block,
+            ) use (&$limits): bool {
+                $limits[] = $limit;
+
+                return true;
+            },
+        );
+        $limiter = new AuthenticationRateLimiter(
+            $store,
+            new IdentityFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
+            str_repeat('p', 32),
+        );
+
+        $limiter->assertLoginLinkProofAllowed('192.0.2.10');
+
+        self::assertSame([3000], $limits);
     }
 
     public function testRejectedBucketProducesRateLimitProblem(): void

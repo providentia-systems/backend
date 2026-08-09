@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.10.0",
+    "version": "1.11.0",
     "summary": "Authoritative Providentia backend contract through the production-readiness programme",
-    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds passwordless authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation.\n\nVersion 1.10 adds typed pantry synchronization, catalog sharing/imports, data rights, commercial controls, multi-provider AI orchestration, encrypted private media, and production acceptance surfaces."
+    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds email-only login-link authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation.\n\nVersion 1.10 adds typed pantry synchronization, catalog sharing/imports, data rights, commercial controls, multi-provider AI orchestration, encrypted private media, and production acceptance surfaces.\n\nVersion 1.11 adds cross-device login-link approval with origin-client polling and PKCE exchange, current-user bootstrap, recipient invitation acceptance, platform-administrator management, and explicit sliding-session metadata."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -138,13 +138,18 @@
           },
           "422": {
             "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
           }
         }
       }
     },
-    "/api/v1/auth/magic-links": {
+    "/api/v1/auth/login-links": {
       "post": {
-        "operationId": "requestMagicLink",
+        "operationId": "startLoginLink",
+        "summary": "Start a login-link request owned by the originating client",
+        "description": "Accepts client-generated polling and PKCE challenges, queues a single-use email approval link, and returns generic request metadata only. Account existence is never disclosed, and the server never returns the private poll token or PKCE verifier. The browser approval does not receive a session; after approval, the originating client exchanges its private proof for the session.",
         "security": [],
         "tags": [
           "Identity"
@@ -154,7 +159,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MagicLinkRequest"
+                "$ref": "#/components/schemas/LoginLinkStartRequest"
               }
             }
           }
@@ -165,37 +170,97 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MagicLinkAccepted"
+                  "$ref": "#/components/schemas/LoginLinkStarted"
                 }
               }
             }
           },
           "422": {
             "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
           }
         }
       }
     },
-    "/api/v1/auth/magic-links/exchange": {
+    "/api/v1/auth/login-links/{requestId}/status": {
       "post": {
-        "operationId": "exchangeMagicLink",
+        "operationId": "getLoginLinkStatus",
+        "summary": "Poll a login-link request from its originating client",
+        "description": "The private poll token is submitted in the request body and must never be placed in a URL. This operation never returns access, refresh, session, approval, or PKCE credentials.",
         "security": [],
         "tags": [
           "Identity"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/LoginLinkRequestId"
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MagicLinkExchangeRequest"
+                "$ref": "#/components/schemas/LoginLinkRequestProof"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Native credentials or secure cookie session issued",
+            "description": "Current request state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginLinkStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "410": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login-links/{requestId}/exchange": {
+      "post": {
+        "operationId": "exchangeLoginLink",
+        "summary": "Exchange an approved login-link request for an origin-device session",
+        "description": "Requires the originating client's private poll token, state, and RFC 7636 verifier. Exchange is single-use and terminal; after an ambiguous or lost success response the client must start a new login-link request because credentials cannot be reconstructed from stored hashes. No session credential is accepted in a URL.",
+        "security": [],
+        "tags": [
+          "Identity"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/LoginLinkRequestId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginLinkExchangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Native credentials or secure cookie session issued to the originating client",
             "content": {
               "application/json": {
                 "schema": {
@@ -204,7 +269,55 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "410": {
+            "$ref": "#/components/responses/Problem"
+          },
           "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login-links/{requestId}/cancel": {
+      "post": {
+        "operationId": "cancelLoginLink",
+        "summary": "Cancel a pending login-link request",
+        "security": [],
+        "tags": [
+          "Identity"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/LoginLinkRequestId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginLinkRequestProof"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Request cancelled or already terminal"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
             "$ref": "#/components/responses/Problem"
           }
         }
@@ -232,7 +345,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MagicLinkAccepted"
+                  "$ref": "#/components/schemas/StepUpLinkAccepted"
                 }
               }
             }
@@ -373,12 +486,31 @@
     "/api/v1/auth/logout": {
       "post": {
         "operationId": "logout",
+        "summary": "Revoke a session using current access or refresh possession proof",
+        "description": "Native clients may send their current rotating refresh token. Web clients use the HttpOnly refresh cookie plus the matching CSRF header/cookie. A valid access credential remains accepted. Cookies are cleared on every response.",
+        "security": [],
         "tags": [
           "Identity"
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "204": {
-            "description": "Current session revoked and cookies cleared"
+            "description": "Proven session revoked or already inactive; cookies cleared"
+          },
+          "401": {
+            "description": "No valid session-possession proof; cookies cleared"
+          },
+          "403": {
+            "description": "Web CSRF proof rejected; cookies cleared"
           }
         }
       }
@@ -501,6 +633,148 @@
         }
       }
     },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "getCurrentUser",
+        "summary": "Bootstrap the authenticated user and current session",
+        "description": "Returns the verified account, current session, active home, and every home membership needed to restore a client without making authorization assumptions.",
+        "tags": [
+          "Identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authenticated-user bootstrap",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentUserBootstrap"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/platform/administrators": {
+      "get": {
+        "operationId": "listPlatformAdministrators",
+        "summary": "List active and pending platform-administrator grants",
+        "tags": [
+          "Platform administration"
+        ],
+        "responses": {
+          "200": {
+            "description": "Platform-administrator grants",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PlatformAdministrator"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "operationId": "grantPlatformAdministrator",
+        "summary": "Grant platform-administrator access by verified email address",
+        "description": "Creates an active grant for an existing verified account or a pending grant for an address that has not completed login-link verification. This global role never creates or implies access to a home.",
+        "tags": [
+          "Platform administration"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformAdministratorGrantRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Active or pending platform-administrator grant created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformAdministrator"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/platform/administrators/{administratorId}/revoke": {
+      "post": {
+        "operationId": "revokePlatformAdministrator",
+        "summary": "Revoke an active or pending platform-administrator grant",
+        "description": "The final active platform administrator cannot be revoked. A stale expected revision fails without changing the grant.",
+        "tags": [
+          "Platform administration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PlatformAdministratorId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformAdministratorRevokeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Grant revoked"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/api/v1/homes": {
       "get": {
         "operationId": "listHomes",
@@ -586,6 +860,53 @@
             }
           },
           "404": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateHome",
+        "summary": "Rename a home or update its regional defaults",
+        "description": "Requires home.manage and optimistic concurrency through expectedRevision.",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateHomeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated home",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Home"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
             "$ref": "#/components/responses/Problem"
           }
         }
@@ -1189,9 +1510,97 @@
         }
       }
     },
+    "/api/v1/me/home-invitations": {
+      "get": {
+        "operationId": "listPendingHomeInvitations",
+        "summary": "List pending invitations addressed to the verified current account",
+        "description": "Returns only unexpired invitations for the authenticated user's verified email address. Possession of an email token is not required.",
+        "tags": [
+          "Homes"
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending recipient invitations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RecipientHomeInvitation"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/me/home-invitations/{invitationId}/accept": {
+      "post": {
+        "operationId": "acceptHomeInvitationById",
+        "summary": "Accept a pending invitation addressed to the current account",
+        "tags": [
+          "Homes"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeInvitationId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Invitation accepted idempotently",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeInvitationAcceptance"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "410": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/api/v1/home-invitations/accept": {
       "post": {
         "operationId": "acceptHomeInvitation",
+        "summary": "Deprecated token-based invitation acceptance",
+        "description": "Deprecated compatibility endpoint. Verified clients should list invitations from /api/v1/me/home-invitations and accept by invitation ID.",
+        "deprecated": true,
         "tags": [
           "Homes"
         ],
@@ -1211,7 +1620,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/HomeInvitationAcceptance"
                 }
               }
             }
@@ -4963,6 +5372,33 @@
           "format": "uuid"
         }
       },
+      "LoginLinkRequestId": {
+        "name": "requestId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "HomeInvitationId": {
+        "name": "invitationId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "PlatformAdministratorId": {
+        "name": "administratorId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
       "IdempotencyKey": {
         "name": "Idempotency-Key",
         "in": "header",
@@ -5182,32 +5618,193 @@
           }
         }
       },
-      "MagicLinkRequest": {
+      "LoginLinkStartRequest": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "email"
+          "requestId",
+          "email",
+          "pollChallenge",
+          "codeChallenge",
+          "codeChallengeMethod",
+          "state",
+          "installationId",
+          "deviceName",
+          "platform",
+          "transport"
         ],
         "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Client-generated identifier retained by the originating installation."
+          },
           "email": {
             "type": "string",
             "format": "email"
           },
-          "displayName": {
+          "pollChallenge": {
             "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "writeOnly": true,
+            "description": "Unpadded base64url SHA-256 challenge derived from a high-entropy poll token that never leaves the originating client except in status, exchange, and cancel request bodies."
+          },
+          "codeChallenge": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "writeOnly": true,
+            "description": "RFC 7636 S256 challenge derived from the originating client's private verifier."
+          },
+          "codeChallengeMethod": {
+            "const": "S256"
+          },
+          "state": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 256,
+            "writeOnly": true
+          },
+          "installationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceName": {
+            "type": "string",
+            "minLength": 1,
             "maxLength": 120
           },
-          "locale": {
+          "platform": {
             "type": "string",
-            "default": "en-NA"
+            "minLength": 1,
+            "maxLength": 40
           },
-          "timezone": {
-            "type": "string",
-            "default": "Africa/Windhoek"
+          "transport": {
+            "$ref": "#/components/schemas/SessionTransport"
+          },
+          "requestedSessionIdleSeconds": {
+            "type": "integer",
+            "minimum": 900,
+            "maximum": 5184000,
+            "description": "Optional client request for a shorter idle window. The server always caps it at the transport policy: 30 days for web and 60 days for native."
           }
         }
       },
-      "MagicLinkAccepted": {
+      "LoginLinkStarted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accepted",
+          "requestId",
+          "expiresAt",
+          "pollIntervalSeconds"
+        ],
+        "properties": {
+          "accepted": {
+            "const": true
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pollIntervalSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          }
+        },
+        "description": "Generic accepted response. The private poll token and PKCE verifier are client-generated and are never returned by the server."
+      },
+      "LoginLinkRequestProof": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pollToken"
+        ],
+        "properties": {
+          "pollToken": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        }
+      },
+      "LoginLinkStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requestId",
+          "status",
+          "expiresAt"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "denied",
+              "exchanged",
+              "expired",
+              "cancelled"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approvedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "LoginLinkExchangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pollToken",
+          "codeVerifier",
+          "state"
+        ],
+        "properties": {
+          "pollToken": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "codeVerifier": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "writeOnly": true
+          },
+          "state": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 256,
+            "writeOnly": true
+          }
+        }
+      },
+      "StepUpLinkAccepted": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -5217,50 +5814,10 @@
           "accepted": {
             "const": true
           },
-          "developmentMagicLinkToken": {
-            "type": "string",
-            "readOnly": true,
-            "description": "Present only in an explicitly enabled non-production development profile."
-          },
           "developmentStepUpToken": {
             "type": "string",
             "readOnly": true,
             "description": "Present only in an explicitly enabled non-production development profile."
-          }
-        }
-      },
-      "MagicLinkExchangeRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "token",
-          "deviceId",
-          "deviceName",
-          "platform"
-        ],
-        "properties": {
-          "token": {
-            "type": "string",
-            "minLength": 40
-          },
-          "deviceId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "deviceName": {
-            "type": "string",
-            "maxLength": 120
-          },
-          "platform": {
-            "type": "string",
-            "maxLength": 40
-          },
-          "transport": {
-            "enum": [
-              "native",
-              "web"
-            ],
-            "default": "native"
           }
         }
       },
@@ -5302,6 +5859,18 @@
           }
         }
       },
+      "LogoutRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "minLength": 40,
+            "writeOnly": true,
+            "description": "Native rotating refresh credential. Web clients omit this and use the HttpOnly refresh cookie plus CSRF."
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -5310,7 +5879,8 @@
           "password",
           "deviceId",
           "deviceName",
-          "platform"
+          "platform",
+          "transport"
         ],
         "properties": {
           "email": {
@@ -5331,20 +5901,36 @@
             "type": "string"
           },
           "transport": {
-            "enum": [
-              "native",
-              "web"
-            ],
-            "default": "native"
+            "$ref": "#/components/schemas/SessionTransport"
+          },
+          "requestedSessionIdleSeconds": {
+            "type": "integer",
+            "minimum": 900,
+            "maximum": 5184000,
+            "description": "Optional request for a shorter idle window, capped by the selected transport policy."
           }
         }
       },
+      "SessionTransport": {
+        "type": "string",
+        "enum": [
+          "web",
+          "native"
+        ],
+        "description": "The server-enforced session policy class. Web sessions have at most 30 days of sliding inactivity; native sessions have at most 60 days."
+      },
       "SessionCredentials": {
         "type": "object",
+        "additionalProperties": false,
         "required": [
           "sessionId",
           "deviceId",
           "accessExpiresAt",
+          "refreshExpiresAt",
+          "idleExpiresAt",
+          "refreshIdleTtlSeconds",
+          "transport",
+          "activeHomeId",
           "userId"
         ],
         "properties": {
@@ -5372,8 +5958,31 @@
             "type": "string",
             "format": "date-time"
           },
+          "refreshExpiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Expiry of the currently issued refresh credential or persistent web refresh cookie."
+          },
+          "idleExpiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Server-enforced sliding inactivity deadline for this session."
+          },
+          "refreshIdleTtlSeconds": {
+            "type": "integer",
+            "minimum": 900,
+            "maximum": 5184000,
+            "description": "Effective server-enforced sliding inactivity window selected for this session."
+          },
           "transport": {
-            "type": "string"
+            "$ref": "#/components/schemas/SessionTransport"
+          },
+          "activeHomeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "userId": {
             "type": "string",
@@ -5383,9 +5992,17 @@
       },
       "DeviceSession": {
         "type": "object",
+        "additionalProperties": false,
         "required": [
           "id",
-          "deviceId"
+          "deviceId",
+          "transport",
+          "current",
+          "accessExpiresAt",
+          "refreshExpiresAt",
+          "idleExpiresAt",
+          "createdAt",
+          "lastSeenAt"
         ],
         "properties": {
           "id": {
@@ -5402,6 +6019,13 @@
           "platform": {
             "type": "string"
           },
+          "transport": {
+            "$ref": "#/components/schemas/SessionTransport"
+          },
+          "current": {
+            "type": "boolean",
+            "description": "True only for the session used to make the list or bootstrap request."
+          },
           "activeHomeId": {
             "type": [
               "string",
@@ -5410,16 +6034,198 @@
             "format": "uuid"
           },
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "lastSeenAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
+          },
+          "accessExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "refreshExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "idleExpiresAt": {
+            "type": "string",
+            "format": "date-time"
           },
           "revokedAt": {
             "type": [
               "string",
               "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "PlatformRole": {
+        "type": "string",
+        "enum": [
+        "platform_administrator",
+        "catalog_curator",
+        "catalog_reviewer",
+        "billing_operator"
+        ]
+      },
+      "CurrentUserBootstrap": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId",
+          "email",
+          "emailVerified",
+          "activeHomeId",
+          "homes",
+          "pendingInvitations",
+          "platformRoles",
+          "currentSession"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "emailVerified": {
+            "type": "boolean"
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
             ]
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "activeHomeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "homes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Home"
+            }
+          },
+          "pendingInvitations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecipientHomeInvitation"
+            }
+          },
+          "platformRoles": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/PlatformRole"
+            }
+          },
+          "currentSession": {
+            "$ref": "#/components/schemas/DeviceSession"
+          }
+        }
+      },
+      "PlatformAdministrator": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "email",
+          "status",
+          "revision",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "userId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "grantedByUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "activatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "PlatformAdministratorGrantRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
+      "PlatformAdministratorRevokeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedRevision"
+        ],
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       },
@@ -5436,6 +6242,7 @@
         "type": "string",
         "enum": [
           "home.read",
+          "home.manage",
           "members.read",
           "members.invite",
           "members.manage",
@@ -5452,7 +6259,14 @@
           "ai.read",
           "ai.use",
           "ai.manage",
-          "reports.read"
+          "reports.read",
+          "catalog.contribute",
+          "catalog.import",
+          "catalog.consent.manage",
+          "data.export",
+          "data.erasure",
+          "billing.read",
+          "billing.manage"
         ]
       },
       "HomePermissionPolicy": {
@@ -5597,11 +6411,48 @@
           }
         }
       },
+      "UpdateHomeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 2,
+        "required": [
+          "expectedRevision"
+        ],
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "locale": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 16
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
       "Home": {
         "type": "object",
         "required": [
           "id",
           "name",
+          "defaultLocale",
+          "defaultCurrency",
+          "defaultTimezone",
+          "role",
           "revision"
         ],
         "properties": {
@@ -5731,6 +6582,82 @@
           "revision": {
             "type": "integer",
             "minimum": 1
+          }
+        }
+      },
+      "RecipientHomeInvitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "homeId",
+          "homeName",
+          "inviterUserId",
+          "role",
+          "status",
+          "expiresAt",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "inviterUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inviterDisplayName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "role": {
+            "$ref": "#/components/schemas/HomeRole"
+          },
+          "status": {
+            "const": "pending"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "HomeInvitationAcceptance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invitationId",
+          "homeId",
+          "role"
+        ],
+        "properties": {
+          "invitationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/HomeRole"
           }
         }
       },

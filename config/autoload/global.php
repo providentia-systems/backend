@@ -13,6 +13,33 @@ $tokenPepper = $env('AUTH_TOKEN_PEPPER', 'development-only-change-me');
 $cursorSecret = $env('SYNC_CURSOR_SECRET', 'development-sync-secret-change-me');
 $mailDsn = $env('MAIL_DSN', 'smtp://127.0.0.1:1025');
 $publicBaseUrl = rtrim($env('PUBLIC_BASE_URL', 'http://127.0.0.1:8080'), '/');
+$publicBaseParts = parse_url($publicBaseUrl);
+if (
+    $publicBaseParts === false
+    || ! isset($publicBaseParts['scheme'], $publicBaseParts['host'])
+    || ! in_array(mb_strtolower((string) $publicBaseParts['scheme']), ['http', 'https'], true)
+    || isset($publicBaseParts['user'])
+    || isset($publicBaseParts['pass'])
+    || isset($publicBaseParts['query'])
+    || isset($publicBaseParts['fragment'])
+) {
+    throw new RuntimeException('PUBLIC_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment.');
+}
+$publicBaseHost = (string) $publicBaseParts['host'];
+if (str_contains($publicBaseHost, ':') && ! str_starts_with($publicBaseHost, '[')) {
+    $publicBaseHost = '[' . $publicBaseHost . ']';
+}
+$publicOrigin = mb_strtolower((string) $publicBaseParts['scheme']) . '://' . $publicBaseHost
+    . (isset($publicBaseParts['port']) ? ':' . (int) $publicBaseParts['port'] : '');
+$corsAllowedOrigins = array_values(array_unique(array_filter(array_map(
+    'trim',
+    explode(',', $env(
+        'CORS_ALLOWED_ORIGINS',
+        'http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:8081,http://localhost:8081',
+    )),
+))));
+$corsAllowedOrigins[] = $publicOrigin;
+$corsAllowedOrigins = array_values(array_unique($corsAllowedOrigins));
 $exposeDevelopmentTokens = filter_var(
     $env('EXPOSE_DEVELOPMENT_TOKENS', '0'),
     FILTER_VALIDATE_BOOL,
@@ -27,6 +54,38 @@ $aiAllowPrivateEndpoints = filter_var(
     FILTER_VALIDATE_BOOL,
 );
 $passwordLoginEnabled = filter_var($env('AUTH_PASSWORD_LOGIN_ENABLED', '0'), FILTER_VALIDATE_BOOL);
+$cookieSecure = filter_var(
+    $env('AUTH_COOKIE_SECURE', $environment === 'production' ? '1' : '0'),
+    FILTER_VALIDATE_BOOL,
+);
+$bootstrapAdministratorEmails = array_values(array_unique(array_filter(array_map(
+    static fn (string $email): string => mb_strtolower(trim($email)),
+    explode(',', $env('PLATFORM_BOOTSTRAP_ADMIN_EMAILS', '')),
+))));
+foreach ($bootstrapAdministratorEmails as $bootstrapAdministratorEmail) {
+    if (
+        filter_var($bootstrapAdministratorEmail, FILTER_VALIDATE_EMAIL) === false
+        || mb_strlen($bootstrapAdministratorEmail) > 254
+    ) {
+        throw new RuntimeException('PLATFORM_BOOTSTRAP_ADMIN_EMAILS contains an invalid email address.');
+    }
+}
+$onboardingHomeName = trim($env('ONBOARDING_HOME_NAME', 'My home'));
+$onboardingHomeLocale = trim($env('ONBOARDING_HOME_LOCALE', 'en-NA'));
+$onboardingHomeCurrency = strtoupper(trim($env('ONBOARDING_HOME_CURRENCY', 'NAD')));
+$onboardingHomeTimezone = trim($env('ONBOARDING_HOME_TIMEZONE', 'Africa/Windhoek'));
+if ($onboardingHomeName === '' || mb_strlen($onboardingHomeName) > 120) {
+    throw new RuntimeException('ONBOARDING_HOME_NAME must contain 1 to 120 characters.');
+}
+if ($onboardingHomeLocale === '' || mb_strlen($onboardingHomeLocale) > 16) {
+    throw new RuntimeException('ONBOARDING_HOME_LOCALE must contain 1 to 16 characters.');
+}
+if (preg_match('/^[A-Z]{3}$/', $onboardingHomeCurrency) !== 1) {
+    throw new RuntimeException('ONBOARDING_HOME_CURRENCY must be a three-letter ISO currency code.');
+}
+if (! in_array($onboardingHomeTimezone, DateTimeZone::listIdentifiers(), true)) {
+    throw new RuntimeException('ONBOARDING_HOME_TIMEZONE must be a recognized IANA timezone.');
+}
 $notificationPayloadKek = $env('NOTIFICATION_PAYLOAD_KEK', '');
 $billingEnabled = filter_var($env('BILLING_ENABLED', '0'), FILTER_VALIDATE_BOOL);
 $billingAllowPrivateEndpoints = filter_var(
@@ -81,6 +140,9 @@ if ($environment === 'production') {
     }
     if ($exposeDevelopmentTokens) {
         throw new RuntimeException('EXPOSE_DEVELOPMENT_TOKENS cannot be enabled in production.');
+    }
+    if (! $cookieSecure) {
+        throw new RuntimeException('AUTH_COOKIE_SECURE must be enabled in production.');
     }
     $mail = parse_url($mailDsn);
     if ($mail === false || ($mail['scheme'] ?? null) !== 'smtps') {
@@ -163,9 +225,45 @@ return [
     'identity' => [
         'access_ttl_seconds' => max(300, (int) $env('AUTH_ACCESS_TTL_SECONDS', '900')),
         'refresh_ttl_seconds' => max(3600, (int) $env('AUTH_REFRESH_TTL_SECONDS', '2592000')),
+        'web_idle_ttl_seconds' => min(2592000, max(900, (int) $env(
+            'AUTH_WEB_IDLE_TTL_SECONDS',
+            '2592000',
+        ))),
+        'native_idle_ttl_seconds' => min(5184000, max(900, (int) $env(
+            'AUTH_NATIVE_IDLE_TTL_SECONDS',
+            '5184000',
+        ))),
+        'login_link_ttl_seconds' => min(3600, max(300, (int) $env(
+            'AUTH_LOGIN_LINK_TTL_SECONDS',
+            '900',
+        ))),
+        'login_link_exchange_ttl_seconds' => min(600, max(30, (int) $env(
+            'AUTH_LOGIN_LINK_EXCHANGE_TTL_SECONDS',
+            '120',
+        ))),
+        'login_link_poll_interval_seconds' => min(30, max(1, (int) $env(
+            'AUTH_LOGIN_LINK_POLL_INTERVAL_SECONDS',
+            '3',
+        ))),
+        'login_link_retention_days' => min(365, max(1, (int) $env(
+            'AUTH_LOGIN_LINK_RETENTION_DAYS',
+            '30',
+        ))),
+        'rate_limit_retention_days' => min(30, max(1, (int) $env(
+            'AUTH_RATE_LIMIT_RETENTION_DAYS',
+            '2',
+        ))),
+        'bootstrap_administrator_emails' => $bootstrapAdministratorEmails,
+        'onboarding_home' => [
+            'name' => $onboardingHomeName,
+            'locale' => $onboardingHomeLocale,
+            'currency' => $onboardingHomeCurrency,
+            'timezone' => $onboardingHomeTimezone,
+        ],
         'token_pepper' => $tokenPepper,
         'expose_development_tokens' => $exposeDevelopmentTokens,
         'password_login_enabled' => $passwordLoginEnabled,
+        'cookie_secure' => $cookieSecure,
     ],
     'mail' => [
         'dsn' => $mailDsn,
@@ -281,13 +379,7 @@ return [
         ],
     ],
     'http' => [
-        'allowed_origins' => array_values(array_filter(array_map(
-            'trim',
-            explode(',', $env(
-                'CORS_ALLOWED_ORIGINS',
-                'http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:8081,http://localhost:8081',
-            )),
-        ))),
+        'allowed_origins' => $corsAllowedOrigins,
     ],
     'queue' => [
         'dsn' => $env('QUEUE_DSN', 'redis+phpredis://127.0.0.1:6379'),

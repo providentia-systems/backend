@@ -16,9 +16,12 @@ final class QueuedAccountNotificationSender implements AccountNotificationSender
     ) {
     }
 
-    public function sendMagicLink(string $email, string $token): void
+    public function sendLoginLink(string $email, string $requestId, string $approvalToken): void
     {
-        $this->enqueue('magic-link', $email, ['token' => $token]);
+        $this->enqueue('login-link', $email, [
+            'requestId' => $requestId,
+            'approvalToken' => $approvalToken,
+        ]);
     }
 
     public function sendStepUpLink(string $email, string $token, string $action): void
@@ -36,16 +39,19 @@ final class QueuedAccountNotificationSender implements AccountNotificationSender
         $this->enqueue('password-reset', $email, ['token' => $token]);
     }
 
+    public function sendPlatformAdministratorInvitation(string $email): void
+    {
+        $this->enqueue('platform-administrator-invitation', $email, []);
+    }
+
     public function sendHomeInvitation(
         string $email,
         string $homeName,
         string $role,
-        string $token,
     ): void {
         $this->enqueue('home-invitation', $email, [
             'homeName' => $homeName,
             'role' => $role,
-            'token' => $token,
         ]);
     }
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Home\Application;
 
 use DateInterval;
+use DateTimeZone;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Application\AccountNotificationSender;
 use Providentia\Identity\Application\AuthenticationService;
@@ -70,7 +71,79 @@ final class HomeService
             $this->audit($identity, 'home.created', 'home', $id, $id, [], $now);
         });
 
-        return (array) $this->homes->findHome($id);
+        $home = $this->homes->findHome($id);
+        if ($home === null) {
+            throw new \RuntimeException('The newly created home could not be loaded.');
+        }
+        $home['role'] = HomeAuthorization::OWNER;
+
+        return $home;
+    }
+
+    /** @return array<string, mixed> */
+    public function update(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $name,
+        string $locale,
+        string $currency,
+        string $timezone,
+        int $expectedRevision,
+    ): array {
+        $name = trim($name);
+        $locale = trim($locale);
+        $currency = strtoupper(trim($currency));
+        $timezone = trim($timezone);
+        if ($expectedRevision < 1) {
+            throw new Problem(422, 'Validation failed', 'A positive expected revision is required.');
+        }
+        if ($name === '' || mb_strlen($name) > 120) {
+            throw new Problem(422, 'Validation failed', 'Home name must contain 1 to 120 characters.');
+        }
+        if ($locale === '' || mb_strlen($locale) > 16) {
+            throw new Problem(422, 'Validation failed', 'Home locale must contain 1 to 16 characters.');
+        }
+        if (preg_match('/^[A-Z]{3}$/', $currency) !== 1) {
+            throw new Problem(422, 'Validation failed', 'Currency must be a three-letter ISO code.');
+        }
+        if (! in_array($timezone, DateTimeZone::listIdentifiers(), true)) {
+            throw new Problem(422, 'Validation failed', 'A recognized IANA timezone is required.');
+        }
+
+        $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $name,
+            $locale,
+            $currency,
+            $timezone,
+            $expectedRevision,
+        ): void {
+            $this->authorization->requirePermission($identity, $homeId, HomePermission::HOME_MANAGE);
+            $now = $this->clock->now();
+            if (! $this->homes->updateHome(
+                $homeId,
+                $name,
+                $locale,
+                $currency,
+                $timezone,
+                $expectedRevision,
+                $now,
+            )) {
+                throw new Problem(409, 'Revision conflict', 'The home changed since it was read.');
+            }
+            $this->audit(
+                $identity,
+                'home.settings.updated',
+                'home',
+                $homeId,
+                $homeId,
+                [],
+                $now,
+            );
+        });
+
+        return $this->get($identity, $homeId);
     }
 
     /** @return list<array<string, mixed>> */
@@ -82,11 +155,13 @@ final class HomeService
     /** @return array<string, mixed> */
     public function get(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requirePermission($identity, $homeId, HomePermission::HOME_READ);
+        $membership = $this->authorization->requirePermission($identity, $homeId, HomePermission::HOME_READ);
         $home = $this->homes->findHome($homeId);
         if ($home === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
         }
+
+        $home['role'] = (string) $membership['role'];
 
         return $home;
     }
@@ -102,7 +177,7 @@ final class HomeService
     /** @return list<array{role: string, revision: int, permissions: list<string>, configurable: bool}> */
     public function permissionPolicies(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requirePermission($identity, $homeId, HomePermission::PERMISSIONS_MANAGE);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::HOME_READ);
         /** @var array<string, array{role: string, revision: int, permissions: list<string>}> $persisted */
         $persisted = [];
         foreach ($this->homes->permissionPolicies($homeId) as $policy) {
@@ -274,7 +349,6 @@ final class HomeService
                 $email,
                 (string) ($home['name'] ?? 'Providentia home'),
                 $role,
-                $token,
             );
         });
 
@@ -319,6 +393,79 @@ final class HomeService
 
             return $result;
         });
+
+        return $result;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function pendingInvitations(AuthenticatedIdentity $identity): array
+    {
+        $user = $this->identities->findUserById($identity->userId);
+        if ($user === null || $user['email_verified_at'] === null) {
+            return [];
+        }
+
+        return $this->homes->pendingInvitationsForEmail(
+            (string) $user['normalized_email'],
+            $this->clock->now(),
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function acceptInvitationById(
+        AuthenticatedIdentity $identity,
+        string $invitationId,
+        int $expectedRevision,
+    ): array
+    {
+        if ($expectedRevision < 1) {
+            throw new Problem(422, 'Validation failed', 'A positive expected revision is required.');
+        }
+        $user = $this->identities->findUserById($identity->userId);
+        if ($user === null || $user['email_verified_at'] === null) {
+            throw new Problem(401, 'Authentication required', 'A verified account is required.');
+        }
+
+        $result = $this->transactions->transactional(function () use (
+            $identity,
+            $invitationId,
+            $expectedRevision,
+            $user,
+        ): array {
+            $now = $this->clock->now();
+            $result = $this->homes->acceptInvitationById(
+                $invitationId,
+                $identity->userId,
+                (string) $user['normalized_email'],
+                $expectedRevision,
+                $now,
+            );
+            if (($result['outcome'] ?? null) === 'accepted' && ($result['changed'] ?? false) === true) {
+                $this->identities->setActiveHome($identity->sessionId, (string) $result['homeId'], $now);
+                $this->audit(
+                    $identity,
+                    'home.invitation.accepted',
+                    'home_invitation',
+                    (string) $result['invitationId'],
+                    (string) $result['homeId'],
+                    [],
+                    $now,
+                );
+            }
+            return $result;
+        });
+        match ($result['outcome'] ?? null) {
+            'accepted' => null,
+            'not-found' => throw new Problem(404, 'Not found', 'The invitation is unavailable.'),
+            'expired' => throw new Problem(410, 'Invitation expired', 'Request a new home invitation.'),
+            'revision-conflict' => throw new Problem(
+                409,
+                'Revision conflict',
+                'The invitation changed since it was read.',
+            ),
+            default => throw new \LogicException('Unknown invitation acceptance result.'),
+        };
+        unset($result['outcome'], $result['changed']);
 
         return $result;
     }
@@ -499,6 +646,7 @@ final class HomeService
             if (! $this->homes->removeMembership($homeId, $identity->userId, $now)) {
                 throw new Problem(409, 'Membership conflict', 'The membership could not be removed.');
             }
+            $this->identities->clearActiveHome($identity->userId, $homeId, $now);
             $this->audit(
                 $identity,
                 'home.membership.left',

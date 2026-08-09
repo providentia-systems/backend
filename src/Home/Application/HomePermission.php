@@ -7,6 +7,7 @@ namespace Providentia\Home\Application;
 final class HomePermission
 {
     public const HOME_READ = 'home.read';
+    public const HOME_MANAGE = 'home.manage';
     public const MEMBERS_READ = 'members.read';
     public const MEMBERS_INVITE = 'members.invite';
     public const MEMBERS_MANAGE = 'members.manage';
@@ -37,6 +38,7 @@ final class HomePermission
     {
         return [
             self::HOME_READ,
+            self::HOME_MANAGE,
             self::MEMBERS_READ,
             self::MEMBERS_INVITE,
             self::MEMBERS_MANAGE,
@@ -71,6 +73,7 @@ final class HomePermission
             HomeAuthorization::OWNER => self::all(),
             HomeAuthorization::MANAGER => [
                 self::HOME_READ,
+                self::HOME_MANAGE,
                 self::MEMBERS_READ,
                 self::MEMBERS_INVITE,
                 self::INVENTORY_READ,

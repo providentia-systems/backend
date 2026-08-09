@@ -43,7 +43,6 @@ final class CatalogRoleCommand extends Command
         $email = mb_strtolower(trim((string) $input->getOption('email')));
         $role = trim((string) $input->getOption('role'));
         $allowed = [
-            CatalogAuthorization::PLATFORM_ADMINISTRATOR,
             CatalogAuthorization::CURATOR,
             CatalogAuthorization::REVIEWER,
         ];

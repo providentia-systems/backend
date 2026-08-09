@@ -22,6 +22,7 @@ final class ProductionConfigurationTest extends TestCase
                 'EXPOSE_DEVELOPMENT_TOKENS',
                 'MAIL_DSN',
                 'PUBLIC_BASE_URL',
+                'CORS_ALLOWED_ORIGINS',
                 'AI_SERVER_PROXY_ENABLED',
                 'AI_CREDENTIAL_KEK',
                 'AI_MEDIA_KEK',
@@ -80,7 +81,8 @@ final class ProductionConfigurationTest extends TestCase
          * @var array{
          *   app: array{environment: string},
          *   mail: array{dsn: string},
-         *   identity: array{expose_development_tokens: bool, password_login_enabled: bool}
+         *   identity: array{expose_development_tokens: bool, password_login_enabled: bool},
+         *   http: array{allowed_origins: list<string>}
          * } $config
          */
         $config = require dirname(__DIR__, 3) . '/config/autoload/global.php';
@@ -89,6 +91,7 @@ final class ProductionConfigurationTest extends TestCase
         self::assertSame('smtps://smtp.example.net:465', $config['mail']['dsn']);
         self::assertFalse($config['identity']['expose_development_tokens']);
         self::assertFalse($config['identity']['password_login_enabled']);
+        self::assertContains('https://app.example.net', $config['http']['allowed_origins']);
     }
 
     public function testProductionAiProxyRequiresAnIndependentEnvelopeEncryptionKey(): void
@@ -149,6 +152,7 @@ final class ProductionConfigurationTest extends TestCase
         putenv('EXPOSE_DEVELOPMENT_TOKENS=0');
         putenv('MAIL_DSN=smtps://smtp.example.net:465');
         putenv('PUBLIC_BASE_URL=https://app.example.net');
+        putenv('CORS_ALLOWED_ORIGINS=https://client.example.net');
         putenv('AI_SERVER_PROXY_ENABLED=0');
         putenv('AI_CREDENTIAL_KEK=');
         putenv('AI_MEDIA_KEK=' . base64_encode(str_repeat('m', 32)));

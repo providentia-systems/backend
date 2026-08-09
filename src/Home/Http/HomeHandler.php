@@ -9,6 +9,7 @@ use Laminas\Diactoros\Response\JsonResponse;
 use Providentia\Home\Application\HomeService;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
+use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Http\HttpProblem;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -40,6 +41,7 @@ final class HomeHandler implements RequestHandlerInterface
             ), 201),
             'list' => new JsonResponse(['data' => $this->homes->list($identity)]),
             'get' => new JsonResponse($this->homes->get($identity, $homeId)),
+            'update' => $this->update($identity, $homeId, $body),
             'memberships' => new JsonResponse(['data' => $this->homes->memberships($identity, $homeId)]),
             'permission-policies' => new JsonResponse([
                 'data' => $this->homes->permissionPolicies($identity, $homeId),
@@ -57,6 +59,12 @@ final class HomeHandler implements RequestHandlerInterface
             'accept-invitation' => new JsonResponse(
                 $this->homes->acceptInvitation($identity, (string) ($body['token'] ?? '')),
             ),
+            'pending-invitations' => new JsonResponse(['data' => $this->homes->pendingInvitations($identity)]),
+            'accept-invitation-by-id' => new JsonResponse($this->homes->acceptInvitationById(
+                $identity,
+                (string) $request->getAttribute('invitationId', ''),
+                (int) ($body['expectedRevision'] ?? 0),
+            )),
             'switch' => new JsonResponse($this->homes->switch($identity, $homeId)),
             'change-role' => $this->changeRole($identity, $homeId, $request, $body),
             'transfer-ownership' => $this->transferOwnership($identity, $homeId, $body),
@@ -94,6 +102,44 @@ final class HomeHandler implements RequestHandlerInterface
             'leave' => $this->leave($identity, $homeId),
             default => throw new \LogicException('Unknown home action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function update(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        array $body,
+    ): ResponseInterface {
+        $allowed = ['expectedRevision', 'name', 'locale', 'currency', 'timezone'];
+        foreach (array_keys($body) as $field) {
+            if (! in_array($field, $allowed, true)) {
+                throw new Problem(422, 'Validation failed', 'Unknown home setting: ' . $field . '.');
+            }
+        }
+        $mutable = array_intersect(['name', 'locale', 'currency', 'timezone'], array_keys($body));
+        if ($mutable === []) {
+            throw new Problem(422, 'Validation failed', 'At least one home setting must be supplied.');
+        }
+        if (! isset($body['expectedRevision']) || (int) $body['expectedRevision'] < 1) {
+            throw new Problem(422, 'Validation failed', 'A positive expected revision is required.');
+        }
+        $current = $this->homes->get($identity, $homeId);
+
+        return new JsonResponse($this->homes->update(
+            $identity,
+            $homeId,
+            array_key_exists('name', $body) ? (string) $body['name'] : (string) $current['name'],
+            array_key_exists('locale', $body)
+                ? (string) $body['locale']
+                : (string) $current['defaultLocale'],
+            array_key_exists('currency', $body)
+                ? (string) $body['currency']
+                : (string) $current['defaultCurrency'],
+            array_key_exists('timezone', $body)
+                ? (string) $body['timezone']
+                : (string) $current['defaultTimezone'],
+            (int) ($body['expectedRevision'] ?? 0),
+        ));
     }
 
     /** @param array<string, mixed> $body */
