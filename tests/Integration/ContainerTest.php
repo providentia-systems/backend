@@ -22,6 +22,7 @@ use Providentia\SharedKernel\Application\Async\OutboxStore;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
 use Providentia\Synchronization\Application\SynchronizationService;
 use Psr\Container\ContainerInterface;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 final class ContainerTest extends TestCase
 {
@@ -67,5 +68,15 @@ final class ContainerTest extends TestCase
 
         self::assertSame(200, $response->getStatusCode());
         self::assertStringContainsString('<title>Providentia</title>', (string) $response->getBody());
+    }
+
+    public function testEntityManagerUsesAnExplicitProcessLocalCache(): void
+    {
+        $entityManager = $this->container->get(EntityManagerInterface::class);
+
+        self::assertInstanceOf(
+            ArrayAdapter::class,
+            $entityManager->getConfiguration()->getMetadataCache(),
+        );
     }
 }
