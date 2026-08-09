@@ -207,6 +207,51 @@ jobs:
           docker stop --time 20 api web redis
         timeout-minutes: 10
 
+      - name: Exercise the complete prebuilt development setup
+        run: |
+          prebuilt_env="$PWD/var/prebuilt-ci.env"
+          cleanup_prebuilt() {
+            docker compose --env-file "$prebuilt_env" -f compose.prebuilt.yaml \
+              down --volumes --remove-orphans >/dev/null 2>&1 || true
+          }
+          trap cleanup_prebuilt EXIT
+          mkdir -p var
+          umask 077
+          cat >"$prebuilt_env" <<'EOF'
+          PROVIDENTIA_VERSION=ci
+          PROVIDENTIA_IMAGE=providentia:production-ci
+          PROVIDENTIA_WEB_IMAGE=providentia-web:production-ci
+          PROVIDENTIA_MEDIA_IMAGE=providentia-media-worker:production-ci
+          PROVIDENTIA_PULL_POLICY=never
+          PROVIDENTIA_SKIP_PULL=1
+          PROVIDENTIA_BIND_ADDRESS=127.0.0.1
+          PROVIDENTIA_HTTP_PORT=18083
+          PROVIDENTIA_MAILPIT_PORT=18025
+          PROVIDENTIA_TRUSTED_PROXY_CIDRS=172.16.0.0/12
+          PROVIDENTIA_METRICS_TOKEN=prebuilt-ci-metrics-token-at-least-32-bytes
+          MYSQL_PASSWORD=prebuilt-ci-mysql-password
+          MYSQL_ROOT_PASSWORD=prebuilt-ci-mysql-root-password
+          REDIS_PASSWORD=prebuilt-ci-redis-password
+          AUTH_TOKEN_PEPPER=prebuilt-ci-authentication-pepper-at-least-32-bytes
+          SYNC_CURSOR_SECRET=prebuilt-ci-synchronization-secret-at-least-32-bytes
+          NOTIFICATION_PAYLOAD_KEK=Y2ktbm90aWZpY2F0aW9uLWtleS0zMi1ieXRlcy1vayE=
+          AI_MEDIA_KEK=bW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW0=
+          DATA_EXPORT_KEK=ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGQ=
+          PROVIDENTIA_DEV_EMAIL=prebuilt-ci@example.test
+          PROVIDENTIA_DEV_PASSWORD=prebuilt-ci-password-1
+          PROVIDENTIA_DEV_DEVICE_ID=01912345-6789-7abc-8def-0123456789ab
+          EOF
+          PROVIDENTIA_PREBUILT_ENV_FILE="$prebuilt_env" bash scripts/setup-prebuilt.sh
+          curl --fail-with-body --silent http://127.0.0.1:18083/ | grep -Fq '<title>Providentia</title>'
+          jq -e '
+            .apiBaseUrl == "http://127.0.0.1:18083"
+            and .email == "prebuilt-ci@example.test"
+            and (.accessToken | type == "string" and length >= 40)
+            and (.refreshToken | type == "string" and length >= 40)
+            and (.homeId | type == "string")
+          ' .providentia-development.json >/dev/null
+        timeout-minutes: 10
+
   publish:
     if: github.event_name != 'pull_request'
     needs:
