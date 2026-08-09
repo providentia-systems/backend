@@ -10,9 +10,9 @@ pipeline. Pull requests build and exercise the production runtime, Caddy edge,
 and isolated FFmpeg worker without publishing. A successful `main` build or
 manual dispatch publishes:
 
-- `ghcr.io/vast-development-method/providentia-laminas`;
-- `ghcr.io/vast-development-method/providentia-laminas-web`; and
-- `ghcr.io/vast-development-method/providentia-laminas-media-worker`.
+- `ghcr.io/providentia-systems/backend`;
+- `ghcr.io/providentia-systems/backend-web`; and
+- `ghcr.io/providentia-systems/backend-media-worker`.
 
 Each publication begins with an immutable `sha-<12-character-commit>` tag. The
 workflow publishes Linux AMD64 and ARM64 manifests with provenance and SBOM
@@ -42,9 +42,9 @@ Production must replace every mutable tag with the three exact digest
 coordinates from the workflow artifact, for example:
 
 ```dotenv
-PROVIDENTIA_IMAGE=ghcr.io/vast-development-method/providentia-laminas@sha256:...
-PROVIDENTIA_WEB_IMAGE=ghcr.io/vast-development-method/providentia-laminas-web@sha256:...
-PROVIDENTIA_MEDIA_IMAGE=ghcr.io/vast-development-method/providentia-laminas-media-worker@sha256:...
+PROVIDENTIA_IMAGE=ghcr.io/providentia-systems/backend@sha256:...
+PROVIDENTIA_WEB_IMAGE=ghcr.io/providentia-systems/backend-web@sha256:...
+PROVIDENTIA_MEDIA_IMAGE=ghcr.io/providentia-systems/backend-media-worker@sha256:...
 ```
 
 Manual builds are useful for investigation but are not release publication:

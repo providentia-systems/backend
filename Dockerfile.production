@@ -48,7 +48,7 @@ FROM php-base AS runtime
 ARG APP_VERSION=development
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="Providentia backend" \
-      org.opencontainers.image.source="https://github.com/vast-development-method/providentia-laminas" \
+      org.opencontainers.image.source="https://github.com/providentia-systems/backend" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}"
 WORKDIR /app

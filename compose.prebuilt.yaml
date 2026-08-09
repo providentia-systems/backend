@@ -38,7 +38,7 @@ x-app-environment: &app-environment
   OUTBOX_MAX_ATTEMPTS: "10"
 
 x-app: &app
-  image: ${PROVIDENTIA_IMAGE:-ghcr.io/vast-development-method/providentia-laminas:edge}
+  image: ${PROVIDENTIA_IMAGE:-ghcr.io/providentia-systems/backend:edge}
   pull_policy: ${PROVIDENTIA_PULL_POLICY:-always}
   restart: unless-stopped
   init: true
@@ -113,7 +113,7 @@ services:
         condition: service_healthy
 
   web:
-    image: ${PROVIDENTIA_WEB_IMAGE:-ghcr.io/vast-development-method/providentia-laminas-web:edge}
+    image: ${PROVIDENTIA_WEB_IMAGE:-ghcr.io/providentia-systems/backend-web:edge}
     pull_policy: ${PROVIDENTIA_PULL_POLICY:-always}
     restart: unless-stopped
     init: true
@@ -217,7 +217,7 @@ services:
 
   ai-video-worker:
     <<: *app
-    image: ${PROVIDENTIA_MEDIA_IMAGE:-ghcr.io/vast-development-method/providentia-laminas-media-worker:edge}
+    image: ${PROVIDENTIA_MEDIA_IMAGE:-ghcr.io/providentia-systems/backend-media-worker:edge}
     stop_grace_period: 60s
     command:
       - php

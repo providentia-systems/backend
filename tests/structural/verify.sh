@@ -274,6 +274,23 @@ for setup_script in scripts/setup-development.sh scripts/setup-prebuilt.sh; do
   grep -Fq 'select(.role == "owner")' "$setup_script" \
     || fail "$setup_script must hand off a home owned by the bootstrap account"
 done
+grep -Fq 'official_image_repository="ghcr.io/providentia-systems/backend"' scripts/setup-prebuilt.sh \
+  || fail "prebuilt setup must pull from the repository-owned image namespace"
+for image in \
+  'ghcr.io/providentia-systems/backend:edge' \
+  'ghcr.io/providentia-systems/backend-web:edge' \
+  'ghcr.io/providentia-systems/backend-media-worker:edge'; do
+  grep -Fq "$image" compose.prebuilt.yaml \
+    || fail "prebuilt Compose must default to $image"
+done
+for legacy_image in \
+  'ghcr.io/vast-development-method/providentia-laminas:edge' \
+  'ghcr.io/vast-development-method/providentia-laminas-web:edge' \
+  'ghcr.io/vast-development-method/providentia-laminas-media-worker:edge'; do
+  if grep -Fq "$legacy_image" compose.prebuilt.yaml; then
+    fail "prebuilt Compose still references obsolete image $legacy_image"
+  fi
+done
 grep -Fq "Production requires two independent, non-placeholder" config/autoload/global.php \
   || fail "production placeholder secrets do not fail closed"
 grep -Fq "Production MAIL_DSN must use smtps://" config/autoload/global.php \
