@@ -165,7 +165,7 @@ final class LoginLinkApprovalHandler implements RequestHandlerInterface
 
         return $response
             ->withHeader('Cache-Control', 'no-store')
-            ->withHeader('Referrer-Policy', 'no-referrer')
+            ->withHeader('Referrer-Policy', 'same-origin')
             ->withHeader('X-Content-Type-Options', 'nosniff')
             ->withHeader('X-Frame-Options', 'DENY')
             ->withHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')

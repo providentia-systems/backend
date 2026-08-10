@@ -75,18 +75,21 @@ final class HttpMiddlewareTest extends TestCase
         );
     }
 
-    public function testSecurityHeadersPreserveHandlerNoncePolicy(): void
+    public function testSecurityHeadersPreserveHandlerPolicies(): void
     {
         $policy = "default-src 'none'; script-src 'nonce-test-nonce'; form-action 'self'";
         $response = (new SecurityHeadersMiddleware())->process(
             $this->request(),
             new CallbackRequestHandler(
                 static fn (ServerRequestInterface $request): ResponseInterface =>
-                    (new HtmlResponse('launch'))->withHeader('Content-Security-Policy', $policy),
+                    (new HtmlResponse('launch'))
+                        ->withHeader('Content-Security-Policy', $policy)
+                        ->withHeader('Referrer-Policy', 'same-origin'),
             ),
         );
 
         self::assertSame($policy, $response->getHeaderLine('Content-Security-Policy'));
+        self::assertSame('same-origin', $response->getHeaderLine('Referrer-Policy'));
         self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
     }
 
@@ -147,6 +150,25 @@ final class HttpMiddlewareTest extends TestCase
                 ),
             );
             self::fail('An unknown origin was accepted.');
+        } catch (HttpProblem $problem) {
+            self::assertSame(403, $problem->status);
+        }
+    }
+
+    public function testCorsRejectsNullOrigin(): void
+    {
+        $middleware = new CorsMiddleware(['https://app.example.test']);
+
+        try {
+            $middleware->process(
+                $this->request('POST', ['Origin' => ['null']]),
+                new CallbackRequestHandler(
+                    static fn (ServerRequestInterface $request): ResponseInterface => new JsonResponse([
+                        'method' => $request->getMethod(),
+                    ]),
+                ),
+            );
+            self::fail('An opaque null origin was accepted.');
         } catch (HttpProblem $problem) {
             self::assertSame(403, $problem->status);
         }

@@ -23,6 +23,25 @@ jobs:
       - name: Run dependency-free foundation checks
         run: bash tests/structural/verify.sh
 
+  source-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Validate the source Compose model
+        run: >-
+          docker compose
+          --profile sqlite --profile mysql --profile mariadb
+          --profile redis --profile valkey
+          config --quiet
+      - name: Build the source-development API image
+        run: docker build --tag providentia-source-ci .
+      - name: Prove the authoritative application classmap
+        run: >-
+          docker run --rm --entrypoint php providentia-source-ci
+          -r 'require "/app/vendor/autoload.php";
+          exit(class_exists("Providentia\\SharedKernel\\ConfigProvider") ? 0 : 1);'
+
   php:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

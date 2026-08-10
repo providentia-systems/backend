@@ -82,13 +82,15 @@ assert_no_matches "unverified login request IDs create persistent rate-limit buc
 for executable in bin/doctrine-migrations bin/providentia \
   infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
   tool/check-composer-licenses.php tests/structural/verify.sh \
-  scripts/setup-development.sh scripts/provision-development-user.sh \
+  scripts/create-development-handover.sh scripts/setup-development.sh \
+  scripts/provision-development-user.sh \
   scripts/reset-development.sh; do
   test -x "$executable" || fail "$executable must be executable"
 done
 
 for shell_script in infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
-  scripts/setup-development.sh scripts/provision-development-user.sh \
+  scripts/create-development-handover.sh scripts/setup-development.sh \
+  scripts/provision-development-user.sh \
   scripts/reset-development.sh \
   tests/Acceptance/development-http-smoke.sh \
   tests/Acceptance/development-auth-http-smoke.sh; do
@@ -268,6 +270,25 @@ grep -Fq "APP_ENV', 'development'" config/autoload/global.php \
   || fail "application environment must default to a non-production profile"
 grep -Fq 'AUTH_PASSWORD_LOGIN_ENABLED: ${AUTH_PASSWORD_LOGIN_ENABLED:-0}' compose.production.yaml \
   || fail "production password login must remain disabled by default"
+dockerfile_copy_line="$(grep -n '^COPY \. \.$' Dockerfile | cut -d: -f1)"
+dockerfile_autoload_line="$(grep -nF 'composer dump-autoload --no-dev --classmap-authoritative --no-interaction' Dockerfile | cut -d: -f1)"
+[[ -n "$dockerfile_copy_line" && -n "$dockerfile_autoload_line" \
+    && "$dockerfile_autoload_line" -gt "$dockerfile_copy_line" ]] \
+  || fail "source image must rebuild its authoritative classmap after copying application source"
+for compose_file in compose.yaml compose.prebuilt.yaml compose.production.yaml; do
+  grep -Fq 'MYSQL_PWD="$${MYSQL_PASSWORD}"' "$compose_file" \
+    || fail "$compose_file must authenticate the application user in its MySQL health check"
+  grep -Fq -- "--execute='SELECT 1'" "$compose_file" \
+    || fail "$compose_file MySQL health check must execute a real query"
+done
+grep -Fq 'label=com.docker.compose.project=providentia' scripts/setup-development.sh \
+  || fail "source setup must detect volumes whose matching secrets file is missing"
+grep -Fq 'label=com.docker.compose.project=providentia-prebuilt' scripts/setup-prebuilt.sh \
+  || fail "prebuilt setup must detect volumes whose matching secrets file is missing"
+for setup_script in scripts/setup-development.sh scripts/setup-prebuilt.sh; do
+  grep -Fq -- '--reset-data' "$setup_script" \
+    || fail "$setup_script must expose an explicit local-data reset"
+done
 grep -Fq 'chmod 0600 "$handoff_file"' scripts/setup-development.sh \
   || fail "source setup must enforce protected handoff permissions after every write"
 for setup_script in scripts/setup-development.sh scripts/setup-prebuilt.sh; do

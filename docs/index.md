@@ -31,4 +31,7 @@
 The unchanged handover ZIP remains external protected evidence and is
 identified by checksum in the Phase 0 package. This repository contains no
 private receipt or stock images, medical documents, production credentials,
-or source database dumps.
+or source database dumps. See
+[Source-build local development](deployment/local-development.md#obtain-or-create-the-development-handover)
+for where authorized testers obtain the archive and how to package the minimal
+checksum-verified subset accepted by development setup.
