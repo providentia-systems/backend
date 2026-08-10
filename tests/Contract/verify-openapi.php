@@ -187,6 +187,7 @@ $sessionRequired = $contract['components']['schemas']['SessionCredentials']['req
 foreach (
     [
         'transport',
+        'installationId',
         'accessExpiresAt',
         'refreshExpiresAt',
         'idleExpiresAt',
@@ -267,7 +268,7 @@ if (
         $contract['components']['schemas']['RegisterResponse']['required'] ?? [],
         true,
     )
-    || ($contract['info']['version'] ?? '') !== '1.11.0'
+    || ($contract['info']['version'] ?? '') !== '1.11.1'
     || stripos($source, 'magic' . '-link') !== false
     || stripos($source, 'magic' . 'link') !== false
     || isset($contract['paths']['/api/v1/auth/' . 'magic' . '-links'])

@@ -79,6 +79,7 @@ final class IdentityHandlerTest extends TestCase
         self::assertArrayNotHasKey('accessToken', $body);
         self::assertArrayNotHasKey('refreshToken', $body);
         self::assertSame('web', $body['transport']);
+        self::assertSame(self::DEVICE_ID, $body['installationId']);
         self::assertCount(3, $response->getHeader('Set-Cookie'));
         $cookies = implode("\n", $response->getHeader('Set-Cookie'));
         self::assertStringContainsString('Max-Age=2592000', $cookies);

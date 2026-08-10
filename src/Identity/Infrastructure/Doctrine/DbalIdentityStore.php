@@ -198,7 +198,8 @@ final class DbalIdentityStore implements IdentityStore
     public function findSessionByAccessHash(string $accessHash, DateTimeImmutable $now): ?array
     {
         return $this->one(
-            'SELECT s.* FROM auth_sessions s
+            'SELECT s.*, COALESCE(d.installation_id, s.device_id) AS installation_id
+             FROM auth_sessions s
              INNER JOIN users u ON u.id = s.user_id
              INNER JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
              WHERE s.access_token_hash = :hash AND s.revoked_at IS NULL
@@ -211,7 +212,8 @@ final class DbalIdentityStore implements IdentityStore
     public function findSessionByRefreshHash(string $refreshHash, DateTimeImmutable $now): ?array
     {
         return $this->one(
-            'SELECT s.* FROM auth_sessions s
+            'SELECT s.*, COALESCE(d.installation_id, s.device_id) AS installation_id
+             FROM auth_sessions s
              INNER JOIN users u ON u.id = s.user_id
              INNER JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
              WHERE s.refresh_token_hash = :hash AND s.revoked_at IS NULL

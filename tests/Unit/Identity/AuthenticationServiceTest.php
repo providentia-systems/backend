@@ -54,7 +54,7 @@ final class AuthenticationServiceTest extends TestCase
                 self::isInstanceOf(DateTimeImmutable::class),
                 'native',
                 5184000,
-                null,
+                self::DEVICE_ID,
                 null,
             );
         $hasher = $this->createMock(CredentialHasher::class);
@@ -79,6 +79,7 @@ final class AuthenticationServiceTest extends TestCase
         self::assertSame('refresh-token', $result['refreshToken']);
         self::assertSame('csrf-token', $result['csrfToken']);
         self::assertSame(self::DEVICE_ID, $result['deviceId']);
+        self::assertSame(self::DEVICE_ID, $result['installationId']);
         self::assertSame(5184000, $result['refreshIdleTtlSeconds']);
     }
 
@@ -140,6 +141,7 @@ final class AuthenticationServiceTest extends TestCase
             'id' => self::SESSION_ID,
             'user_id' => self::USER_ID,
             'device_id' => self::DEVICE_ID,
+            'installation_id' => '01912345-6789-7abc-bdef-0123456789ab',
             'refresh_token_hash' => 'stored-refresh-hash',
         ]);
         $store->expects(self::once())
@@ -166,6 +168,10 @@ final class AuthenticationServiceTest extends TestCase
         self::assertSame('next-access', $result['accessToken']);
         self::assertSame('next-refresh', $result['refreshToken']);
         self::assertSame('next-csrf', $result['csrfToken']);
+        self::assertSame(
+            '01912345-6789-7abc-bdef-0123456789ab',
+            $result['installationId'],
+        );
     }
 
     public function testAuthenticateBuildsIdentityFromSessionAndRoles(): void

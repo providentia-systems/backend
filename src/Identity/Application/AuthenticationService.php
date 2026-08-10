@@ -155,6 +155,7 @@ final class AuthenticationService
      *     activeHomeId: string|null,
      *     sessionId: string,
      *     deviceId: string,
+     *     installationId: string,
      *     userId: string
      * }
      */
@@ -200,13 +201,16 @@ final class AuthenticationService
 
         $transport = $this->normalizeTransport($transport);
 
+        $deviceId = $this->assertUuid($deviceId, 'deviceId');
+
         return $this->issueSession(
             (string) $user['id'],
-            $this->assertUuid($deviceId, 'deviceId'),
+            $deviceId,
             trim($deviceName),
             trim($platform),
             $transport,
             $this->requestedIdleTtl($transport, $requestedSessionIdleSeconds),
+            $deviceId,
         );
     }
 
@@ -223,6 +227,7 @@ final class AuthenticationService
      *     activeHomeId: string|null,
      *     sessionId: string,
      *     deviceId: string,
+     *     installationId: string,
      *     userId: string
      * }
      */
@@ -289,6 +294,7 @@ final class AuthenticationService
                 : (string) $session['active_home_id'],
             'sessionId' => (string) $session['id'],
             'deviceId' => (string) $session['device_id'],
+            'installationId' => (string) ($session['installation_id'] ?? $session['device_id']),
             'userId' => (string) $session['user_id'],
         ];
     }
@@ -469,6 +475,7 @@ final class AuthenticationService
      *     activeHomeId: string|null,
      *     sessionId: string,
      *     deviceId: string,
+     *     installationId: string,
      *     userId: string
      * }
      */
@@ -526,6 +533,7 @@ final class AuthenticationService
             'activeHomeId' => $activeHomeId,
             'sessionId' => $sessionId,
             'deviceId' => $deviceId,
+            'installationId' => $installationId ?? $deviceId,
             'userId' => $userId,
         ];
     }
