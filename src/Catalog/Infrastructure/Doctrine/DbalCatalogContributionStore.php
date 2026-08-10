@@ -96,29 +96,32 @@ final class DbalCatalogContributionStore implements CatalogContributionStore
             'recorded_by_user_id' => $actorUserId,
             'recorded_at' => $date,
         ]);
-        $this->connection->executeStatement(
-            'UPDATE catalog_contributions
-             SET moderation_status = :withdrawn, revision = revision + 1, updated_at = :at
-             WHERE home_id = :home AND moderation_status IN (:pending, :approved)
-               AND (
-                   (contribution_type = :identity_type AND :identity_enabled = 0)
-                   OR (contribution_type = :image_type AND :images_enabled = 0)
-                   OR (contribution_type = :price_type AND :prices_enabled = 0)
-               )',
-            [
-                'withdrawn' => 'withdrawn',
-                'at' => $date,
-                'home' => $homeId,
-                'pending' => 'pending',
-                'approved' => 'approved',
-                'identity_type' => 'product_identity',
-                'identity_enabled' => $shareProductIdentity ? 1 : 0,
-                'image_type' => 'product_image',
-                'images_enabled' => $shareProductImages ? 1 : 0,
-                'price_type' => 'store_price',
-                'prices_enabled' => $shareStorePrices ? 1 : 0,
-            ],
-        );
+        $disabledTypes = [];
+        if (! $shareProductIdentity) {
+            $disabledTypes[] = 'product_identity';
+        }
+        if (! $shareProductImages) {
+            $disabledTypes[] = 'product_image';
+        }
+        if (! $shareStorePrices) {
+            $disabledTypes[] = 'store_price';
+        }
+        foreach ($disabledTypes as $disabledType) {
+            $this->connection->executeStatement(
+                'UPDATE catalog_contributions
+                 SET moderation_status = :withdrawn, revision = revision + 1, updated_at = :at
+                 WHERE home_id = :home AND moderation_status IN (:pending, :approved)
+                   AND contribution_type = :type',
+                [
+                    'withdrawn' => 'withdrawn',
+                    'at' => $date,
+                    'home' => $homeId,
+                    'pending' => 'pending',
+                    'approved' => 'approved',
+                    'type' => $disabledType,
+                ],
+            );
+        }
 
         return true;
     }
