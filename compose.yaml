@@ -30,7 +30,8 @@ x-app: &app
       - CMD
       - php
       - -r
-      - exit(str_contains((string) @file_get_contents('http://127.0.0.1:8080/health/ready'), 'ready') ? 0 : 1);
+      - >-
+        exit(str_contains((string) @file_get_contents('http://127.0.0.1:8080/health/ready'), 'ready') ? 0 : 1);
     interval: 10s
     timeout: 5s
     retries: 12
@@ -107,7 +108,11 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - mysqladmin ping -h 127.0.0.1 -uroot -p"$${MYSQL_ROOT_PASSWORD}" --silent
+        - >-
+          MYSQL_PWD="$${MYSQL_PASSWORD}"
+          mysql --protocol=TCP --host=127.0.0.1
+          --user="$${MYSQL_USER}" --database="$${MYSQL_DATABASE}"
+          --execute='SELECT 1' --silent --skip-column-names >/dev/null
       interval: 5s
       timeout: 5s
       retries: 20

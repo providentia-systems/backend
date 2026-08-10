@@ -22,6 +22,7 @@ mkdir -p "${repo_root}/var"
 
 APP_ENV=development \
 APP_DEBUG=1 \
+PUBLIC_BASE_URL="http://127.0.0.1:${port}" \
 AUTH_PASSWORD_LOGIN_ENABLED=1 \
 EXPOSE_DEVELOPMENT_TOKENS=1 \
 AUTH_TOKEN_PEPPER=acceptance-authentication-pepper-at-least-32-bytes \
@@ -51,6 +52,38 @@ root_status="$(curl --silent --show-error --output "$root_body" \
 if [[ "$root_status" != '200' ]]; then
     printf 'The public home page failed (HTTP %s).\n' "$root_status" >&2
     cat "$root_body" >&2
+    cat "$stderr_log" >&2
+    exit 1
+fi
+
+request_id='01912345-6789-7abc-8def-0123456789ab'
+launch_headers="${repo_root}/var/development-auth-login-link-launch.headers"
+launch_body="${repo_root}/var/development-auth-login-link-launch.html"
+launch_status="$(curl --silent --show-error --dump-header "$launch_headers" --output "$launch_body" \
+    --write-out '%{http_code}' "http://127.0.0.1:${port}/login-links/${request_id}")"
+if [[ "$launch_status" != '200' ]]; then
+    printf 'The login-link launch page failed (HTTP %s).\n' "$launch_status" >&2
+    cat "$launch_body" >&2
+    cat "$stderr_log" >&2
+    exit 1
+fi
+if ! tr -d '\r' <"$launch_headers" | grep -Eiq '^Referrer-Policy:[[:space:]]*same-origin$'; then
+    printf 'The login-link launch page must preserve Referrer-Policy: same-origin.\n' >&2
+    cat "$launch_headers" >&2
+    exit 1
+fi
+
+capture_body="${repo_root}/var/development-auth-login-link-capture.html"
+capture_status="$(curl --silent --show-error --output "$capture_body" \
+    --write-out '%{http_code}' \
+    -H "Origin: http://127.0.0.1:${port}" \
+    -H 'Content-Type: application/x-www-form-urlencoded' \
+    -X POST \
+    --data 'approval=invalid' \
+    "http://127.0.0.1:${port}/login-links/${request_id}/capture")"
+if [[ "$capture_status" != '303' ]]; then
+    printf 'The same-origin login-link capture failed (HTTP %s).\n' "$capture_status" >&2
+    cat "$capture_body" >&2
     cat "$stderr_log" >&2
     exit 1
 fi

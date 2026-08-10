@@ -16,9 +16,11 @@ final class SecurityHeadersMiddleware implements MiddlewareInterface
         $response = $handler->handle($request)
             ->withHeader('X-Content-Type-Options', 'nosniff')
             ->withHeader('X-Frame-Options', 'DENY')
-            ->withHeader('Referrer-Policy', 'no-referrer')
             ->withHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
             ->withHeader('Cache-Control', 'no-store');
+        if (! $response->hasHeader('Referrer-Policy')) {
+            $response = $response->withHeader('Referrer-Policy', 'no-referrer');
+        }
         if (! $response->hasHeader('Content-Security-Policy')) {
             $response = $response->withHeader(
                 'Content-Security-Policy',

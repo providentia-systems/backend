@@ -70,12 +70,16 @@ data:
 git clone https://github.com/providentia-systems/backend.git
 cd backend
 bash scripts/setup-development.sh \
-  --handover /absolute/path/Pantry_Stock_Project_Handover_2026-07-29.zip
+  --handover "$HOME/Downloads/Pantry_Stock_Project_Handover_2026-07-29.zip"
 ```
 
 It needs Docker Compose v2, `unzip`, `sha256sum`, `curl`, `jq`, and `openssl`.
-See [Source-build local development](local-development.md) for database
-profiles and the destructive reset boundary.
+The archive is protected external evidence and is not downloaded by cloning
+the repository. See
+[Obtain or create the development handover](local-development.md#obtain-or-create-the-development-handover)
+for its owner-controlled location, required internal paths, verified checksums,
+and the helper that builds a minimal setup archive from authorized exports.
+That guide also documents database profiles and the destructive reset boundary.
 
 Both setup paths start the HTTP API, database, queue, migrations, Mailpit, and
 the notification-delivery worker. The default local endpoints are:
@@ -102,6 +106,36 @@ defaults unless the specific test is verifying a shorter deployment policy:
 | `ONBOARDING_HOME_CURRENCY` | `NAD` |
 | `ONBOARDING_HOME_TIMEZONE` | `Africa/Windhoek` |
 | `PLATFORM_BOOTSTRAP_ADMIN_EMAILS` | Empty, or a comma-separated exact-email list |
+
+Before opening Flutter, prove the running browser surface has the final header
+after every middleware and proxy layer:
+
+```bash
+curl --silent --show-error --dump-header - --output /dev/null \
+  http://127.0.0.1:8080/login-links/00000000-0000-0000-0000-000000000000 \
+  | grep -i '^Referrer-Policy:'
+```
+
+Required result:
+
+```text
+Referrer-Policy: same-origin
+```
+
+Then prove the same-origin capture route is accepted:
+
+```bash
+curl --silent --show-error --output /dev/null \
+  --write-out 'status=%{http_code}\n' \
+  -H 'Origin: http://127.0.0.1:8080' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -X POST --data 'approval=invalid' \
+  http://127.0.0.1:8080/login-links/00000000-0000-0000-0000-000000000000/capture
+```
+
+Required result is `status=303`. A `403 Origin forbidden` response or a final
+`Referrer-Policy: no-referrer` header means the backend runtime is not ready
+for client login-link testing.
 
 `AUTH_REFRESH_TTL_SECONDS` is a legacy compatibility setting; it does not
 replace the transport-specific idle limits above.
@@ -199,6 +233,14 @@ fragment from browser history and POSTs the credential in the request body:
 ```text
 POST /login-links/{requestId}/capture
 ```
+
+The launch and review pages use `Referrer-Policy: same-origin`. This keeps
+referrer information out of cross-origin requests while allowing a same-origin
+HTML form POST to carry the public backend origin in its `Origin` header. Do not
+change these pages to `no-referrer`: for navigation-mode form submissions,
+browsers serialize the request origin as `null`, which the backend deliberately
+rejects. Never add `null` to `CORS_ALLOWED_ORIGINS`; opaque origins can also be
+created by untrusted sandboxed or local documents.
 
 Capture only moves the credential into a secure, HttpOnly, request-scoped
 cookie and redirects to a clean URL:

@@ -10,13 +10,34 @@ env_file="${root_dir}/.env.development.local"
 handoff_file="${root_dir}/.providentia-development.json"
 http_port="${PROVIDENTIA_HTTP_PORT:-8080}"
 mailpit_port="${PROVIDENTIA_MAILPIT_PORT:-8025}"
+reset_data=0
+
+usage() {
+    cat <<'EOF'
+Usage: bash scripts/setup-development.sh --handover ZIP [options]
+
+Build and run Providentia from the current source checkout.
+
+Options:
+  --handover ZIP       Verified full or minimal development handover archive
+  --dev-email EMAIL    Development account email
+  --dev-password PASS  Development account password
+  --reset-data         Delete this source stack's containers and named volumes
+  --help               Show this help
+
+See docs/deployment/local-development.md for where to obtain the protected
+handover or how to construct a checksum-verified minimal setup archive.
+EOF
+}
 
 while (($#)); do
     case "$1" in
         --handover) handover_zip="${2:?--handover requires a ZIP path}"; shift 2 ;;
         --dev-email) dev_email="${2:?--dev-email requires a value}"; shift 2 ;;
         --dev-password) dev_password="${2:?--dev-password requires a value}"; shift 2 ;;
-        *) printf 'Unknown argument: %s\n' "$1" >&2; exit 2 ;;
+        --reset-data) reset_data=1; shift ;;
+        --help|-h) usage; exit 0 ;;
+        *) printf 'Unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
 done
 
@@ -26,6 +47,23 @@ for command_name in docker unzip sha256sum curl jq openssl; do
         exit 1
     }
 done
+docker compose version >/dev/null 2>&1 || {
+    printf 'Docker Compose v2 is required (docker compose).\n' >&2
+    exit 1
+}
+
+existing_volume="$(docker volume ls --quiet \
+    --filter label=com.docker.compose.project=providentia | sed -n '1p')"
+if [[ ! -f "$env_file" && -n "$existing_volume" && "$reset_data" -eq 0 ]]; then
+    cat >&2 <<EOF
+Existing Providentia development volume found, but ${env_file} is missing.
+The database was initialized with credentials that are no longer available.
+Restore the matching secrets file, or explicitly destroy the local stack with:
+
+  bash scripts/setup-development.sh --reset-data --handover /absolute/path/Pantry_Stock_Project_Handover_2026-07-29.zip
+EOF
+    exit 1
+fi
 
 if [[ -z "$handover_zip" ]]; then
     for candidate in \
@@ -45,13 +83,24 @@ fi
 scratch_dir="$(mktemp -d)"
 trap 'rm -rf -- "$scratch_dir"' EXIT
 archive_root='Pantry_Stock_Project_Handover_2026-07-29/03_data_exports'
-unzip -p "$handover_zip" "${archive_root}/pantry-data.json" >"${scratch_dir}/pantry-data.json"
-unzip -p "$handover_zip" "${archive_root}/product-rules.json" >"${scratch_dir}/product-rules.json"
-printf '%s  %s\n' \
+if ! unzip -p "$handover_zip" "${archive_root}/pantry-data.json" \
+    >"${scratch_dir}/pantry-data.json" \
+    || ! unzip -p "$handover_zip" "${archive_root}/product-rules.json" \
+        >"${scratch_dir}/product-rules.json"; then
+    printf 'The handover does not contain the two required files under %s.\n' \
+        "$archive_root" >&2
+    printf 'See docs/deployment/local-development.md for the required archive layout.\n' >&2
+    exit 1
+fi
+if ! printf '%s  %s\n' \
     'ac2a74f267d7a48a460c8fae24515887f97632cddfb4a17f5f45dd07c9e90116' \
     "${scratch_dir}/pantry-data.json" \
     '8131bd3bf41c9b70f0e4cfe86c9e7de699ca0df827c6287fc9f2927e35827899' \
-    "${scratch_dir}/product-rules.json" | sha256sum --check --status
+    "${scratch_dir}/product-rules.json" | sha256sum --check --status; then
+    printf 'The handover exports do not match the Phase 0 SHA-256 checksums.\n' >&2
+    printf 'Do not import or repackage edited exports. Obtain the verified originals.\n' >&2
+    exit 1
+fi
 
 if [[ ! -f "$env_file" ]]; then
     umask 077
@@ -82,6 +131,12 @@ fi
 dev_device_id="${PROVIDENTIA_DEV_DEVICE_ID:?Development device ID is missing from the local secrets file.}"
 
 cd "$root_dir"
+if ((reset_data == 1)); then
+    docker compose --env-file "$env_file" \
+        --profile sqlite --profile mysql --profile mariadb \
+        --profile redis --profile valkey \
+        down --volumes --remove-orphans
+fi
 docker compose --env-file "$env_file" --profile mysql --profile redis up -d --build --wait
 docker compose --env-file "$env_file" cp "${scratch_dir}/pantry-data.json" api-mysql:/tmp/pantry-data.json
 docker compose --env-file "$env_file" cp "${scratch_dir}/product-rules.json" api-mysql:/tmp/product-rules.json

@@ -177,19 +177,28 @@ Pull the current `edge` images and safely re-run migrations:
 bash scripts/setup-prebuilt.sh --version edge
 ```
 
+`.env.prebuilt.local` and the named Docker volumes are one state set. MySQL
+uses the generated application password only when it initializes an empty data
+directory. Do not delete or regenerate the env file while retaining the old
+volumes. Setup detects that missing-secrets/existing-volume condition and stops
+instead of starting an image that cannot authenticate to MySQL.
+
 Stop containers while preserving MySQL, Redis, and application data:
 
 ```bash
 docker compose --env-file .env.prebuilt.local -f compose.prebuilt.yaml down
 ```
 
-The following reset permanently removes the local test database, queue, and
-application artifacts. It does not delete the protected env or Flutter handoff
-files:
+The supported reset permanently removes the local test database, queue, and
+application artifacts, then starts the stack again using the existing protected
+secrets file:
 
 ```bash
-docker compose --env-file .env.prebuilt.local -f compose.prebuilt.yaml down --volumes
+bash scripts/setup-prebuilt.sh --reset-data --version edge
 ```
+
+It does not delete `.env.prebuilt.local`. A newly provisioned run overwrites
+the Flutter handoff with valid credentials for the replacement database.
 
 ## Production boundary
 

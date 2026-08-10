@@ -84,7 +84,11 @@ PROVIDENTIA_HANDOVER_ZIP=/absolute/path/Pantry_Stock_Project_Handover_2026-07-29
 The script verifies both source SHA-256 values before any import, performs a
 dry run, imports idempotently, and writes a mode-`0600`
 `.providentia-development.json` client handoff. See
-[local development](docs/deployment/local-development.md).
+[local development](docs/deployment/local-development.md) for the protected
+archive location, exact required members, and the supported helper for creating
+a minimal development archive from authorized checksum-verified exports. The
+full handover is intentionally not committed because it contains private
+household source material.
 
 ## Lightweight SQLite path
 

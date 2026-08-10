@@ -5,9 +5,51 @@
 Prerequisites are Docker with Compose v2, `unzip`, `sha256sum`, `curl`, `jq`,
 and `openssl`. Run:
 
+### Obtain or create the development handover
+
+`Pantry_Stock_Project_Handover_2026-07-29.zip` is not stored in this Git
+repository. The authoritative full archive contains private household source
+files and receipt images, so it remains in the project owner's protected
+handover storage. GitHub access does not grant access to that archive. Obtain
+the exact file from the project owner or the designated secure project store,
+then keep it outside the checkout (for example, in `~/Downloads` or another
+access-controlled directory).
+
+The source setup reads only these checksum-pinned members:
+
+```text
+Pantry_Stock_Project_Handover_2026-07-29/
+└── 03_data_exports/
+    ├── pantry-data.json
+    └── product-rules.json
+```
+
+If an authorized tester has those two verified exports but not the full
+archive, install the `zip` command and create a minimal setup archive:
+
+```bash
+bash scripts/create-development-handover.sh \
+  --pantry-data /secure/path/pantry-data.json \
+  --product-rules /secure/path/product-rules.json \
+  --output "$HOME/Downloads/Pantry_Stock_Project_Handover_2026-07-29.zip"
+```
+
+The helper refuses edited exports and existing output files. It verifies these
+Phase 0 SHA-256 digests before packaging:
+
+| Export | SHA-256 |
+|---|---|
+| `pantry-data.json` | `ac2a74f267d7a48a460c8fae24515887f97632cddfb4a17f5f45dd07c9e90116` |
+| `product-rules.json` | `8131bd3bf41c9b70f0e4cfe86c9e7de699ca0df827c6287fc9f2927e35827899` |
+
+The minimal archive is sufficient only for backend development setup. It does
+not recreate or replace the full historical handover.
+
+### Run the source setup
+
 ```bash
 ./scripts/setup-development.sh \
-  --handover /absolute/path/Pantry_Stock_Project_Handover_2026-07-29.zip
+  --handover "$HOME/Downloads/Pantry_Stock_Project_Handover_2026-07-29.zip"
 ```
 
 The script:
@@ -62,6 +104,20 @@ Reset is intentionally destructive and requires an exact confirmation:
 
 It removes the Providentia containers and named development volumes. The
 protected secrets/handoff files remain for explicit manual handling.
+
+The setup script also exposes the same destructive reset as an explicit option:
+
+```bash
+./scripts/setup-development.sh \
+  --reset-data \
+  --handover "$HOME/Downloads/Pantry_Stock_Project_Handover_2026-07-29.zip"
+```
+
+The secrets file and Docker volumes are one state set. MySQL applies its
+generated user password only when initializing an empty data directory. If
+`.env.development.local` is lost while named volumes remain, setup stops before
+generating incompatible credentials and requires either restoration of the
+matching file or the explicit reset above.
 
 ## Server-side SQLite
 

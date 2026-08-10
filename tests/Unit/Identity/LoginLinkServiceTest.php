@@ -92,7 +92,7 @@ final class LoginLinkServiceTest extends TestCase
             $response->getHeaderLine('Content-Security-Policy'),
         );
         self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
-        self::assertSame('no-referrer', $response->getHeaderLine('Referrer-Policy'));
+        self::assertSame('same-origin', $response->getHeaderLine('Referrer-Policy'));
     }
 
     public function testBrowserCaptureMovesPostedCapabilityToCookieAndCleanReviewUrl(): void

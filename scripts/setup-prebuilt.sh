@@ -15,6 +15,7 @@ http_port_override=""
 mailpit_port_override=""
 bind_address_override=""
 skip_provision=0
+reset_data=0
 
 registry_environment="${PROVIDENTIA_REGISTRY:-}"
 image_namespace_environment="${PROVIDENTIA_IMAGE_NAMESPACE:-}"
@@ -80,6 +81,7 @@ Options:
   --mailpit-port PORT   Host Mailpit port (default: 8025)
   --bind-address IP     Host bind address (default: 127.0.0.1)
   --skip-provision      Start and test the stack without creating an account/home
+  --reset-data          Delete this prebuilt stack's containers and named volumes
   --help                Show this help
 EOF
 }
@@ -95,6 +97,7 @@ while (($#)); do
         --mailpit-port) mailpit_port_override="${2:?--mailpit-port requires a value}"; shift 2 ;;
         --bind-address) bind_address_override="${2:?--bind-address requires a value}"; shift 2 ;;
         --skip-provision) skip_provision=1; shift ;;
+        --reset-data) reset_data=1; shift ;;
         --help|-h) usage; exit 0 ;;
         *) printf 'Unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
@@ -110,6 +113,19 @@ docker compose version >/dev/null 2>&1 || {
     printf 'Docker Compose v2 is required (docker compose).\n' >&2
     exit 1
 }
+
+existing_volume="$(docker volume ls --quiet \
+    --filter label=com.docker.compose.project=providentia-prebuilt | sed -n '1p')"
+if [[ ! -f "$env_file" && -n "$existing_volume" && "$reset_data" -eq 0 ]]; then
+    cat >&2 <<EOF
+Existing Providentia prebuilt volume found, but ${env_file} is missing.
+MySQL applies generated credentials only when it initializes an empty data
+directory. Restore the matching secrets file, or explicitly reset local data:
+
+  bash scripts/setup-prebuilt.sh --reset-data
+EOF
+    exit 1
+fi
 
 detected_image_namespace="$(detect_image_namespace || true)"
 checkout_candidate_version="$(detect_checkout_candidate_version || true)"
@@ -218,6 +234,10 @@ if [[ ! "$PROVIDENTIA_MAILPIT_PORT" =~ ^[0-9]+$ ]] || ((PROVIDENTIA_MAILPIT_PORT
 fi
 
 compose=(docker compose --env-file "$env_file" -f "$compose_file")
+
+if ((reset_data == 1)); then
+    "${compose[@]}" down --volumes --remove-orphans
+fi
 
 diagnostics() {
     local status=$?

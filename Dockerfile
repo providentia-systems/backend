@@ -17,7 +17,8 @@ COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --classmap-authoritative
 
 COPY . .
-RUN chmod +x bin/doctrine-migrations bin/providentia infrastructure/compose/entrypoint.sh tool/*.sh \
+RUN composer dump-autoload --no-dev --classmap-authoritative --no-interaction \
+    && chmod +x bin/doctrine-migrations bin/providentia infrastructure/compose/entrypoint.sh tool/*.sh \
     && mkdir -p var \
     && chown -R www-data:www-data var
 
