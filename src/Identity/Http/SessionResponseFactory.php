@@ -23,6 +23,7 @@ final class SessionResponseFactory
         $response = new JsonResponse([
             'sessionId' => $tokens['sessionId'],
             'deviceId' => $tokens['deviceId'],
+            'installationId' => $tokens['installationId'],
             'userId' => $tokens['userId'],
             'accessExpiresAt' => $tokens['accessExpiresAt'],
             'refreshExpiresAt' => $tokens['refreshExpiresAt'],

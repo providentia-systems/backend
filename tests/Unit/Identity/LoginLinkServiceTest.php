@@ -28,6 +28,7 @@ final class LoginLinkServiceTest extends TestCase
     private const USER_ID = '01912345-6789-7abc-adef-0123456789ab';
     private const HOME_ID = '01912345-6789-7abc-bdef-0123456789ab';
     private const SESSION_ID = '01912345-6789-7abc-cdef-0123456789ab';
+    private const ACCOUNT_SCOPED_DEVICE_ID = '11bda121-96e7-8e87-a0c8-a43cf153bc5c';
 
     public function testStartRetryIsGenericIdempotentAndDoesNotResendEmail(): void
     {
@@ -202,6 +203,9 @@ final class LoginLinkServiceTest extends TestCase
             $state,
         );
         self::assertSame(self::SESSION_ID, $session['sessionId']);
+        self::assertSame(self::ACCOUNT_SCOPED_DEVICE_ID, $session['deviceId']);
+        self::assertSame(self::INSTALLATION_ID, $session['installationId']);
+        self::assertNotSame($session['deviceId'], $session['installationId']);
         self::assertSame('native', $session['transport']);
 
         try {

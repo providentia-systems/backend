@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.11.0",
+    "version": "1.11.1",
     "summary": "Authoritative Providentia backend contract through the production-readiness programme",
-    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds email-only login-link authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation.\n\nVersion 1.10 adds typed pantry synchronization, catalog sharing/imports, data rights, commercial controls, multi-provider AI orchestration, encrypted private media, and production acceptance surfaces.\n\nVersion 1.11 adds cross-device login-link approval with origin-client polling and PKCE exchange, current-user bootstrap, recipient invitation acceptance, platform-administrator management, and explicit sliding-session metadata."
+    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds email-only login-link authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation.\n\nVersion 1.10 adds typed pantry synchronization, catalog sharing/imports, data rights, commercial controls, multi-provider AI orchestration, encrypted private media, and production acceptance surfaces.\n\nVersion 1.11 adds cross-device login-link approval with origin-client polling and PKCE exchange, current-user bootstrap, recipient invitation acceptance, platform-administrator management, and explicit sliding-session metadata.\n\nVersion 1.11.1 exposes the installation UUID separately from the account-scoped device UUID so clients can validate login-link session binding without rejecting valid sessions."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -5925,6 +5925,7 @@
         "required": [
           "sessionId",
           "deviceId",
+          "installationId",
           "accessExpiresAt",
           "refreshExpiresAt",
           "idleExpiresAt",
@@ -5953,6 +5954,11 @@
           "deviceId": {
             "type": "string",
             "format": "uuid"
+          },
+          "installationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable app-installation UUID used to verify that an issued account-scoped device session belongs to the requesting installation."
           },
           "accessExpiresAt": {
             "type": "string",

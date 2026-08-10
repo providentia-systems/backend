@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed login-link session exchange and restoration by returning the stable
+  `installationId` separately from the account-scoped `deviceId` in session
+  credential responses.
 - Added API v1.11 cross-device login-link onboarding with scanner-safe browser
   approval, PKCE-bound device exchange, 15-minute access credentials, sliding
   web/native sessions, first-home ownership, recipient invitation bootstrap,
