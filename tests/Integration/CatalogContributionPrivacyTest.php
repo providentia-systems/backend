@@ -113,9 +113,9 @@ final class CatalogContributionPrivacyTest extends TestCase
             new \DateTimeImmutable('2026-08-04T13:00:00+00:00'),
         ));
 
-        self::assertSame('withdrawn', $this->status('identity-approved'));
-        self::assertSame('approved', $this->status('image-approved'));
-        self::assertSame('withdrawn', $this->status('price-approved'));
+        self::assertSame('withdrawn', $this->contributionStatus('identity-approved'));
+        self::assertSame('approved', $this->contributionStatus('image-approved'));
+        self::assertSame('withdrawn', $this->contributionStatus('price-approved'));
         self::assertSame(
             ['product_image'],
             array_column($this->store->published(null, 50, 0), 'contributionType'),
@@ -132,8 +132,8 @@ final class CatalogContributionPrivacyTest extends TestCase
             'user-private',
             new \DateTimeImmutable('2026-08-04T14:00:00+00:00'),
         ));
-        self::assertSame('withdrawn', $this->status('identity-approved'));
-        self::assertSame('withdrawn', $this->status('price-approved'));
+        self::assertSame('withdrawn', $this->contributionStatus('identity-approved'));
+        self::assertSame('withdrawn', $this->contributionStatus('price-approved'));
         self::assertSame(
             ['product_image'],
             array_column($this->store->published(null, 50, 0), 'contributionType'),
@@ -212,7 +212,7 @@ final class CatalogContributionPrivacyTest extends TestCase
         }
     }
 
-    private function status(string $id): string
+    private function contributionStatus(string $id): string
     {
         return (string) $this->connection->fetchOne(
             'SELECT moderation_status FROM catalog_contributions WHERE id = :id',
