@@ -37,3 +37,18 @@
 - [ ] Clean-install, upgrade, rollback, MySQL, MariaDB, and SQLite migration
   suites pass in CI.
 - [ ] Backup/restore smoke testing preserves redirect and reversal behavior.
+
+## Consent-bound contribution extension
+
+- [ ] Product identity, product image, and store price have separate default-off
+  consent switches and immutable revisioned receipts.
+- [ ] Submission uses the current matching receipt and strips quantity,
+  location, receipt, note, household, and contributor fields.
+- [ ] Review and decision remain restricted to server-derived reviewer,
+  curator, or platform-administrator capability.
+- [ ] Review queues omit home, user, source fingerprint, and receipt linkage.
+- [ ] Public reads contain only approved supported types and a type-specific
+  payload allowlist; pending, rejected, and withdrawn rows never appear.
+- [ ] Disabling one consent category unpublishes only that category's approved
+  facts, and re-enabling it does not revive withdrawn submissions.
+- [ ] Platform catalog roles alone cannot access any private home resource.

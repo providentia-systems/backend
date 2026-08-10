@@ -90,6 +90,33 @@ final class CatalogMergeStoreTest extends TestCase
         self::assertSame('published', $this->statusFor('duplicate'));
     }
 
+    public function testProposalWorkbenchOmitsSubmitterAttribution(): void
+    {
+        $this->connection->insert('catalog_proposals', [
+            'id' => 'proposal-1',
+            'proposal_type' => 'product',
+            'proposal_json' => json_encode([
+                'canonicalName' => 'Brown rice',
+                'brand' => '',
+                'categoryId' => 'category-1',
+            ], JSON_THROW_ON_ERROR),
+            'moderation_status' => 'pending',
+            'duplicate_entity_id' => null,
+            'revision' => 1,
+            'submitted_by_user_id' => 'user-private',
+            'created_at' => '2026-08-04 11:00:00',
+            'updated_at' => '2026-08-04 11:00:00',
+        ]);
+
+        $rows = $this->store->workbench('proposals', 50, 0);
+
+        self::assertCount(1, $rows);
+        self::assertArrayNotHasKey('submittedByUserId', $rows[0]);
+        self::assertArrayNotHasKey('submitted_by_user_id', $rows[0]);
+        self::assertArrayNotHasKey('homeId', $rows[0]);
+        self::assertArrayNotHasKey('home_id', $rows[0]);
+    }
+
     /** @return list<string> */
     private function schema(): array
     {
@@ -98,6 +125,13 @@ final class CatalogMergeStoreTest extends TestCase
                 id VARCHAR(36) PRIMARY KEY, canonical_name VARCHAR(191) NOT NULL,
                 brand VARCHAR(120) NOT NULL, status VARCHAR(32) NOT NULL,
                 revision INTEGER NOT NULL, updated_at DATETIME NOT NULL
+            )',
+            'CREATE TABLE catalog_proposals (
+                id VARCHAR(36) PRIMARY KEY, proposal_type VARCHAR(32) NOT NULL,
+                proposal_json TEXT NOT NULL, moderation_status VARCHAR(24) NOT NULL,
+                duplicate_entity_id VARCHAR(36) NULL, revision INTEGER NOT NULL,
+                submitted_by_user_id VARCHAR(36) NULL,
+                created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL
             )',
             'CREATE TABLE product_variants (
                 id VARCHAR(36) PRIMARY KEY, product_id VARCHAR(36) NOT NULL,

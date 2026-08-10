@@ -24,6 +24,23 @@ final readonly class CatalogContributionHandler implements RequestHandlerInterfa
 
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
+        $query = $request->getQueryParams();
+        if ($this->action === 'published.list') {
+            $limit = (int) ($query['limit'] ?? 50);
+            $offset = (int) ($query['offset'] ?? 0);
+
+            return new JsonResponse([
+                'data' => $this->catalog->published(
+                    isset($query['type']) ? (string) $query['type'] : null,
+                    $limit,
+                    $offset,
+                ),
+                'pagination' => [
+                    'limit' => min(100, max(1, $limit)),
+                    'offset' => max(0, $offset),
+                ],
+            ]);
+        }
         $identity = $request->getAttribute(BearerAuthenticationMiddleware::ATTRIBUTE);
         if (! $identity instanceof AuthenticatedIdentity) {
             throw new HttpProblem(401, 'Authentication required', 'A valid access credential is required.');
@@ -31,8 +48,6 @@ final readonly class CatalogContributionHandler implements RequestHandlerInterfa
         /** @var array<string, mixed> $body */
         $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
         $homeId = (string) $request->getAttribute('homeId', '');
-        $query = $request->getQueryParams();
-
         return match ($this->action) {
             'consent.get' => new JsonResponse($this->catalog->consent($identity, $homeId)),
             'consent.put' => new JsonResponse($this->catalog->configureConsent(

@@ -92,6 +92,158 @@ final class CatalogContributionServiceTest extends TestCase
         );
     }
 
+    public function testPublishedProjectionIsBoundedAndDropsEveryPrivateField(): void
+    {
+        $store = $this->createMock(CatalogContributionStore::class);
+        $store->expects(self::once())
+            ->method('published')
+            ->with('store_price', 100, 0)
+            ->willReturn([[
+                'id' => self::CONTRIBUTION_ID,
+                'contributionType' => 'store_price',
+                'payload' => json_encode([
+                    'productId' => '01912345-6789-7abc-cdef-0123456789ab',
+                    'storeName' => 'Example Market',
+                    'price' => '12.50',
+                    'currency' => 'NAD',
+                    'observedOn' => '2026-08-04',
+                    'quantity' => '8',
+                    'privateNote' => 'bottom shelf',
+                    'homeId' => self::HOME_ID,
+                ], JSON_THROW_ON_ERROR),
+                'publishedAt' => '2026-08-04 12:00:00',
+                'homeId' => self::HOME_ID,
+                'submittedByUserId' => self::USER_ID,
+                'consentReceiptId' => self::RECEIPT_ID,
+                'sourceFingerprint' => 'private-source',
+            ]]);
+
+        $result = $this->service($store, $this->createStub(HomeAuditRecorder::class))
+            ->published('store_price', 999, -10);
+
+        self::assertSame([[
+            'contributionType' => 'store_price',
+            'payload' => [
+                'productId' => '01912345-6789-7abc-cdef-0123456789ab',
+                'storeName' => 'Example Market',
+                'price' => '12.50',
+                'currency' => 'NAD',
+                'observedOn' => '2026-08-04',
+            ],
+            'publishedAt' => '2026-08-04T12:00:00+00:00',
+        ]], $result);
+    }
+
+    public function testPublishedProjectionRejectsUnsupportedTypesBeforeQueryingTheStore(): void
+    {
+        $store = $this->createMock(CatalogContributionStore::class);
+        $store->expects(self::never())->method('published');
+
+        $this->expectException(Problem::class);
+        $this->service($store, $this->createStub(HomeAuditRecorder::class))
+            ->published('private_inventory', 50, 0);
+    }
+
+    public function testReviewProjectionDefensivelyDropsAttributionReturnedByAStore(): void
+    {
+        $store = $this->createStub(CatalogContributionStore::class);
+        $store->method('reviewQueue')->willReturn([[
+            'id' => self::CONTRIBUTION_ID,
+            'contributionType' => 'product_identity',
+            'payload' => [
+                'canonicalName' => 'Rolled oats',
+                'quantity' => '12',
+                'privateNote' => 'cupboard detail',
+            ],
+            'status' => 'pending',
+            'revision' => 1,
+            'consentNoticeVersion' => CatalogContributionService::NOTICE_VERSION,
+            'consentRevision' => 3,
+            'createdAt' => '2026-08-04 12:00:00',
+            'homeId' => self::HOME_ID,
+            'submittedByUserId' => self::USER_ID,
+            'consentReceiptId' => self::RECEIPT_ID,
+        ]]);
+
+        $identity = new AuthenticatedIdentity(
+            self::USER_ID,
+            'session',
+            'device',
+            null,
+            [CatalogAuthorization::REVIEWER],
+        );
+        $result = $this->service($store, $this->createStub(HomeAuditRecorder::class))
+            ->reviewQueue($identity, 'pending', 50, 0);
+
+        self::assertSame([[
+            'id' => self::CONTRIBUTION_ID,
+            'contributionType' => 'product_identity',
+            'payload' => ['canonicalName' => 'Rolled oats'],
+            'status' => 'pending',
+            'revision' => 1,
+            'consentNoticeVersion' => CatalogContributionService::NOTICE_VERSION,
+            'consentRevision' => 3,
+            'createdAt' => '2026-08-04 12:00:00',
+        ]], $result);
+    }
+
+    public function testModerationDecisionIsRejectedBeforeLookupWithoutAPlatformRole(): void
+    {
+        $store = $this->createMock(CatalogContributionStore::class);
+        $store->expects(self::never())->method('contribution');
+        $store->expects(self::never())->method('decide');
+
+        $this->expectException(Problem::class);
+        $this->service($store, $this->createStub(HomeAuditRecorder::class))->decide(
+            $this->identity(),
+            self::CONTRIBUTION_ID,
+            'approved',
+            'Safe public fact',
+            1,
+        );
+    }
+
+    public function testConsentWithdrawalIsVisibleToThePublishedProjectionImmediately(): void
+    {
+        $store = $this->createMock(CatalogContributionStore::class);
+        $store->expects(self::once())
+            ->method('saveConsent')
+            ->with(
+                self::CONTRIBUTION_ID,
+                self::HOME_ID,
+                false,
+                true,
+                false,
+                CatalogContributionService::NOTICE_VERSION,
+                4,
+                self::USER_ID,
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(true);
+        $store->expects(self::once())->method('published')->with(null, 50, 0)->willReturn([]);
+        $audit = $this->createMock(HomeAuditRecorder::class);
+        $audit->expects(self::once())->method('recordAudit');
+        $service = $this->service($store, $audit);
+
+        self::assertSame([
+            'homeId' => self::HOME_ID,
+            'shareProductIdentity' => false,
+            'shareProductImages' => true,
+            'shareStorePrices' => false,
+            'noticeVersion' => CatalogContributionService::NOTICE_VERSION,
+            'revision' => 5,
+        ], $service->configureConsent(
+            $this->identity(),
+            self::HOME_ID,
+            false,
+            true,
+            false,
+            CatalogContributionService::NOTICE_VERSION,
+            4,
+        ));
+        self::assertSame([], $service->published(null, 50, 0));
+    }
+
     private function service(
         CatalogContributionStore $store,
         HomeAuditRecorder $audit,

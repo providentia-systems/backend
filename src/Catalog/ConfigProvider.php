@@ -64,6 +64,7 @@ final class ConfigProvider
                     'catalog.contributions.consent.put' => CatalogContributionFactory::class,
                     'catalog.contributions.submit' => CatalogContributionFactory::class,
                     'catalog.contributions.list' => CatalogContributionFactory::class,
+                    'catalog.contributions.published.list' => CatalogContributionFactory::class,
                     'catalog.contributions.review.list' => CatalogContributionFactory::class,
                     'catalog.contributions.review.decide' => CatalogContributionFactory::class,
                     'catalog.imports.stage' => CatalogImportFactory::class,

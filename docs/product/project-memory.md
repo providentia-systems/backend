@@ -114,3 +114,22 @@ backend architecture or weaken its acceptance gates.
   member roles may generate and give feedback; viewers remain read-only.
 - Seasonality, menu-plan demand, garden production, and learned models remain
   deferred until their evidence and product decisions are explicit.
+
+## Inventory integration synchronization — 11 August 2026
+
+- P0–P3 are cross-repository integration priorities, not renumbered historical
+  product phases. Their authoritative delivery boundary is
+  `docs/inventory-integration-roadmap.md` in both repositories.
+- The backend OpenAPI 1.12.0 artifact is the contract source for the Flutter
+  client. The client pins the exact SHA-256 bytes and regenerates its Dart
+  client; generated output is never hand edited.
+- Platform and catalog roles never grant implicit home access. Support-access
+  tables do not authorize a request because no support-access service or route
+  is exposed.
+- Approved catalog contribution facts are globally readable only through a
+  bounded type-specific allowlist. Moderator and public DTOs omit household,
+  contributor, consent-receipt, source-fingerprint, and reviewer attribution;
+  non-approved rows remain private.
+- Backend capability and automated tests are not a production-acceptance
+  claim. Client convergence, staging providers, backup/restore, distribution
+  signing, payment sandboxes, and other operator rows remain evidence gates.

@@ -41,6 +41,16 @@ interface CatalogContributionStore
     /** @return list<array<string, mixed>> */
     public function reviewQueue(string $status, int $limit, int $offset): array;
 
+    /**
+     * Return the public projection of approved contributions only.
+     *
+     * Implementations must not select household, contributor, consent-receipt,
+     * source-fingerprint, or reviewer attribution.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function published(?string $type, int $limit, int $offset): array;
+
     /** @return array<string, mixed>|null */
     public function contribution(string $id): ?array;
 

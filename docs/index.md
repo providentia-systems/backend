@@ -2,6 +2,7 @@
 
 ## Current phase
 
+- [Backend/client inventory integration roadmap — P0–P3](inventory-integration-roadmap.md)
 - [Phase 0 verified evidence](product/phases/phase-00-evidence/README.md)
 - [Phase 1 foundation](product/phases/phase-01-foundation/README.md)
 - [Phase 2 identity, homes, and catalog](product/phases/phase-02-identity-homes-catalog/README.md)
@@ -10,6 +11,8 @@
 - [Phase 6 AI integration](product/phases/phase-06-ai-integration/README.md)
 - [Phase 7 catalog administration](product/phases/phase-07-catalog-administration/README.md)
 - [Phase 8 intelligence and reporting](product/phases/phase-08-intelligence-reporting/README.md)
+- [Phase 9 launch readiness](product/phases/phase-09-launch-readiness/README.md)
+- [Phase 10 production cutover](product/phases/phase-10-production-cutover/README.md)
 - [Project memory and owner decisions](product/project-memory.md)
 - [Controlling implementation prompt](product/providentia_master_implementation_prompt_V1.md)
 - `docs/product/phases/phase-00-evidence/` — corrected evidence and

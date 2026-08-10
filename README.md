@@ -10,9 +10,9 @@ identity/home/catalog increment, Phase 4 home-scoped synchronization protocol,
 Phase 5 ledger-backed household operations, Phase 6 privacy-controlled AI,
 Phase 7 governed catalog administration, and Phase 8 deterministic shopping
 intelligence and reporting. The generic protocol-v1 synchronization allowlist
-remains limited to `home-preference` and `private-note`; API 1.11 also publishes
-typed protocol-v2 pantry commands for aggregates with an explicit offline
-policy.
+remains limited to `home-preference` and `private-note`; the current API 1.12
+publishes typed protocol-v2 pantry commands and an attribution-free projection
+of moderator-approved catalog contributions.
 
 ## Requirements
 
@@ -158,10 +158,12 @@ queue message is never represented as equivalent to the database commit.
 - Home item master, physical counts, immutable stock movements, materialized
   balances, reviewed receipt commit, purchase history, price evidence, shopping
   lists, dashboard projections, and checksum-gated baseline migration.
-- Privacy-gated structured AI extraction with explicit human approval and no
-  persisted media payload.
+- Privacy-gated structured AI extraction with explicit human approval;
+  original media is either short-lived or explicitly retained, encrypted,
+  quota-controlled private media.
 - Sanitized catalog proposals, reviewer/curator workbenches, content-addressed
-  icons, and reversible audited product merges.
+  icons, reversible audited product merges, and separately consented
+  product-identity, product-image, and store-price contributions.
 - Movement/count-derived consumption, cadence, explainable replenishment,
   currency-isolated pack comparison, feedback, household reports, and
   leakage-safe backtesting.
@@ -169,6 +171,8 @@ queue message is never represented as equivalent to the database commit.
 The authoritative operation and schema details live in the OpenAPI contract.
 Remaining phase gates and follow-up work are explicit in
 [`docs/product/phases`](docs/product/phases/).
+The synchronized backend/client delivery order and P0–P3 exit gates are in the
+[inventory integration roadmap](docs/inventory-integration-roadmap.md).
 
 ## Quality gates
 
@@ -203,8 +207,9 @@ immutable contract files for the Flutter repository to pin.
 
 ## Documentation
 
-Start at [docs/index.md](docs/index.md). The owner-authorized product and
-repository naming decision is recorded in
+Start at [docs/index.md](docs/index.md) and the
+[cross-repository inventory integration roadmap](docs/inventory-integration-roadmap.md).
+The owner-authorized product and repository naming decision is recorded in
 [docs/product/project-memory.md](docs/product/project-memory.md).
 
 Providentia is proprietary. No distribution licence is granted or selected.
