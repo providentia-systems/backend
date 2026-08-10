@@ -99,7 +99,7 @@ final class DbalCatalogContributionStore implements CatalogContributionStore
         $this->connection->executeStatement(
             'UPDATE catalog_contributions
              SET moderation_status = :withdrawn, revision = revision + 1, updated_at = :at
-             WHERE home_id = :home AND moderation_status = :pending
+             WHERE home_id = :home AND moderation_status IN (:pending, :approved)
                AND (
                    (contribution_type = :identity_type AND :identity_enabled = 0)
                    OR (contribution_type = :image_type AND :images_enabled = 0)
@@ -110,6 +110,7 @@ final class DbalCatalogContributionStore implements CatalogContributionStore
                 'at' => $date,
                 'home' => $homeId,
                 'pending' => 'pending',
+                'approved' => 'approved',
                 'identity_type' => 'product_identity',
                 'identity_enabled' => $shareProductIdentity ? 1 : 0,
                 'image_type' => 'product_image',
@@ -192,6 +193,34 @@ final class DbalCatalogContributionStore implements CatalogContributionStore
              WHERE c.moderation_status = :status
             ORDER BY c.created_at, c.id LIMIT :limit OFFSET :offset',
             ['status' => $status, 'limit' => $limit, 'offset' => $offset],
+            ['limit' => ParameterType::INTEGER, 'offset' => ParameterType::INTEGER],
+        );
+    }
+
+    public function published(?string $type, int $limit, int $offset): array
+    {
+        $typeFilter = $type === null ? '' : ' AND contribution_type = :type';
+        $parameters = [
+            'approved' => 'approved',
+            'identity' => 'product_identity',
+            'image' => 'product_image',
+            'price' => 'store_price',
+            'limit' => $limit,
+            'offset' => $offset,
+        ];
+        if ($type !== null) {
+            $parameters['type'] = $type;
+        }
+
+        return $this->connection->fetchAllAssociative(
+            'SELECT contribution_type AS contributionType, payload_json AS payload,
+                    reviewed_at AS publishedAt
+             FROM catalog_contributions
+             WHERE moderation_status = :approved
+               AND contribution_type IN (:identity, :image, :price)'
+            . $typeFilter
+            . ' ORDER BY reviewed_at DESC, id DESC LIMIT :limit OFFSET :offset',
+            $parameters,
             ['limit' => ParameterType::INTEGER, 'offset' => ParameterType::INTEGER],
         );
     }

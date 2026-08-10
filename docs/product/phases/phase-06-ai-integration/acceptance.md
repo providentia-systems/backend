@@ -17,8 +17,11 @@
 - [ ] Explicit transmission consent is required.
 - [ ] MIME magic, size, and metadata policy is enforced.
 - [ ] Medical/unrelated classifications create no candidates.
-- [ ] Images and data URLs are absent from persistence, queues, logs, and API
-  history.
+- [ ] Plaintext media and data URLs are absent from database rows, queues,
+  logs, audit exports, and API history; explicitly retained object data is
+  ciphertext with home-bound access control.
+- [ ] Transient expiry, retained-media quota, revision-bound retention change,
+  deletion, export bounds, and cross-home denial pass.
 - [ ] Cloud wording never claims on-device processing.
 - [ ] Credentials are authenticated-encrypted with home/provider binding.
 - [ ] Ciphertext is unusable after revocation or incorrect key/version.
@@ -36,7 +39,7 @@
 - [ ] PHPStan level 8, PHPCS, PHPUnit, architecture, and migration jobs pass.
 - [ ] Migration clean-install, up/down, MySQL, MariaDB, and SQLite profiles pass
   in CI.
-- [ ] Remote smoke testing confirms no media or plaintext secret leakage.
+- [ ] Remote smoke testing confirms no plaintext media or secret leakage.
 - [ ] Operational dashboards expose latency/failure/review counts without
   private payloads.
 

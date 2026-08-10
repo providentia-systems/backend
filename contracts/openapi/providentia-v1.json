@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.11.1",
+    "version": "1.12.0",
     "summary": "Authoritative Providentia backend contract through the production-readiness programme",
-    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds email-only login-link authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation.\n\nVersion 1.10 adds typed pantry synchronization, catalog sharing/imports, data rights, commercial controls, multi-provider AI orchestration, encrypted private media, and production acceptance surfaces.\n\nVersion 1.11 adds cross-device login-link approval with origin-client polling and PKCE exchange, current-user bootstrap, recipient invitation acceptance, platform-administrator management, and explicit sliding-session metadata.\n\nVersion 1.11.1 exposes the installation UUID separately from the account-scoped device UUID so clients can validate login-link session binding without rejecting valid sessions."
+    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds email-only login-link authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation.\n\nVersion 1.10 adds typed pantry synchronization, catalog sharing/imports, data rights, commercial controls, multi-provider AI orchestration, encrypted private media, and production acceptance surfaces.\n\nVersion 1.11 adds cross-device login-link approval with origin-client polling and PKCE exchange, current-user bootstrap, recipient invitation acceptance, platform-administrator management, and explicit sliding-session metadata.\n\nVersion 1.11.1 exposes the installation UUID separately from the account-scoped device UUID so clients can validate login-link session binding without rejecting valid sessions.\n\nVersion 1.12 publishes only moderator-approved, consent-bound catalog contribution facts through a bounded attribution-free global projection."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -1718,6 +1718,53 @@
         "responses": {
           "201": {"description": "Consent-bound pending contribution", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CatalogContribution"}}}},
           "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/catalog-contributions": {
+      "get": {
+        "operationId": "listPublishedCatalogContributions",
+        "security": [],
+        "tags": ["Catalog"],
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Optional allowlisted contribution type.",
+            "schema": {"enum": ["product_identity", "product_image", "store_price"]}
+          },
+          {"$ref": "#/components/parameters/Limit"},
+          {"$ref": "#/components/parameters/Offset"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Moderator-approved global facts without household, user, source, consent, or reviewer attribution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["data", "pagination"],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/PublishedCatalogContribution"}
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["limit", "offset"],
+                      "properties": {
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                        "offset": {"type": "integer", "minimum": 0}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
           "422": {"$ref": "#/components/responses/Problem"}
         }
       }
@@ -6835,6 +6882,22 @@
           "moderationStatus": {"enum": ["pending", "approved", "rejected", "withdrawn"]},
           "revision": {"type": "integer", "minimum": 1},
           "createdAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "PublishedCatalogContribution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["contributionType", "payload", "publishedAt"],
+        "properties": {
+          "contributionType": {"enum": ["product_identity", "product_image", "store_price"]},
+          "payload": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/CatalogProductIdentityContribution"},
+              {"$ref": "#/components/schemas/CatalogProductImageContribution"},
+              {"$ref": "#/components/schemas/CatalogStorePriceContribution"}
+            ]
+          },
+          "publishedAt": {"type": "string", "format": "date-time"}
         }
       },
       "CatalogContributionDecision": {

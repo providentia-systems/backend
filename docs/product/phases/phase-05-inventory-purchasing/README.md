@@ -1,6 +1,7 @@
 # Phase 5 — inventory, purchasing, and shopping
 
-Status: implementation checkpoint.
+Status: delivered backend capability; connected client and operator acceptance
+remain governed by the P0–P3 integration roadmap.
 
 Phase 5 introduces the first complete household-stock vertical slice. Stock is
 derived from an append-only movement ledger; count sessions reconcile observed
@@ -38,3 +39,10 @@ would double-count purchases already reflected by the physical count.
 
 Phase 5 intentionally does not claim AI extraction, catalog governance, or
 forecasting. Those responsibilities belong to Phases 6, 7, and 8.
+
+Current P1/P2 regressions cover manual-adjustment replay without duplicate
+change-feed publication, cross-home product denial, count-line revision
+conflict, idempotent count closure, receipt-commit replay, receipt revision
+conflict, explicit line approval, inbound movement/price observation, and
+protocol-v2 command forwarding. These tests are release evidence only after
+the branch quality workflow passes them on the supported database matrix.

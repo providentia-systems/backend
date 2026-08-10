@@ -30,6 +30,9 @@ final class PantrySyncCommandDispatcherTest extends TestCase
     private const DEVICE_ID = '01912345-6789-7abc-bdef-0123456789ab';
     private const OPERATION_ID = '01912345-6789-7abc-8def-1123456789ab';
     private const LIST_ID = '01912345-6789-7abc-9def-1123456789ab';
+    private const PRODUCT_ID = '01912345-6789-7abc-adef-1123456789ab';
+    private const RECEIPT_ID = '01912345-6789-7abc-bdef-1123456789ab';
+    private const MOVEMENT_ID = '01912345-6789-7abc-cdef-1123456789ab';
 
     public function testShoppingCommandUsesTheAuthoritativeApplicationServiceAndClientId(): void
     {
@@ -112,6 +115,140 @@ final class PantrySyncCommandDispatcherTest extends TestCase
         );
 
         self::assertSame(['id' => self::LIST_ID, 'revision' => 1], $result);
+    }
+
+    public function testInventoryAdjustmentCarriesTheClientOperationIdToTheLedger(): void
+    {
+        $inventoryStore = $this->createMock(InventoryStore::class);
+        $inventoryStore->method('homeProduct')
+            ->with(self::HOME_ID, self::PRODUCT_ID)
+            ->willReturn(['id' => self::PRODUCT_ID]);
+        $inventoryStore->expects(self::once())
+            ->method('appendMovement')
+            ->with(
+                self::MOVEMENT_ID,
+                self::HOME_ID,
+                self::PRODUCT_ID,
+                'manual-adjustment',
+                '-2.5',
+                'client-operation',
+                self::OPERATION_ID,
+                'Damaged items removed',
+                self::USER_ID,
+                self::isInstanceOf(DateTimeImmutable::class),
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn([
+                'id' => self::MOVEMENT_ID,
+                'balance' => '7.5',
+                'balanceRevision' => 6,
+                'replayed' => false,
+            ]);
+        $ids = $this->createStub(UuidGenerator::class);
+        $ids->method('generate')->willReturn(self::MOVEMENT_ID);
+
+        $result = $this->dispatcher(
+            $inventoryStore,
+            $this->createStub(PurchasingStore::class),
+            $ids,
+        )->dispatch(
+            $this->identity(),
+            self::HOME_ID,
+            new SyncCommand(
+                self::OPERATION_ID,
+                'inventory.adjustment.create',
+                self::PRODUCT_ID,
+                null,
+                '2026-08-04T11:59:00+00:00',
+                1,
+                ['quantityDelta' => '-2.500', 'reason' => 'Damaged items removed'],
+            ),
+        );
+
+        self::assertSame(self::MOVEMENT_ID, $result['id']);
+        self::assertFalse((bool) $result['replayed']);
+    }
+
+    public function testReceiptCommitCarriesTheBaseRevisionAndReplaysCommittedState(): void
+    {
+        $purchases = $this->createMock(PurchasingStore::class);
+        $purchases->expects(self::once())
+            ->method('receipt')
+            ->with(self::HOME_ID, self::RECEIPT_ID)
+            ->willReturn(['id' => self::RECEIPT_ID, 'status' => 'committed', 'revision' => 4]);
+        $purchases->expects(self::never())->method('receiptLines');
+        $purchases->expects(self::never())->method('markReceiptCommitted');
+
+        $result = $this->dispatcher(
+            $this->createStub(InventoryStore::class),
+            $purchases,
+        )->dispatch(
+            $this->identity(),
+            self::HOME_ID,
+            new SyncCommand(
+                self::OPERATION_ID,
+                'purchasing.receipt.commit',
+                self::RECEIPT_ID,
+                3,
+                '2026-08-04T11:59:00+00:00',
+                1,
+                [],
+            ),
+        );
+
+        self::assertSame(['receiptId' => self::RECEIPT_ID, 'movements' => 0], $result);
+    }
+
+    private function dispatcher(
+        InventoryStore $inventoryStore,
+        PurchasingStore $purchasingStore,
+        ?UuidGenerator $ids = null,
+    ): PantrySyncCommandDispatcher {
+        $homeStore = $this->createStub(HomeStore::class);
+        $homeStore->method('membership')->willReturn([
+            'status' => 'active',
+            'role' => HomeAuthorization::MEMBER,
+        ]);
+        $authorization = new HomeAuthorization($homeStore);
+        $clock = new FixedClock(new DateTimeImmutable('2026-08-04T12:00:00+00:00'));
+        $transactions = new PantryImmediateTransactionManager();
+        $ids ??= $this->createStub(UuidGenerator::class);
+        $inventory = new InventoryService(
+            $inventoryStore,
+            $authorization,
+            $ids,
+            $clock,
+            $transactions,
+        );
+        $purchasing = new PurchasingService(
+            $purchasingStore,
+            $inventory,
+            $authorization,
+            $ids,
+            $clock,
+            $transactions,
+        );
+        $shopping = new ShoppingService(
+            $this->createStub(ShoppingStore::class),
+            $authorization,
+            new LegacySuggestionPolicy(),
+            $ids,
+            $clock,
+            $transactions,
+        );
+
+        return new PantrySyncCommandDispatcher($inventory, $purchasing, $shopping);
+    }
+
+    private function identity(): AuthenticatedIdentity
+    {
+        return new AuthenticatedIdentity(
+            self::USER_ID,
+            self::SESSION_ID,
+            self::DEVICE_ID,
+            self::HOME_ID,
+            [],
+        );
     }
 }
 

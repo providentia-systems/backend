@@ -13,7 +13,7 @@ candidate out of production.
 | Runtime image digest | Pending CI publication |
 | Media-worker image digest | Pending CI publication |
 | Web image digest | Pending CI publication |
-| OpenAPI contract | `1.11.0`, SHA-256 `6535298b37f99edb19d13afe1a2d36b8987ab4c051b091419eefe3ae8dbc469c` |
+| OpenAPI contract | `1.12.0`, SHA-256 `30604d238f9c29f9d6b09dbf1819c84a475cb93e94728a8b2888f9b65a865a44` |
 | Migration range | `Version20260729000100`–`Version20260809001600` |
 
 ## Automated acceptance
@@ -28,6 +28,8 @@ candidate out of production.
 | Secret, SAST, dependency and image scans | Pass | GitHub Security workflow |
 | Production runtime/media/web image smoke | Pass | Production image workflow |
 | Runtime/OpenAPI route parity | Pass | Structural and contract gates |
+| Catalog contribution privacy | Pass | Implemented with unit/SQLite regressions; branch CI pending |
+| Platform-role/home isolation | Pass | Implemented with permission-boundary regressions; branch CI pending |
 
 ## Operator acceptance
 

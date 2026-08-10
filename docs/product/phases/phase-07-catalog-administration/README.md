@@ -1,6 +1,7 @@
 # Phase 7 — governed global catalog administration
 
-Status: implementation checkpoint.
+Status: delivered backend governance capability, with the Phase 9 consent-bound
+contribution channel layered alongside it.
 
 Phase 7 turns the seeded global catalog into a moderated, auditable system
 without giving catalog staff access to household data. Authenticated users can
@@ -26,10 +27,18 @@ product merges.
 
 ## Catalog/home separation
 
-Catalog APIs never return home IDs, home-product IDs, quantities, locations,
-prices, receipts, lists, notes, AI settings, credentials, or media. A merge
-may internally relink `home_products.product_id` so existing households keep
-their history, but the curator sees only an aggregate `homeReferences` count.
+Catalog administration APIs never return home IDs, home-product IDs,
+quantities, household locations, receipts, lists, notes, AI settings,
+credentials, or private media. A merge may internally relink
+`home_products.product_id` so existing households keep their history, but the
+curator sees only an aggregate `homeReferences` count.
+
+The later contribution channel is deliberately separate from canonical
+proposal/merge governance. It permits only independently consented and
+moderator-approved product identity, public product-image metadata, and store
+price facts. Its moderator and public DTOs contain no contributor or household
+attribution, and the public projection excludes pending, rejected, withdrawn,
+and unsupported rows.
 
 Proposal submission is explicit per item. Providentia does not automatically
 publish unknown household products and does not silently deduplicate by name.

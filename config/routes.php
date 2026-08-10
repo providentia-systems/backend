@@ -621,6 +621,11 @@ return static function (Application $app): void {
         'api.catalog.contributions.submit',
     );
     $app->get(
+        '/api/v1/catalog-contributions',
+        'catalog.contributions.published.list',
+        'api.catalog.contributions.published.list',
+    );
+    $app->get(
         '/api/v1/catalog-contributions/review',
         [BearerAuthenticationMiddleware::class, 'catalog.contributions.review.list'],
         'api.catalog.contributions.review.list',

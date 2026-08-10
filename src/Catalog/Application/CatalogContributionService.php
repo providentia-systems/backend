@@ -18,6 +18,9 @@ final class CatalogContributionService
 {
     public const NOTICE_VERSION = 'catalog-sharing-v1';
 
+    /** @var list<string> */
+    private const CONTRIBUTION_TYPES = ['product_identity', 'product_image', 'store_price'];
+
     public function __construct(
         private readonly CatalogContributionStore $store,
         private readonly HomeAuthorization $homes,
@@ -201,7 +204,24 @@ final class CatalogContributionService
             throw new Problem(422, 'Invalid contribution queue', 'The requested moderation queue is invalid.');
         }
 
-        return $this->store->reviewQueue($status, min(100, max(1, $limit)), max(0, $offset));
+        return array_map(
+            fn (array $row): array => $this->reviewProjection($row),
+            $this->store->reviewQueue($status, min(100, max(1, $limit)), max(0, $offset)),
+        );
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function published(?string $type, int $limit, int $offset): array
+    {
+        $type = $type === null || trim($type) === '' ? null : trim($type);
+        if ($type !== null && ! in_array($type, self::CONTRIBUTION_TYPES, true)) {
+            throw new Problem(422, 'Invalid contribution type', 'The requested contribution type is invalid.');
+        }
+
+        return array_map(
+            fn (array $row): array => $this->publishedProjection($row),
+            $this->store->published($type, min(100, max(1, $limit)), max(0, $offset)),
+        );
     }
 
     public function decide(
@@ -348,6 +368,91 @@ final class CatalogContributionService
             'currency' => $currency,
             'observedOn' => $observedOn,
         ], static fn (string $value): bool => $value !== '');
+    }
+
+    /**
+     * Defence-in-depth allowlist for moderator responses. The persistence
+     * query already omits attribution; this projection prevents a future
+     * store implementation from accidentally returning it.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function reviewProjection(array $row): array
+    {
+        return array_filter([
+            'id' => (string) ($row['id'] ?? ''),
+            'contributionType' => (string) ($row['contributionType'] ?? ''),
+            'payload' => $this->publishedPayload(
+                (string) ($row['contributionType'] ?? ''),
+                $row['payload'] ?? [],
+            ),
+            'status' => (string) ($row['status'] ?? ''),
+            'revision' => (int) ($row['revision'] ?? 0),
+            'consentNoticeVersion' => (string) ($row['consentNoticeVersion'] ?? ''),
+            'consentRevision' => (int) ($row['consentRevision'] ?? 0),
+            'createdAt' => (string) ($row['createdAt'] ?? ''),
+        ], static fn (mixed $value): bool => $value !== '');
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array{contributionType: string, payload: array<string, string>, publishedAt: string}
+     */
+    private function publishedProjection(array $row): array
+    {
+        $type = (string) ($row['contributionType'] ?? '');
+
+        return [
+            'contributionType' => $type,
+            'payload' => $this->publishedPayload($type, $row['payload'] ?? []),
+            'publishedAt' => $this->publishedDate($row['publishedAt'] ?? null),
+        ];
+    }
+
+    private function publishedDate(mixed $value): string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return '';
+        }
+        try {
+            return (new DateTimeImmutable($value, new \DateTimeZone('UTC')))
+                ->setTimezone(new \DateTimeZone('UTC'))
+                ->format(DATE_ATOM);
+        } catch (\Exception) {
+            return '';
+        }
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function publishedPayload(string $type, mixed $payload): array
+    {
+        if (is_string($payload)) {
+            try {
+                $payload = json_decode($payload, true, 32, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                $payload = [];
+            }
+        }
+        if (! is_array($payload)) {
+            return [];
+        }
+        $allowed = match ($type) {
+            'product_identity' => ['canonicalName', 'brand', 'categoryLabel', 'barcode', 'packText'],
+            'product_image' => ['assetDigest', 'mediaType', 'altText', 'provenance'],
+            'store_price' => ['productId', 'storeName', 'storeLocation', 'price', 'currency', 'observedOn'],
+            default => [],
+        };
+        $projected = [];
+        foreach ($allowed as $key) {
+            if (isset($payload[$key]) && is_string($payload[$key])) {
+                $projected[$key] = $payload[$key];
+            }
+        }
+
+        return $projected;
     }
 
     /** @param array<string, mixed> $details */
