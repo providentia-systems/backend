@@ -332,6 +332,10 @@ final class PurchasingService
             if ($line === null) {
                 throw new \RuntimeException('The updated receipt line is unavailable.');
             }
+            $receipt = $this->purchases->receipt($homeId, $receiptId);
+            if ($receipt === null) {
+                throw new \RuntimeException('The updated receipt is unavailable.');
+            }
             unset($line['id'], $line['revision']);
             $this->changes?->put(
                 $homeId,
@@ -340,6 +344,24 @@ final class PurchasingService
                 $lineId,
                 $expectedRevision + 1,
                 $line,
+                $this->clock->now(),
+            );
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'purchasing-receipt',
+                $receiptId,
+                (int) $receipt['revision'],
+                [
+                    'storeId' => $receipt['storeId'] ?? null,
+                    'purchaseDate' => (string) $receipt['purchaseDate'],
+                    'currency' => (string) $receipt['currency'],
+                    'totalAmount' => $receipt['totalAmount'] ?? null,
+                    'status' => (string) $receipt['status'],
+                    'source' => (string) ($receipt['source'] ?? 'manual'),
+                    'sourceReference' => $receipt['sourceReference'] ?? null,
+                    'notes' => (string) ($receipt['notes'] ?? ''),
+                ],
                 $this->clock->now(),
             );
         });

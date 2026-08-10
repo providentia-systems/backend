@@ -12,6 +12,7 @@ use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Application\InventoryMovementGateway;
 use Providentia\Purchasing\Application\PurchasingService;
 use Providentia\Purchasing\Application\PurchasingStore;
+use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use ProvidentiaTest\Unit\Home\HomeFixedClock;
@@ -27,6 +28,140 @@ final class PurchasingServiceTest extends TestCase
     private const STORE_ID = '01912345-6789-7abc-ddef-0123456789ab';
     private const PACK_ID = '01912345-6789-7abc-edef-0123456789ab';
     private const PRICE_ID = '01912345-6789-7abc-8def-1123456789ab';
+
+    public function testApprovingLinePublishesUpdatedLineAndPublicReceiptProjection(): void
+    {
+        $draftReceipt = [
+            'id' => self::RECEIPT_ID,
+            'homeId' => self::HOME_ID,
+            'storeId' => self::STORE_ID,
+            'storeName' => 'Internal store label',
+            'purchaseDate' => '2026-08-03',
+            'currency' => 'NAD',
+            'totalAmount' => '37.50',
+            'status' => 'draft',
+            'source' => 'manual',
+            'sourceReference' => null,
+            'notes' => 'Household groceries',
+            'revision' => 6,
+            'createdByUserId' => self::USER_ID,
+            'createdAt' => '2026-08-03T10:00:00+00:00',
+            'updatedAt' => '2026-08-03T10:00:00+00:00',
+        ];
+        $updatedReceipt = [
+            ...$draftReceipt,
+            'revision' => 7,
+            'updatedAt' => '2026-08-04T12:00:00+00:00',
+        ];
+        $updatedLine = [
+            'id' => self::LINE_ID,
+            'lineNumber' => 1,
+            'rawDescription' => '3 pantry items',
+            'quantity' => '3',
+            'originalPackText' => null,
+            'unitPrice' => '12.50',
+            'lineTotal' => '37.50',
+            'homeProductId' => self::PRODUCT_ID,
+            'productId' => null,
+            'packId' => self::PACK_ID,
+            'productName' => 'Private pantry item',
+            'approvalStatus' => 'approved',
+            'revision' => 2,
+            'createdAt' => '2026-08-03T10:00:00+00:00',
+            'updatedAt' => '2026-08-04T12:00:00+00:00',
+        ];
+        $purchases = $this->createMock(PurchasingStore::class);
+        $purchases->expects(self::exactly(2))
+            ->method('receipt')
+            ->with(self::HOME_ID, self::RECEIPT_ID)
+            ->willReturnOnConsecutiveCalls($draftReceipt, $updatedReceipt);
+        $purchases->expects(self::once())
+            ->method('approveReceiptLine')
+            ->with(
+                self::HOME_ID,
+                self::RECEIPT_ID,
+                self::LINE_ID,
+                self::PRODUCT_ID,
+                1,
+                self::USER_ID,
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(true);
+        $purchases->expects(self::once())
+            ->method('receiptLine')
+            ->with(self::HOME_ID, self::RECEIPT_ID, self::LINE_ID)
+            ->willReturn($updatedLine);
+        $published = [];
+        $changes = $this->createMock(ChangeFeedWriter::class);
+        $changes->expects(self::exactly(2))
+            ->method('put')
+            ->willReturnCallback(
+                static function (
+                    string $homeId,
+                    string $actorUserId,
+                    string $entityType,
+                    string $entityId,
+                    int $revision,
+                    array $representation,
+                    DateTimeImmutable $at,
+                ) use (&$published): int {
+                    $published[] = [
+                        'homeId' => $homeId,
+                        'actorUserId' => $actorUserId,
+                        'entityType' => $entityType,
+                        'entityId' => $entityId,
+                        'revision' => $revision,
+                        'representation' => $representation,
+                        'at' => $at->format(DATE_ATOM),
+                    ];
+
+                    return count($published);
+                },
+            );
+
+        $this->service(
+            $purchases,
+            $this->createStub(InventoryMovementGateway::class),
+            $changes,
+        )->approveLine(
+            $this->identity(),
+            self::HOME_ID,
+            self::RECEIPT_ID,
+            self::LINE_ID,
+            self::PRODUCT_ID,
+            1,
+        );
+
+        self::assertSame([
+            [
+                'homeId' => self::HOME_ID,
+                'actorUserId' => self::USER_ID,
+                'entityType' => 'purchasing-receipt-line',
+                'entityId' => self::LINE_ID,
+                'revision' => 2,
+                'representation' => array_diff_key($updatedLine, array_flip(['id', 'revision'])),
+                'at' => '2026-08-04T12:00:00+00:00',
+            ],
+            [
+                'homeId' => self::HOME_ID,
+                'actorUserId' => self::USER_ID,
+                'entityType' => 'purchasing-receipt',
+                'entityId' => self::RECEIPT_ID,
+                'revision' => 7,
+                'representation' => [
+                    'storeId' => self::STORE_ID,
+                    'purchaseDate' => '2026-08-03',
+                    'currency' => 'NAD',
+                    'totalAmount' => '37.50',
+                    'status' => 'draft',
+                    'source' => 'manual',
+                    'sourceReference' => null,
+                    'notes' => 'Household groceries',
+                ],
+                'at' => '2026-08-04T12:00:00+00:00',
+            ],
+        ], $published);
+    }
 
     public function testCommittedReceiptIsAnIdempotentReplayWithoutDuplicateMovements(): void
     {
@@ -182,6 +317,7 @@ final class PurchasingServiceTest extends TestCase
     private function service(
         PurchasingStore $purchases,
         InventoryMovementGateway $inventory,
+        ?ChangeFeedWriter $changes = null,
     ): PurchasingService {
         $homes = $this->createStub(HomeStore::class);
         $homes->method('membership')->willReturn([
@@ -198,6 +334,7 @@ final class PurchasingServiceTest extends TestCase
             $ids,
             new HomeFixedClock(new DateTimeImmutable('2026-08-04T12:00:00+00:00')),
             new RecordingTransactionManager(),
+            $changes,
         );
     }
 
