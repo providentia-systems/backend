@@ -302,10 +302,12 @@ final class PurchasingServiceTest extends TestCase
 
     public function testUnresolvedDecisionConcealsViewerAndForeignHomeWithoutStoreAccess(): void
     {
-        foreach ([
-            ['status' => 'active', 'role' => HomeAuthorization::VIEWER],
-            null,
-        ] as $membership) {
+        foreach (
+            [
+                ['status' => 'active', 'role' => HomeAuthorization::VIEWER],
+                null,
+            ] as $membership
+        ) {
             $purchases = $this->createMock(PurchasingStore::class);
             $purchases->expects(self::never())->method('receipt');
             $purchases->expects(self::never())->method('receiptLine');

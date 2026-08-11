@@ -214,20 +214,20 @@ final class BaselineImportParityTest extends TestCase
     private function tableCounts(): array
     {
         return [
-            'runs' => $this->count('baseline_import_runs'),
-            'mappings' => $this->count('baseline_import_mappings'),
-            'homeProducts' => $this->count('home_products'),
-            'countLines' => $this->count('stock_count_lines'),
-            'movements' => $this->count('stock_movements'),
-            'balances' => $this->count('inventory_balances'),
-            'receipts' => $this->count('receipts'),
-            'receiptLines' => $this->count('receipt_lines'),
-            'matches' => $this->count('receipt_line_matches'),
-            'prices' => $this->count('price_observations'),
+            'runs' => $this->countRows('baseline_import_runs'),
+            'mappings' => $this->countRows('baseline_import_mappings'),
+            'homeProducts' => $this->countRows('home_products'),
+            'countLines' => $this->countRows('stock_count_lines'),
+            'movements' => $this->countRows('stock_movements'),
+            'balances' => $this->countRows('inventory_balances'),
+            'receipts' => $this->countRows('receipts'),
+            'receiptLines' => $this->countRows('receipt_lines'),
+            'matches' => $this->countRows('receipt_line_matches'),
+            'prices' => $this->countRows('price_observations'),
         ];
     }
 
-    private function count(string $table): int
+    private function countRows(string $table): int
     {
         return (int) $this->connection->fetchOne('SELECT COUNT(*) FROM ' . $table);
     }
