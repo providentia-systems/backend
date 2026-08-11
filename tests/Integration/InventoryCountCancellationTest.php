@@ -1,0 +1,216 @@
+<?php
+
+declare(strict_types=1);
+
+namespace ProvidentiaTest\Integration;
+
+use DateTimeImmutable;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\DriverManager;
+use PHPUnit\Framework\TestCase;
+use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomeStore;
+use Providentia\Identity\Application\AuthenticatedIdentity;
+use Providentia\Inventory\Application\InventoryService;
+use Providentia\Inventory\Infrastructure\Doctrine\DbalInventoryStore;
+use Providentia\SharedKernel\Application\Clock;
+use Providentia\SharedKernel\Application\Problem;
+use Providentia\SharedKernel\Application\TransactionManager;
+use Providentia\Synchronization\Infrastructure\Doctrine\DbalChangeFeedWriter;
+
+final class InventoryCountCancellationTest extends TestCase
+{
+    private const HOME_ID = '01912345-6789-7abc-8def-0123456789ab';
+    private const OTHER_HOME_ID = '01912345-6789-7abc-9def-0123456789ab';
+    private const USER_ID = '01912345-6789-7abc-adef-0123456789ab';
+    private const SESSION_ID = '01912345-6789-7abc-bdef-0123456789ab';
+
+    private Connection $connection;
+    private InventoryService $service;
+
+    protected function setUp(): void
+    {
+        $this->connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
+        foreach ($this->schema() as $statement) {
+            $this->connection->executeStatement($statement);
+        }
+        $this->connection->insert('stock_count_sessions', [
+            'id' => self::SESSION_ID,
+            'home_id' => self::HOME_ID,
+            'location_id' => null,
+            'status' => 'open',
+            'notes' => 'Shelf count',
+            'scope_complete' => 0,
+            'reliability' => 'unassessed',
+            'revision' => 4,
+            'opened_by_user_id' => self::USER_ID,
+            'opened_at' => '2026-08-11 08:00:00',
+            'closed_by_user_id' => null,
+            'closed_at' => null,
+            'created_at' => '2026-08-11 08:00:00',
+            'updated_at' => '2026-08-11 08:00:00',
+        ]);
+        $homes = $this->createStub(HomeStore::class);
+        $homes->method('membership')->willReturn([
+            'status' => 'active',
+            'role' => HomeAuthorization::OWNER,
+        ]);
+        $this->service = new InventoryService(
+            new DbalInventoryStore($this->connection),
+            new HomeAuthorization($homes),
+            new SequenceUuidGenerator(),
+            new CountCancellationFixedClock(new DateTimeImmutable('2026-08-11T10:00:00+00:00')),
+            new CountCancellationTransactionManager($this->connection),
+            new DbalChangeFeedWriter($this->connection, new SequenceUuidGenerator()),
+        );
+    }
+
+    public function testCancellationPersistsAndPublishesExactlyOnceWithoutCreatingMovements(): void
+    {
+        $first = $this->service->cancelCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            4,
+        );
+        $replay = $this->service->cancelCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            4,
+        );
+
+        self::assertSame(
+            ['sessionId' => self::SESSION_ID, 'status' => 'cancelled', 'revision' => 5],
+            $first,
+        );
+        self::assertSame($first, $replay);
+        $session = $this->connection->fetchAssociative(
+            'SELECT status, revision, closed_by_user_id, closed_at
+             FROM stock_count_sessions WHERE home_id = :home AND id = :id',
+            ['home' => self::HOME_ID, 'id' => self::SESSION_ID],
+        );
+        if ($session === false) {
+            self::fail('The cancelled count session is missing.');
+        }
+        self::assertSame('cancelled', $session['status']);
+        self::assertSame(5, (int) $session['revision']);
+        self::assertSame(self::USER_ID, $session['closed_by_user_id']);
+        self::assertSame('2026-08-11 10:00:00', $session['closed_at']);
+        self::assertSame(0, $this->rowCount('stock_movements'));
+        self::assertSame(1, $this->rowCount('change_log'));
+        self::assertSame(1, $this->rowCount('outbox_messages'));
+
+        $change = $this->connection->fetchAssociative(
+            'SELECT home_id, entity_type, entity_id, operation_type, revision,
+                    payload_schema_version, payload_json, changed_by_user_id
+             FROM change_log',
+        );
+        if ($change === false) {
+            self::fail('The cancellation change-feed row is missing.');
+        }
+        self::assertSame(self::HOME_ID, $change['home_id']);
+        self::assertSame('inventory-count-session', $change['entity_type']);
+        self::assertSame(self::SESSION_ID, $change['entity_id']);
+        self::assertSame('put', $change['operation_type']);
+        self::assertSame(5, (int) $change['revision']);
+        self::assertSame(1, (int) $change['payload_schema_version']);
+        self::assertSame(self::USER_ID, $change['changed_by_user_id']);
+        self::assertSame([
+            'locationId' => null,
+            'notes' => 'Shelf count',
+            'scopeComplete' => false,
+            'reliability' => 'unassessed',
+            'status' => 'cancelled',
+        ], json_decode((string) $change['payload_json'], true, 32, JSON_THROW_ON_ERROR));
+    }
+
+    public function testCancellationCannotCrossHomeBoundary(): void
+    {
+        try {
+            $this->service->cancelCount(
+                $this->identity(),
+                self::OTHER_HOME_ID,
+                self::SESSION_ID,
+                4,
+            );
+            self::fail('A count session was cancelled through another home.');
+        } catch (Problem $problem) {
+            self::assertSame(404, $problem->status);
+        }
+
+        self::assertSame('open', $this->connection->fetchOne(
+            'SELECT status FROM stock_count_sessions WHERE home_id = :home AND id = :id',
+            ['home' => self::HOME_ID, 'id' => self::SESSION_ID],
+        ));
+        self::assertSame(0, $this->rowCount('change_log'));
+        self::assertSame(0, $this->rowCount('stock_movements'));
+    }
+
+    /** @return list<string> */
+    private function schema(): array
+    {
+        return [
+            'CREATE TABLE home_locations (id TEXT, home_id TEXT, name TEXT)',
+            'CREATE TABLE stock_count_sessions (
+                id TEXT PRIMARY KEY, home_id TEXT NOT NULL, location_id TEXT NULL,
+                status TEXT NOT NULL, notes TEXT NOT NULL, scope_complete INTEGER NOT NULL,
+                reliability TEXT NOT NULL, revision INTEGER NOT NULL,
+                opened_by_user_id TEXT NOT NULL, opened_at TEXT NOT NULL,
+                closed_by_user_id TEXT NULL, closed_at TEXT NULL,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            )',
+            'CREATE TABLE stock_movements (id TEXT PRIMARY KEY)',
+            'CREATE TABLE change_log (
+                sequence_id INTEGER PRIMARY KEY AUTOINCREMENT, home_id TEXT NOT NULL,
+                entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
+                operation_type TEXT NOT NULL, revision INTEGER NOT NULL,
+                payload_schema_version INTEGER NOT NULL, payload_json TEXT NOT NULL,
+                changed_by_user_id TEXT NOT NULL, changed_at TEXT NOT NULL
+            )',
+            'CREATE TABLE outbox_messages (
+                id TEXT PRIMARY KEY, message_type TEXT NOT NULL, queue_name TEXT NOT NULL,
+                payload TEXT NOT NULL, occurred_at TEXT NOT NULL, available_at TEXT NOT NULL,
+                published_at TEXT NULL, attempts INTEGER NOT NULL, last_error TEXT NULL,
+                status TEXT NOT NULL
+            )',
+        ];
+    }
+
+    private function rowCount(string $table): int
+    {
+        return (int) $this->connection->fetchOne('SELECT COUNT(*) FROM ' . $table);
+    }
+
+    private function identity(): AuthenticatedIdentity
+    {
+        return new AuthenticatedIdentity(self::USER_ID, 'session', 'device', self::HOME_ID, []);
+    }
+}
+
+// phpcs:disable PSR1.Classes.ClassDeclaration.MultipleClasses -- focused test adapters belong with the integration.
+final readonly class CountCancellationFixedClock implements Clock
+{
+    public function __construct(private DateTimeImmutable $now)
+    {
+    }
+
+    public function now(): DateTimeImmutable
+    {
+        return $this->now;
+    }
+}
+
+final readonly class CountCancellationTransactionManager implements TransactionManager
+{
+    public function __construct(private Connection $connection)
+    {
+    }
+
+    public function transactional(callable $operation): mixed
+    {
+        return $this->connection->transactional(
+            static fn (Connection $_connection): mixed => $operation(),
+        );
+    }
+}

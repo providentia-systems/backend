@@ -5,17 +5,23 @@ remain governed by the P0–P3 integration roadmap.
 
 Phase 5 introduces the first complete household-stock vertical slice. Stock is
 derived from an append-only movement ledger; count sessions reconcile observed
-physical quantities; manually entered receipt lines require human matching
-before commit; approved receipt lines create idempotent inbound movements;
+physical quantities; manually entered receipt lines require a durable human
+decision before commit; approved receipt lines create idempotent inbound
+movements while intentionally unresolved lines retain raw evidence without
+price or stock effects;
 shopping lists use optimistic revisions; and the verified v1 evidence is
 imported through a checksum-gated, replay-safe command.
 
 ## Delivered surfaces
 
-- Home item master and catalog/private product selection
+- Typed, deterministically paged home item master with canonical product/pack
+  identity, authorized aliases, current home linkage, and balance
+- Catalog/private product selection, including protocol-v2 creation from a
+  selected published product and pack
 - Home locations, stock balances, movements, and administrative rebuild
-- Open/close physical count sessions with revision-checked lines
-- Draft receipts, explicit line matching, commit, history, store, and price data
+- Open/close/cancel physical count sessions with revision-checked lines
+- Draft receipts, explicit approved/unresolved line decisions, commit, history,
+  store, and price data
 - Manual shopping lists and checked-line state
 - Clearly labelled legacy-parity suggestions pending Phase 8
 - Home dashboard projections through module-owned read interfaces
@@ -43,6 +49,7 @@ forecasting. Those responsibilities belong to Phases 6, 7, and 8.
 Current P1/P2 regressions cover manual-adjustment replay without duplicate
 change-feed publication, cross-home product denial, count-line revision
 conflict, idempotent count closure, receipt-commit replay, receipt revision
-conflict, explicit line approval, inbound movement/price observation, and
-protocol-v2 command forwarding. These tests are release evidence only after
-the branch quality workflow passes them on the supported database matrix.
+conflict, explicit approved/unresolved line decisions, inbound movement/price
+isolation, and protocol-v2 command forwarding/replay. These tests are release
+evidence only after the branch quality workflow passes them on the supported
+database matrix.

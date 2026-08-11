@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Providentia API",
-    "version": "1.12.0",
+    "version": "1.13.2",
     "summary": "Authoritative Providentia backend contract through the production-readiness programme",
-    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds email-only login-link authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation.\n\nVersion 1.10 adds typed pantry synchronization, catalog sharing/imports, data rights, commercial controls, multi-provider AI orchestration, encrypted private media, and production acceptance surfaces.\n\nVersion 1.11 adds cross-device login-link approval with origin-client polling and PKCE exchange, current-user bootstrap, recipient invitation acceptance, platform-administrator management, and explicit sliding-session metadata.\n\nVersion 1.11.1 exposes the installation UUID separately from the account-scoped device UUID so clients can validate login-link session binding without rejecting valid sessions.\n\nVersion 1.12 publishes only moderator-approved, consent-bound catalog contribution facts through a bounded attribution-free global projection."
+    "description": "Bounded identity, multi-home tenancy, published global catalog reads, and home-scoped offline synchronization.\n\nVersion 1.4 adds the Phase 5 inventory ledger, counts, purchasing review, shopping lists, and dashboard projections.\n\nVersion 1.5 adds privacy-controlled, human-reviewed AI extraction.\n\nVersion 1.6 adds sanitized catalog proposals, role-separated moderation, icon metadata, redirects, and reversible product merges.\n\nVersion 1.8 adds email-only login-link authentication and durable encrypted notification delivery.\n\nVersion 1.9 adds revisioned household permissions, revocable invitations, and accepted ownership transfer with step-up confirmation.\n\nVersion 1.10 adds typed pantry synchronization, catalog sharing/imports, data rights, commercial controls, multi-provider AI orchestration, encrypted private media, and production acceptance surfaces.\n\nVersion 1.11 adds cross-device login-link approval with origin-client polling and PKCE exchange, current-user bootstrap, recipient invitation acceptance, platform-administrator management, and explicit sliding-session metadata.\n\nVersion 1.11.1 exposes the installation UUID separately from the account-scoped device UUID so clients can validate login-link session binding without rejecting valid sessions.\n\nVersion 1.12 publishes only moderator-approved, consent-bound catalog contribution facts through a bounded attribution-free global projection.\n\nVersion 1.13 adds revision-bound, idempotent stock-count cancellation to the online API and protocol-v2 synchronization command set, publishes a precise AI media-handling disclosure that distinguishes transient direct extraction from explicit encrypted private-media storage, and provides a typed, deterministic, paged home item master for offline caching.\n\nVersion 1.13.1 documents the non-disclosing 404 response used when a home is revoked or foreign, allowing clients to purge stale private projections instead of retrying indefinitely.\n\nVersion 1.13.2 exhaustively documents non-disclosing home authorization for AI and shopping operations and adds a revisioned receipt-line unresolved decision across ordinary HTTP and protocol-v2 synchronization; receipt commit processes approved lines while retaining unresolved raw lines without price or stock effects."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -2056,6 +2056,9 @@
           },
           "403": {
             "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
           }
         }
       }
@@ -2098,6 +2101,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
           },
           "410": {
             "$ref": "#/components/responses/Problem"
@@ -2145,6 +2151,9 @@
               }
             }
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "410": {
             "$ref": "#/components/responses/Problem"
           }
@@ -2184,6 +2193,9 @@
             }
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "422": {
@@ -2327,7 +2339,8 @@
             "name": "q",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 191
             }
           },
           {
@@ -2364,18 +2377,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": [
-                    "data"
-                  ],
-                  "properties": {
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/HomeProduct"
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/HomeItemMasterPage"
                 }
               }
             }
@@ -2384,6 +2386,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -2417,7 +2422,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HomeProduct"
+                  "$ref": "#/components/schemas/CreatedHomeProduct"
                 }
               }
             }
@@ -2944,6 +2949,81 @@
         }
       }
     },
+    "/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/cancel": {
+      "post": {
+        "operationId": "cancelStockCountSession",
+        "tags": [
+          "Inventory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpectedRevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Open count cancelled without creating inventory movements",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "sessionId",
+                    "status",
+                    "revision"
+                  ],
+                  "properties": {
+                    "sessionId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "const": "cancelled"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/api/v1/homes/{homeId}/receipts": {
       "get": {
         "operationId": "listReceipts",
@@ -3313,6 +3393,74 @@
         }
       }
     },
+    "/api/v1/homes/{homeId}/receipts/{receiptId}/lines/{lineId}/unresolve": {
+      "post": {
+        "operationId": "unresolveReceiptLine",
+        "tags": [
+          "Purchasing"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/HomeId"
+          },
+          {
+            "name": "receiptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "lineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpectedRevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Receipt line intentionally left unresolved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptLineDecisionResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/api/v1/homes/{homeId}/receipts/{receiptId}/commit": {
       "post": {
         "operationId": "commitReceipt",
@@ -3405,6 +3553,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           }
@@ -3445,6 +3596,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -3488,6 +3642,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -3541,6 +3698,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -3598,6 +3758,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           }
@@ -3632,6 +3795,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           }
@@ -3664,6 +3830,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -3706,6 +3875,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -3760,6 +3932,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           }
@@ -3793,6 +3968,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           }
@@ -3813,7 +3991,8 @@
               "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/AiProviderProfile"}}}
             }}}
           },
-          "403": {"$ref": "#/components/responses/Problem"}
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"}
         }
       },
       "post": {
@@ -3824,6 +4003,7 @@
         "responses": {
           "201": {"description": "Provider profile created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiProviderProfile"}}}},
           "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"},
           "422": {"$ref": "#/components/responses/Problem"}
         }
@@ -3841,6 +4021,7 @@
         "responses": {
           "201": {"description": "Provider profile updated", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiProviderProfile"}}}},
           "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"},
           "422": {"$ref": "#/components/responses/Problem"}
         }
@@ -3856,6 +4037,7 @@
         "responses": {
           "204": {"description": "Provider profile revoked"},
           "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"}
         }
       }
@@ -3867,7 +4049,8 @@
         "parameters": [{"$ref": "#/components/parameters/HomeId"}],
         "responses": {
           "200": {"description": "AI orchestration policy", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiOrchestrationPolicy"}}}},
-          "403": {"$ref": "#/components/responses/Problem"}
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"}
         }
       },
       "put": {
@@ -3878,6 +4061,7 @@
         "responses": {
           "200": {"description": "AI orchestration policy updated", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiOrchestrationPolicy"}}}},
           "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"},
           "422": {"$ref": "#/components/responses/Problem"}
         }
@@ -3954,6 +4138,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           },
@@ -3978,6 +4165,7 @@
         "responses": {
           "201": {"description": "Structured candidates ready for mandatory review", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiExtractionCreated"}}}},
           "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"},
           "422": {"$ref": "#/components/responses/Problem"},
           "502": {"$ref": "#/components/responses/Problem"}
@@ -4019,6 +4207,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -4076,6 +4267,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           },
@@ -4098,6 +4292,7 @@
         "responses": {
           "204": {"description": "Duplicate-observation decision reviewed; inventory is unchanged"},
           "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"},
           "422": {"$ref": "#/components/responses/Problem"}
         }
@@ -4116,6 +4311,7 @@
         "responses": {
           "204": {"description": "Independent-validation discrepancy reviewed; inventory is unchanged"},
           "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"},
           "422": {"$ref": "#/components/responses/Problem"}
         }
@@ -4132,7 +4328,8 @@
         ],
         "responses": {
           "200": {"description": "Private media and current household quota usage", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrivateMediaList"}}}},
-          "403": {"$ref": "#/components/responses/Problem"}
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"}
         }
       },
       "post": {
@@ -4151,6 +4348,7 @@
         "responses": {
           "201": {"description": "Media encrypted and stored", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrivateMediaUploadResult"}}}},
           "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"},
           "413": {"$ref": "#/components/responses/Problem"},
           "415": {"$ref": "#/components/responses/Problem"}
@@ -4168,6 +4366,7 @@
         "responses": {
           "200": {"description": "Bounded encrypted private-media export", "content": {"application/json": {"schema": {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/PrivateMediaExportItem"}}}}}}},
           "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
           "413": {"$ref": "#/components/responses/Problem"}
         }
       }
@@ -4725,6 +4924,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           }
@@ -4757,6 +4959,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -4823,6 +5028,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           }
@@ -4864,6 +5072,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -4948,6 +5159,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           }
@@ -4987,6 +5201,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -5090,6 +5307,9 @@
           "403": {
             "$ref": "#/components/responses/Problem"
           },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
           "409": {
             "$ref": "#/components/responses/Problem"
           }
@@ -5122,6 +5342,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -5197,6 +5420,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
             "$ref": "#/components/responses/Problem"
           },
           "409": {
@@ -7375,10 +7601,12 @@
               "inventory.count-session.create",
               "inventory.count-line.upsert",
               "inventory.count-session.close",
+              "inventory.count-session.cancel",
               "purchasing.store.create",
               "purchasing.receipt.create",
               "purchasing.receipt-line.create",
               "purchasing.receipt-line.approve",
+              "purchasing.receipt-line.unresolve",
               "purchasing.receipt.commit",
               "shopping.list.create",
               "shopping.list-line.create",
@@ -7433,6 +7661,10 @@
             "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncEmptyPayload"}}}
           },
           {
+            "if": {"properties": {"commandType": {"const": "inventory.count-session.cancel"}}, "required": ["commandType"]},
+            "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncEmptyPayload"}}}
+          },
+          {
             "if": {"properties": {"commandType": {"const": "purchasing.store.create"}}, "required": ["commandType"]},
             "then": {"properties": {"payload": {"$ref": "#/components/schemas/SyncStoreCreatePayload"}}}
           },
@@ -7447,6 +7679,10 @@
           {
             "if": {"properties": {"commandType": {"const": "purchasing.receipt-line.approve"}}, "required": ["commandType"]},
             "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncReceiptLineApprovePayload"}}}
+          },
+          {
+            "if": {"properties": {"commandType": {"const": "purchasing.receipt-line.unresolve"}}, "required": ["commandType"]},
+            "then": {"required": ["baseRevision"], "properties": {"payload": {"$ref": "#/components/schemas/SyncReceiptLineUnresolvePayload"}}}
           },
           {
             "if": {"properties": {"commandType": {"const": "purchasing.receipt.commit"}}, "required": ["commandType"]},
@@ -7484,11 +7720,25 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["productId", "packId", "privateName", "originalPackText"],
+        "anyOf": [
+          {
+            "properties": {"productId": {"type": "string", "format": "uuid"}},
+            "required": ["productId"]
+          },
+          {
+            "properties": {"packId": {"type": "string", "format": "uuid"}},
+            "required": ["packId"]
+          },
+          {
+            "properties": {"privateName": {"type": "string", "minLength": 1, "maxLength": 191}},
+            "required": ["privateName"]
+          }
+        ],
         "properties": {
           "productId": {"type": ["string", "null"], "format": "uuid"},
           "packId": {"type": ["string", "null"], "format": "uuid"},
-          "privateName": {"type": ["string", "null"]},
-          "originalPackText": {"type": ["string", "null"]}
+          "privateName": {"type": ["string", "null"], "maxLength": 191},
+          "originalPackText": {"type": ["string", "null"], "maxLength": 191}
         }
       },
       "SyncInventoryAdjustmentPayload": {
@@ -7566,6 +7816,14 @@
         "properties": {
           "receiptId": {"type": "string", "format": "uuid"},
           "homeProductId": {"type": "string", "format": "uuid"}
+        }
+      },
+      "SyncReceiptLineUnresolvePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["receiptId"],
+        "properties": {
+          "receiptId": {"type": "string", "format": "uuid"}
         }
       },
       "SyncShoppingListCreatePayload": {
@@ -8027,6 +8285,81 @@
           }
         }
       },
+      "HomeItemMasterProduct": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "productId",
+          "packId",
+          "canonicalName",
+          "brand",
+          "categoryId",
+          "categoryName",
+          "packText",
+          "packStatus",
+          "aliases",
+          "homeProductId",
+          "homeProductStatus",
+          "quantity"
+        ],
+        "properties": {
+          "productId": {"type": "string", "format": "uuid"},
+          "packId": {"type": "string", "format": "uuid"},
+          "canonicalName": {"type": "string", "minLength": 1, "maxLength": 191},
+          "brand": {"type": "string", "maxLength": 120},
+          "categoryId": {"type": "string", "format": "uuid"},
+          "categoryName": {"type": "string", "minLength": 1, "maxLength": 191},
+          "packText": {"type": "string", "maxLength": 191},
+          "packStatus": {
+            "type": "string",
+            "enum": ["published", "pending-normalization"]
+          },
+          "aliases": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 191}
+          },
+          "homeProductId": {"type": ["string", "null"], "format": "uuid"},
+          "homeProductStatus": {
+            "type": ["string", "null"],
+            "enum": ["active", null]
+          },
+          "quantity": {"type": "string", "pattern": "^-?[0-9]+(?:\\.[0-9]+)?$"}
+        }
+      },
+      "OffsetPagination": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["limit", "offset", "returned", "total", "hasMore", "nextOffset"],
+        "properties": {
+          "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+          "offset": {"type": "integer", "minimum": 0},
+          "returned": {"type": "integer", "minimum": 0, "maximum": 100},
+          "total": {"type": "integer", "minimum": 0},
+          "hasMore": {"type": "boolean"},
+          "nextOffset": {"type": ["integer", "null"], "minimum": 0}
+        }
+      },
+      "HomeItemMasterPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "pagination"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/HomeItemMasterProduct"}
+          },
+          "pagination": {"$ref": "#/components/schemas/OffsetPagination"}
+        }
+      },
+      "CreatedHomeProduct": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"}
+        }
+      },
       "InventoryBalance": {
         "type": "object",
         "required": [
@@ -8202,7 +8535,12 @@
             ]
           },
           "status": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "cancelled"
+            ]
           },
           "notes": {
             "type": "string"
@@ -8292,11 +8630,39 @@
             ]
           },
           "approvalStatus": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "approved",
+              "unresolved",
+              "approved-catalog"
+            ]
           },
           "revision": {
             "type": "integer",
             "minimum": 1
+          }
+        }
+      },
+      "ReceiptLineDecisionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "revision",
+          "approvalStatus"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "approvalStatus": {
+            "const": "unresolved"
           }
         }
       },
@@ -8475,6 +8841,20 @@
       "CreateHomeProductRequest": {
         "type": "object",
         "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": ["productId"],
+            "properties": {"productId": {"type": "string", "format": "uuid"}}
+          },
+          {
+            "required": ["packId"],
+            "properties": {"packId": {"type": "string", "format": "uuid"}}
+          },
+          {
+            "required": ["privateName"],
+            "properties": {"privateName": {"type": "string", "minLength": 1, "maxLength": 191}}
+          }
+        ],
         "properties": {
           "productId": {
             "oneOf": [
@@ -8843,6 +9223,7 @@
           "availableServerProviders",
           "cloudByokOnNativeClients",
           "serverPersistsUploadedMedia",
+          "mediaHandling",
           "humanReviewRequired",
           "credentialEncryptionAvailable"
         ],
@@ -8906,8 +9287,13 @@
           "serverPersistsUploadedMedia": {
             "type": "boolean",
             "enum": [
-              true
-            ]
+              false
+            ],
+            "deprecated": true,
+            "description": "Legacy direct-extraction flag only. False means the direct extraction endpoint does not add the upload to application media storage. Use mediaHandling for the complete policy."
+          },
+          "mediaHandling": {
+            "$ref": "#/components/schemas/AiMediaHandling"
           },
           "humanReviewRequired": {
             "type": "boolean",
@@ -8917,6 +9303,50 @@
           },
           "credentialEncryptionAvailable": {
             "type": "boolean"
+          }
+        }
+      },
+      "AiMediaHandling": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "directExtractionUpload",
+          "privateMediaStorage",
+          "privateMediaRetentionOptions",
+          "plaintextMediaAtRest",
+          "cloudProviderTransmissionRequiresConsent"
+        ],
+        "properties": {
+          "directExtractionUpload": {
+            "type": "string",
+            "const": "transient_not_persisted",
+            "description": "The direct extraction endpoint verifies and forwards request bytes after consent but does not insert them into application media storage. Runtime or operating-system request temporaries are discarded after request processing."
+          },
+          "privateMediaStorage": {
+            "type": "string",
+            "const": "explicit_encrypted_opt_in",
+            "description": "The separate private-media endpoint stores only authenticated ciphertext after the household explicitly chooses transient or retained handling."
+          },
+          "privateMediaRetentionOptions": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "transient",
+                "retained"
+              ]
+            }
+          },
+          "plaintextMediaAtRest": {
+            "type": "boolean",
+            "const": false
+          },
+          "cloudProviderTransmissionRequiresConsent": {
+            "type": "boolean",
+            "const": true
           }
         }
       },

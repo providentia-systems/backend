@@ -33,6 +33,7 @@ final class ConfigProvider
                     'purchasing.create' => PurchasingFactory::class,
                     'purchasing.lines.create' => PurchasingFactory::class,
                     'purchasing.lines.approve' => PurchasingFactory::class,
+                    'purchasing.lines.unresolve' => PurchasingFactory::class,
                     'purchasing.commit' => PurchasingFactory::class,
                 ],
             ],

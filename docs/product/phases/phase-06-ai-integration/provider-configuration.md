@@ -50,6 +50,13 @@ An owner or manager performs these steps:
 3. Read settings back and verify the selected mode/provider/model before a
    client offers transmission.
 
+The settings `mediaHandling` object is the client disclosure source. Direct
+extraction is `transient_not_persisted`: it transits the application process
+and selected provider after consent but is not added to application media
+storage. `explicit_encrypted_opt_in` identifies the separate private-media
+resource, which requires a `transient` or `retained` choice and stores
+authenticated ciphertext only.
+
 Only the credential's final four characters are returned after entry. Reads
 never return ciphertext, nonce, or plaintext. `DELETE` revokes the credential
 and overwrites the encrypted fields in the active row.

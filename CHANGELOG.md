@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Added API v1.13 revision-bound stock-count cancellation to the inventory
+  resource and typed synchronization protocol. Cancellation is idempotent,
+  publishes the terminal session revision, and creates no stock movement.
+- Corrected the AI settings privacy contract: direct extraction uploads are
+  transient and not added to media storage, while the separate opt-in private
+  media path requires an explicit retention choice and stores ciphertext only.
+- Made the home item master a fully typed, deterministic paged feed with total
+  and continuation metadata, pack identities, authorized aliases, optional
+  home-product linkage, and factual quantities.
+- Documented the existing non-disclosing `404` response for revoked or foreign
+  homes across synchronization and item-master reads so clients purge stale
+  home data instead of retrying indefinitely.
 - Fixed login-link session exchange and restoration by returning the stable
   `installationId` separately from the account-scoped `deviceId` in session
   credential responses.

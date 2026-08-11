@@ -68,12 +68,21 @@ interface PurchasingStore
     ): bool;
 
     public function approveReceiptLine(
+        string $matchId,
         string $homeId,
         string $receiptId,
         string $lineId,
         string $homeProductId,
         int $expectedRevision,
         string $actorUserId,
+        DateTimeImmutable $at,
+    ): bool;
+
+    public function markReceiptLineUnresolved(
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        int $expectedRevision,
         DateTimeImmutable $at,
     ): bool;
 

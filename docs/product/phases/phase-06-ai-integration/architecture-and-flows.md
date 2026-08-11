@@ -41,11 +41,26 @@ sequenceDiagram
     Domain-->>Review: Receipt/count revision updated
 ```
 
-The image exists only in request memory and the outbound provider request.
-OpenAI requests set `store: false`; this is an additional provider instruction,
-not a claim that the image stayed on-device. The API stores a SHA-256 digest
-and byte count so duplicate/incident analysis is possible without retaining
-the media.
+The direct extraction upload is transient request data and the application does
+not add it to private-media storage. The web server, PHP runtime, or operating
+system may use a request-temporary file; it is discarded after processing and
+is not an application retention feature. OpenAI requests set `store: false`;
+this is an additional provider instruction, not a claim that the image stayed
+on-device. The API stores a SHA-256 digest and byte count so duplicate/incident
+analysis is possible without retaining the direct-upload media.
+
+## Explicit encrypted private media
+
+The separate `/ai/media` resource is an opt-in storage path, not an implicit
+side effect of extraction. A household must choose `transient` or `retained`
+for each upload. Bytes are authenticated-encrypted before object persistence;
+the object store never receives plaintext. Transient assets receive a bounded
+expiry and retained assets remain until an authorized retention change,
+deletion, quota operation, or data-governance action.
+
+An extraction may reference an already stored private-media asset. The service
+decrypts it only for the authorized request and provider transit. That does not
+change its explicit retention policy.
 
 ## Privacy-mode truth
 
@@ -81,7 +96,7 @@ latest explicit choice and when.
 
 ## Stored and excluded data
 
-Stored:
+Stored for every extraction:
 
 - home, kind, optional target, provider, model, status;
 - MIME type, SHA-256 digest, byte count;
@@ -90,11 +105,17 @@ Stored:
 - duration and whitelisted token counts when supplied;
 - reviewer identity, decision, revision, and timestamps.
 
-Excluded:
+Excluded from every extraction record:
 
-- original or derived image bytes;
+- original or derived image bytes (even when a separately authorized encrypted
+  private-media asset exists);
 - EXIF and local file paths;
 - plaintext or displayable credentials;
 - raw provider response bodies and unsafe error details;
 - hidden chain-of-thought;
 - automatic catalog, receipt, count, price, or movement writes.
+
+The settings response exposes a structured `mediaHandling` disclosure. Clients
+must distinguish `transient_not_persisted` direct extraction from
+`explicit_encrypted_opt_in` private-media storage and must not collapse both
+paths into a single "server stores images" boolean.

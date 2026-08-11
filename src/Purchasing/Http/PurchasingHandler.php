@@ -75,6 +75,13 @@ final class PurchasingHandler implements RequestHandlerInterface
                 isset($body['lineTotal']) ? (string) $body['lineTotal'] : null,
             ), 201),
             'lines.approve' => $this->approveLine($identity, $homeId, $receiptId, $request, $body),
+            'lines.unresolve' => $this->unresolveLine(
+                $identity,
+                $homeId,
+                $receiptId,
+                $request,
+                $body,
+            ),
             'commit' => new JsonResponse($this->purchases->commit(
                 $identity,
                 $homeId,
@@ -83,6 +90,36 @@ final class PurchasingHandler implements RequestHandlerInterface
             )),
             default => throw new \LogicException('Unknown purchasing action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function unresolveLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        ServerRequestInterface $request,
+        array $body,
+    ): ResponseInterface {
+        if (
+            count($body) !== 1
+            || ! array_key_exists('expectedRevision', $body)
+            || ! is_int($body['expectedRevision'])
+            || $body['expectedRevision'] < 1
+        ) {
+            throw new HttpProblem(
+                422,
+                'Validation failed',
+                'The request must contain only a positive integer expectedRevision.',
+            );
+        }
+
+        return new JsonResponse($this->purchases->unresolveLine(
+            $identity,
+            $homeId,
+            $receiptId,
+            (string) $request->getAttribute('lineId', ''),
+            $body['expectedRevision'],
+        ));
     }
 
     /** @param array<string, mixed> $body */

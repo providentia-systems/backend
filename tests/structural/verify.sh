@@ -129,6 +129,9 @@ const expected = {
   '/api/v1/homes/{homeId}/sync/push': {post: 'pushHomeSynchronization'},
   '/api/v1/homes/{homeId}/sync/pull': {get: 'pullHomeSynchronization'},
   '/api/v1/homes/{homeId}/sync/bootstrap': {get: 'bootstrapHomeSynchronization'},
+  '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/cancel': {
+    post: 'cancelStockCountSession',
+  },
 };
 for (const [path, methods] of Object.entries(expected)) {
   for (const [method, operationId] of Object.entries(methods)) {

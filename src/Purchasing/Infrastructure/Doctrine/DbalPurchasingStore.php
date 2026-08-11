@@ -268,6 +268,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
     }
 
     public function approveReceiptLine(
+        string $matchId,
         string $homeId,
         string $receiptId,
         string $lineId,
@@ -314,30 +315,35 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         if ($line === null) {
             return false;
         }
+        $this->connection->executeStatement(
+            'UPDATE receipt_line_matches
+             SET status = :superseded
+             WHERE home_id = :home AND receipt_line_id = :line
+               AND status = :approved',
+            [
+                'superseded' => 'superseded',
+                'home' => $homeId,
+                'line' => $lineId,
+                'approved' => 'approved',
+            ],
+        );
         $homeProduct = $this->one(
             'SELECT pack_id FROM home_products WHERE id = :id AND home_id = :home',
             ['id' => $homeProductId, 'home' => $homeId],
         );
         if ($homeProduct !== null && $homeProduct['pack_id'] !== null) {
-            $existing = (int) $this->connection->fetchOne(
-                'SELECT COUNT(*) FROM receipt_line_matches
-                 WHERE home_id = :home AND receipt_line_id = :line AND status = :status',
-                ['home' => $homeId, 'line' => $lineId, 'status' => 'approved'],
-            );
-            if ($existing === 0) {
-                $this->connection->insert('receipt_line_matches', [
-                    'id' => $lineId,
-                    'home_id' => $homeId,
-                    'receipt_line_id' => $lineId,
-                    'product_pack_id' => $homeProduct['pack_id'],
-                    'match_method' => 'human-selection',
-                    'confidence' => '1',
-                    'status' => 'approved',
-                    'decided_by_user_id' => $actorUserId,
-                    'decided_at' => $now,
-                    'created_at' => $now,
-                ]);
-            }
+            $this->connection->insert('receipt_line_matches', [
+                'id' => $matchId,
+                'home_id' => $homeId,
+                'receipt_line_id' => $lineId,
+                'product_pack_id' => $homeProduct['pack_id'],
+                'match_method' => 'human-selection',
+                'confidence' => '1',
+                'status' => 'approved',
+                'decided_by_user_id' => $actorUserId,
+                'decided_at' => $now,
+                'created_at' => $now,
+            ]);
         }
         $this->connection->executeStatement(
             'UPDATE receipts SET revision = revision + 1, updated_at = :updated
@@ -346,6 +352,64 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         );
 
         return true;
+    }
+
+    public function markReceiptLineUnresolved(
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool {
+        $now = $this->date($at);
+        $updated = $this->connection->executeStatement(
+            'UPDATE receipt_lines
+             SET home_product_id = NULL, approval_status = :unresolved,
+                 revision = revision + 1, updated_at = :updated
+             WHERE id = :id AND home_id = :home AND receipt_id = :receipt
+               AND revision = :revision
+               AND EXISTS (
+                   SELECT 1 FROM receipts r
+                   WHERE r.id = receipt_lines.receipt_id
+                     AND r.home_id = receipt_lines.home_id AND r.status = :draft
+               )',
+            [
+                'unresolved' => 'unresolved',
+                'updated' => $now,
+                'id' => $lineId,
+                'home' => $homeId,
+                'receipt' => $receiptId,
+                'revision' => $expectedRevision,
+                'draft' => 'draft',
+            ],
+        );
+        if ($updated !== 1) {
+            return false;
+        }
+        $this->connection->executeStatement(
+            'UPDATE receipt_line_matches
+             SET status = :superseded
+             WHERE home_id = :home AND receipt_line_id = :line
+               AND status = :approved',
+            [
+                'superseded' => 'superseded',
+                'home' => $homeId,
+                'line' => $lineId,
+                'approved' => 'approved',
+            ],
+        );
+        $receiptUpdated = $this->connection->executeStatement(
+            'UPDATE receipts SET revision = revision + 1, updated_at = :updated
+             WHERE id = :receipt AND home_id = :home AND status = :draft',
+            [
+                'updated' => $now,
+                'receipt' => $receiptId,
+                'home' => $homeId,
+                'draft' => 'draft',
+            ],
+        );
+
+        return $receiptUpdated === 1;
     }
 
     public function markReceiptCommitted(

@@ -126,6 +126,7 @@ final class SyncCommandValidator
                 $baseRevision,
             ),
             'inventory.count-session.close' => $this->shape($payload, [], [], true, $baseRevision),
+            'inventory.count-session.cancel' => $this->shape($payload, [], [], true, $baseRevision),
             'purchasing.store.create' => $this->shape(
                 $payload,
                 ['name', 'location'],
@@ -151,6 +152,13 @@ final class SyncCommandValidator
                 $payload,
                 ['receiptId', 'homeProductId'],
                 ['receiptId', 'homeProductId'],
+                true,
+                $baseRevision,
+            ),
+            'purchasing.receipt-line.unresolve' => $this->shape(
+                $payload,
+                ['receiptId'],
+                ['receiptId'],
                 true,
                 $baseRevision,
             ),
@@ -220,13 +228,14 @@ final class SyncCommandValidator
             'purchasing.receipt.create' => ['storeId'],
             'purchasing.receipt-line.create' => ['receiptId'],
             'purchasing.receipt-line.approve' => ['receiptId', 'homeProductId'],
+            'purchasing.receipt-line.unresolve' => ['receiptId'],
             'shopping.list-line.create' => ['listId', 'homeProductId'],
             'shopping.list-line.checked' => ['listId'],
             default => [],
         };
         foreach ($uuidFields as $field) {
             $fieldValue = $payload[$field] ?? null;
-            if ($fieldValue !== null && $fieldValue !== '') {
+            if ($fieldValue !== null) {
                 $this->uuid($fieldValue, $field);
             }
         }

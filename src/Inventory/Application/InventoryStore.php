@@ -20,7 +20,7 @@ interface InventoryStore
         DateTimeImmutable $at,
     ): void;
 
-    /** @return list<array<string, mixed>> */
+    /** @return array{items: list<array<string, mixed>>, total: int} */
     public function itemMaster(string $homeId, string $query, ?string $categoryId, int $limit, int $offset): array;
 
     /** @return list<array<string, mixed>> */
@@ -96,6 +96,14 @@ interface InventoryStore
     ): bool;
 
     public function closeCountSession(
+        string $homeId,
+        string $sessionId,
+        int $expectedRevision,
+        string $actorUserId,
+        DateTimeImmutable $at,
+    ): bool;
+
+    public function cancelCountSession(
         string $homeId,
         string $sessionId,
         int $expectedRevision,

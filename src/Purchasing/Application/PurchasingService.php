@@ -317,6 +317,7 @@ final class PurchasingService
         ): void {
             if (
                 ! $this->purchases->approveReceiptLine(
+                    $this->ids->generate(),
                     $homeId,
                     $receiptId,
                     $lineId,
@@ -364,6 +365,103 @@ final class PurchasingService
                 ],
                 $this->clock->now(),
             );
+        });
+    }
+
+    /** @return array{id: string, revision: int, approvalStatus: string} */
+    public function unresolveLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
+        if ($expectedRevision < 1) {
+            throw new Problem(422, 'Invalid revision', 'expectedRevision must be a positive integer.');
+        }
+        $receipt = $this->purchases->receipt($homeId, $receiptId);
+        $line = $this->purchases->receiptLine($homeId, $receiptId, $lineId);
+        if ($receipt === null || $line === null) {
+            throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+        }
+        $lineRevision = (int) $line['revision'];
+        if (
+            (string) $line['approvalStatus'] === 'unresolved'
+            && $lineRevision === $expectedRevision + 1
+        ) {
+            return [
+                'id' => $lineId,
+                'revision' => $lineRevision,
+                'approvalStatus' => 'unresolved',
+            ];
+        }
+        if ((string) $receipt['status'] !== 'draft') {
+            throw new Problem(409, 'Receipt immutable', 'Only a draft receipt can be changed.');
+        }
+        if ($lineRevision !== $expectedRevision) {
+            throw new Problem(409, 'Revision conflict', 'The receipt line changed on another device.');
+        }
+
+        return $this->transactions->transactional(function () use (
+            $homeId,
+            $receiptId,
+            $lineId,
+            $expectedRevision,
+            $identity,
+        ): array {
+            if (
+                ! $this->purchases->markReceiptLineUnresolved(
+                    $homeId,
+                    $receiptId,
+                    $lineId,
+                    $expectedRevision,
+                    $this->clock->now(),
+                )
+            ) {
+                throw new Problem(409, 'Revision conflict', 'The receipt line changed on another device.');
+            }
+            $updatedLine = $this->purchases->receiptLine($homeId, $receiptId, $lineId);
+            $updatedReceipt = $this->purchases->receipt($homeId, $receiptId);
+            if ($updatedLine === null || $updatedReceipt === null) {
+                throw new \RuntimeException('The updated receipt decision is unavailable.');
+            }
+            unset($updatedLine['id'], $updatedLine['revision']);
+            $revision = $expectedRevision + 1;
+            $at = $this->clock->now();
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'purchasing-receipt-line',
+                $lineId,
+                $revision,
+                $updatedLine,
+                $at,
+            );
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'purchasing-receipt',
+                $receiptId,
+                (int) $updatedReceipt['revision'],
+                [
+                    'storeId' => $updatedReceipt['storeId'] ?? null,
+                    'purchaseDate' => (string) $updatedReceipt['purchaseDate'],
+                    'currency' => (string) $updatedReceipt['currency'],
+                    'totalAmount' => $updatedReceipt['totalAmount'] ?? null,
+                    'status' => (string) $updatedReceipt['status'],
+                    'source' => (string) ($updatedReceipt['source'] ?? 'manual'),
+                    'sourceReference' => $updatedReceipt['sourceReference'] ?? null,
+                    'notes' => (string) ($updatedReceipt['notes'] ?? ''),
+                ],
+                $at,
+            );
+
+            return [
+                'id' => $lineId,
+                'revision' => $revision,
+                'approvalStatus' => 'unresolved',
+            ];
         });
     }
 
@@ -416,11 +514,15 @@ final class PurchasingService
             }
             $movements = 0;
             foreach ($lines as $line) {
-                if ((string) $line['approvalStatus'] !== 'approved' || $line['homeProductId'] === null) {
+                $approvalStatus = (string) $line['approvalStatus'];
+                if ($approvalStatus === 'unresolved' && $line['homeProductId'] === null) {
+                    continue;
+                }
+                if ($approvalStatus !== 'approved' || $line['homeProductId'] === null) {
                     throw new Problem(
                         422,
                         'Receipt review incomplete',
-                        'Every receipt line must be explicitly matched and approved before commit.',
+                        'Every receipt line must be explicitly approved or left unresolved before commit.',
                     );
                 }
                 $this->inventory->recordApprovedInbound(

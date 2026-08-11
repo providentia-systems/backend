@@ -3,6 +3,7 @@
 ## Current phase
 
 - [Backend/client inventory integration roadmap — P0–P3](inventory-integration-roadmap.md)
+- [Phases 04–06 testing-readiness report](product/phases/phase-04-06-testing-readiness.md)
 - [Phase 0 verified evidence](product/phases/phase-00-evidence/README.md)
 - [Phase 1 foundation](product/phases/phase-01-foundation/README.md)
 - [Phase 2 identity, homes, and catalog](product/phases/phase-02-identity-homes-catalog/README.md)

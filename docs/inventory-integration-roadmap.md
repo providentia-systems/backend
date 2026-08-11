@@ -61,8 +61,17 @@ useful offline without creating duplicate movements.
   successful foreground mutation when connectivity permits.
 - Preserve pending intent across process death, lost responses, token refresh,
   cursor replacement, and schema upgrades.
+- App startup, manual refresh, and coalesced resume events drive serialized
+  push/pull; revoked or disposed homes are purged/routed instead of restarted.
+  Operation-status response-loss recovery applies known immutable results once,
+  exact-retries unknown operations with their existing IDs, defers unavailable
+  or malformed status safely, and treats HTTP 403/404 as authorization loss.
 - Surface pending, retrying, conflict, validation, authorization, and offline
   states without displaying false success.
+- Preserve immutable local/server conflict evidence and require a
+  permission-checked decision. Reapplication receives a fresh operation ID and
+  current server revision; count conflicts use a separate movement-free
+  reconciliation path.
 
 Exit evidence: repository/controller tests, command-shape tests, bootstrap and
 cursor tests, lost-response retry tests, and two-device convergence tests pass.
@@ -76,6 +85,8 @@ Client checkpoint (2026-08-11): the product-identity path is composed from the
 active-home inventory projection. It requires `catalog.contribute`, current
 server product-identity consent, an exact sanitized preview, and a fresh
 per-item checkbox. Neither selecting an item nor changing consent submits.
+This direct per-item contribution is not a receipt-generated sanitized catalog
+proposal and does not publish receipt aliases.
 
 - Project stores, receipts, receipt lines, shopping lists, and list lines from
   the authoritative feed; keep raw receipt descriptions private.
@@ -89,8 +100,24 @@ per-item checkbox. Neither selecting an item nor changing consent submits.
   household linkage.
 - Connect catalog review/curation only for the matching platform capability.
 - Connect provider policy, write-only encrypted credentials, extraction,
-  discrepancy/candidate review, and explicit commit flows. Sensitive or
-  unrelated media creates no inventory proposal.
+  discrepancy/candidate review, and explicit commit flows. Reviewed receipts
+  require a second confirmation to create ordinary unreviewed draft lines;
+  sensitive or unrelated media creates no inventory proposal.
+
+Current Phase 5–6 client checkpoint (2026-08-11): production composes ordered
+one-to-eight-page receipt intake with local rotate/crop and ordinary
+draft/match/explicit commit, plus one-to-eight-image stock counting through an
+ordinary pre-opened count session. Receipt matching can select the complete
+offline item master, add a published pack, create a private product, or persist
+an unresolved human decision. Approved and unresolved lines complete review,
+but receipt commit creates effects only for approved lines. It never publishes
+a global alias or general sanitized catalog proposal. Stock uses verified
+direct-local AI on supported native platforms when the user explicitly selects
+it; that route fails closed if unavailable or invalid, and server-proxy use
+requires an explicit switch. Receipt direct-local AI is not composed. Verified
+shopping suggestions and explanations are composed, while feedback,
+existing-line quantity edits, and cross-device suggestion provenance remain
+deferred.
 
 Exit evidence: replay/idempotency tests, contribution sanitization and consent
 tests, platform-role denial tests, synthetic AI contract tests, and explicit
@@ -114,6 +141,9 @@ remains required.
   backend diagnostic detail in presentation state.
 - Connect revision-bound catalog decisions, icon metadata, merge previews,
   reversible merges, and sanitized catalog audit history.
+- Implement the still-missing general sanitized catalog-proposal handoff and
+  explicit global-alias publication/moderation workflow. Raw receipt text and
+  private aliases remain home-private until that Phase 7 path exists.
 - Keep platform administration and catalog administration separate from home
   membership and render no private household payload on either surface.
 - Automate a live backend/client acceptance suite for login, home selection,
@@ -138,14 +168,17 @@ remains required.
 
 ## Current contract baseline
 
-- Backend API: `1.12.0`
+- Backend API: `1.13.2`
 - Client lock SHA-256:
-  `30604d238f9c29f9d6b09dbf1819c84a475cb93e94728a8b2888f9b65a865a44`
-- Contract addition: public, bounded
-  `GET /api/v1/catalog-contributions` exposes only moderator-approved,
-  allowlisted contribution payloads and never contribution attribution.
+  `1b6b7f09240ace0ba6b7e7279259687569dfbacb112ea7dbd4094fe27ccd0108`
+- Contract additions: public, bounded catalog contributions from API 1.12;
+  revision-bound, movement-free stock-count cancellation and precise direct
+  extraction versus encrypted private-media disclosure, and a typed paged
+  home item-master feed in API 1.13; exhaustive AI/shopping non-disclosing
+  denials and durable approved/unresolved receipt review in API 1.13.2.
 - Generic protocol-v1 entities: `home-preference`, `private-note`
-- Pantry mutations: closed protocol-v2 commands only
+- Pantry mutations: closed protocol-v2 commands only, including count cancel
+  and revisioned receipt-line unresolved decisions
 
 This file must be changed in both repositories when a priority, privacy rule,
 contract baseline, responsibility, or exit gate changes.

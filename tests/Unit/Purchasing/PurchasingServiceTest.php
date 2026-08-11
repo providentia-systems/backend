@@ -78,6 +78,7 @@ final class PurchasingServiceTest extends TestCase
         $purchases->expects(self::once())
             ->method('approveReceiptLine')
             ->with(
+                self::PRICE_ID,
                 self::HOME_ID,
                 self::RECEIPT_ID,
                 self::LINE_ID,
@@ -163,6 +164,175 @@ final class PurchasingServiceTest extends TestCase
         ], $published);
     }
 
+    public function testLeavingLineUnresolvedIsRevisionedAndPublishesAuthoritativeProjection(): void
+    {
+        $draftReceipt = [
+            'id' => self::RECEIPT_ID,
+            'storeId' => self::STORE_ID,
+            'purchaseDate' => '2026-08-03',
+            'currency' => 'NAD',
+            'totalAmount' => '37.50',
+            'status' => 'draft',
+            'source' => 'manual',
+            'sourceReference' => null,
+            'notes' => 'Review retained',
+            'revision' => 6,
+        ];
+        $approvedLine = [
+            'id' => self::LINE_ID,
+            'receiptId' => self::RECEIPT_ID,
+            'rawDescription' => 'Unknown pantry item',
+            'quantity' => '1',
+            'originalPackText' => '500 g',
+            'unitPrice' => '12.50',
+            'lineTotal' => '12.50',
+            'homeProductId' => self::PRODUCT_ID,
+            'approvalStatus' => 'approved',
+            'revision' => 2,
+        ];
+        $unresolvedLine = [
+            ...$approvedLine,
+            'homeProductId' => null,
+            'approvalStatus' => 'unresolved',
+            'revision' => 3,
+        ];
+        $updatedReceipt = [...$draftReceipt, 'revision' => 7];
+        $purchases = $this->createMock(PurchasingStore::class);
+        $purchases->expects(self::exactly(2))
+            ->method('receipt')
+            ->with(self::HOME_ID, self::RECEIPT_ID)
+            ->willReturnOnConsecutiveCalls($draftReceipt, $updatedReceipt);
+        $purchases->expects(self::exactly(2))
+            ->method('receiptLine')
+            ->with(self::HOME_ID, self::RECEIPT_ID, self::LINE_ID)
+            ->willReturnOnConsecutiveCalls($approvedLine, $unresolvedLine);
+        $purchases->expects(self::once())
+            ->method('markReceiptLineUnresolved')
+            ->with(
+                self::HOME_ID,
+                self::RECEIPT_ID,
+                self::LINE_ID,
+                2,
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(true);
+        $published = [];
+        $changes = $this->createMock(ChangeFeedWriter::class);
+        $changes->expects(self::exactly(2))
+            ->method('put')
+            ->willReturnCallback(
+                static function (
+                    string $homeId,
+                    string $actorUserId,
+                    string $entityType,
+                    string $entityId,
+                    int $revision,
+                    array $representation,
+                ) use (&$published): int {
+                    $published[] = compact(
+                        'homeId',
+                        'actorUserId',
+                        'entityType',
+                        'entityId',
+                        'revision',
+                        'representation',
+                    );
+
+                    return count($published);
+                },
+            );
+
+        $result = $this->service(
+            $purchases,
+            $this->createStub(InventoryMovementGateway::class),
+            $changes,
+        )->unresolveLine(
+            $this->identity(),
+            self::HOME_ID,
+            self::RECEIPT_ID,
+            self::LINE_ID,
+            2,
+        );
+
+        self::assertSame(
+            ['id' => self::LINE_ID, 'revision' => 3, 'approvalStatus' => 'unresolved'],
+            $result,
+        );
+        self::assertSame('purchasing-receipt-line', $published[0]['entityType']);
+        self::assertSame(3, $published[0]['revision']);
+        self::assertSame('Unknown pantry item', $published[0]['representation']['rawDescription']);
+        self::assertNull($published[0]['representation']['homeProductId']);
+        self::assertSame('unresolved', $published[0]['representation']['approvalStatus']);
+        self::assertSame('purchasing-receipt', $published[1]['entityType']);
+        self::assertSame(7, $published[1]['revision']);
+    }
+
+    public function testUnresolvedDecisionReplayIsIdempotentEvenAfterReceiptCommit(): void
+    {
+        $purchases = $this->createMock(PurchasingStore::class);
+        $purchases->method('receipt')->willReturn([
+            'id' => self::RECEIPT_ID,
+            'status' => 'committed',
+            'revision' => 7,
+        ]);
+        $purchases->method('receiptLine')->willReturn([
+            'id' => self::LINE_ID,
+            'approvalStatus' => 'unresolved',
+            'revision' => 3,
+        ]);
+        $purchases->expects(self::never())->method('markReceiptLineUnresolved');
+        $changes = $this->createMock(ChangeFeedWriter::class);
+        $changes->expects(self::never())->method('put');
+
+        self::assertSame(
+            ['id' => self::LINE_ID, 'revision' => 3, 'approvalStatus' => 'unresolved'],
+            $this->service(
+                $purchases,
+                $this->createStub(InventoryMovementGateway::class),
+                $changes,
+            )->unresolveLine(
+                $this->identity(),
+                self::HOME_ID,
+                self::RECEIPT_ID,
+                self::LINE_ID,
+                2,
+            ),
+        );
+    }
+
+    public function testUnresolvedDecisionConcealsViewerAndForeignHomeWithoutStoreAccess(): void
+    {
+        foreach ([
+            ['status' => 'active', 'role' => HomeAuthorization::VIEWER],
+            null,
+        ] as $membership) {
+            $purchases = $this->createMock(PurchasingStore::class);
+            $purchases->expects(self::never())->method('receipt');
+            $purchases->expects(self::never())->method('receiptLine');
+            $purchases->expects(self::never())->method('markReceiptLineUnresolved');
+            $homes = $this->createStub(HomeStore::class);
+            $homes->method('membership')->willReturn($membership);
+            try {
+                $this->service(
+                    $purchases,
+                    $this->createStub(InventoryMovementGateway::class),
+                    null,
+                    $homes,
+                )->unresolveLine(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::RECEIPT_ID,
+                    self::LINE_ID,
+                    2,
+                );
+                self::fail('A read-only or foreign home changed a private receipt line.');
+            } catch (Problem $problem) {
+                self::assertSame(404, $problem->status);
+                self::assertSame('The requested resource is unavailable.', $problem->getMessage());
+            }
+        }
+    }
+
     public function testCommittedReceiptIsAnIdempotentReplayWithoutDuplicateMovements(): void
     {
         $purchases = $this->createMock(PurchasingStore::class);
@@ -234,7 +404,18 @@ final class PurchasingServiceTest extends TestCase
         ];
         $purchases = $this->createMock(PurchasingStore::class);
         $purchases->method('receipt')->with(self::HOME_ID, self::RECEIPT_ID)->willReturn($receipt);
-        $purchases->method('receiptLines')->with(self::HOME_ID, self::RECEIPT_ID)->willReturn([$line]);
+        $purchases->method('receiptLines')->with(self::HOME_ID, self::RECEIPT_ID)->willReturn([
+            $line,
+            [
+                'id' => '01912345-6789-7abc-bdef-1123456789ab',
+                'approvalStatus' => 'unresolved',
+                'homeProductId' => null,
+                'rawDescription' => 'Unmatched handwritten item',
+                'quantity' => '1',
+                'unitPrice' => null,
+                'lineTotal' => '5.00',
+            ],
+        ]);
         $purchases->expects(self::once())
             ->method('recordPriceObservation')
             ->with(
@@ -305,7 +486,7 @@ final class PurchasingServiceTest extends TestCase
         $inventory->expects(self::never())->method('recordApprovedInbound');
 
         $this->expectException(Problem::class);
-        $this->expectExceptionMessage('explicitly matched and approved');
+        $this->expectExceptionMessage('explicitly approved or left unresolved');
         $this->service($purchases, $inventory)->commit(
             $this->identity(),
             self::HOME_ID,
@@ -318,12 +499,15 @@ final class PurchasingServiceTest extends TestCase
         PurchasingStore $purchases,
         InventoryMovementGateway $inventory,
         ?ChangeFeedWriter $changes = null,
+        ?HomeStore $homes = null,
     ): PurchasingService {
-        $homes = $this->createStub(HomeStore::class);
-        $homes->method('membership')->willReturn([
-            'status' => 'active',
-            'role' => HomeAuthorization::OWNER,
-        ]);
+        if ($homes === null) {
+            $homes = $this->createStub(HomeStore::class);
+            $homes->method('membership')->willReturn([
+                'status' => 'active',
+                'role' => HomeAuthorization::OWNER,
+            ]);
+        }
         $ids = $this->createStub(UuidGenerator::class);
         $ids->method('generate')->willReturn(self::PRICE_ID);
 

@@ -41,6 +41,7 @@ final class ConfigProvider
                     'inventory.counts.get' => InventoryFactory::class,
                     'inventory.counts.line' => InventoryFactory::class,
                     'inventory.counts.close' => InventoryFactory::class,
+                    'inventory.counts.cancel' => InventoryFactory::class,
                     'inventory.balances.rebuild' => InventoryFactory::class,
                 ],
             ],

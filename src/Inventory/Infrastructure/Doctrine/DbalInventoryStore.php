@@ -6,6 +6,7 @@ namespace Providentia\Inventory\Infrastructure\Doctrine;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Providentia\Inventory\Application\InventoryAnalyticsReader;
 use Providentia\Inventory\Application\InventoryStore;
@@ -54,21 +55,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     public function itemMaster(string $homeId, string $query, ?string $categoryId, int $limit, int $offset): array
     {
         $pattern = '%' . mb_strtolower($query) . '%';
-
-        return $this->connection->fetchAllAssociative(
-            'SELECT pk.id AS packId, p.id AS productId, p.canonical_name AS productName,
-                    p.brand, c.id AS categoryId, c.canonical_name AS category,
-                    pk.original_pack_text AS packText, pk.status AS packStatus,
-                    hp.id AS homeProductId, hp.status AS homeProductStatus,
-                    COALESCE(ib.quantity, 0) AS quantity
-             FROM product_packs pk
-             INNER JOIN products p ON p.id = pk.product_id
-             INNER JOIN categories c ON c.id = p.category_id
-             LEFT JOIN home_products hp
-               ON hp.home_id = :home AND hp.pack_id = pk.id AND hp.status = :home_product_status
-             LEFT JOIN inventory_balances ib
-               ON ib.home_id = :home AND ib.home_product_id = hp.id
-             WHERE p.status = :published AND pk.status <> :archived
+        $where = 'p.status = :published AND pk.status <> :archived
                AND (:category_empty = :empty OR c.id = :category)
                AND (:query_empty = :empty OR p.normalized_name LIKE :pattern
                     OR p.normalized_brand LIKE :pattern
@@ -76,25 +63,129 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                     OR EXISTS (
                         SELECT 1 FROM product_aliases a
                         WHERE a.product_id = p.id AND a.status = :approved
-                          AND (a.scope = :global_scope OR a.home_id = :home)
+                          AND (a.scope = :global_scope
+                               OR (a.scope = :home_scope AND a.home_id = :home))
+                          AND (a.pack_id IS NULL OR a.pack_id = pk.id)
+                          AND (a.variant_id IS NULL OR a.variant_id = pk.variant_id)
                           AND a.normalized_alias LIKE :pattern
-                    ))
-             ORDER BY p.canonical_name, p.brand, pk.original_pack_text, pk.id
+                    ))';
+        $filterParameters = [
+            'home' => $homeId,
+            'published' => 'published',
+            'archived' => 'archived',
+            'category_empty' => $categoryId ?? '',
+            'category' => $categoryId ?? '',
+            'query_empty' => $query,
+            'empty' => '',
+            'pattern' => $pattern,
+            'approved' => 'approved',
+            'global_scope' => 'global',
+            'home_scope' => 'home',
+        ];
+        $parameters = ['home_product_status' => 'active', ...$filterParameters];
+        $items = $this->connection->fetchAllAssociative(
+            'SELECT pk.id AS packId, pk.variant_id AS variantId, p.id AS productId,
+                    p.canonical_name AS canonicalName, p.brand,
+                    c.id AS categoryId, c.canonical_name AS categoryName,
+                    pk.original_pack_text AS packText, pk.status AS packStatus,
+                    hp.id AS homeProductId, hp.status AS homeProductStatus,
+                    COALESCE(ib.quantity, 0) AS quantity
+             FROM product_packs pk
+             INNER JOIN products p ON p.id = pk.product_id
+             INNER JOIN categories c ON c.id = p.category_id
+             LEFT JOIN home_products hp
+               ON hp.id = (
+                   SELECT MIN(hp2.id) FROM home_products hp2
+                   WHERE hp2.home_id = :home AND hp2.pack_id = pk.id
+                     AND hp2.status = :home_product_status
+               )
+             LEFT JOIN inventory_balances ib
+               ON ib.home_id = :home AND ib.home_product_id = hp.id
+             WHERE ' . $where . '
+             ORDER BY p.normalized_name, p.normalized_brand, pk.original_pack_text,
+                      p.id, pk.id
              LIMIT ' . $limit . ' OFFSET ' . $offset,
-            [
-                'home' => $homeId,
-                'home_product_status' => 'active',
-                'published' => 'published',
-                'archived' => 'archived',
-                'category_empty' => $categoryId ?? '',
-                'category' => $categoryId ?? '',
-                'query_empty' => $query,
-                'empty' => '',
-                'pattern' => $pattern,
-                'approved' => 'approved',
-                'global_scope' => 'global',
-            ],
+            $parameters,
         );
+        $total = (int) $this->connection->fetchOne(
+            'SELECT COUNT(*)
+             FROM product_packs pk
+             INNER JOIN products p ON p.id = pk.product_id
+             INNER JOIN categories c ON c.id = p.category_id
+             WHERE ' . $where,
+            $filterParameters,
+        );
+        if ($items === []) {
+            return ['items' => [], 'total' => $total];
+        }
+
+        $aliases = $this->aliasesForItemMasterPage($homeId, $items);
+        foreach ($items as &$item) {
+            $packId = (string) $item['packId'];
+            $item['aliases'] = $aliases[$packId] ?? [];
+            $item['homeProductId'] = $item['homeProductId'] === null ? null : (string) $item['homeProductId'];
+            $item['homeProductStatus'] = $item['homeProductStatus'] === null
+                ? null
+                : (string) $item['homeProductStatus'];
+            $item['quantity'] = (string) $item['quantity'];
+            unset($item['variantId']);
+        }
+        unset($item);
+
+        return ['items' => $items, 'total' => $total];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $items
+     * @return array<string, list<string>>
+     */
+    private function aliasesForItemMasterPage(string $homeId, array $items): array
+    {
+        $packIds = array_values(array_unique(array_map(
+            static fn (array $item): string => (string) $item['packId'],
+            $items,
+        )));
+        $productIds = array_values(array_unique(array_map(
+            static fn (array $item): string => (string) $item['productId'],
+            $items,
+        )));
+        $rows = $this->connection->createQueryBuilder()
+            ->select('id', 'product_id', 'variant_id', 'pack_id', 'raw_alias')
+            ->from('product_aliases')
+            ->where('status = :approved')
+            ->andWhere('(scope = :global OR (scope = :home_scope AND home_id = :home))')
+            ->andWhere('(pack_id IN (:packs) OR (pack_id IS NULL AND product_id IN (:products)))')
+            ->orderBy('normalized_alias', 'ASC')
+            ->addOrderBy('id', 'ASC')
+            ->setParameter('approved', 'approved')
+            ->setParameter('global', 'global')
+            ->setParameter('home_scope', 'home')
+            ->setParameter('home', $homeId)
+            ->setParameter('packs', $packIds, ArrayParameterType::STRING)
+            ->setParameter('products', $productIds, ArrayParameterType::STRING)
+            ->executeQuery()
+            ->fetchAllAssociative();
+        $aliases = array_fill_keys($packIds, []);
+        foreach ($rows as $row) {
+            foreach ($items as $item) {
+                if ((string) $item['productId'] !== (string) $row['product_id']) {
+                    continue;
+                }
+                if ($row['pack_id'] !== null && (string) $item['packId'] !== (string) $row['pack_id']) {
+                    continue;
+                }
+                if ($row['variant_id'] !== null && (string) $item['variantId'] !== (string) $row['variant_id']) {
+                    continue;
+                }
+                $packId = (string) $item['packId'];
+                $alias = (string) $row['raw_alias'];
+                if (! in_array($alias, $aliases[$packId], true)) {
+                    $aliases[$packId][] = $alias;
+                }
+            }
+        }
+
+        return $aliases;
     }
 
     public function stock(string $homeId, string $query, ?string $categoryId, int $limit, int $offset): array
@@ -542,6 +633,34 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                AND revision = :revision',
             [
                 'closed' => 'closed',
+                'actor' => $actorUserId,
+                'closed_at' => $now,
+                'updated' => $now,
+                'id' => $sessionId,
+                'home' => $homeId,
+                'open' => 'open',
+                'revision' => $expectedRevision,
+            ],
+        ) === 1;
+    }
+
+    public function cancelCountSession(
+        string $homeId,
+        string $sessionId,
+        int $expectedRevision,
+        string $actorUserId,
+        DateTimeImmutable $at,
+    ): bool {
+        $now = $this->date($at);
+
+        return $this->connection->executeStatement(
+            'UPDATE stock_count_sessions
+             SET status = :cancelled, closed_by_user_id = :actor, closed_at = :closed_at,
+                 revision = revision + 1, updated_at = :updated
+             WHERE id = :id AND home_id = :home AND status = :open
+               AND revision = :revision',
+            [
+                'cancelled' => 'cancelled',
                 'actor' => $actorUserId,
                 'closed_at' => $now,
                 'updated' => $now,

@@ -15,6 +15,9 @@
 ## Privacy and security
 
 - [ ] Explicit transmission consent is required.
+- [ ] Settings distinguish transient non-persisted direct extraction from
+      explicit encrypted private-media storage.
+- [ ] Private-media upload rejects an omitted retention choice.
 - [ ] MIME magic, size, and metadata policy is enforced.
 - [ ] Medical/unrelated classifications create no candidates.
 - [ ] Plaintext media and data URLs are absent from database rows, queues,

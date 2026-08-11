@@ -18,8 +18,8 @@ The source commit is
 | Item-master product-and-pack rows | 292 |
 | Opening stock lines | 60 |
 | Opening quantity | 159 |
-| Catalog-linked opening lines | 23 |
-| Private opening products | 37 |
+| Catalog-linked opening lines | 32 |
+| Private opening products | 28 |
 | Recent purchase lines | 16 |
 | Recent purchase spend | NAD 1,078.38 |
 | Historical purchase lines | 452 |
@@ -33,7 +33,13 @@ The source commit is
 | Identity rules | 19 |
 | Unresolved source descriptions | 8 |
 
-Opening links require a unique normalized product, brand, and pack match.
+Opening links require either a unique normalized product, brand, and pack
+match, or one of the nine explicit reviewed source-row-to-catalog-source links
+where blank source pack text became `Pack size pending`. The remaining 28
+opening rows are distinct private products; seven are unresolved current-stock
+identities, while the eighth unresolved rule (`Trotters Jelly`) belongs to a
+zero-quantity receipt-imported catalog row rather than the current-stock set.
+No name-only or fuzzy opening-stock match is allowed.
 Purchase-history approval requires an authoritative canonical product-and-pack
 export that resolves uniquely. Ambiguous or absent links remain unresolved;
 the importer never guesses.

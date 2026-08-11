@@ -8,9 +8,13 @@
 - [ ] Migrations apply on a clean MySQL database.
 - [ ] OpenAPI and runtime route parity passes.
 - [ ] Baseline dry-run reproduces every reconciliation gate.
-- [ ] Baseline commit reproduces the 23/37 and 456/12 match splits.
+- [ ] Baseline commit reproduces the 32/28 and 456/12 match splits.
 - [ ] Baseline replay performs no duplicate writes.
+- [ ] Item-master pagination traverses every published pack without overlap or
+      omission and never exposes another home's aliases.
 - [ ] Receipt commit replay creates no duplicate movement.
+- [ ] Count cancellation publishes one terminal revision and creates no
+      movement, including after an identical retry.
 - [ ] Balance rebuild equals the sum of movements.
 - [ ] Cross-home IDs are indistinguishable from unavailable resources.
 - [ ] Viewer writes are rejected; member reads remain allowed.

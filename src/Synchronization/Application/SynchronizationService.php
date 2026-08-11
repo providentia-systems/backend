@@ -12,7 +12,7 @@ use Providentia\SharedKernel\Application\TransactionManager;
 use Throwable;
 
 /**
- * Coordinates the version-one push, pull, and bootstrap use cases.
+ * Coordinates generic protocol v1 reads/writes and typed pantry protocol v2 commands.
  *
  * Validation, per-entity policy, request hashing, persistence, and public
  * response mapping are delegated to focused collaborators.
