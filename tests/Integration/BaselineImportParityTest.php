@@ -99,19 +99,19 @@ final class BaselineImportParityTest extends TestCase
         self::assertTrue($replay['replayed']);
         self::assertSame($beforeReplay, $this->tableCounts());
 
-        self::assertSame(292, $this->count('product_packs'));
+        self::assertSame(292, $this->countRows('product_packs'));
         self::assertSame(292, (int) $this->connection->fetchOne(
             'SELECT COUNT(DISTINCT source_key) FROM product_packs',
         ));
-        self::assertSame(60, $this->count('home_products'));
+        self::assertSame(60, $this->countRows('home_products'));
         self::assertSame(32, (int) $this->connection->fetchOne(
             'SELECT COUNT(*) FROM home_products WHERE pack_id IS NOT NULL AND private_name IS NULL',
         ));
         self::assertSame(28, (int) $this->connection->fetchOne(
             'SELECT COUNT(*) FROM home_products WHERE pack_id IS NULL AND private_name IS NOT NULL',
         ));
-        self::assertSame(60, $this->count('stock_count_lines'));
-        self::assertSame(60, $this->count('inventory_balances'));
+        self::assertSame(60, $this->countRows('stock_count_lines'));
+        self::assertSame(60, $this->countRows('inventory_balances'));
         self::assertSame(159, (int) $this->connection->fetchOne(
             'SELECT SUM(quantity) FROM inventory_balances',
         ));
