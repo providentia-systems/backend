@@ -98,6 +98,9 @@ candidate can be tested end to end without overstating production readiness.
 
 - Connect dashboard, movement, purchase, inventory, consumption, suggestion,
   price-comparison, feedback, and household-report reads.
+- Connect account/home export, erasure, request status, and cancellation with
+  permission-derived capabilities, explicit erasure confirmation, and no raw
+  backend diagnostic detail in presentation state.
 - Connect revision-bound catalog decisions, icon metadata, merge previews,
   reversible merges, and sanitized catalog audit history.
 - Keep platform administration and catalog administration separate from home
