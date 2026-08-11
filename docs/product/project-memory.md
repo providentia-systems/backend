@@ -120,9 +120,11 @@ backend architecture or weaken its acceptance gates.
 - P0–P3 are cross-repository integration priorities, not renumbered historical
   product phases. Their authoritative delivery boundary is
   `docs/inventory-integration-roadmap.md` in both repositories.
-- The backend OpenAPI 1.12.0 artifact is the contract source for the Flutter
+- The backend OpenAPI 1.13.2 artifact is the contract source for the Flutter
   client. The client pins the exact SHA-256 bytes and regenerates its Dart
   client; generated output is never hand edited.
+- API 1.13.2 exhaustively documents non-disclosing home denials for AI and
+  shopping operations and adds the revisioned receipt-line unresolved decision.
 - Platform and catalog roles never grant implicit home access. Support-access
   tables do not authorize a request because no support-access service or route
   is exposed.
@@ -133,3 +135,9 @@ backend architecture or weaken its acceptance gates.
 - Backend capability and automated tests are not a production-acceptance
   claim. Client convergence, staging providers, backup/restore, distribution
   signing, payment sandboxes, and other operator rows remain evidence gates.
+- Stock-count cancellation is a revisioned protocol-v2 terminal transition.
+  It publishes `cancelled`, applies no observations, and creates no movement.
+- Direct AI extraction uploads are request-transient and are not added to
+  application media storage. The separate private-media path requires an
+  explicit transient/retained choice and persists authenticated ciphertext,
+  never plaintext media at rest.

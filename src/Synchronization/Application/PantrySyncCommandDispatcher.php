@@ -80,6 +80,12 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $command->entityId,
                 $this->revision($command),
             ),
+            'inventory.count-session.cancel' => $this->inventory->cancelCount(
+                $identity,
+                $homeId,
+                $command->entityId,
+                $this->revision($command),
+            ),
             'purchasing.store.create' => $this->purchasing->createStore(
                 $identity,
                 $homeId,
@@ -114,6 +120,13 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $identity,
                 $homeId,
                 $command,
+            ),
+            'purchasing.receipt-line.unresolve' => $this->purchasing->unresolveLine(
+                $identity,
+                $homeId,
+                $this->string($payload, 'receiptId'),
+                $command->entityId,
+                $this->revision($command),
             ),
             'purchasing.receipt.commit' => $this->purchasing->commit(
                 $identity,

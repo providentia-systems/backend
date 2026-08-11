@@ -49,7 +49,18 @@ final class AiService
         ];
         $settings['availableServerProviders'] = $this->providers->available();
         $settings['cloudByokOnNativeClients'] = false;
-        $settings['serverPersistsUploadedMedia'] = true;
+        // This legacy flag applies only to the direct extraction upload. The
+        // separate private-media API stores ciphertext only after an explicit
+        // transient/retained choice; the structured disclosure below is the
+        // authoritative client contract.
+        $settings['serverPersistsUploadedMedia'] = false;
+        $settings['mediaHandling'] = [
+            'directExtractionUpload' => 'transient_not_persisted',
+            'privateMediaStorage' => 'explicit_encrypted_opt_in',
+            'privateMediaRetentionOptions' => ['transient', 'retained'],
+            'plaintextMediaAtRest' => false,
+            'cloudProviderTransmissionRequiresConsent' => true,
+        ];
         $settings['humanReviewRequired'] = true;
         $settings['credentialEncryptionAvailable'] = $this->cipher->available();
         $settings['providerProfiles'] = $this->publicProfiles($this->maturity->providerProfiles($homeId));

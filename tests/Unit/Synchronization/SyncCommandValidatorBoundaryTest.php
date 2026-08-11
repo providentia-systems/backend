@@ -46,7 +46,7 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
             'inventory.home-product.create',
             [
                 'productId' => self::RELATED_ID,
-                'packId' => null,
+                'packId' => self::SECOND_RELATED_ID,
                 'privateName' => null,
                 'originalPackText' => null,
             ],
@@ -80,6 +80,7 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
             1,
         ];
         yield 'count close' => ['inventory.count-session.close', [], 1];
+        yield 'count cancel' => ['inventory.count-session.cancel', [], 1];
         yield 'store' => [
             'purchasing.store.create',
             ['name' => 'Market', 'location' => 'Town'],
@@ -112,6 +113,11 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
         yield 'receipt approval' => [
             'purchasing.receipt-line.approve',
             ['receiptId' => self::RELATED_ID, 'homeProductId' => self::SECOND_RELATED_ID],
+            1,
+        ];
+        yield 'receipt unresolved' => [
+            'purchasing.receipt-line.unresolve',
+            ['receiptId' => self::RELATED_ID],
             1,
         ];
         yield 'receipt commit' => ['purchasing.receipt.commit', [], 1];
@@ -196,6 +202,7 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
             'receipt store' => ['receipt', 'storeId'],
             'receipt line receipt' => ['receipt line', 'receiptId'],
             'receipt approval product' => ['receipt approval', 'homeProductId'],
+            'receipt unresolved receipt' => ['receipt unresolved', 'receiptId'],
             'shopping line product' => ['shopping line', 'homeProductId'],
             'shopping checked list' => ['shopping checked', 'listId'],
         ];
@@ -203,6 +210,22 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
             [$type, $payload, $baseRevision] = $cases[$case];
             yield $label => [$type, $payload, $field, $baseRevision];
         }
+    }
+
+    public function testRequiredUnresolvedReceiptReferenceRejectsAnEmptyUuid(): void
+    {
+        $problem = $this->problem(
+            fn () => (new SyncCommandValidator(65_536))->validate(
+                $this->command(
+                    'purchasing.receipt-line.unresolve',
+                    ['receiptId' => ''],
+                    1,
+                ),
+            ),
+        );
+
+        self::assertSame(422, $problem->status);
+        self::assertStringContainsString('receiptId', $problem->getMessage());
     }
 
     #[DataProvider('requiredPayloadFields')]
@@ -213,6 +236,7 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
         $cases = iterator_to_array(self::validCommands());
         $case = match ($type) {
             'inventory.count-line.upsert' => $cases['count line'],
+            'purchasing.receipt-line.unresolve' => $cases['receipt unresolved'],
             'shopping.list.create' => $cases['shopping list'],
             'shopping.list-line.checked' => $cases['shopping checked'],
             default => throw new InvalidArgumentException('Unsupported test command type.'),
@@ -233,6 +257,7 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
     public static function requiredPayloadFields(): iterable
     {
         yield 'count session reference' => ['inventory.count-line.upsert', 'sessionId'];
+        yield 'unresolved receipt reference' => ['purchasing.receipt-line.unresolve', 'receiptId'];
         yield 'shopping list name' => ['shopping.list.create', 'name'];
         yield 'checked list reference' => ['shopping.list-line.checked', 'listId'];
     }

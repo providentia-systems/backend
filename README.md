@@ -10,7 +10,7 @@ identity/home/catalog increment, Phase 4 home-scoped synchronization protocol,
 Phase 5 ledger-backed household operations, Phase 6 privacy-controlled AI,
 Phase 7 governed catalog administration, and Phase 8 deterministic shopping
 intelligence and reporting. The generic protocol-v1 synchronization allowlist
-remains limited to `home-preference` and `private-note`; the current API 1.12
+remains limited to `home-preference` and `private-note`; the current API 1.13.2
 publishes typed protocol-v2 pantry commands and an attribution-free projection
 of moderator-approved catalog contributions.
 

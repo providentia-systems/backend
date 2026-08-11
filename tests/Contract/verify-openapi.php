@@ -34,6 +34,12 @@ $expected = [
     '/api/v1/homes/{homeId}/sync/push' => ['post' => 'pushHomeSynchronization'],
     '/api/v1/homes/{homeId}/sync/pull' => ['get' => 'pullHomeSynchronization'],
     '/api/v1/homes/{homeId}/sync/bootstrap' => ['get' => 'bootstrapHomeSynchronization'],
+    '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/cancel' => [
+        'post' => 'cancelStockCountSession',
+    ],
+    '/api/v1/homes/{homeId}/receipts/{receiptId}/lines/{lineId}/unresolve' => [
+        'post' => 'unresolveReceiptLine',
+    ],
 ];
 
 foreach ($expected as $route => $methods) {
@@ -88,6 +94,8 @@ foreach (
         'StockPreference',
         'SuggestionBacktest',
         'HomeReport',
+        'ReceiptLineDecisionResult',
+        'SyncReceiptLineUnresolvePayload',
     ] as $schema
 ) {
     if (! isset($contract['components']['schemas'][$schema])) {
@@ -256,6 +264,226 @@ if (($refreshRequestToken['writeOnly'] ?? false) !== true || isset($refreshReque
     throw new RuntimeException('The refresh request credential must remain request-only.');
 }
 
+$aiSettings = $contract['components']['schemas']['AiSettings'] ?? [];
+$mediaHandling = $contract['components']['schemas']['AiMediaHandling'] ?? [];
+if (
+    ($aiSettings['properties']['serverPersistsUploadedMedia']['enum'] ?? null) !== [false]
+    || ($aiSettings['properties']['serverPersistsUploadedMedia']['deprecated'] ?? null) !== true
+    || ($aiSettings['properties']['mediaHandling']['$ref'] ?? null)
+        !== '#/components/schemas/AiMediaHandling'
+    || ($mediaHandling['properties']['directExtractionUpload']['const'] ?? null)
+        !== 'transient_not_persisted'
+    || ($mediaHandling['properties']['privateMediaStorage']['const'] ?? null)
+        !== 'explicit_encrypted_opt_in'
+    || ($mediaHandling['properties']['plaintextMediaAtRest']['const'] ?? null) !== false
+    || ($mediaHandling['properties']['cloudProviderTransmissionRequiresConsent']['const'] ?? null) !== true
+) {
+    throw new RuntimeException('AI media-handling privacy contract regression detected.');
+}
+
+$itemMaster = $contract['components']['schemas']['HomeItemMasterProduct'] ?? [];
+$itemMasterPage = $contract['components']['schemas']['HomeItemMasterPage'] ?? [];
+$homeProductsPath = $contract['paths']['/api/v1/homes/{homeId}/products'] ?? [];
+$itemMasterResponseSchema = $homeProductsPath['get']['responses']['200']['content']['application/json']['schema'] ?? [];
+$createHomeProductSchema = $homeProductsPath['post']['responses']['201']['content']['application/json']['schema'] ?? [];
+$syncHomeProductCreate = $contract['components']['schemas']['SyncHomeProductCreatePayload'] ?? [];
+$homeAuthorizedAiAndShoppingOperations = [
+    ['/api/v1/homes/{homeId}/shopping-lists', 'get', 'listShoppingLists'],
+    ['/api/v1/homes/{homeId}/shopping-lists', 'post', 'createShoppingList'],
+    ['/api/v1/homes/{homeId}/shopping-lists/{listId}', 'get', 'getShoppingList'],
+    ['/api/v1/homes/{homeId}/shopping-lists/{listId}/lines', 'post', 'createShoppingListLine'],
+    [
+        '/api/v1/homes/{homeId}/shopping-lists/{listId}/lines/{lineId}/checked',
+        'put',
+        'setShoppingListLineChecked',
+    ],
+    ['/api/v1/homes/{homeId}/shopping-suggestions', 'get', 'listShoppingSuggestions'],
+    ['/api/v1/homes/{homeId}/shopping-suggestion-runs', 'post', 'createShoppingSuggestionRun'],
+    [
+        '/api/v1/homes/{homeId}/shopping-suggestions/{suggestionId}/explanation',
+        'get',
+        'getShoppingSuggestionExplanation',
+    ],
+    [
+        '/api/v1/homes/{homeId}/shopping-suggestions/{suggestionId}/feedback',
+        'post',
+        'createShoppingSuggestionFeedback',
+    ],
+    ['/api/v1/homes/{homeId}/consumption-estimates', 'get', 'listConsumptionEstimates'],
+    ['/api/v1/homes/{homeId}/stock-preferences/{homeProductId}', 'get', 'getStockPreference'],
+    ['/api/v1/homes/{homeId}/stock-preferences/{homeProductId}', 'put', 'putStockPreference'],
+    ['/api/v1/homes/{homeId}/price-comparisons', 'get', 'listPriceComparisons'],
+    ['/api/v1/homes/{homeId}/suggestion-backtests', 'post', 'createSuggestionBacktest'],
+    ['/api/v1/homes/{homeId}/suggestion-backtests/{backtestId}', 'get', 'getSuggestionBacktest'],
+    ['/api/v1/homes/{homeId}/ai/settings', 'get', 'getAiSettings'],
+    ['/api/v1/homes/{homeId}/ai/settings', 'put', 'putAiSettings'],
+    ['/api/v1/homes/{homeId}/ai/credentials/{providerId}', 'put', 'putAiProviderCredential'],
+    ['/api/v1/homes/{homeId}/ai/credentials/{providerId}', 'delete', 'deleteAiProviderCredential'],
+    ['/api/v1/homes/{homeId}/ai/profiles', 'get', 'listAiProviderProfiles'],
+    ['/api/v1/homes/{homeId}/ai/profiles', 'post', 'createAiProviderProfile'],
+    ['/api/v1/homes/{homeId}/ai/profiles/{profileId}', 'put', 'updateAiProviderProfile'],
+    ['/api/v1/homes/{homeId}/ai/profiles/{profileId}', 'delete', 'deleteAiProviderProfile'],
+    ['/api/v1/homes/{homeId}/ai/policy', 'get', 'getAiOrchestrationPolicy'],
+    ['/api/v1/homes/{homeId}/ai/policy', 'put', 'putAiOrchestrationPolicy'],
+    ['/api/v1/homes/{homeId}/ai/extractions', 'post', 'createAiExtraction'],
+    [
+        '/api/v1/homes/{homeId}/ai/extractions/stored-media',
+        'post',
+        'createAiExtractionFromStoredMedia',
+    ],
+    ['/api/v1/homes/{homeId}/ai/extractions/{extractionId}', 'get', 'getAiExtraction'],
+    [
+        '/api/v1/homes/{homeId}/ai/extractions/{extractionId}/candidates/{position}',
+        'put',
+        'reviewAiExtractionCandidate',
+    ],
+    [
+        '/api/v1/homes/{homeId}/ai/extractions/{extractionId}/observations/{decisionId}',
+        'put',
+        'reviewAiObservationDecision',
+    ],
+    [
+        '/api/v1/homes/{homeId}/ai/extractions/{extractionId}/discrepancies/{position}',
+        'put',
+        'reviewAiExtractionDiscrepancy',
+    ],
+    ['/api/v1/homes/{homeId}/ai/media', 'get', 'listPrivateAiMedia'],
+    ['/api/v1/homes/{homeId}/ai/media', 'post', 'uploadPrivateAiMedia'],
+    ['/api/v1/homes/{homeId}/ai/media/export', 'get', 'exportPrivateAiMediaMetadata'],
+    ['/api/v1/homes/{homeId}/ai/media/{assetId}', 'get', 'downloadPrivateAiMedia'],
+    ['/api/v1/homes/{homeId}/ai/media/{assetId}', 'delete', 'deletePrivateAiMedia'],
+    [
+        '/api/v1/homes/{homeId}/ai/media/{assetId}/retention',
+        'put',
+        'updatePrivateAiMediaRetention',
+    ],
+];
+$expectedAiAndShoppingOperationSet = [];
+foreach ($homeAuthorizedAiAndShoppingOperations as [$path, $method, $operationId]) {
+    $expectedAiAndShoppingOperationSet[$path . ' ' . $method] = $operationId;
+}
+$actualAiAndShoppingOperationSet = [];
+foreach ($contract['paths'] as $path => $pathItem) {
+    foreach ($pathItem as $method => $operation) {
+        if (! is_array($operation)) {
+            continue;
+        }
+        $tags = $operation['tags'] ?? [];
+        if (
+            array_intersect(['AI Integration', 'Shopping', 'Intelligence'], $tags) === []
+            || ! str_starts_with($path, '/api/v1/homes/{homeId}/')
+        ) {
+            continue;
+        }
+        $actualAiAndShoppingOperationSet[$path . ' ' . $method] = $operation['operationId'] ?? null;
+    }
+}
+ksort($expectedAiAndShoppingOperationSet);
+ksort($actualAiAndShoppingOperationSet);
+if ($actualAiAndShoppingOperationSet !== $expectedAiAndShoppingOperationSet) {
+    throw new RuntimeException('The audited home-authorized AI and shopping operation set changed.');
+}
+
+$nonDisclosingHomeDenialOperations = [
+    ['/api/v1/homes/{homeId}/sync/push', 'post'],
+    ['/api/v1/homes/{homeId}/sync/pull', 'get'],
+    ['/api/v1/homes/{homeId}/sync/bootstrap', 'get'],
+    ['/api/v1/homes/{homeId}/sync/operation-status', 'post'],
+    ['/api/v1/homes/{homeId}/products', 'get'],
+    ['/api/v1/homes/{homeId}/receipts/{receiptId}/lines/{lineId}/unresolve', 'post'],
+];
+$requiredItemMasterFields = [
+    'productId',
+    'packId',
+    'canonicalName',
+    'brand',
+    'categoryId',
+    'categoryName',
+    'packText',
+    'packStatus',
+    'aliases',
+    'homeProductId',
+    'homeProductStatus',
+    'quantity',
+];
+if (
+    ($itemMasterResponseSchema['$ref'] ?? null) !== '#/components/schemas/HomeItemMasterPage'
+    || ($itemMasterPage['properties']['pagination']['$ref'] ?? null)
+        !== '#/components/schemas/OffsetPagination'
+    || ($itemMaster['required'] ?? null) !== $requiredItemMasterFields
+    || ($itemMaster['properties']['aliases']['uniqueItems'] ?? null) !== true
+    || ($itemMaster['properties']['packStatus']['enum'] ?? null) !== ['published', 'pending-normalization']
+    || ($itemMaster['properties']['homeProductStatus']['enum'] ?? null) !== ['active', null]
+    || ($createHomeProductSchema['$ref'] ?? null) !== '#/components/schemas/CreatedHomeProduct'
+    || count($syncHomeProductCreate['anyOf'] ?? []) !== 3
+) {
+    throw new RuntimeException('The paged home item-master contract is incomplete.');
+}
+
+foreach ($nonDisclosingHomeDenialOperations as [$path, $method]) {
+    $responses = $contract['paths'][$path][$method]['responses'] ?? [];
+    if (($responses['404'] ?? null) !== ['$ref' => '#/components/responses/Problem']) {
+        throw new RuntimeException(sprintf(
+            'The non-disclosing home denial response is missing from %s %s.',
+            strtoupper($method),
+            $path,
+        ));
+    }
+}
+
+foreach ($homeAuthorizedAiAndShoppingOperations as [$path, $method]) {
+    $responses = $contract['paths'][$path][$method]['responses'] ?? [];
+    foreach (['403', '404'] as $status) {
+        if (($responses[$status] ?? null) !== ['$ref' => '#/components/responses/Problem']) {
+            throw new RuntimeException(sprintf(
+                'The distinct %s home-authorization response is missing from %s %s.',
+                $status,
+                strtoupper($method),
+                $path,
+            ));
+        }
+    }
+}
+
+$unresolvedReceiptPath = $contract['paths'][
+    '/api/v1/homes/{homeId}/receipts/{receiptId}/lines/{lineId}/unresolve'
+]['post'] ?? [];
+$receiptLineSchema = $contract['components']['schemas']['ReceiptLine'] ?? [];
+$unresolvedDecisionSchema = $contract['components']['schemas']['ReceiptLineDecisionResult'] ?? [];
+$unresolvedSyncPayload = $contract['components']['schemas']['SyncReceiptLineUnresolvePayload'] ?? [];
+$syncPantryCommand = $contract['components']['schemas']['SyncPantryCommand'] ?? [];
+$unresolvedCommandBranch = array_values(array_filter(
+    $syncPantryCommand['allOf'] ?? [],
+    static fn (mixed $branch): bool => is_array($branch)
+        && ($branch['if']['properties']['commandType']['const'] ?? null)
+            === 'purchasing.receipt-line.unresolve',
+));
+if (
+    ($unresolvedReceiptPath['requestBody']['content']['application/json']['schema']['$ref'] ?? null)
+        !== '#/components/schemas/ExpectedRevisionRequest'
+    || ($unresolvedReceiptPath['responses']['200']['content']['application/json']['schema']['$ref'] ?? null)
+        !== '#/components/schemas/ReceiptLineDecisionResult'
+    || ($unresolvedReceiptPath['responses']['404']['$ref'] ?? null)
+        !== '#/components/responses/Problem'
+    || ($receiptLineSchema['properties']['approvalStatus']['enum'] ?? null)
+        !== ['unreviewed', 'approved', 'unresolved', 'approved-catalog']
+    || ($unresolvedDecisionSchema['additionalProperties'] ?? null) !== false
+    || ($unresolvedDecisionSchema['properties']['approvalStatus']['const'] ?? null) !== 'unresolved'
+    || ($unresolvedSyncPayload['required'] ?? null) !== ['receiptId']
+    || ($unresolvedSyncPayload['properties']['receiptId']['format'] ?? null) !== 'uuid'
+    || ! in_array(
+        'purchasing.receipt-line.unresolve',
+        $syncPantryCommand['properties']['commandType']['enum'] ?? [],
+        true,
+    )
+    || count($unresolvedCommandBranch) !== 1
+    || ($unresolvedCommandBranch[0]['then']['required'] ?? null) !== ['baseRevision']
+    || ($unresolvedCommandBranch[0]['then']['properties']['payload']['$ref'] ?? null)
+        !== '#/components/schemas/SyncReceiptLineUnresolvePayload'
+) {
+    throw new RuntimeException('The durable unresolved receipt-line contract is incomplete.');
+}
+
 if (
     ($contract['components']['schemas']['ProblemDetails']['description'] ?? '') === ''
     || ($contract['openapi'] ?? '') !== '3.1.0'
@@ -268,7 +496,7 @@ if (
         $contract['components']['schemas']['RegisterResponse']['required'] ?? [],
         true,
     )
-    || ($contract['info']['version'] ?? '') !== '1.12.0'
+    || ($contract['info']['version'] ?? '') !== '1.13.2'
     || stripos($source, 'magic' . '-link') !== false
     || stripos($source, 'magic' . 'link') !== false
     || isset($contract['paths']['/api/v1/auth/' . 'magic' . '-links'])

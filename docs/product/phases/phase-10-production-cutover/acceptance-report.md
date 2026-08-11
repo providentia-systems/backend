@@ -13,7 +13,7 @@ candidate out of production.
 | Runtime image digest | Pending CI publication |
 | Media-worker image digest | Pending CI publication |
 | Web image digest | Pending CI publication |
-| OpenAPI contract | `1.12.0`, SHA-256 `30604d238f9c29f9d6b09dbf1819c84a475cb93e94728a8b2888f9b65a865a44` |
+| OpenAPI contract | `1.13.2`, SHA-256 `1b6b7f09240ace0ba6b7e7279259687569dfbacb112ea7dbd4094fe27ccd0108` |
 | Migration range | `Version20260729000100`–`Version20260809001600` |
 
 ## Automated acceptance

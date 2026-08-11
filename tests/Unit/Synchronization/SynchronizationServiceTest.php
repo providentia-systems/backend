@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ProvidentiaTest\Unit\Synchronization;
 
 use DateTimeImmutable;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeStore;
@@ -38,6 +39,88 @@ final class SynchronizationServiceTest extends TestCase
     private const BATCH_ID = '01912345-6789-7abc-8def-1123456789ab';
     private const OPERATION_ID = '01912345-6789-7abc-9def-1123456789ab';
     private const ENTITY_ID = '01912345-6789-7abc-adef-1123456789ab';
+    private const OTHER_HOME_ID = '01912345-6789-7abc-bdef-2123456789ab';
+
+    /** @param array{status: string, role: string}|null $membership */
+    #[DataProvider('concealedMembershipProvider')]
+    public function testPrivateSynchronizationEndpointsConcealNonMembership(
+        ?array $membership,
+        string $membershipHomeId,
+    ): void {
+        $store = $this->createMock(SyncStore::class);
+        $store->expects(self::never())->method('highWater');
+        $store->expects(self::never())->method('changes');
+        $store->expects(self::never())->method('captureSnapshotPage');
+        $store->expects(self::never())->method('apply');
+        $store->expects(self::never())->method('operationStatuses');
+        $service = $this->serviceWithMembership(
+            $store,
+            $membership,
+            $membershipHomeId,
+        );
+        $requests = [
+            'bootstrap' => fn (): array => $service->bootstrap(
+                $this->identity(),
+                self::HOME_ID,
+                'concealed-bootstrap',
+            ),
+            'pull' => fn (): array => $service->pull(
+                $this->identity(),
+                self::HOME_ID,
+                'concealed-pull',
+                null,
+            ),
+            'push' => fn (): array => $service->push(
+                $this->identity(),
+                self::HOME_ID,
+                'concealed-push',
+                self::BATCH_ID,
+                $this->envelope(),
+            ),
+            'operation-status' => fn (): array => $service->operationStatuses(
+                $this->identity(),
+                self::HOME_ID,
+                self::DEVICE_ID,
+                [self::OPERATION_ID],
+            ),
+        ];
+
+        foreach ($requests as $endpoint => $request) {
+            try {
+                $representation = $request();
+                self::fail(sprintf(
+                    '%s returned a private representation to a non-member: %s',
+                    $endpoint,
+                    json_encode($representation, JSON_THROW_ON_ERROR),
+                ));
+            } catch (Problem $problem) {
+                self::assertSame(404, $problem->status, $endpoint);
+                self::assertNotSame(403, $problem->status, $endpoint);
+                self::assertSame('Not found', $problem->title, $endpoint);
+                self::assertSame(
+                    'The requested resource is unavailable.',
+                    $problem->getMessage(),
+                    $endpoint,
+                );
+            }
+        }
+    }
+
+    /**
+     * @return iterable<string, array{0: array{status: string, role: string}|null, 1: string}>
+     */
+    public static function concealedMembershipProvider(): iterable
+    {
+        yield 'absent membership' => [null, self::HOME_ID];
+        yield 'revoked membership' => [[
+            'status' => 'revoked',
+            'role' => HomeAuthorization::MEMBER,
+        ], self::HOME_ID];
+        yield 'active membership in a foreign home' => [[
+            'status' => 'active',
+            'role' => HomeAuthorization::MEMBER,
+        ], self::OTHER_HOME_ID];
+    }
 
     public function testSessionDeviceBindingIsEnforcedBeforeApplyingOperations(): void
     {
@@ -52,6 +135,26 @@ final class SynchronizationServiceTest extends TestCase
             self::fail('An operation from another device was accepted.');
         } catch (Problem $problem) {
             self::assertSame(403, $problem->status);
+        }
+    }
+
+    public function testOperationStatusDeviceMismatchRemainsAnExplicitForbiddenError(): void
+    {
+        $store = $this->createMock(SyncStore::class);
+        $store->expects(self::never())->method('operationStatuses');
+        $service = $this->service($store, HomeAuthorization::MEMBER);
+
+        try {
+            $service->operationStatuses(
+                $this->identity(),
+                self::HOME_ID,
+                '01912345-6789-7abc-cdef-2123456789ab',
+                [self::OPERATION_ID],
+            );
+            self::fail('A member queried operation receipts for another device.');
+        } catch (Problem $problem) {
+            self::assertSame(403, $problem->status);
+            self::assertSame('Device mismatch', $problem->title);
         }
     }
 
@@ -468,13 +571,117 @@ final class SynchronizationServiceTest extends TestCase
         self::assertFalse($response['operations'][1]['known']);
     }
 
+    public function testUnresolvedReceiptCommandReplayReturnsImmutableReceiptWithoutRedispatch(): void
+    {
+        $lineId = self::ENTITY_ID;
+        $storedReceipt = null;
+        $store = $this->createMock(SyncStore::class);
+        $store->method('operationReceipt')
+            ->with(self::OPERATION_ID)
+            ->willReturnCallback(static function () use (&$storedReceipt): ?array {
+                return $storedReceipt;
+            });
+        $store->expects(self::once())
+            ->method('recordCommandReceipt')
+            ->willReturnCallback(
+                static function (
+                    string $homeId,
+                    string $userId,
+                    string $deviceId,
+                    SyncCommand $_command,
+                    string $requestHash,
+                    array $response,
+                ) use (&$storedReceipt): void {
+                    $storedReceipt = [
+                        'homeId' => $homeId,
+                        'userId' => $userId,
+                        'deviceId' => $deviceId,
+                        'requestHash' => $requestHash,
+                        'response' => $response,
+                    ];
+                },
+            );
+        $store->expects(self::exactly(2))->method('highWater')->willReturn(0);
+        $dispatcher = $this->createMock(SyncCommandDispatcher::class);
+        $dispatcher->expects(self::once())
+            ->method('dispatch')
+            ->with(
+                self::isInstanceOf(AuthenticatedIdentity::class),
+                self::HOME_ID,
+                self::callback(
+                    static fn (SyncCommand $command): bool =>
+                        $command->commandType === 'purchasing.receipt-line.unresolve'
+                        && $command->entityId === $lineId
+                        && $command->baseRevision === 2,
+                ),
+            )
+            ->willReturn(['id' => $lineId, 'revision' => 3, 'approvalStatus' => 'unresolved']);
+        $service = $this->service($store, HomeAuthorization::MEMBER, $dispatcher);
+        $envelope = [
+            'protocolVersion' => 2,
+            'batchId' => self::BATCH_ID,
+            'deviceId' => self::DEVICE_ID,
+            'lastPulledCursor' => null,
+            'operations' => [[
+                'operationId' => self::OPERATION_ID,
+                'commandType' => 'purchasing.receipt-line.unresolve',
+                'entityId' => $lineId,
+                'baseRevision' => 2,
+                'clientTimestamp' => '2026-07-30T11:59:00+00:00',
+                'payloadSchemaVersion' => 1,
+                'payload' => ['receiptId' => '01912345-6789-7abc-8def-3123456789ab'],
+            ]],
+        ];
+
+        $first = $service->push(
+            $this->identity(),
+            self::HOME_ID,
+            'unresolve-first',
+            self::BATCH_ID,
+            $envelope,
+        );
+        $replayed = $service->push(
+            $this->identity(),
+            self::HOME_ID,
+            'unresolve-lost-response-retry',
+            self::BATCH_ID,
+            $envelope,
+        );
+
+        self::assertSame(
+            $this->firstRow($first, 'results'),
+            $this->firstRow($replayed, 'results'),
+        );
+        self::assertSame('accepted', $this->firstRow($first, 'results')['status']);
+        self::assertSame('unresolved', $this->firstRow($first, 'results')['result']['approvalStatus']);
+    }
+
     private function service(
         SyncStore $syncStore,
         string $role,
         ?SyncCommandDispatcher $dispatcher = null,
     ): SynchronizationService {
+        return $this->serviceWithMembership(
+            $syncStore,
+            ['status' => 'active', 'role' => $role],
+            self::HOME_ID,
+            $dispatcher,
+        );
+    }
+
+    /** @param array{status: string, role: string}|null $membership */
+    private function serviceWithMembership(
+        SyncStore $syncStore,
+        ?array $membership,
+        string $membershipHomeId,
+        ?SyncCommandDispatcher $dispatcher = null,
+    ): SynchronizationService {
         $homeStore = $this->createStub(HomeStore::class);
-        $homeStore->method('membership')->willReturn(['status' => 'active', 'role' => $role]);
+        $homeStore->method('membership')->willReturnCallback(
+            static fn (string $homeId, string $_userId): ?array => $homeId === $membershipHomeId
+                ? $membership
+                : null,
+        );
         $clock = new FixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00'));
         $cursors = new CursorCodec(str_repeat('s', 32), $clock, 3600);
 

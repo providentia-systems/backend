@@ -199,6 +199,128 @@ final class PantrySyncCommandDispatcherTest extends TestCase
         self::assertSame(['receiptId' => self::RECEIPT_ID, 'movements' => 0], $result);
     }
 
+    public function testReceiptLineUnresolvedCommandUsesRevisionedPurchasingDecision(): void
+    {
+        $lineId = self::PRODUCT_ID;
+        $draft = [
+            'id' => self::RECEIPT_ID,
+            'status' => 'draft',
+            'revision' => 4,
+            'purchaseDate' => '2026-08-04',
+            'currency' => 'NAD',
+        ];
+        $purchases = $this->createMock(PurchasingStore::class);
+        $purchases->expects(self::exactly(2))
+            ->method('receipt')
+            ->with(self::HOME_ID, self::RECEIPT_ID)
+            ->willReturnOnConsecutiveCalls($draft, [...$draft, 'revision' => 5]);
+        $purchases->expects(self::exactly(2))
+            ->method('receiptLine')
+            ->with(self::HOME_ID, self::RECEIPT_ID, $lineId)
+            ->willReturnOnConsecutiveCalls(
+                [
+                    'id' => $lineId,
+                    'receiptId' => self::RECEIPT_ID,
+                    'rawDescription' => 'Unreadable line',
+                    'quantity' => '1',
+                    'homeProductId' => null,
+                    'approvalStatus' => 'unreviewed',
+                    'revision' => 2,
+                ],
+                [
+                    'id' => $lineId,
+                    'receiptId' => self::RECEIPT_ID,
+                    'rawDescription' => 'Unreadable line',
+                    'quantity' => '1',
+                    'homeProductId' => null,
+                    'approvalStatus' => 'unresolved',
+                    'revision' => 3,
+                ],
+            );
+        $purchases->expects(self::once())
+            ->method('markReceiptLineUnresolved')
+            ->with(
+                self::HOME_ID,
+                self::RECEIPT_ID,
+                $lineId,
+                2,
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(true);
+
+        $result = $this->dispatcher(
+            $this->createStub(InventoryStore::class),
+            $purchases,
+        )->dispatch(
+            $this->identity(),
+            self::HOME_ID,
+            new SyncCommand(
+                self::OPERATION_ID,
+                'purchasing.receipt-line.unresolve',
+                $lineId,
+                2,
+                '2026-08-04T11:59:00+00:00',
+                1,
+                ['receiptId' => self::RECEIPT_ID],
+            ),
+        );
+
+        self::assertSame(
+            ['id' => $lineId, 'revision' => 3, 'approvalStatus' => 'unresolved'],
+            $result,
+        );
+    }
+
+    public function testCountCancellationUsesTheAuthoritativeRevisionedService(): void
+    {
+        $inventory = $this->createMock(InventoryStore::class);
+        $inventory->expects(self::once())
+            ->method('countSession')
+            ->with(self::HOME_ID, self::SESSION_ID)
+            ->willReturn([
+                'id' => self::SESSION_ID,
+                'status' => 'open',
+                'revision' => 3,
+                'locationId' => null,
+                'notes' => '',
+                'scopeComplete' => false,
+                'reliability' => 'unassessed',
+            ]);
+        $inventory->expects(self::once())
+            ->method('cancelCountSession')
+            ->with(
+                self::HOME_ID,
+                self::SESSION_ID,
+                3,
+                self::USER_ID,
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(true);
+        $inventory->expects(self::never())->method('appendMovement');
+
+        $result = $this->dispatcher(
+            $inventory,
+            $this->createStub(PurchasingStore::class),
+        )->dispatch(
+            $this->identity(),
+            self::HOME_ID,
+            new SyncCommand(
+                self::OPERATION_ID,
+                'inventory.count-session.cancel',
+                self::SESSION_ID,
+                3,
+                '2026-08-04T11:59:00+00:00',
+                1,
+                [],
+            ),
+        );
+
+        self::assertSame(
+            ['sessionId' => self::SESSION_ID, 'status' => 'cancelled', 'revision' => 4],
+            $result,
+        );
+    }
+
     private function dispatcher(
         InventoryStore $inventoryStore,
         PurchasingStore $purchasingStore,

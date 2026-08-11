@@ -21,6 +21,8 @@ until a home member records a human decision.
 - EXIF-bearing input rejection for extraction input
 - Explicit transient or retained private-media storage, encrypted before
   object persistence, quota controlled, home scoped, and revision managed
+- Precise settings disclosure separating non-persisted direct extraction from
+  explicitly chosen encrypted private-media storage
 - Strict receipt/stock schema, prompt-injection instruction, and application
   revalidation independent of provider claims
 - Sensitive/unrelated document rejection
@@ -43,6 +45,12 @@ audit export, or API history. When a household explicitly uploads transient or
 retained private media, the object store receives ciphertext; database records
 contain bounded metadata and encryption material, and every read is rechecked
 against current home permission.
+
+The direct extraction endpoint does not add its upload to application media
+storage. This does not mean the image stays on-device: in `server_proxy` mode
+the request transits the Providentia process and the selected provider after
+explicit consent. The separate private-media endpoint requires an explicit
+`transient` or `retained` choice and persists only ciphertext.
 
 ## Reading order
 

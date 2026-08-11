@@ -37,14 +37,14 @@ final class InventoryHandler implements RequestHandlerInterface
                 (string) ($body['name'] ?? ''),
                 (string) ($body['kind'] ?? ''),
             ), 201),
-            'items.list' => new JsonResponse(['data' => $this->inventory->itemMaster(
+            'items.list' => new JsonResponse($this->inventory->itemMaster(
                 $identity,
                 $homeId,
                 (string) ($query['q'] ?? ''),
                 isset($query['categoryId']) ? (string) $query['categoryId'] : null,
                 (int) ($query['limit'] ?? 50),
                 (int) ($query['offset'] ?? 0),
-            )]),
+            )),
             'items.create' => new JsonResponse($this->inventory->addHomeProduct(
                 $identity,
                 $homeId,
@@ -119,6 +119,12 @@ final class InventoryHandler implements RequestHandlerInterface
                 (int) ($body['expectedRevision'] ?? 0),
             )),
             'counts.close' => new JsonResponse($this->inventory->closeCount(
+                $identity,
+                $homeId,
+                (string) $request->getAttribute('sessionId', ''),
+                (int) ($body['expectedRevision'] ?? 0),
+            )),
+            'counts.cancel' => new JsonResponse($this->inventory->cancelCount(
                 $identity,
                 $homeId,
                 (string) $request->getAttribute('sessionId', ''),

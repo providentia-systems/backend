@@ -71,7 +71,7 @@ final class InventoryService implements InventoryMovementGateway
         return ['id' => $id];
     }
 
-    /** @return list<array<string, mixed>> */
+    /** @return array{data: list<array<string, mixed>>, pagination: array<string, int|bool|null>} */
     public function itemMaster(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -82,13 +82,30 @@ final class InventoryService implements InventoryMovementGateway
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
 
-        return $this->inventory->itemMaster(
+        $limit = min(100, max(1, $limit));
+        $offset = max(0, $offset);
+        $page = $this->inventory->itemMaster(
             $homeId,
             mb_substr(trim($query), 0, 191),
             $categoryId === '' ? null : $categoryId,
-            min(100, max(1, $limit)),
-            max(0, $offset),
+            $limit,
+            $offset,
         );
+        $returned = count($page['items']);
+        $nextOffset = $offset + $returned;
+        $hasMore = $nextOffset < $page['total'];
+
+        return [
+            'data' => $page['items'],
+            'pagination' => [
+                'limit' => $limit,
+                'offset' => $offset,
+                'returned' => $returned,
+                'total' => $page['total'],
+                'hasMore' => $hasMore,
+                'nextOffset' => $hasMore ? $nextOffset : null,
+            ],
+        ];
     }
 
     /** @return list<array<string, mixed>> */
@@ -122,15 +139,15 @@ final class InventoryService implements InventoryMovementGateway
         ?string $requestedId = null,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
-        $privateName = $privateName === null ? null : trim($privateName);
-        if ($productId === null && ($privateName === null || $privateName === '')) {
-            throw new Problem(422, 'Invalid item', 'Choose a catalog product or provide a private product name.');
-        }
         if ($productId !== null && $productId === '') {
             $productId = null;
         }
         if ($packId !== null && $packId === '') {
             $packId = null;
+        }
+        $privateName = $privateName === null ? null : trim($privateName);
+        if ($productId === null && $packId === null && ($privateName === null || $privateName === '')) {
+            throw new Problem(422, 'Invalid item', 'Choose a catalog product or provide a private product name.');
         }
         if ($privateName !== null && mb_strlen($privateName) > 191) {
             throw new Problem(422, 'Invalid item', 'Private product name exceeds 191 characters.');
@@ -499,6 +516,72 @@ final class InventoryService implements InventoryMovementGateway
             );
 
             return ['sessionId' => $sessionId, 'movements' => $movementCount];
+        });
+    }
+
+    /** @return array{sessionId: string, status: string, revision: int} */
+    public function cancelCount(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $sessionId,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
+
+        return $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $sessionId,
+            $expectedRevision,
+        ): array {
+            $session = $this->inventory->countSession($homeId, $sessionId);
+            if ($session === null) {
+                throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+            }
+            if ((string) $session['status'] === 'cancelled') {
+                if ((int) $session['revision'] - 1 !== $expectedRevision) {
+                    throw new Problem(409, 'Revision conflict', 'The count session changed on another device.');
+                }
+
+                return [
+                    'sessionId' => $sessionId,
+                    'status' => 'cancelled',
+                    'revision' => (int) $session['revision'],
+                ];
+            }
+            if ((string) $session['status'] !== 'open' || (int) $session['revision'] !== $expectedRevision) {
+                throw new Problem(409, 'Revision conflict', 'The count session changed on another device.');
+            }
+            $at = $this->clock->now();
+            if (
+                ! $this->inventory->cancelCountSession(
+                    $homeId,
+                    $sessionId,
+                    $expectedRevision,
+                    $identity->userId,
+                    $at,
+                )
+            ) {
+                throw new Problem(409, 'Revision conflict', 'The count session changed on another device.');
+            }
+            $revision = $expectedRevision + 1;
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'inventory-count-session',
+                $sessionId,
+                $revision,
+                [
+                    'locationId' => $session['locationId'] ?? null,
+                    'notes' => (string) ($session['notes'] ?? ''),
+                    'scopeComplete' => (bool) ($session['scopeComplete'] ?? false),
+                    'reliability' => (string) ($session['reliability'] ?? 'unassessed'),
+                    'status' => 'cancelled',
+                ],
+                $at,
+            );
+
+            return ['sessionId' => $sessionId, 'status' => 'cancelled', 'revision' => $revision];
         });
     }
 

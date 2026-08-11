@@ -27,10 +27,15 @@ sequenceDiagram
     Client->>Purchasing: Create draft receipt
     Client->>Purchasing: Add line with receipt revision
     Purchasing->>Database: Atomically increment revision and insert line
-    Review->>Purchasing: Select home product and approve line
-    Purchasing->>Database: Revision-checked approval
+    alt Match accepted
+        Review->>Purchasing: Select home product and approve line
+        Purchasing->>Database: Revision-checked approval
+    else Intentionally unresolved
+        Review->>Purchasing: Leave raw line unresolved
+        Purchasing->>Database: Revision-checked unresolved decision
+    end
     Client->>Purchasing: Commit current receipt revision
-    Purchasing->>Inventory: Record approved inbound per line
+    Purchasing->>Inventory: Record inbound for approved lines only
     Inventory->>Database: Insert unique movement and update balance
     Purchasing->>Database: Mark receipt committed
     Purchasing-->>Client: Receipt ID and movement count
@@ -39,6 +44,10 @@ sequenceDiagram
 The transaction encompasses the movement and receipt-state changes. A repeated
 commit of an already committed receipt returns zero new movements. Movement
 identity is unique by home, source type, source ID, and home product.
+Every line must be terminal before commit. An unresolved line retains its raw
+description and commercial evidence but creates no price observation or stock
+movement. Repeating the same unresolved decision or protocol-v2 operation is
+idempotent.
 
 ## Physical count flow
 

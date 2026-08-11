@@ -1,101 +1,119 @@
 # Phase 4 synchronization protocol
 
-## Boundary
+## Current boundary
 
-Protocol version `1` is home-scoped and device-bound. The Phase 4 prototype
-implements the end-to-end mechanics for the explicitly allow-listed
-`home-preference` and `private-note` entity types. It does not fabricate Phase
-3 inventory aggregates that do not yet exist.
+Providentia supports two home-scoped, device-bound write envelopes over one
+ordered change feed:
 
-## Push
+- protocol v1 handles the closed `home-preference` and `private-note`
+  resources;
+- protocol v2 handles closed, typed pantry commands for inventory, counts,
+  purchasing, and shopping.
 
-`POST /api/v1/homes/{homeId}/sync/push` requires:
+Both versions require current membership in the route home, the authenticated
+session device, UUID operation and batch identities, exact idempotency-key
+binding, bounded request sizes, and one classified result per operation. The
+server derives the actor and tenant; no body field grants access.
 
-- current membership in the route home;
-- a session device equal to the envelope `deviceId`;
-- protocol version `1`;
-- an `Idempotency-Key` exactly equal to the UUID `batchId`;
-- 1–100 closed-shape operations;
-- UUID operation/entity IDs, `put` or `delete`, schema version `1`, a valid
-  client timestamp, and at most 64 KiB of JSON payload.
+## Protocol-v2 pantry commands
 
-Version 1 payloads are closed:
+The enabled command set is deliberately closed:
 
-- `private-note` requires a `body` of 1–4,000 characters (matching OpenAPI
-  `minLength`/`maxLength`, so whitespace is not implicitly trimmed) and permits
-  an optional `title` of at most 120 characters.
-- `home-preference` permits only `defaultLocale`, `defaultCurrency`,
-  `defaultTimezone`, and `measurementSystem` (`metric` or `imperial`), with at
-  least one field. `defaultTimezone` is additionally checked at runtime by
-  PHP's `DateTimeZone` constructor; the OpenAPI length constraint alone cannot
-  express the constructor's accepted identifier/offset set.
-- Delete payloads are empty. Unknown and server-owned fields such as IDs,
-  revisions, actors, or tenant scope are rejected.
+- create a location or private/global home product;
+- create an inventory adjustment;
+- create, add/update a line, close, or cancel a stock-count session;
+- create a store, receipt, or receipt line, approve or intentionally leave a
+  receipt line unresolved, and commit a receipt;
+- create a shopping list or line and update checked state.
 
-The server derives user and home from authentication/routing. Client timestamps
-never allocate order. A viewer receives a per-operation authorization failure.
-For each operation the server compares `baseRevision`, applies one next
-revision, writes the change feed, receipt, audit record, tombstone if deleted,
-and outbox event in one database transaction.
+Every aggregate update carries its current base revision. Cancellation is a
+revisioned terminal count-session transition: it preserves the audit record,
+creates no inventory movement, emits a `cancelled` change-feed projection, and
+returns the stored result on an identical retry. Closing remains the only
+count transition that reconciles confirmed observations into movements.
 
-Operation IDs are globally unique and bound to the original home, user, device,
-and canonical request hash. An identical retry returns the stored response. Any
-reuse with changed identity/scope/payload becomes an `operation_id_reuse`
-conflict.
+Commands are dispatched through the same tenant-authorized application
+services as the ordinary HTTP resources. The synchronization layer does not
+duplicate inventory or purchasing business rules.
 
-## Bootstrap and pull
+The unresolved receipt-line decision is revision-bound and durable. It clears
+any selected home product, preserves the raw description, quantity, pack text,
+and prices, supersedes an earlier approved match, and emits authoritative line
+and receipt projections. Receipt commit requires every line to be terminal:
+approved lines create their idempotent price and inbound-movement effects;
+unresolved lines remain attached to history and create neither effect.
+
+## Push and lost-response recovery
+
+`POST /api/v1/homes/{homeId}/sync/push` accepts 1–100 operations. Operation IDs
+are globally unique and bound to their original home, user, device, command,
+and canonical request hash. An identical retry returns the stored result;
+changed reuse is a conflict.
+
+`POST /api/v1/homes/{homeId}/sync/operation-status` accepts 1–100 operation
+IDs and returns only receipts belonging to the authenticated home, user, and
+device. Clients may query it after an interrupted response or retry the exact
+immutable operation and batch IDs. Neither path can apply the mutation twice.
+
+Results are `accepted`, `conflict`, `validation_error`,
+`authorization_failure`, or `retryable_failure`. A client acknowledges local
+intent only after an accepted result.
+
+## Bootstrap and incremental pull
 
 The first incremental pull without a cursor returns `410
-sync_resync_required`. The client first requests
-`GET /api/v1/homes/{homeId}/sync/bootstrap`. Authorization is rechecked, the
-server captures one high-water sequence and the current non-deleted records in
-one database transaction, returns that snapshot plus an opaque cursor, and
-acknowledges the captured position for the current device.
+sync_resync_required`. The client obtains a consistent snapshot from
+`GET /api/v1/homes/{homeId}/sync/bootstrap`.
 
-The current bootstrap implementation refuses snapshots above 250 records with
-`409`; it never returns an inconsistent partial snapshot. Paged bootstrap with
-a durable snapshot token is the required upgrade before large homes.
+Bootstrap is paged over a frozen high-water sequence. Each continuation cursor
+is signed, home-bound, expiring, and carries the last entity sort key. The
+incremental cursor is returned only on the final page. This prevents a large
+home from receiving a partial or mixed-time snapshot.
 
-Incremental pull decodes a signed cursor that contains the route home, current
-position, frozen high-water position, expiry, and version. Pages are ordered by
-the server sequence and never include changes newer than the frozen high-water.
-The client commits a page and its `pageCursor` atomically. `hasMore=false`
-marks that frozen window complete. The next pull captures a new current
-high-water boundary, making later server changes visible while again freezing
-that entire paged window.
+Incremental pull uses a signed cursor containing home, position, frozen
+high-water position, expiry, and version. Pages are sequence ordered and never
+cross the frozen boundary. The client commits a page and its cursor atomically.
+When the position reaches the boundary, the next pull captures a newer
+high-water value.
 
-Changing the cursor home or signature cannot disclose another tenant. Expired
-cursors return `410 sync_resync_required`.
+Expired, compacted, wrong-home, or invalid cursors fail closed. A resnapshot
+replaces only synchronized projections and replays durable unacknowledged
+local intent.
 
-## Deletion and retention
+## Deletion, retention, and compaction
 
-Deletion increments the resource revision and emits a payload-free tombstone.
-The current implementation retains tombstones indefinitely and performs no
-history compaction because the supported offline duration has not been approved.
-Once that decision exists, compaction must retain all history through the
-supported window and establish a documented snapshot boundary; older cursors
-must receive `sync_resync_required`.
+Deletes emit revisioned payload-free tombstones. The supported offline window
+defaults to 90 days and tombstone retention to 120 days; configuration rejects
+a retention window shorter than supported offline operation. Compaction
+records the minimum available cursor so an older device receives a required
+resnapshot rather than silently missing a deletion.
 
-## Client invariants
+## Conflict and client invariants
 
-- Persist the local mutation and client operation in one Drift transaction.
-- Reuse operation/batch IDs after timeouts; never generate a new ID for an
-  uncertain response.
-- Do not treat a client clock or opaque cursor as a comparable domain value.
-- Apply all records/tombstones in a page and advance the cursor atomically.
-- Preserve pending local operations through a required bootstrap.
-- Treat `revision_mismatch` as an explicit conflict, not last-write-wins.
+- Local mutation and durable outbox command commit in one Drift transaction.
+- Client clocks are diagnostic only; server revisions and sequence allocate
+  order.
+- Membership and role changes remain server-authoritative.
+- Revision conflicts preserve local and remote representations for explicit
+  user resolution.
+- Closed and cancelled counts are terminal facts.
+- Stock movements remain append-only; balances are rebuildable projections.
+- Access and refresh credentials never enter Drift or synchronization
+  payloads.
 
-## Remaining Phase 4 acceptance boundary
+## Verification and operational evidence
 
-This is a bounded Phase 4 protocol prototype, not full Phase 4 acceptance:
+Repository tests cover closed command shapes, cross-home/device binding,
+idempotent receipts, paged snapshots, cursor expiry, tombstone retention,
+operation-status isolation, typed command dispatch, lost-response retry, and
+deterministic two-device convergence. CI runs the backend suite on SQLite,
+MySQL, and MariaDB and exercises Redis and Valkey queue profiles.
 
-- There is no standalone operation-status recovery endpoint. After a lost
-  response, the client must retry the original immutable operation ID and
-  batch ID to receive the stored exact response.
-- Bootstrap is one consistent page capped at 250 current records. The server
-  fails safely with `409` above that boundary. A durable snapshot-token design
-  is required before consistent multi-page bootstrap can be claimed.
-- Automated multi-day/offline scheduling, UI retry state, token-refresh during
-  sync, database failover/restart scenarios, and full multi-device end-to-end
-  tests remain open.
+`SyncMetricsProbe` contributes privacy-safe synchronization counts to the
+metrics surface. Labels contain no household payload, receipt text, media,
+token, credential, or private entity value.
+
+Physical-device lifecycle, browser persistence, staging failover, and
+multi-day offline evidence remain release-candidate acceptance activities;
+their absence does not turn repository-tested behavior into a production
+claim.

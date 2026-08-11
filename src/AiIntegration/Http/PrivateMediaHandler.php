@@ -79,7 +79,7 @@ final readonly class PrivateMediaHandler implements RequestHandlerInterface
         return new JsonResponse($this->media->upload(
             $identity,
             $homeId,
-            (string) ($body['retention'] ?? 'transient'),
+            (string) ($body['retention'] ?? ''),
             (string) ($uploaded->getClientMediaType() ?? ''),
             $uploaded->getClientFilename(),
             $stream->getContents(),

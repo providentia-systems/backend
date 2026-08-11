@@ -12,6 +12,26 @@ use Providentia\SharedKernel\Application\UuidGenerator;
 
 final class DbalBaselineImportStore implements BaselineImportStore
 {
+    /**
+     * Blank source pack text was deliberately published as a distinct
+     * `Pack size pending` catalog pack for these reviewed photo-count rows.
+     * The source keys are the only authoritative cross-export identity; no
+     * fuzzy/name-only matching is permitted for any other opening-stock row.
+     *
+     * @var array<string, string>
+     */
+    private const REVIEWED_OPENING_STOCK_SOURCE_LINKS = [
+        'stock-26' => 'review-ground-coffee-jacobs-barista-classic-pack-size-pending-279',
+        'stock-30' => 'review-tomato-sauce-all-gold-pack-size-pending-282',
+        'stock-31' => 'review-tomato-sauce-pack-size-pending-283',
+        'stock-32' => 'review-sweet-chilli-sauce-pack-size-pending-284',
+        'stock-46' => 'review-oxi-laundry-stain-remover-pack-size-pending-287',
+        'stock-50' => 'review-thin-bleach-pack-size-pending-288',
+        'stock-55' => 'review-insecticide-repellent-tabard-pack-size-pending-289',
+        'stock-56' => 'review-air-freshener-pack-size-pending-290',
+        'stock-59' => 'review-steel-wool-scrubbies-pack-size-pending-292',
+    ];
+
     public function __construct(
         private readonly Connection $connection,
         private readonly UuidGenerator $ids,
@@ -65,7 +85,7 @@ final class DbalBaselineImportStore implements BaselineImportStore
 
         /** @var list<array<string, mixed>> $items */
         $items = $data['itemMaster'];
-        [$exactItems, $looseItems] = $this->catalogIndexes($items);
+        [$exactItems, $looseItems, $sourceItems] = $this->catalogIndexes($items);
         $locationId = $this->createUnspecifiedLocation($homeId, $now);
         /** @var list<array<string, mixed>> $openingStock */
         $openingStock = $data['currentStock'];
@@ -76,6 +96,7 @@ final class DbalBaselineImportStore implements BaselineImportStore
             $locationId,
             $openingStock,
             $exactItems,
+            $sourceItems,
             $now,
         );
         /** @var list<array<string, mixed>> $history */
@@ -92,7 +113,7 @@ final class DbalBaselineImportStore implements BaselineImportStore
             $now,
         );
         if (
-            $opening !== ['catalogLinked' => 23, 'privateProducts' => 37, 'countLines' => 60, 'quantity' => 159]
+            $opening !== ['catalogLinked' => 32, 'privateProducts' => 28, 'countLines' => 60, 'quantity' => 159]
             || $purchases !== [
                 'receipts' => 9,
                 'lines' => 468,
@@ -115,12 +136,17 @@ final class DbalBaselineImportStore implements BaselineImportStore
 
     /**
      * @param list<array<string, mixed>> $items
-     * @return array{0: array<string, array<string, string>|null>, 1: array<string, array<string, string>|null>}
+     * @return array{
+     *   0: array<string, array<string, string>|null>,
+     *   1: array<string, array<string, string>|null>,
+     *   2: array<string, array<string, string>>
+     * }
      */
     private function catalogIndexes(array $items): array
     {
         $exact = [];
         $loose = [];
+        $bySource = [];
         foreach ($items as $item) {
             $sourceId = (string) ($item['id'] ?? '');
             $pack = $this->one(
@@ -143,9 +169,10 @@ final class DbalBaselineImportStore implements BaselineImportStore
             );
             $exact[$exactKey] = array_key_exists($exactKey, $exact) ? null : $value;
             $loose[$looseKey] = array_key_exists($looseKey, $loose) ? null : $value;
+            $bySource[$sourceId] = $value;
         }
 
-        return [$exact, $loose];
+        return [$exact, $loose, $bySource];
     }
 
     private function createUnspecifiedLocation(string $homeId, string $now): string
@@ -177,6 +204,7 @@ final class DbalBaselineImportStore implements BaselineImportStore
     /**
      * @param list<array<string, mixed>> $rows
      * @param array<string, array<string, string>|null> $exactItems
+     * @param array<string, array<string, string>> $sourceItems
      * @return array{catalogLinked: int, privateProducts: int, countLines: int, quantity: int}
      */
     private function importOpeningStock(
@@ -186,6 +214,7 @@ final class DbalBaselineImportStore implements BaselineImportStore
         string $locationId,
         array $rows,
         array $exactItems,
+        array $sourceItems,
         string $now,
     ): array {
         $sessionId = $this->ids->generate();
@@ -213,6 +242,15 @@ final class DbalBaselineImportStore implements BaselineImportStore
                 (string) ($row['brand'] ?? ''),
                 (string) ($row['packSize'] ?? ''),
             )] ?? null;
+            if (! is_array($match) && isset(self::REVIEWED_OPENING_STOCK_SOURCE_LINKS[$sourceId])) {
+                $reviewedSourceId = self::REVIEWED_OPENING_STOCK_SOURCE_LINKS[$sourceId];
+                $match = $sourceItems[$reviewedSourceId] ?? null;
+                if (! is_array($match)) {
+                    throw new \RuntimeException(
+                        'A reviewed opening-stock catalog identity is unavailable: ' . $reviewedSourceId,
+                    );
+                }
+            }
             $homeProductId = $this->ids->generate();
             $linked = is_array($match);
             $this->connection->insert('home_products', [
