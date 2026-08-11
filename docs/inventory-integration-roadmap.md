@@ -72,6 +72,11 @@ cursor tests, lost-response retry tests, and two-device convergence tests pass.
 Outcome: the main household workflows and explicitly consented community
 features cross the same authenticated boundary.
 
+Client checkpoint (2026-08-11): the product-identity path is composed from the
+active-home inventory projection. It requires `catalog.contribute`, current
+server product-identity consent, an exact sanitized preview, and a fresh
+per-item checkbox. Neither selecting an item nor changing consent submits.
+
 - Project stores, receipts, receipt lines, shopping lists, and list lines from
   the authoritative feed; keep raw receipt descriptions private.
 - Support idempotent receipt creation, line review, commit, shopping-line
@@ -95,6 +100,12 @@ tests, platform-role denial tests, synthetic AI contract tests, and explicit
 
 Outcome: reporting and administrative surfaces are connected and the release
 candidate can be tested end to end without overstating production readiness.
+
+Client checkpoint (2026-08-11): reviewer/curator navigation is platform-role
+derived; proposal, contribution, conflict, validated icon metadata, merge, and
+reversal actions call revision-bound ports. Permission, role, or session loss
+clears route-owned state and dismisses both navigator layers. Live acceptance
+remains required.
 
 - Connect dashboard, movement, purchase, inventory, consumption, suggestion,
   price-comparison, feedback, and household-report reads.
