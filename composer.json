@@ -67,14 +67,14 @@
   },
   "scripts": {
     "check": [
-      "@validate",
+      "@composer:validate",
       "@cs",
       "@static",
       "@test",
       "@architecture",
       "@contract"
     ],
-    "validate": "composer validate --no-check-publish",
+    "composer:validate": "composer validate --no-check-publish",
     "cs": "phpcs",
     "cs:fix": "phpcbf",
     "static": "phpstan analyse --no-progress --memory-limit=512M",

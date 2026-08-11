@@ -89,14 +89,16 @@ final class PurchasingHandlerTest extends TestCase
         $lineId = '01912345-6789-7abc-adef-0123456789ab';
         $userId = '01912345-6789-7abc-bdef-0123456789ab';
 
-        foreach ([
-            [],
-            ['expectedRevision' => '2junk'],
-            ['expectedRevision' => 2.9],
-            ['expectedRevision' => true],
-            ['expectedRevision' => 0],
-            ['expectedRevision' => 2, 'unexpected' => 'field'],
-        ] as $body) {
+        foreach (
+            [
+                [],
+                ['expectedRevision' => '2junk'],
+                ['expectedRevision' => 2.9],
+                ['expectedRevision' => true],
+                ['expectedRevision' => 0],
+                ['expectedRevision' => 2, 'unexpected' => 'field'],
+            ] as $body
+        ) {
             $purchases = $this->createMock(PurchasingStore::class);
             $purchases->expects(self::never())->method('receipt');
             $purchases->expects(self::never())->method('receiptLine');
