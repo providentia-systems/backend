@@ -104,7 +104,7 @@ final class AiSettingsPrivacyTest extends TestCase
                 ]);
             }
         };
-        $transactions = $this->createMock(TransactionManager::class);
+        $transactions = $this->createStub(TransactionManager::class);
         $transactions->method('transactional')->willReturnCallback(
             static fn (callable $operation): mixed => $operation(),
         );
