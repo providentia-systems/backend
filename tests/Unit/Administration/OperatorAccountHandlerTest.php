@@ -33,7 +33,7 @@ final class OperatorAccountHandlerTest extends TestCase
     {
         $control = $this->createMock(OperatorAccountControl::class);
         $control->expects(self::once())->method('updateOperatorAccountStatus')->with(
-            self::isType('string'),
+            self::isString(),
             self::ACTOR_ID,
             self::TARGET_ID,
             'suspended',
@@ -86,7 +86,7 @@ final class OperatorAccountHandlerTest extends TestCase
     {
         $roles = $this->createMock(PlatformRoleStore::class);
         $roles->expects(self::once())->method('changePlatformRole')->with(
-            self::isType('string'),
+            self::isString(),
             self::ACTOR_ID,
             self::TARGET_ID,
             PlatformRoleService::CATALOG_REVIEWER,
@@ -153,8 +153,7 @@ final class OperatorAccountHandlerTest extends TestCase
         PlatformRoleStore $roles,
         OperatorHomeAccessReader $homes,
         OperatorSubscriptionReader $billing,
-    ): OperatorAccountService
-    {
+    ): OperatorAccountService {
         $ids = $this->createStub(UuidGenerator::class);
         $ids->method('generate')->willReturn('01912345-6789-7abc-bdef-0123456789ab');
         $clock = new IdentityFixedClock(new DateTimeImmutable('2026-08-24T12:00:00+00:00'));

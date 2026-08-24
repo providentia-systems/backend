@@ -252,7 +252,9 @@ diagnostics() {
     if ((status != 0)); then
         printf '\nProvidentia startup failed. Container state and bounded logs follow.\n' >&2
         "${compose[@]}" ps >&2 || true
-        "${compose[@]}" logs --tail=100 api web mysql redis mailpit >&2 || true
+        "${compose[@]}" logs --tail=100 \
+            api web worker outbox notification data-governance sync-compactor ai-video-worker \
+            mysql redis mailpit >&2 || true
     fi
     exit "$status"
 }

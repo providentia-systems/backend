@@ -53,7 +53,7 @@ final class OperatorAccountServiceTest extends TestCase
     {
         $control = $this->createMock(OperatorAccountControl::class);
         $control->expects(self::once())->method('updateOperatorAccountStatus')->with(
-            self::isType('string'),
+            self::isString(),
             self::USER_ID,
             self::TARGET_ID,
             'suspended',
@@ -134,8 +134,7 @@ final class OperatorAccountServiceTest extends TestCase
         OperatorIdentityDirectory $directory,
         ?OperatorHomeAccessReader $homes = null,
         ?OperatorAccountControl $control = null,
-    ): OperatorAccountService
-    {
+    ): OperatorAccountService {
         $ids = $this->createStub(UuidGenerator::class);
         $ids->method('generate')->willReturn('01912345-6789-7abc-adef-0123456789ab');
         $clock = new IdentityFixedClock(new DateTimeImmutable('2026-08-24T12:00:00+00:00'));

@@ -207,8 +207,7 @@ final class CatalogContributionPromotionServiceTest extends TestCase
     private function governance(
         ?CatalogGovernanceStore $store = null,
         bool $expectSubmission = true,
-    ): CatalogGovernanceService
-    {
+    ): CatalogGovernanceService {
         $store ??= $this->createMock(CatalogGovernanceStore::class);
         if ($expectSubmission && $store instanceof \PHPUnit\Framework\MockObject\MockObject) {
             $store->expects(self::once())

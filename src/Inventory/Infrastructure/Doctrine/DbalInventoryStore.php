@@ -45,11 +45,13 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         string $normalizedName,
         DateTimeImmutable $at,
     ): void {
-        if ((int) $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM home_categories
-             WHERE home_id = :home AND normalized_name = :name',
-            ['home' => $homeId, 'name' => $normalizedName],
-        ) > 0) {
+        if (
+            (int) $this->connection->fetchOne(
+                'SELECT COUNT(*) FROM home_categories
+                 WHERE home_id = :home AND normalized_name = :name',
+                ['home' => $homeId, 'name' => $normalizedName],
+            ) > 0
+        ) {
             throw new \DomainException('A category with this name already exists in the home.');
         }
         $now = $this->date($at);
@@ -95,11 +97,14 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         $nextName = $name ?? (string) $row['name'];
         $nextNormalizedName = $normalizedName ?? (string) $row['normalized_name'];
         $nextStatus = $status ?? (string) $row['status'];
-        if ($nextNormalizedName !== (string) $row['normalized_name'] && (int) $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM home_categories
-             WHERE home_id = :home AND normalized_name = :name AND id <> :id',
-            ['home' => $homeId, 'name' => $nextNormalizedName, 'id' => $categoryId],
-        ) > 0) {
+        if (
+            $nextNormalizedName !== (string) $row['normalized_name']
+            && (int) $this->connection->fetchOne(
+                'SELECT COUNT(*) FROM home_categories
+                 WHERE home_id = :home AND normalized_name = :name AND id <> :id',
+                ['home' => $homeId, 'name' => $nextNormalizedName, 'id' => $categoryId],
+            ) > 0
+        ) {
             throw new \DomainException('A category with this name already exists in the home.');
         }
         if ($nextStatus === 'archived' && (string) $row['status'] !== 'archived') {
@@ -356,8 +361,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         ?string $homeCategoryId,
         int $limit,
         int $offset,
-    ): array
-    {
+    ): array {
         $pattern = '%' . mb_strtolower($query) . '%';
 
         $rows = $this->connection->fetchAllAssociative(

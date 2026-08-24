@@ -19,7 +19,6 @@ use Providentia\Identity\Infrastructure\Doctrine\DbalIdentityStore;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
 use ProvidentiaTest\Unit\Identity\IdentityFixedClock;
-use Psr\Log\AbstractLogger;
 
 final class OperatorControlPlaneProjectionTest extends TestCase
 {
@@ -552,22 +551,5 @@ final class OperatorControlPlaneProjectionTest extends TestCase
             'status' => 'active',
             'current_period_ends_at' => '2026-09-24 12:00:00',
         ]);
-    }
-}
-
-final class QueryCountLogger extends AbstractLogger
-{
-    public int $count = 0;
-
-    /** @param array<string, mixed> $context */
-    public function log($level, string|\Stringable $message, array $context = []): void
-    {
-        unset($level, $message, $context);
-        $this->count++;
-    }
-
-    public function reset(): void
-    {
-        $this->count = 0;
     }
 }

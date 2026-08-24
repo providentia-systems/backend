@@ -761,7 +761,7 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         string $action,
         string $targetType,
         string $targetId,
-        string $homeId,
+        ?string $homeId,
         string $detailsJson,
         DateTimeImmutable $at,
     ): void {

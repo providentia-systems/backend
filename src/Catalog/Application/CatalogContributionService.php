@@ -296,14 +296,16 @@ final class CatalogContributionService
             $expectedRevision,
             $identity,
         ): bool {
-            if (! $this->store->decide(
-                $id,
-                $decision,
-                $reason,
-                $expectedRevision,
-                $identity->userId,
-                $this->clock->now(),
-            )) {
+            if (
+                ! $this->store->decide(
+                    $id,
+                    $decision,
+                    $reason,
+                    $expectedRevision,
+                    $identity->userId,
+                    $this->clock->now(),
+                )
+            ) {
                 return false;
             }
             if ($decision === 'rejected') {

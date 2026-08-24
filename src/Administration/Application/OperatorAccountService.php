@@ -96,10 +96,12 @@ final class OperatorAccountService
             $memberships,
             static fn (array $membership): bool => $membership['membershipStatus'] === 'active',
         ));
-        $subscriptions = $this->subscriptions->operatorSubscriptions(array_values(array_map(
-            static fn (array $membership): string => (string) $membership['homeId'],
-            $memberships,
-        )));
+        $subscriptions = $memberships === []
+            ? []
+            : $this->subscriptions->operatorSubscriptions(array_values(array_map(
+                static fn (array $membership): string => (string) $membership['homeId'],
+                $memberships,
+            )));
         $account['homes'] = array_map(static function (array $membership) use ($subscriptions): array {
             $membership['subscription'] = $subscriptions[(string) $membership['homeId']] ?? null;
 

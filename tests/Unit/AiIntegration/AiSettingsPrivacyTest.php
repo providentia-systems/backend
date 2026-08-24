@@ -240,19 +240,21 @@ final class AiSettingsPrivacyTest extends TestCase
         $handler = new AiHandler($service, 'extractions.create', 8_388_608);
         /** @var array<string, mixed> $validBody */
         $validBody = $request->getParsedBody();
-        foreach ([
-            $request->withParsedBody([...$validBody, 'unexpected' => 'ignored']),
-            $request->withParsedBody([...$validBody, 'transmissionConsent' => '1']),
-            $request->withUploadedFiles([
-                'image' => $this->pngUpload('a'),
-                'images' => array_fill(0, 8, $this->pngUpload('b')),
-            ]),
-            $request->withUploadedFiles([
-                'image' => $this->pngUpload('a'),
-                'images' => [$this->pngUpload('b')],
-                'unexpected' => $this->pngUpload('c'),
-            ]),
-        ] as $invalidRequest) {
+        foreach (
+            [
+                $request->withParsedBody([...$validBody, 'unexpected' => 'ignored']),
+                $request->withParsedBody([...$validBody, 'transmissionConsent' => '1']),
+                $request->withUploadedFiles([
+                    'image' => $this->pngUpload('a'),
+                    'images' => array_fill(0, 8, $this->pngUpload('b')),
+                ]),
+                $request->withUploadedFiles([
+                    'image' => $this->pngUpload('a'),
+                    'images' => [$this->pngUpload('b')],
+                    'unexpected' => $this->pngUpload('c'),
+                ]),
+            ] as $invalidRequest
+        ) {
             try {
                 $handler->handle($invalidRequest);
                 self::fail('An extraction multipart request outside the contract was accepted.');
@@ -398,8 +400,7 @@ final class AiSettingsPrivacyTest extends TestCase
     private function aiService(
         ?AiMaturityStore $maturity = null,
         ?UuidGenerator $ids = null,
-    ): AiService
-    {
+    ): AiService {
         $store = $this->createStub(AiStore::class);
         $maturity ??= $this->createStub(AiMaturityStore::class);
         $ids ??= $this->createStub(UuidGenerator::class);

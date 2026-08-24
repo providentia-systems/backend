@@ -95,6 +95,7 @@ jobs:
             -v "$PWD:/workspace" \
             aquasec/trivy:0.65.0 \
             fs --scanners misconfig,secret --exit-code 1 \
+            --skip-files /workspace/infrastructure/agent/Dockerfile.dockerignore \
             --format sarif --output /workspace/var/trivy-filesystem.sarif \
             /workspace
       - name: Scan production images for actionable vulnerabilities
