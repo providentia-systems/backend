@@ -10,3 +10,5 @@
 !/.env.production.example
 /composer.phar
 /.providentia-development.json
+/.agent-env
+/.agent-tools/

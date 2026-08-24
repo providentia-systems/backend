@@ -10,13 +10,29 @@ identity/home/catalog increment, Phase 4 home-scoped synchronization protocol,
 Phase 5 ledger-backed household operations, Phase 6 privacy-controlled AI,
 Phase 7 governed catalog administration, and Phase 8 deterministic shopping
 intelligence and reporting. The generic protocol-v1 synchronization allowlist
-remains limited to `home-preference` and `private-note`; the current API 1.13.2
-publishes typed protocol-v2 pantry commands and an attribution-free projection
-of moderator-approved catalog contributions.
+remains limited to `home-preference` and `private-note`; API 1.14.0 publishes
+typed protocol-v2 pantry commands, home-private taxonomy, privacy-safe operator
+account controls, and an attribution-free projection of moderator-approved
+catalog contributions.
+
+## Automated contributor environment
+
+Linux contributors and coding agents can provision the pinned PHP, Composer,
+extension, container, and validation environment without reconstructing CI by
+hand:
+
+```bash
+bash tools/agent-setup.sh
+source .agent-env
+bash tools/agent-setup.sh --doctor
+```
+
+The setup contract includes its required network endpoints and complete local
+quality/build lane. See [agent development](docs/deployment/agent-development.md).
 
 ## Requirements
 
-- PHP 8.5
+- PHP 8.5.9
 - Composer 2.10.2
 - PHP extensions: JSON, mbstring, PDO, PDO MySQL or PDO SQLite, Redis, and Sodium
 - Docker Engine with Compose v2 for the full infrastructure matrix
