@@ -594,6 +594,11 @@ $homeAuthorizedAiAndShoppingOperations = [
     ['/api/v1/homes/{homeId}/ai/profiles', 'post', 'createAiProviderProfile'],
     ['/api/v1/homes/{homeId}/ai/profiles/{profileId}', 'put', 'updateAiProviderProfile'],
     ['/api/v1/homes/{homeId}/ai/profiles/{profileId}', 'delete', 'deleteAiProviderProfile'],
+    [
+        '/api/v1/homes/{homeId}/ai/profiles/{profileId}/credential',
+        'delete',
+        'revokeAiProviderProfileCredential',
+    ],
     ['/api/v1/homes/{homeId}/ai/policy', 'get', 'getAiOrchestrationPolicy'],
     ['/api/v1/homes/{homeId}/ai/policy', 'put', 'putAiOrchestrationPolicy'],
     ['/api/v1/homes/{homeId}/ai/extractions', 'post', 'createAiExtraction'],
