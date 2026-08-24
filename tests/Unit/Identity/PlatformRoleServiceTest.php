@@ -21,7 +21,7 @@ final class PlatformRoleServiceTest extends TestCase
     {
         $store = $this->createMock(PlatformRoleStore::class);
         $store->expects(self::once())->method('changePlatformRole')->with(
-            self::isType('string'),
+            self::isString(),
             self::USER_ID,
             self::TARGET_ID,
             PlatformRoleService::CATALOG_CURATOR,

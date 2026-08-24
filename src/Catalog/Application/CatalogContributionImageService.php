@@ -275,16 +275,18 @@ final class CatalogContributionImageService
                     throw new Problem(409, 'Catalog icon not updated', $error->getMessage());
                 }
                 $publishedAt = $this->clock->now();
-                if (! $this->images->linkPublication(
-                    $contributionId,
-                    $expectedContributionRevision,
-                    $productId,
-                    (string) $icon['id'],
-                    (int) $icon['revision'],
-                    (string) $asset['id'],
-                    $identity->userId,
-                    $publishedAt,
-                )) {
+                if (
+                    ! $this->images->linkPublication(
+                        $contributionId,
+                        $expectedContributionRevision,
+                        $productId,
+                        (string) $icon['id'],
+                        (int) $icon['revision'],
+                        (string) $asset['id'],
+                        $identity->userId,
+                        $publishedAt,
+                    )
+                ) {
                     throw new ConcurrentCatalogImagePublication();
                 }
                 $this->audit->recordAudit(
@@ -307,7 +309,7 @@ final class CatalogContributionImageService
                 return $this->images->publication($contributionId)
                     ?? throw new \LogicException('Image publication was not persisted.');
             });
-        } catch (ConcurrentCatalogImagePublication|Problem $error) {
+        } catch (ConcurrentCatalogImagePublication | Problem $error) {
             try {
                 return $this->exactPublicationReplay(
                     $contributionId,

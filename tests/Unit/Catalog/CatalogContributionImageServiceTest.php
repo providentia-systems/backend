@@ -276,20 +276,22 @@ final class CatalogContributionImageServiceTest extends TestCase
 
         /** @var array<string, mixed> $validBody */
         $validBody = $request->getParsedBody();
-        foreach ([
-            $request->withParsedBody(array_replace(
-                $validBody,
-                ['submissionConfirmed' => '1'],
-            )),
-            $request->withParsedBody(array_replace(
-                $validBody,
-                ['unexpected' => 'field'],
-            )),
-            $request->withParsedBody(array_replace(
-                $validBody,
-                ['sourceDigest' => strtoupper(hash('sha256', self::RAW))],
-            )),
-        ] as $invalidRequest) {
+        foreach (
+            [
+                $request->withParsedBody(array_replace(
+                    $validBody,
+                    ['submissionConfirmed' => '1'],
+                )),
+                $request->withParsedBody(array_replace(
+                    $validBody,
+                    ['unexpected' => 'field'],
+                )),
+                $request->withParsedBody(array_replace(
+                    $validBody,
+                    ['sourceDigest' => strtoupper(hash('sha256', self::RAW))],
+                )),
+            ] as $invalidRequest
+        ) {
             try {
                 $handler->handle($invalidRequest);
                 self::fail('A non-contract multipart request was accepted.');

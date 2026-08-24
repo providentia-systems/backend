@@ -155,7 +155,7 @@ interface HomeStore extends HomeAuditRecorder
         string $action,
         string $targetType,
         string $targetId,
-        string $homeId,
+        ?string $homeId,
         string $detailsJson,
         DateTimeImmutable $at,
     ): void;
