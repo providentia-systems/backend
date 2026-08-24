@@ -80,7 +80,11 @@ interface InventoryStore
     ): void;
 
     /**
-     * @return array{status: 'updated'|'not-found'|'revision-conflict'|'category-unavailable'|'balance-not-zero'|'product-in-use'|'catalog-product', record?: array<string, mixed>}
+     * @return array{
+     *     status: 'updated'|'not-found'|'revision-conflict'|'category-unavailable'
+     *         |'balance-not-zero'|'product-in-use'|'catalog-product',
+     *     record?: array<string, mixed>
+     * }
      */
     public function updateHomeProduct(
         string $homeId,

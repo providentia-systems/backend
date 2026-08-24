@@ -144,8 +144,16 @@ final class InventoryService implements InventoryMovementGateway
         return match ($result['status']) {
             'updated' => $result['record'],
             'not-found' => throw new Problem(404, 'Not found', 'The category is unavailable.'),
-            'revision-conflict' => throw new Problem(409, 'Revision conflict', 'The category changed on another device.'),
-            'category-in-use' => throw new Problem(409, 'Category in use', 'Move or archive active products before archiving this category.'),
+            'revision-conflict' => throw new Problem(
+                409,
+                'Revision conflict',
+                'The category changed on another device.',
+            ),
+            'category-in-use' => throw new Problem(
+                409,
+                'Category in use',
+                'Move or archive active products before archiving this category.',
+            ),
             default => throw new \LogicException('Unknown home-category update result.'),
         };
     }
@@ -432,11 +440,31 @@ final class InventoryService implements InventoryMovementGateway
         return match ($result['status']) {
             'updated' => $result['record'],
             'not-found' => throw new Problem(404, 'Not found', 'The product is unavailable.'),
-            'revision-conflict' => throw new Problem(409, 'Revision conflict', 'The product changed on another device.'),
-            'category-unavailable' => throw new Problem(422, 'Invalid category', 'The private category is unavailable.'),
-            'balance-not-zero' => throw new Problem(409, 'Product has stock', 'Adjust the product balance to zero before archiving it.'),
-            'product-in-use' => throw new Problem(409, 'Product in use', 'Finish active counts and draft receipts before archiving this product.'),
-            'catalog-product' => throw new Problem(422, 'Catalog product', 'Only home-private products can be edited here.'),
+            'revision-conflict' => throw new Problem(
+                409,
+                'Revision conflict',
+                'The product changed on another device.',
+            ),
+            'category-unavailable' => throw new Problem(
+                422,
+                'Invalid category',
+                'The private category is unavailable.',
+            ),
+            'balance-not-zero' => throw new Problem(
+                409,
+                'Product has stock',
+                'Adjust the product balance to zero before archiving it.',
+            ),
+            'product-in-use' => throw new Problem(
+                409,
+                'Product in use',
+                'Finish active counts and draft receipts before archiving this product.',
+            ),
+            'catalog-product' => throw new Problem(
+                422,
+                'Catalog product',
+                'Only home-private products can be edited here.',
+            ),
             default => throw new \LogicException('Unknown home-product update result.'),
         };
     }

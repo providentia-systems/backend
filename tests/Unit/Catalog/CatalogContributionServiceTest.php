@@ -156,8 +156,8 @@ final class CatalogContributionServiceTest extends TestCase
                 'id' => self::CONTRIBUTION_ID,
                 'contributionType' => 'store_price',
                 'payload' => json_encode([
-                    'productId' => '01912345-6789-7abc-cdef-0123456789ab',
-                    'packId' => '01912345-6789-7abc-ddef-0123456789ab',
+                    'productId' => '01912345-6789-7abc-8def-3123456789ab',
+                    'packId' => '01912345-6789-7abc-9def-3123456789ab',
                     'storeName' => 'Example Market',
                     'price' => '12.50',
                     'currency' => 'NAD',
@@ -179,8 +179,8 @@ final class CatalogContributionServiceTest extends TestCase
         self::assertSame([[
             'contributionType' => 'store_price',
             'payload' => [
-                'productId' => '01912345-6789-7abc-cdef-0123456789ab',
-                'packId' => '01912345-6789-7abc-ddef-0123456789ab',
+                'productId' => '01912345-6789-7abc-8def-3123456789ab',
+                'packId' => '01912345-6789-7abc-9def-3123456789ab',
                 'storeName' => 'Example Market',
                 'price' => '12.50',
                 'currency' => 'NAD',
@@ -203,8 +203,8 @@ final class CatalogContributionServiceTest extends TestCase
         $store->expects(self::never())->method('createContribution');
         $source = $this->createStub(CatalogContributionSourceReader::class);
         $source->method('activeHomeProduct')->willReturn([
-            'productId' => '01912345-6789-7abc-cdef-0123456789ab',
-            'packId' => '01912345-6789-7abc-edef-0123456789ab',
+            'productId' => '01912345-6789-7abc-8def-3123456789ab',
+            'packId' => '01912345-6789-7abc-adef-3123456789ab',
         ]);
 
         $this->expectException(Problem::class);
@@ -221,8 +221,8 @@ final class CatalogContributionServiceTest extends TestCase
             self::SOURCE_ID,
             3,
             [
-                'productId' => '01912345-6789-7abc-cdef-0123456789ab',
-                'packId' => '01912345-6789-7abc-ddef-0123456789ab',
+                'productId' => '01912345-6789-7abc-8def-3123456789ab',
+                'packId' => '01912345-6789-7abc-9def-3123456789ab',
                 'storeName' => 'Market',
                 'price' => '12.50',
                 'currency' => 'NAD',
@@ -252,8 +252,8 @@ final class CatalogContributionServiceTest extends TestCase
             self::SOURCE_ID,
             3,
             [
-                'productId' => '01912345-6789-7abc-cdef-0123456789ab',
-                'packId' => '01912345-6789-7abc-ddef-0123456789ab',
+                'productId' => '01912345-6789-7abc-8def-3123456789ab',
+                'packId' => '01912345-6789-7abc-9def-3123456789ab',
                 'storeName' => 'Market',
                 'price' => '12.50',
                 'currency' => 'NAD',
@@ -289,9 +289,9 @@ final class CatalogContributionServiceTest extends TestCase
             'consentRevision' => 3,
             'createdAt' => '2026-08-04T12:00:00+00:00',
             'linkedContributionRevision' => 2,
-            'proposalId' => '01912345-6789-7abc-cdef-0123456789ab',
+            'proposalId' => '01912345-6789-7abc-8def-4123456789ab',
             'proposalStatus' => 'pending',
-            'publishedCategoryId' => '01912345-6789-7abc-ddef-0123456789ab',
+            'publishedCategoryId' => '01912345-6789-7abc-9def-4123456789ab',
             'publishedCategoryName' => 'Breakfast',
             'linkedAt' => '2026-08-04 12:30:00',
             'linkedByUserId' => self::USER_ID,
@@ -318,13 +318,13 @@ final class CatalogContributionServiceTest extends TestCase
             'revision' => 2,
             'consentNoticeVersion' => CatalogContributionService::NOTICE_VERSION,
             'consentRevision' => 3,
-            'createdAt' => '2026-08-04 12:00:00',
+            'createdAt' => '2026-08-04T12:00:00+00:00',
             'proposalLink' => [
                 'contributionId' => self::CONTRIBUTION_ID,
                 'contributionRevision' => 2,
-                'proposalId' => '01912345-6789-7abc-cdef-0123456789ab',
+                'proposalId' => '01912345-6789-7abc-8def-4123456789ab',
                 'proposalStatus' => 'pending',
-                'publishedCategoryId' => '01912345-6789-7abc-ddef-0123456789ab',
+                'publishedCategoryId' => '01912345-6789-7abc-9def-4123456789ab',
                 'publishedCategoryName' => 'Breakfast',
                 'linkedAt' => '2026-08-04T12:30:00+00:00',
             ],
@@ -451,8 +451,8 @@ final class CatalogContributionServiceTest extends TestCase
     {
         $reader = $this->createStub(CatalogContributionSourceReader::class);
         $reader->method('activeHomeProduct')->willReturn([
-            'productId' => '01912345-6789-7abc-cdef-0123456789ab',
-            'packId' => '01912345-6789-7abc-ddef-0123456789ab',
+            'productId' => '01912345-6789-7abc-8def-3123456789ab',
+            'packId' => '01912345-6789-7abc-9def-3123456789ab',
         ]);
 
         return $reader;

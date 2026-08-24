@@ -49,6 +49,7 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
                 'packId' => self::SECOND_RELATED_ID,
                 'privateName' => null,
                 'originalPackText' => null,
+                'homeCategoryId' => null,
             ],
             0,
         ];
