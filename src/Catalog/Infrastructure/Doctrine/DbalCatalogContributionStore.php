@@ -432,7 +432,8 @@ final class DbalCatalogContributionStore implements CatalogContributionStore
 
     /**
      * @param array<string, string> $payload
-     * @return array{outcome: 'replayed'|'conflict', record?: array<string, mixed>}
+     * @return array{outcome: 'replayed', record: array<string, mixed>}
+     *     |array{outcome: 'conflict'}
      */
     private function submissionReplay(
         string $id,

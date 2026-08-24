@@ -28,7 +28,7 @@ final class GdCatalogImageSanitizer implements CatalogImageSanitizer
             throw new CatalogImageRejection(503, 'Image sanitization is unavailable.');
         }
         $information = @getimagesizefromstring($uploadedBytes);
-        if (! is_array($information) || ! isset($information[0], $information[1], $information[2])) {
+        if ($information === false) {
             throw new CatalogImageRejection(415, 'The upload is not a supported image.');
         }
         $width = (int) $information[0];
@@ -40,9 +40,9 @@ final class GdCatalogImageSanitizer implements CatalogImageSanitizer
         if (
             $width < 16
             || $height < 16
+            || $width * $height > self::MAX_PIXELS
             || $width > self::MAX_DIMENSION
             || $height > self::MAX_DIMENSION
-            || $width * $height > self::MAX_PIXELS
         ) {
             throw new CatalogImageRejection(422, 'Image dimensions are outside the accepted limits.');
         }

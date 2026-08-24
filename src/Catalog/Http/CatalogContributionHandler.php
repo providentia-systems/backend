@@ -136,7 +136,10 @@ final readonly class CatalogContributionHandler implements RequestHandlerInterfa
         return new EmptyResponse(204);
     }
 
-    /** @param array<string, mixed> $body @param list<string> $expected */
+    /**
+     * @param array<string, mixed> $body
+     * @param list<string> $expected
+     */
     private function requireExactFields(array $body, array $expected): void
     {
         $actual = array_keys($body);

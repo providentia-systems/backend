@@ -25,7 +25,8 @@ interface CatalogContributionStore
 
     /**
      * @param array<string, string> $payload
-     * @return array{outcome: 'created'|'replayed'|'conflict', record?: array<string, mixed>}
+     * @return array{outcome: 'created'|'replayed', record: array<string, mixed>}
+     *     |array{outcome: 'conflict'}
      */
     public function createContribution(
         string $id,

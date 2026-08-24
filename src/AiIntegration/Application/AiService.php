@@ -965,7 +965,19 @@ final class AiService
         return array_map(fn (array $profile): array => $this->publicProfile($profile), $profiles);
     }
 
-    /** @param array<string, mixed> $profile @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $profile
+     * @return array{
+     *     id: string,
+     *     label: string,
+     *     provider: string,
+     *     model: string,
+     *     credentialConfigured: bool,
+     *     lastFour: string|null,
+     *     estimatedCostMicros: int,
+     *     revision: int
+     * }
+     */
     private function publicProfile(array $profile): array
     {
         return [

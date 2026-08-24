@@ -38,5 +38,7 @@ RUN composer dump-autoload --no-interaction --classmap-authoritative \
     && chown -R www-data:www-data var /tmp/composer
 
 USER www-data
+HEALTHCHECK --interval=60s --timeout=10s --start-period=10s --retries=3 \
+    CMD php -r 'exit(extension_loaded("gd") && extension_loaded("pdo_mysql") && extension_loaded("pdo_sqlite") && extension_loaded("redis") ? 0 : 1);'
 ENTRYPOINT []
 CMD ["composer", "check"]

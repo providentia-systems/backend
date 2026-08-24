@@ -221,9 +221,11 @@ final class CatalogContributionImageService
                 $expectedContributionRevision,
                 $expectedIconRevision,
             ): array {
-                $source = $this->images->imageForPublication($contributionId);
-                $this->assertPublishableSource($source, $expectedContributionRevision);
-                if ($source['publishedProductId'] !== null) {
+                $source = $this->requirePublishableSource(
+                    $this->images->imageForPublication($contributionId),
+                    $expectedContributionRevision,
+                );
+                if (($source['publishedProductId'] ?? null) !== null) {
                     return $this->exactPublicationReplay(
                         $contributionId,
                         $productId,
@@ -231,7 +233,7 @@ final class CatalogContributionImageService
                         $expectedIconRevision,
                     );
                 }
-                if ($source['ciphertext'] === null) {
+                if (($source['ciphertext'] ?? null) === null) {
                     throw new Problem(409, 'Image publication conflict', 'The moderated image is unavailable.');
                 }
                 $product = $this->catalog->product($productId);
@@ -337,21 +339,26 @@ final class CatalogContributionImageService
         return $this->contentFromEncrypted($digest, $row, true);
     }
 
-    /** @param array<string, mixed>|null $source */
-    private function assertPublishableSource(?array $source, int $expectedRevision): void
+    /**
+     * @param array<string, mixed>|null $source
+     * @return array<string, mixed>
+     */
+    private function requirePublishableSource(?array $source, int $expectedRevision): array
     {
         if ($source === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
         }
         if (
-            (string) $source['contributionType'] !== 'product_image'
-            || (string) $source['status'] !== 'approved'
+            (string) ($source['contributionType'] ?? '') !== 'product_image'
+            || (string) ($source['status'] ?? '') !== 'approved'
         ) {
             throw new Problem(409, 'Image publication conflict', 'Only an approved image can be published.');
         }
-        if ((int) $source['revision'] !== $expectedRevision) {
+        if ((int) ($source['revision'] ?? 0) !== $expectedRevision) {
             throw new Problem(409, 'Contribution conflict', 'The contribution changed since it was read.');
         }
+
+        return $source;
     }
 
     /** @return array<string, mixed> */
@@ -361,8 +368,10 @@ final class CatalogContributionImageService
         int $expectedContributionRevision,
         int $expectedIconRevision,
     ): array {
-        $source = $this->images->imageForPublication($contributionId);
-        $this->assertPublishableSource($source, $expectedContributionRevision);
+        $this->requirePublishableSource(
+            $this->images->imageForPublication($contributionId),
+            $expectedContributionRevision,
+        );
         $publication = $this->images->publication($contributionId);
         if (
             $publication === null
