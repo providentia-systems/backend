@@ -9,6 +9,7 @@
 - The canonical repositories are:
   - `providentia-systems/backend`
   - `providentia-systems/client`
+  - `providentia-systems/admin`
 - The backend remains Mezzio plus selectively chosen Laminas components,
   explicit Laminas ServiceManager factories, Doctrine ORM/DBAL/Migrations, and
   a project-owned asynchronous bus with an Enqueue Redis adapter.
@@ -115,14 +116,18 @@ backend architecture or weaken its acceptance gates.
 - Seasonality, menu-plan demand, garden production, and learned models remain
   deferred until their evidence and product decisions are explicit.
 
-## Inventory integration synchronization — 11 August 2026
+## Superseded inventory-integration contract checkpoint — 11 August 2026
+
+The architecture and privacy decisions in this checkpoint remain controlling.
+Its two-repository/API-1.13.2 release identity is historical and is superseded
+by the 24 August three-repository contract below.
 
 - P0–P3 are cross-repository integration priorities, not renumbered historical
   product phases. Their authoritative delivery boundary is
   `docs/inventory-integration-roadmap.md` in both repositories.
-- The backend OpenAPI 1.13.2 artifact is the contract source for the Flutter
-  client. The client pins the exact SHA-256 bytes and regenerates its Dart
-  client; generated output is never hand edited.
+- The backend OpenAPI artifact is the contract source for Flutter clients.
+  Clients pin the exact SHA-256 bytes and regenerate their Dart clients;
+  generated output is never hand edited.
 - API 1.13.2 exhaustively documents non-disclosing home denials for AI and
   shopping operations and adds the revisioned receipt-line unresolved decision.
 - Platform and catalog roles never grant implicit home access. Support-access
@@ -141,3 +146,33 @@ backend architecture or weaken its acceptance gates.
   application media storage. The separate private-media path requires an
   explicit transient/retained choice and persists authenticated ciphertext,
   never plaintext media at rest.
+
+## Three-repository stabilization contract — 24 August 2026
+
+- Backend API `1.15.0` is the sole runtime and contract authority. The backend
+  exposes HTTPS API, login-link browser approval pages and narrow audited CLI
+  owner commands; it exposes no authenticated homeowner or operator GUI.
+- `providentia-systems/client` is the homeowner Flutter application across its
+  supported mobile/desktop targets. `providentia-systems/admin` is a separate
+  Flutter security principal, initially packaged only for Linux desktop. It
+  uses the same authentication protocol but a distinct application ID,
+  installation/session, keyring entry, data directory and generated client.
+- Billing enforcement, paid subscription checkout, PayPal/cards and discount
+  tokens remain disabled. Stabilization is free-access; operator subscription
+  summaries are informational and must not gate a household feature.
+- Home-private categories and private products stay tenant scoped. Protocol-v2
+  owns typed category create/update and home-product create/update commands;
+  global `categoryId` and private `homeCategoryId` are never interchangeable.
+- A separately consented product-identity contribution is attribution-free in
+  moderator projections. Reviewer approval does not publish it. A curator
+  selects an existing published category and creates exactly one durable,
+  revision-bound ordinary product proposal; the existing proposal review is
+  the only canonical publication path. Approved queue rows expose the optional
+  privacy-safe proposal link so Admin can recover after restart.
+- Consent withdrawal before proposal approval changes the source and blocks
+  canonical publication. Once published, the moderated canonical record is an
+  attribution-free public fact; later withdrawal removes the contribution feed
+  item but does not retroactively delete canonical or audit history.
+- Backend contract bytes and lock ship first. Both Flutter repositories copy
+  those exact bytes, verify the same SHA-256 and regenerate before compatible
+  client releases. Neither client owns handwritten divergent API shapes.

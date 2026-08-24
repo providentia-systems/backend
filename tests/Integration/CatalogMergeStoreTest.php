@@ -9,6 +9,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogGovernanceStore;
+use Providentia\Inventory\Infrastructure\Doctrine\DbalCatalogMergeHomeProductGateway;
 
 final class CatalogMergeStoreTest extends TestCase
 {
@@ -47,6 +48,7 @@ final class CatalogMergeStoreTest extends TestCase
         $this->store = new DbalCatalogGovernanceStore(
             $this->connection,
             new SequenceUuidGenerator(),
+            new DbalCatalogMergeHomeProductGateway($this->connection),
         );
     }
 
@@ -117,10 +119,53 @@ final class CatalogMergeStoreTest extends TestCase
         self::assertArrayNotHasKey('home_id', $rows[0]);
     }
 
+    public function testCategoryProposalPublishesARevisionedCategory(): void
+    {
+        self::assertNull($this->store->conflictFor(
+            'category',
+            'dry goods',
+            ['canonicalName' => 'Dry Goods'],
+        ));
+
+        self::assertSame(
+            ['entityType' => 'category', 'entityId' => 'category-1'],
+            $this->store->publishProposal(
+                [
+                    'id' => 'proposal-category',
+                    'proposalType' => 'category',
+                    'payload' => ['canonicalName' => 'Dry Goods'],
+                ],
+                'category-1',
+                'curator-1',
+                new DateTimeImmutable('2026-08-24T12:00:00+00:00'),
+            ),
+        );
+
+        self::assertSame([
+            'canonical_name' => 'Dry Goods',
+            'normalized_name' => 'dry goods',
+            'status' => 'published',
+            'revision' => 1,
+        ], $this->connection->fetchAssociative(
+            'SELECT canonical_name, normalized_name, status, revision FROM categories WHERE id = :id',
+            ['id' => 'category-1'],
+        ));
+        self::assertSame(
+            'category-1',
+            $this->store->conflictFor('category', 'dry goods', ['canonicalName' => 'Dry Goods'])['entityId'],
+        );
+    }
+
     /** @return list<string> */
     private function schema(): array
     {
         return [
+            'CREATE TABLE categories (
+                id VARCHAR(36) PRIMARY KEY, parent_id VARCHAR(36) NULL,
+                canonical_name VARCHAR(191) NOT NULL, normalized_name VARCHAR(191) NOT NULL,
+                status VARCHAR(32) NOT NULL, revision INTEGER NOT NULL,
+                created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL
+            )',
             'CREATE TABLE products (
                 id VARCHAR(36) PRIMARY KEY, canonical_name VARCHAR(191) NOT NULL,
                 brand VARCHAR(120) NOT NULL, status VARCHAR(32) NOT NULL,

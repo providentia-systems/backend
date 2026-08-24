@@ -17,6 +17,8 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 final readonly class AiHandler implements RequestHandlerInterface
 {
+    private const MAX_ADDITIONAL_IMAGES = 7;
+
     public function __construct(
         private AiService $ai,
         private string $action,
@@ -61,6 +63,12 @@ final readonly class AiHandler implements RequestHandlerInterface
                 (int) ($body['expectedRevision'] ?? 0),
             ), 201),
             'profiles.delete' => $this->removeProfile($identity, $homeId, $request, $body),
+            'profiles.credential.delete' => new JsonResponse($this->ai->revokeProviderProfileCredential(
+                $identity,
+                $homeId,
+                (string) $request->getAttribute('profileId', ''),
+                (int) ($body['expectedRevision'] ?? 0),
+            )),
             'policy.get' => new JsonResponse($this->ai->orchestrationPolicy($identity, $homeId)),
             'policy.put' => new JsonResponse($this->ai->putOrchestrationPolicy(
                 $identity,
@@ -73,14 +81,7 @@ final readonly class AiHandler implements RequestHandlerInterface
                 (int) ($body['expectedRevision'] ?? 0),
             )),
             'extractions.create' => $this->extract($identity, $homeId, $request, $body),
-            'extractions.create-stored' => new JsonResponse($this->ai->extractStoredMedia(
-                $identity,
-                $homeId,
-                (string) ($body['kind'] ?? ''),
-                isset($body['targetId']) ? (string) $body['targetId'] : null,
-                filter_var($body['transmissionConsent'] ?? false, FILTER_VALIDATE_BOOL),
-                $this->stringList($body['assetIds'] ?? null),
-            ), 201),
+            'extractions.create-stored' => $this->extractStored($identity, $homeId, $body),
             'extractions.get' => new JsonResponse($this->ai->extraction(
                 $identity,
                 $homeId,
@@ -197,9 +198,35 @@ final readonly class AiHandler implements RequestHandlerInterface
         ServerRequestInterface $request,
         array $body,
     ): ResponseInterface {
-        $uploaded = $request->getUploadedFiles()['image'] ?? null;
+        $this->requireExactKeys($body, ['kind', 'targetId', 'transmissionConsent'], ['kind', 'transmissionConsent']);
+        if (! $this->isExplicitTrue($body['transmissionConsent'])) {
+            throw new HttpProblem(
+                422,
+                'Transmission consent required',
+                'Confirm the selected provider and privacy mode before sending an image.',
+            );
+        }
+        $uploadedFiles = $request->getUploadedFiles();
+        $fileKeys = array_keys($uploadedFiles);
+        if (
+            array_diff($fileKeys, ['image', 'images', 'images[]']) !== []
+            || (isset($uploadedFiles['images']) && isset($uploadedFiles['images[]']))
+        ) {
+            throw new HttpProblem(422, 'Invalid extraction', 'Multipart file fields do not match the contract.');
+        }
+        $uploaded = $uploadedFiles['image'] ?? null;
         if (! $uploaded instanceof UploadedFileInterface || $uploaded->getError() !== UPLOAD_ERR_OK) {
             throw new HttpProblem(422, 'Invalid extraction', 'One successfully uploaded image is required.');
+        }
+        // PHP normalizes repeated multipart fields named `images[]` to the
+        // `images` array. Accept the literal key for PSR-7 adapters that do
+        // not perform that normalization.
+        $uploads = $uploadedFiles['images'] ?? $uploadedFiles['images[]'] ?? [];
+        if ($uploads instanceof UploadedFileInterface) {
+            $uploads = [$uploads];
+        }
+        if (! is_array($uploads) || count($uploads) > self::MAX_ADDITIONAL_IMAGES) {
+            throw new HttpProblem(413, 'Too many images', 'At most eight image observations may be uploaded.');
         }
         $size = $uploaded->getSize();
         if ($size === null || $size < 16 || $size > $this->maxImageBytes) {
@@ -211,28 +238,22 @@ final readonly class AiHandler implements RequestHandlerInterface
         }
         $bytes = $stream->getContents();
         $additional = [];
-        $uploads = $request->getUploadedFiles()['images'] ?? [];
-        if ($uploads instanceof UploadedFileInterface) {
-            $uploads = [$uploads];
-        }
-        if (is_array($uploads)) {
-            foreach ($uploads as $observation) {
-                if (! $observation instanceof UploadedFileInterface || $observation->getError() !== UPLOAD_ERR_OK) {
-                    throw new HttpProblem(422, 'Invalid extraction', 'Every uploaded observation must succeed.');
-                }
-                $observationSize = $observation->getSize();
-                if ($observationSize === null || $observationSize < 16 || $observationSize > $this->maxImageBytes) {
-                    throw new HttpProblem(413, 'Image rejected', 'Image size is outside the configured limit.');
-                }
-                $observationStream = $observation->getStream();
-                if ($observationStream->isSeekable()) {
-                    $observationStream->rewind();
-                }
-                $additional[] = [
-                    'mimeType' => (string) ($observation->getClientMediaType() ?? ''),
-                    'bytes' => $observationStream->getContents(),
-                ];
+        foreach ($uploads as $observation) {
+            if (! $observation instanceof UploadedFileInterface || $observation->getError() !== UPLOAD_ERR_OK) {
+                throw new HttpProblem(422, 'Invalid extraction', 'Every uploaded observation must succeed.');
             }
+            $observationSize = $observation->getSize();
+            if ($observationSize === null || $observationSize < 16 || $observationSize > $this->maxImageBytes) {
+                throw new HttpProblem(413, 'Image rejected', 'Image size is outside the configured limit.');
+            }
+            $observationStream = $observation->getStream();
+            if ($observationStream->isSeekable()) {
+                $observationStream->rewind();
+            }
+            $additional[] = [
+                'mimeType' => (string) ($observation->getClientMediaType() ?? ''),
+                'bytes' => $observationStream->getContents(),
+            ];
         }
 
         return new JsonResponse($this->ai->extract(
@@ -240,11 +261,57 @@ final readonly class AiHandler implements RequestHandlerInterface
             $homeId,
             (string) ($body['kind'] ?? ''),
             isset($body['targetId']) ? (string) $body['targetId'] : null,
-            filter_var($body['transmissionConsent'] ?? false, FILTER_VALIDATE_BOOL),
+            true,
             (string) ($uploaded->getClientMediaType() ?? ''),
             $bytes,
             $additional,
         ), 201);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function extractStored(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        array $body,
+    ): ResponseInterface {
+        $this->requireExactKeys(
+            $body,
+            ['assetIds', 'kind', 'targetId', 'transmissionConsent'],
+            ['assetIds', 'kind', 'transmissionConsent'],
+        );
+        if ($body['transmissionConsent'] !== true) {
+            throw new HttpProblem(
+                422,
+                'Transmission consent required',
+                'Confirm the selected provider and privacy mode before sending stored media.',
+            );
+        }
+
+        return new JsonResponse($this->ai->extractStoredMedia(
+            $identity,
+            $homeId,
+            (string) $body['kind'],
+            isset($body['targetId']) ? (string) $body['targetId'] : null,
+            true,
+            $this->stringList($body['assetIds']),
+        ), 201);
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     * @param list<string> $allowed
+     * @param list<string> $required
+     */
+    private function requireExactKeys(array $body, array $allowed, array $required): void
+    {
+        if (array_diff(array_keys($body), $allowed) !== [] || array_diff($required, array_keys($body)) !== []) {
+            throw new HttpProblem(422, 'Invalid extraction', 'Multipart fields do not match the contract.');
+        }
+    }
+
+    private function isExplicitTrue(mixed $value): bool
+    {
+        return $value === true || $value === 'true';
     }
 
     private function identity(ServerRequestInterface $request): AuthenticatedIdentity

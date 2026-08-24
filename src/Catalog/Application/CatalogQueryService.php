@@ -20,6 +20,16 @@ final class CatalogQueryService
         );
     }
 
+    /** @return list<array{id: string, canonicalName: string, revision: int}> */
+    public function categories(string $query, int $limit, int $offset): array
+    {
+        return $this->catalog->publishedCategories(
+            mb_substr(trim($query), 0, 191),
+            min(100, max(1, $limit)),
+            max(0, $offset),
+        );
+    }
+
     /** @return array<string, mixed>|null */
     public function product(string $requestedId): ?array
     {

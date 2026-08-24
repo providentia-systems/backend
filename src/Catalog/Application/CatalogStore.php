@@ -6,7 +6,7 @@ namespace Providentia\Catalog\Application;
 
 use DateTimeImmutable;
 
-interface CatalogStore
+interface CatalogStore extends PublishedCategoryReader
 {
     /** @return list<array<string, mixed>> */
     public function search(string $query, int $limit, int $offset): array;

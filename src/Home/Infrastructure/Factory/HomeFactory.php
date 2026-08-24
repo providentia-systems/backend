@@ -9,6 +9,9 @@ use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeService;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Home\Http\HomeHandler;
+use Providentia\Home\Application\HomeAuditRecorder;
+use Providentia\Home\Infrastructure\Adapter\CatalogAuditRecorderAdapter;
+use Providentia\Home\Infrastructure\Adapter\CatalogHomeAccessAdapter;
 use Providentia\Home\Infrastructure\Doctrine\DbalHomeStore;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\AccountNotificationSender;
@@ -31,6 +34,12 @@ final class HomeFactory
             $requestedName === DbalHomeStore::class => new DbalHomeStore($container->get(Connection::class)),
             $requestedName === HomeAuthorization::class => new HomeAuthorization(
                 $container->get(HomeStore::class),
+            ),
+            $requestedName === CatalogHomeAccessAdapter::class => new CatalogHomeAccessAdapter(
+                $container->get(HomeAuthorization::class),
+            ),
+            $requestedName === CatalogAuditRecorderAdapter::class => new CatalogAuditRecorderAdapter(
+                $container->get(HomeAuditRecorder::class),
             ),
             $requestedName === HomeService::class => new HomeService(
                 $container->get(HomeStore::class),

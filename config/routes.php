@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Mezzio\Application;
+use Providentia\Catalog\Http\CatalogCategoryHandler;
+use Providentia\Catalog\Http\CatalogContributionPromotionHandler;
 use Providentia\Catalog\Http\CatalogSearchHandler;
 use Providentia\Catalog\Http\CatalogProductHandler;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
@@ -134,6 +136,31 @@ return static function (Application $app): void {
         '/api/v1/platform/administrators/{administratorId}/revoke',
         [BearerAuthenticationMiddleware::class, 'identity.platform-administrators-revoke'],
         'api.platform-administrators.revoke',
+    );
+    $app->get(
+        '/api/v1/admin/accounts',
+        [BearerAuthenticationMiddleware::class, 'administration.operator-accounts-list'],
+        'api.admin.accounts.list',
+    );
+    $app->get(
+        '/api/v1/admin/accounts/{userId}',
+        [BearerAuthenticationMiddleware::class, 'administration.operator-accounts-get'],
+        'api.admin.accounts.get',
+    );
+    $app->patch(
+        '/api/v1/admin/accounts/{userId}/status',
+        [BearerAuthenticationMiddleware::class, 'administration.operator-accounts-status'],
+        'api.admin.accounts.status',
+    );
+    $app->put(
+        '/api/v1/admin/accounts/{userId}/roles/{role}',
+        [BearerAuthenticationMiddleware::class, 'administration.operator-accounts-role-grant'],
+        'api.admin.accounts.roles.grant',
+    );
+    $app->delete(
+        '/api/v1/admin/accounts/{userId}/roles/{role}',
+        [BearerAuthenticationMiddleware::class, 'administration.operator-accounts-role-revoke'],
+        'api.admin.accounts.roles.revoke',
     );
 
     $app->post('/api/v1/homes', [BearerAuthenticationMiddleware::class, 'home.create'], 'api.homes.create');
@@ -316,6 +343,21 @@ return static function (Application $app): void {
         'api.inventory.locations.create',
     );
     $app->get(
+        '/api/v1/homes/{homeId}/categories',
+        [BearerAuthenticationMiddleware::class, 'inventory.categories.list'],
+        'api.inventory.categories.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/categories',
+        [BearerAuthenticationMiddleware::class, 'inventory.categories.create'],
+        'api.inventory.categories.create',
+    );
+    $app->patch(
+        '/api/v1/homes/{homeId}/categories/{homeCategoryId}',
+        [BearerAuthenticationMiddleware::class, 'inventory.categories.update'],
+        'api.inventory.categories.update',
+    );
+    $app->get(
         '/api/v1/homes/{homeId}/products',
         [BearerAuthenticationMiddleware::class, 'inventory.items.list'],
         'api.inventory.items.list',
@@ -324,6 +366,11 @@ return static function (Application $app): void {
         '/api/v1/homes/{homeId}/products',
         [BearerAuthenticationMiddleware::class, 'inventory.items.create'],
         'api.inventory.items.create',
+    );
+    $app->patch(
+        '/api/v1/homes/{homeId}/products/{homeProductId}',
+        [BearerAuthenticationMiddleware::class, 'inventory.items.update'],
+        'api.inventory.items.update',
     );
     $app->get(
         '/api/v1/homes/{homeId}/stock',
@@ -540,6 +587,11 @@ return static function (Application $app): void {
         [BearerAuthenticationMiddleware::class, 'ai.profiles.delete'],
         'api.ai.profiles.delete',
     );
+    $app->delete(
+        '/api/v1/homes/{homeId}/ai/profiles/{profileId}/credential',
+        [BearerAuthenticationMiddleware::class, 'ai.profiles.credential.delete'],
+        'api.ai.profiles.credential.delete',
+    );
     $app->get(
         '/api/v1/homes/{homeId}/ai/policy',
         [BearerAuthenticationMiddleware::class, 'ai.policy.get'],
@@ -630,6 +682,16 @@ return static function (Application $app): void {
         [BearerAuthenticationMiddleware::class, 'catalog.contributions.submit'],
         'api.catalog.contributions.submit',
     );
+    $app->post(
+        '/api/v1/homes/{homeId}/catalog-contributions/images',
+        [BearerAuthenticationMiddleware::class, 'catalog.contribution-images.upload'],
+        'api.catalog.contribution-images.upload',
+    );
+    $app->get(
+        '/api/v1/catalog/categories',
+        CatalogCategoryHandler::class,
+        'api.catalog.categories.list',
+    );
     $app->get(
         '/api/v1/catalog-contributions',
         'catalog.contributions.published.list',
@@ -644,6 +706,26 @@ return static function (Application $app): void {
         '/api/v1/catalog-contributions/{contributionId}/decision',
         [BearerAuthenticationMiddleware::class, 'catalog.contributions.review.decide'],
         'api.catalog.contributions.review.decide',
+    );
+    $app->put(
+        '/api/v1/catalog-contributions/{contributionId}/proposal',
+        [BearerAuthenticationMiddleware::class, CatalogContributionPromotionHandler::class],
+        'api.catalog.contributions.proposal.put',
+    );
+    $app->get(
+        '/api/v1/catalog-contributions/{contributionId}/image-preview',
+        [BearerAuthenticationMiddleware::class, 'catalog.contribution-images.preview'],
+        'api.catalog.contribution-images.preview',
+    );
+    $app->put(
+        '/api/v1/catalog-contributions/{contributionId}/image-publication',
+        [BearerAuthenticationMiddleware::class, 'catalog.contribution-images.publication'],
+        'api.catalog.contribution-images.publication',
+    );
+    $app->get(
+        '/api/v1/catalog/assets/{assetDigest}',
+        'catalog.contribution-images.content',
+        'api.catalog.assets.get',
     );
     $app->post(
         '/api/v1/homes/{homeId}/catalog-imports',

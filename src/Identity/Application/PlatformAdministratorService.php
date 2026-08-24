@@ -39,20 +39,24 @@ final class PlatformAdministratorService
             throw new Problem(422, 'Validation failed', 'A valid administrator email is required.');
         }
 
-        $result = $this->transactions->transactional(function () use ($identity, $email): array {
-            $result = $this->identities->grantPlatformAdministrator(
-                $this->ids->generate(),
-                $this->ids->generate(),
-                $identity->userId,
-                $email,
-                $this->clock->now(),
-            );
-            if (($result['changed'] ?? false) === true && ($result['status'] ?? null) === 'pending') {
-                $this->notifications->sendPlatformAdministratorInvitation($email);
-            }
+        try {
+            $result = $this->transactions->transactional(function () use ($identity, $email): array {
+                $result = $this->identities->grantPlatformAdministrator(
+                    $this->ids->generate(),
+                    $this->ids->generate(),
+                    $identity->userId,
+                    $email,
+                    $this->clock->now(),
+                );
+                if (($result['changed'] ?? false) === true && ($result['status'] ?? null) === 'pending') {
+                    $this->notifications->sendPlatformAdministratorInvitation($email);
+                }
 
-            return $result;
-        });
+                return $result;
+            });
+        } catch (ConcurrentPlatformRoleChange) {
+            throw new Problem(409, 'Revision conflict', 'The account role changed concurrently.');
+        }
         unset($result['changed']);
 
         return $result;
@@ -67,14 +71,18 @@ final class PlatformAdministratorService
         if ($expectedRevision < 1) {
             throw new Problem(422, 'Validation failed', 'A positive expected revision is required.');
         }
-        $result = $this->transactions->transactional(fn (): string =>
-            $this->identities->revokePlatformAdministrator(
-                $this->ids->generate(),
-                $identity->userId,
-                $administratorId,
-                $expectedRevision,
-                $this->clock->now(),
-            ));
+        try {
+            $result = $this->transactions->transactional(fn (): string =>
+                $this->identities->revokePlatformAdministrator(
+                    $this->ids->generate(),
+                    $identity->userId,
+                    $administratorId,
+                    $expectedRevision,
+                    $this->clock->now(),
+                ));
+        } catch (ConcurrentPlatformRoleChange) {
+            throw new Problem(409, 'Revision conflict', 'The account role changed concurrently.');
+        }
         match ($result) {
             'revoked' => null,
             'not-found' => throw new Problem(404, 'Not found', 'The administrator is unavailable.'),

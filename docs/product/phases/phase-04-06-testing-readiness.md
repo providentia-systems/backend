@@ -1,5 +1,9 @@
 # Phases 04–06 testing-readiness report
 
+> Historical checkpoint: this report records the API 1.13.2 paired-client
+> state. The current three-repository/API 1.15.0 baseline is maintained in
+> `docs/product/project-memory.md` and `docs/inventory-integration-roadmap.md`.
+
 ## Outcome
 
 The backend contains the complete repository-owned capability needed to test

@@ -163,13 +163,32 @@ final class DbalAiStore implements AiStore, AiMaturityStore
 
     public function targetExists(string $homeId, string $kind, ?string $targetId): bool
     {
-        if ($targetId === null || $targetId === '') {
-            return $kind === 'stock';
+        if ($kind === 'receipt') {
+            // Receipt intake starts with untrusted images; the ordinary draft
+            // receipt is deliberately created only after human review. When a
+            // draft is supplied, it must still belong to this home.
+            if ($targetId === null || $targetId === '') {
+                return true;
+            }
+            $table = 'receipts';
+            $status = 'draft';
+        } elseif ($kind === 'stock') {
+            if ($targetId === null || $targetId === '') {
+                return false;
+            }
+            $table = 'stock_count_sessions';
+            $status = 'open';
+        } else {
+            return false;
         }
-        $table = $kind === 'receipt' ? 'receipts' : 'stock_count_sessions';
-        $sql = 'SELECT COUNT(*) FROM ' . $table . ' WHERE id = :id AND home_id = :home';
+        $sql = 'SELECT COUNT(*) FROM ' . $table
+            . ' WHERE id = :id AND home_id = :home AND status = :status';
 
-        return (int) $this->connection->fetchOne($sql, ['id' => $targetId, 'home' => $homeId]) === 1;
+        return (int) $this->connection->fetchOne($sql, [
+            'id' => $targetId,
+            'home' => $homeId,
+            'status' => $status,
+        ]) === 1;
     }
 
     public function startExtraction(
@@ -478,6 +497,50 @@ final class DbalAiStore implements AiStore, AiMaturityStore
                 'active' => 'active',
             ],
         ) === 1;
+    }
+
+    public function revokeProviderProfileCredential(
+        string $auditId,
+        string $homeId,
+        string $profileId,
+        int $expectedRevision,
+        string $actorUserId,
+        DateTimeImmutable $at,
+    ): bool {
+        $date = $this->date($at);
+        $updated = $this->connection->executeStatement(
+            'UPDATE ai_provider_profiles
+             SET ciphertext = NULL, nonce = NULL, key_version = NULL, last_four = NULL,
+                 revision = revision + 1, updated_by_user_id = :actor, updated_at = :updated
+             WHERE home_id = :home AND id = :id AND revision = :revision AND status = :active',
+            [
+                'actor' => $actorUserId,
+                'updated' => $date,
+                'home' => $homeId,
+                'id' => $profileId,
+                'revision' => $expectedRevision,
+                'active' => 'active',
+            ],
+        );
+        if ($updated !== 1) {
+            return false;
+        }
+        $this->connection->insert('audit_events', [
+            'id' => $auditId,
+            'home_id' => $homeId,
+            'actor_user_id' => $actorUserId,
+            'action' => 'ai.provider-profile.credential-revoked',
+            'target_type' => 'ai_provider_profile',
+            'target_id' => $profileId,
+            'details' => json_encode([
+                'expectedRevision' => $expectedRevision,
+                'revision' => $expectedRevision + 1,
+                'credentialConfigured' => false,
+            ], JSON_THROW_ON_ERROR),
+            'occurred_at' => $date,
+        ]);
+
+        return true;
     }
 
     public function orchestrationPolicy(string $homeId): ?array

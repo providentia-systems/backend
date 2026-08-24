@@ -2,8 +2,8 @@
 
 ## Current phase
 
-- [Backend/client inventory integration roadmap — P0–P3](inventory-integration-roadmap.md)
-- [Phases 04–06 testing-readiness report](product/phases/phase-04-06-testing-readiness.md)
+- [Backend/client/Admin inventory integration roadmap — P0–P3](inventory-integration-roadmap.md)
+- [Historical API 1.13.2 phases 04–06 testing-readiness report](product/phases/phase-04-06-testing-readiness.md)
 - [Phase 0 verified evidence](product/phases/phase-00-evidence/README.md)
 - [Phase 1 foundation](product/phases/phase-01-foundation/README.md)
 - [Phase 2 identity, homes, and catalog](product/phases/phase-02-identity-homes-catalog/README.md)
@@ -24,6 +24,8 @@
 - [Module and dependency boundaries](architecture/module-boundaries.md)
 - [SOLID and backend quality audit — 2026-07-30](architecture/solid-quality-audit-2026-07-30.md)
 - [Contracts and release order](architecture/contracts.md)
+- [Linux administrator control plane and privacy boundary](architecture/admin-control-plane.md)
+- [Reproducible agent development environment](deployment/agent-development.md)
 - [Run published production images locally](deployment/prebuilt-images.md)
 - [Source-build local development and deployment profiles](deployment/local-development.md)
 - [Client login, test users, household roles, and platform administrator](deployment/client-user-testing.md)

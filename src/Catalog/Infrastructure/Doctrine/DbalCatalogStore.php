@@ -7,10 +7,12 @@ namespace Providentia\Catalog\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Providentia\Catalog\Application\CatalogStore;
+use Providentia\Catalog\Application\PublishedPackReader;
 use Providentia\SharedKernel\Application\UuidGenerator;
 
-final class DbalCatalogStore implements CatalogStore
+final class DbalCatalogStore implements CatalogStore, PublishedPackReader
 {
     public function __construct(
         private readonly Connection $connection,
@@ -22,7 +24,7 @@ final class DbalCatalogStore implements CatalogStore
     {
         $pattern = '%' . mb_strtolower($query) . '%';
 
-        return $this->connection->fetchAllAssociative(
+        $rows = $this->connection->fetchAllAssociative(
             'SELECT p.id, p.canonical_name AS canonicalName, p.brand, p.revision,
                     c.canonical_name AS category,
                     pk.id AS packId, pk.original_pack_text AS packText,
@@ -50,6 +52,76 @@ final class DbalCatalogStore implements CatalogStore
                 'approved' => 'approved',
             ],
         );
+        foreach ($rows as &$row) {
+            $row['revision'] = (int) $row['revision'];
+            $row['packId'] = $row['packId'] === null ? null : (string) $row['packId'];
+            $row['packText'] = $row['packText'] === null ? null : (string) $row['packText'];
+            $row['packStatus'] = $row['packStatus'] === null ? null : (string) $row['packStatus'];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    public function publishedCategories(string $query, int $limit, int $offset): array
+    {
+        $pattern = '%' . mb_strtolower($query) . '%';
+
+        /** @var list<array{id: string, canonicalName: string, revision: int}> $rows */
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT id, canonical_name AS canonicalName, revision
+             FROM categories
+             WHERE status = :published
+               AND (:empty_query = :empty OR normalized_name LIKE :pattern)
+             ORDER BY canonical_name, id
+             LIMIT ' . $limit . ' OFFSET ' . $offset,
+            [
+                'published' => 'published',
+                'empty_query' => $query,
+                'empty' => '',
+                'pattern' => $pattern,
+            ],
+        );
+        foreach ($rows as &$row) {
+            $row['revision'] = (int) $row['revision'];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    public function publishedCategory(string $id): ?array
+    {
+        $row = $this->connection->fetchAssociative(
+            'SELECT id, canonical_name AS canonicalName, revision
+             FROM categories WHERE id = :id AND status = :published',
+            ['id' => $id, 'published' => 'published'],
+        );
+        if ($row === false) {
+            return null;
+        }
+        $row['revision'] = (int) $row['revision'];
+
+        /** @var array{id: string, canonicalName: string, revision: int} $row */
+        return $row;
+    }
+
+    public function lockPublishedPack(string $productId, string $packId): bool
+    {
+        $sql = 'SELECT pk.id
+                FROM product_packs pk
+                INNER JOIN products p ON p.id = pk.product_id
+                WHERE pk.id = :pack AND pk.product_id = :product
+                  AND pk.status = :published AND p.status = :published';
+        if (! $this->connection->getDatabasePlatform() instanceof SQLitePlatform) {
+            $sql .= ' FOR UPDATE';
+        }
+
+        return $this->connection->fetchOne($sql, [
+            'pack' => $packId,
+            'product' => $productId,
+            'published' => 'published',
+        ]) !== false;
     }
 
     public function product(string $requestedId): ?array

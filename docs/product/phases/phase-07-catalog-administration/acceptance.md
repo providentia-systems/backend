@@ -3,7 +3,7 @@
 ## Governance
 
 - [ ] Proposal submission requires an authenticated user and explicit opt-in.
-- [ ] Product, pack, alias, and barcode payloads accept exact sanitized fields.
+- [ ] Category, product, pack, alias, and barcode payloads accept exact sanitized fields.
 - [ ] Price, quantity, home, receipt, image, note, and stock fields fail.
 - [ ] Exact deterministic conflicts enter the appropriate review queue.
 - [ ] Conflicted proposals cannot be directly approved.
@@ -52,3 +52,13 @@
 - [ ] Disabling one consent category unpublishes only that category's approved
   facts, and re-enabling it does not revive withdrawn submissions.
 - [ ] Platform catalog roles alone cannot access any private home resource.
+- [ ] Published category reads expose only ID, canonical name, and revision.
+- [ ] An approved product-identity contribution links idempotently to exactly
+  one governed product proposal using a curator-selected published category.
+- [ ] A stale revision, category mismatch, withdrawn contribution, or consent
+  withdrawal before review blocks proposal publication.
+- [ ] Approved review rows expose an optional attribution-free proposal link so
+  Admin restart/reload distinguishes unlinked contributions from the exact
+  linked proposal, selected category, and current proposal status.
+- [ ] Withdrawal after anonymized canonical publication removes the contribution
+  feed entry but does not erase the public fact or non-household audit history.

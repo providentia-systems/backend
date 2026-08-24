@@ -5,9 +5,6 @@ declare(strict_types=1);
 namespace Providentia\Catalog\Application;
 
 use DateTimeImmutable;
-use Providentia\Home\Application\HomeAuditRecorder;
-use Providentia\Home\Application\HomeAuthorization;
-use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
@@ -19,13 +16,16 @@ final class CatalogContributionService
     public const NOTICE_VERSION = 'catalog-sharing-v1';
 
     /** @var list<string> */
-    private const CONTRIBUTION_TYPES = ['product_identity', 'product_image', 'store_price'];
+    private const CONTRIBUTION_TYPES = ['product_identity', 'store_price'];
 
     public function __construct(
         private readonly CatalogContributionStore $store,
-        private readonly HomeAuthorization $homes,
+        private readonly CatalogContributionImageStore $images,
+        private readonly CatalogContributionSourceReader $sources,
+        private readonly PublishedPackReader $packs,
+        private readonly CatalogHomeAccess $homes,
         private readonly CatalogAuthorization $catalogAuthorization,
-        private readonly HomeAuditRecorder $audit,
+        private readonly CatalogAuditRecorder $audit,
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
@@ -35,7 +35,7 @@ final class CatalogContributionService
     /** @return array<string, mixed> */
     public function consent(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->homes->requirePermission($identity, $homeId, HomePermission::HOME_READ);
+        $this->homes->requireRead($identity, $homeId);
 
         return $this->store->consent($homeId) ?? [
             'homeId' => $homeId,
@@ -57,7 +57,7 @@ final class CatalogContributionService
         string $noticeVersion,
         int $expectedRevision,
     ): array {
-        $this->homes->requirePermission($identity, $homeId, HomePermission::CATALOG_CONSENT_MANAGE);
+        $this->homes->requireConsentManagement($identity, $homeId);
         if ($noticeVersion !== self::NOTICE_VERSION || $expectedRevision < 0) {
             throw new Problem(422, 'Invalid sharing consent', 'A current notice and consent revision are required.');
         }
@@ -89,6 +89,7 @@ final class CatalogContributionService
             ) {
                 throw new Problem(409, 'Consent conflict', 'The sharing consent changed since it was read.');
             }
+            $this->images->deleteWithdrawnImagesForHome($homeId);
             $this->recordAudit(
                 $identity,
                 'catalog.sharing-consent.changed',
@@ -112,17 +113,27 @@ final class CatalogContributionService
 
     /**
      * @param array<string, mixed> $input
-     * @return array{id: string, status: string, revision: int}
      */
     public function submit(
         AuthenticatedIdentity $identity,
         string $homeId,
+        string $submissionId,
         string $type,
         ?string $sourceEntityId,
         int $expectedConsentRevision,
         array $input,
-    ): array {
-        $this->homes->requirePermission($identity, $homeId, HomePermission::CATALOG_CONTRIBUTE);
+    ): CatalogContributionSubmission {
+        $this->homes->requireContribution($identity, $homeId);
+        if (! $this->isUuid($submissionId)) {
+            throw new Problem(422, 'Invalid catalog contribution', 'A valid submission identifier is required.');
+        }
+        if ($type === 'product_image') {
+            throw new Problem(
+                422,
+                'Image upload required',
+                'Product images must use the encrypted multipart contribution endpoint.',
+            );
+        }
         $consent = $this->store->consent($homeId);
         if (
             $consent === null
@@ -132,14 +143,16 @@ final class CatalogContributionService
             throw new Problem(409, 'Sharing consent required', 'The requested contribution is not currently enabled.');
         }
         $sourceEntityId = $sourceEntityId === null ? null : trim($sourceEntityId);
-        if ($sourceEntityId !== null && (strlen($sourceEntityId) !== 36 || mb_strlen($sourceEntityId) > 36)) {
-            throw new Problem(422, 'Invalid catalog contribution', 'The source reference is invalid.');
+        if (
+            $sourceEntityId === null
+            || ! $this->isUuid($sourceEntityId)
+        ) {
+            throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
         }
         $payload = $this->sanitize($type, $input);
-        $id = $this->ids->generate();
         $now = $this->clock->now();
-        $this->transactions->transactional(function () use (
-            $id,
+        return $this->transactions->transactional(function () use (
+            $submissionId,
             $homeId,
             $consent,
             $type,
@@ -147,37 +160,69 @@ final class CatalogContributionService
             $payload,
             $identity,
             $now,
-        ): void {
+        ): CatalogContributionSubmission {
             if (
-                ! $this->store->createContribution(
-                    $id,
-                    $homeId,
-                    (string) $consent['receiptId'],
-                    $type,
-                    $sourceEntityId,
-                    $payload,
-                    $identity->userId,
-                    $now,
+                $type === 'store_price'
+                && ! $this->packs->lockPublishedPack(
+                    (string) $payload['productId'],
+                    (string) $payload['packId'],
+                )
+            ) {
+                throw new Problem(409, 'Contribution target conflict', 'Choose a currently published pack.');
+            }
+            $source = $this->sources->activeHomeProduct($homeId, $sourceEntityId);
+            if ($source === null) {
+                throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+            }
+            if (
+                $type === 'store_price'
+                && (
+                    $source['productId'] !== $payload['productId']
+                    || $source['packId'] !== $payload['packId']
                 )
             ) {
                 throw new Problem(
                     409,
-                    'Sharing consent changed',
-                    'The contribution was not submitted because consent changed.',
+                    'Contribution source conflict',
+                    'The selected home item does not use that published pack.',
                 );
             }
-            $this->recordAudit(
-                $identity,
-                'catalog.contribution.submitted',
-                'catalog_contribution',
-                $id,
+            $submission = $this->store->createContribution(
+                $submissionId,
                 $homeId,
-                ['type' => $type, 'consentRevision' => (int) $consent['revision']],
+                (string) $consent['receiptId'],
+                $type,
+                $sourceEntityId,
+                $payload,
+                $identity->userId,
                 $now,
             );
-        });
+            if (($submission['outcome'] ?? 'conflict') === 'conflict') {
+                throw new Problem(
+                    409,
+                    'Contribution conflict',
+                    'The submission identifier, payload, source, or consent changed.',
+                );
+            }
+            if (($submission['outcome'] ?? null) === 'created') {
+                $this->recordAudit(
+                    $identity,
+                    'catalog.contribution.submitted',
+                    'catalog_contribution',
+                    $submissionId,
+                    $homeId,
+                    ['type' => $type, 'consentRevision' => (int) $consent['revision']],
+                    $now,
+                );
+            }
 
-        return ['id' => $id, 'status' => 'pending', 'revision' => 1];
+            $record = $submission['record'] ?? throw new \LogicException('Contribution result has no record.');
+
+            return new CatalogContributionSubmission(
+                ($submission['outcome'] ?? null) === 'created',
+                $record,
+            );
+        });
     }
 
     /** @return list<array<string, mixed>> */
@@ -187,7 +232,7 @@ final class CatalogContributionService
         int $limit,
         int $offset,
     ): array {
-        $this->homes->requirePermission($identity, $homeId, HomePermission::HOME_READ);
+        $this->homes->requireRead($identity, $homeId);
 
         return $this->store->contributionsForHome($homeId, min(100, max(1, $limit)), max(0, $offset));
     }
@@ -244,16 +289,30 @@ final class CatalogContributionService
         if ($this->store->contribution($id) === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
         }
-        if (
-            ! $this->store->decide(
+        $decided = $this->transactions->transactional(function () use (
+            $id,
+            $decision,
+            $reason,
+            $expectedRevision,
+            $identity,
+        ): bool {
+            if (! $this->store->decide(
                 $id,
                 $decision,
                 $reason,
                 $expectedRevision,
                 $identity->userId,
                 $this->clock->now(),
-            )
-        ) {
+            )) {
+                return false;
+            }
+            if ($decision === 'rejected') {
+                $this->images->deleteQuarantineImage($id);
+            }
+
+            return true;
+        });
+        if (! $decided) {
             throw new Problem(409, 'Contribution conflict', 'The contribution changed or is no longer pending.');
         }
     }
@@ -277,7 +336,6 @@ final class CatalogContributionService
     {
         return match ($type) {
             'product_identity' => $this->productIdentity($input),
-            'product_image' => $this->productImage($input),
             'store_price' => $this->storePrice($input),
             default => throw new Problem(422, 'Invalid catalog contribution', 'The contribution type is invalid.'),
         };
@@ -315,36 +373,10 @@ final class CatalogContributionService
      * @param array<string, mixed> $input
      * @return array<string, string>
      */
-    private function productImage(array $input): array
-    {
-        $digest = strtolower(trim((string) ($input['assetDigest'] ?? '')));
-        $mediaType = strtolower(trim((string) ($input['mediaType'] ?? '')));
-        $altText = trim((string) ($input['altText'] ?? ''));
-        $provenance = trim((string) ($input['provenance'] ?? ''));
-        if (
-            preg_match('/^[a-f0-9]{64}$/', $digest) !== 1
-            || ! in_array($mediaType, ['image/jpeg', 'image/png', 'image/webp'], true)
-            || $altText === '' || mb_strlen($altText) > 191
-            || $provenance === '' || mb_strlen($provenance) > 191
-        ) {
-            throw new Problem(422, 'Invalid catalog contribution', 'Product image metadata is invalid.');
-        }
-
-        return [
-            'assetDigest' => $digest,
-            'mediaType' => $mediaType,
-            'altText' => $altText,
-            'provenance' => $provenance,
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $input
-     * @return array<string, string>
-     */
     private function storePrice(array $input): array
     {
         $productId = trim((string) ($input['productId'] ?? ''));
+        $packId = trim((string) ($input['packId'] ?? ''));
         $storeName = trim((string) ($input['storeName'] ?? ''));
         $storeLocation = trim((string) ($input['storeLocation'] ?? ''));
         $price = trim((string) ($input['price'] ?? ''));
@@ -352,16 +384,21 @@ final class CatalogContributionService
         $observedOn = trim((string) ($input['observedOn'] ?? ''));
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', $observedOn);
         if (
-            strlen($productId) !== 36 || $storeName === '' || mb_strlen($storeName) > 191
+            ! $this->isUuid($productId) || ! $this->isUuid($packId)
+            || $storeName === '' || mb_strlen($storeName) > 191
             || mb_strlen($storeLocation) > 191 || preg_match('/^(?:0|[1-9][0-9]{0,11})\.[0-9]{2,4}$/', $price) !== 1
             || preg_match('/^[A-Z]{3}$/', $currency) !== 1 || $date === false
             || $date->format('Y-m-d') !== $observedOn
         ) {
             throw new Problem(422, 'Invalid catalog contribution', 'Store-price fields are invalid.');
         }
-
+        $today = $this->clock->now()->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d');
+        if ($observedOn > $today) {
+            throw new Problem(422, 'Invalid catalog contribution', 'Observation dates cannot be in the future.');
+        }
         return array_filter([
             'productId' => $productId,
+            'packId' => $packId,
             'storeName' => $storeName,
             'storeLocation' => $storeLocation,
             'price' => $price,
@@ -380,7 +417,7 @@ final class CatalogContributionService
      */
     private function reviewProjection(array $row): array
     {
-        return array_filter([
+        $projection = array_filter([
             'id' => (string) ($row['id'] ?? ''),
             'contributionType' => (string) ($row['contributionType'] ?? ''),
             'payload' => $this->publishedPayload(
@@ -391,8 +428,37 @@ final class CatalogContributionService
             'revision' => (int) ($row['revision'] ?? 0),
             'consentNoticeVersion' => (string) ($row['consentNoticeVersion'] ?? ''),
             'consentRevision' => (int) ($row['consentRevision'] ?? 0),
-            'createdAt' => (string) ($row['createdAt'] ?? ''),
+            'createdAt' => $this->publishedDate($row['createdAt'] ?? null),
         ], static fn (mixed $value): bool => $value !== '');
+
+        if (isset($row['proposalId']) && is_string($row['proposalId']) && $row['proposalId'] !== '') {
+            $projection['proposalLink'] = [
+                'contributionId' => (string) ($row['id'] ?? ''),
+                'contributionRevision' => (int) ($row['linkedContributionRevision'] ?? 0),
+                'proposalId' => $row['proposalId'],
+                'proposalStatus' => (string) ($row['proposalStatus'] ?? ''),
+                'publishedCategoryId' => (string) ($row['publishedCategoryId'] ?? ''),
+                'publishedCategoryName' => (string) ($row['publishedCategoryName'] ?? ''),
+                'linkedAt' => $this->publishedDate($row['linkedAt'] ?? null),
+            ];
+        }
+        if (
+            isset($row['imagePublicationProductId'])
+            && is_string($row['imagePublicationProductId'])
+            && $row['imagePublicationProductId'] !== ''
+        ) {
+            $projection['imagePublication'] = [
+                'contributionId' => (string) ($row['id'] ?? ''),
+                'contributionRevision' => (int) ($row['imagePublicationContributionRevision'] ?? 0),
+                'productId' => $row['imagePublicationProductId'],
+                'productName' => (string) ($row['imagePublicationProductName'] ?? ''),
+                'iconId' => (string) ($row['imagePublicationIconId'] ?? ''),
+                'iconRevision' => (int) ($row['imagePublicationIconRevision'] ?? 0),
+                'publishedAt' => $this->publishedDate($row['imagePublishedAt'] ?? null),
+            ];
+        }
+
+        return $projection;
     }
 
     /**
@@ -441,8 +507,23 @@ final class CatalogContributionService
         }
         $allowed = match ($type) {
             'product_identity' => ['canonicalName', 'brand', 'categoryLabel', 'barcode', 'packText'],
-            'product_image' => ['assetDigest', 'mediaType', 'altText', 'provenance'],
-            'store_price' => ['productId', 'storeName', 'storeLocation', 'price', 'currency', 'observedOn'],
+            'product_image' => [
+                'assetDigest',
+                'mediaType',
+                'altText',
+                'provenance',
+                'rightsDeclarationVersion',
+                'reuseNoticeVersion',
+            ],
+            'store_price' => [
+                'productId',
+                'packId',
+                'storeName',
+                'storeLocation',
+                'price',
+                'currency',
+                'observedOn',
+            ],
             default => [],
         };
         $projected = [];
@@ -475,5 +556,13 @@ final class CatalogContributionService
             json_encode($details, JSON_THROW_ON_ERROR),
             $at,
         );
+    }
+
+    private function isUuid(string $value): bool
+    {
+        return preg_match(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+            $value,
+        ) === 1;
     }
 }

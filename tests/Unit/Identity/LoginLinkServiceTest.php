@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AccountNotificationSender;
 use Providentia\Identity\Application\AuthenticationService;
+use Providentia\Identity\Application\ConcurrentPlatformRoleChange;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
 use Providentia\Identity\Application\LoginLinkService;
@@ -333,6 +334,33 @@ final class LoginLinkServiceTest extends TestCase
         self::assertSame(['status' => 'approved'], $result);
     }
 
+    public function testConcurrentBootstrapRoleChangeIsReportedAsAConflict(): void
+    {
+        $requests = $this->approvalStore(false);
+        $identities = $this->createStub(IdentityStore::class);
+        $identities->method('findUserByEmail')->willReturn([
+            'id' => self::USER_ID,
+            'status' => 'active',
+            'email_verified_at' => '2026-08-01 10:00:00',
+        ]);
+        $identities->method('claimEmailVerification')->willReturn(false);
+        $identities->method('activatePendingAdministratorGrant')->willThrowException(
+            new ConcurrentPlatformRoleChange(),
+        );
+
+        try {
+            $this->service(
+                $requests,
+                $identities,
+                ids: $this->ids('admin-audit-id'),
+            )->approve(self::REQUEST_ID, 'approval-token');
+            self::fail('A concurrent bootstrap role change was hidden.');
+        } catch (Problem $problem) {
+            self::assertSame(409, $problem->status);
+            self::assertSame('Login request conflict', $problem->title);
+        }
+    }
+
     /** @return array<string, mixed> */
     private function startInput(): array
     {
@@ -365,7 +393,7 @@ final class LoginLinkServiceTest extends TestCase
         ];
     }
 
-    private function approvalStore(): LoginLinkStore
+    private function approvalStore(bool $expectsCompletion = true): LoginLinkStore
     {
         $row = [
             'id' => self::REQUEST_ID,
@@ -381,7 +409,8 @@ final class LoginLinkServiceTest extends TestCase
         $requests->method('find')->willReturn($row);
         $requests->expects(self::once())->method('lockEmail')->with('person@example.test');
         $requests->method('reserveApproval')->willReturn(true);
-        $requests->expects(self::once())->method('completeApproval');
+        $requests->expects($expectsCompletion ? self::once() : self::never())
+            ->method('completeApproval');
 
         return $requests;
     }

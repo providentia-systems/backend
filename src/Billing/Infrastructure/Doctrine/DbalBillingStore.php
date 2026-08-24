@@ -6,12 +6,14 @@ namespace Providentia\Billing\Infrastructure\Doctrine;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Providentia\Billing\Application\BillingStore;
 use Providentia\Billing\Application\HostedCheckoutWebhook;
+use Providentia\Billing\Application\OperatorSubscriptionReader;
 
-final readonly class DbalBillingStore implements BillingStore
+final readonly class DbalBillingStore implements BillingStore, OperatorSubscriptionReader
 {
     public function __construct(private Connection $connection)
     {
@@ -408,6 +410,41 @@ final readonly class DbalBillingStore implements BillingStore
         );
     }
 
+    public function operatorSubscriptions(array $homeIds): array
+    {
+        if ($homeIds === []) {
+            return [];
+        }
+        $subscriptions = $this->connection->executeQuery(
+            'SELECT s.home_id AS homeId, s.status, bp.code AS planCode,
+                    p.interval_unit AS billingCycle,
+                    s.current_period_ends_at AS currentPeriodEnd
+             FROM billing_subscriptions s
+             INNER JOIN billing_plans bp ON bp.id = s.plan_id
+             INNER JOIN billing_prices p ON p.id = s.price_id
+             WHERE s.home_id IN (:homes)',
+            ['homes' => array_values(array_unique($homeIds))],
+            ['homes' => ArrayParameterType::STRING],
+        )->fetchAllAssociative();
+        $byHome = [];
+        foreach ($subscriptions as $subscription) {
+            $byHome[(string) $subscription['homeId']] = [
+                'status' => (string) $subscription['status'],
+                'planCode' => $subscription['planCode'] === null
+                    ? null
+                    : (string) $subscription['planCode'],
+                'billingCycle' => $subscription['billingCycle'] === null
+                    ? null
+                    : (string) $subscription['billingCycle'],
+                'currentPeriodEnd' => $subscription['currentPeriodEnd'] === null
+                    ? null
+                    : $this->atom((string) $subscription['currentPeriodEnd']),
+            ];
+        }
+
+        return $byHome;
+    }
+
     public function createCheckoutSession(
         string $id,
         string $homeId,
@@ -606,5 +643,12 @@ final readonly class DbalBillingStore implements BillingStore
     private function date(DateTimeImmutable $value): string
     {
         return $value->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    }
+
+    private function atom(string $date): string
+    {
+        return (new DateTimeImmutable($date, new DateTimeZone('UTC')))
+            ->setTimezone(new DateTimeZone('UTC'))
+            ->format('Y-m-d\TH:i:s\Z');
     }
 }

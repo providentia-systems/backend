@@ -169,6 +169,63 @@ final class PantrySyncCommandDispatcherTest extends TestCase
         self::assertFalse((bool) $result['replayed']);
     }
 
+    public function testPrivateProductUpdateDispatchesEveryRevisionedField(): void
+    {
+        $inventory = $this->createMock(InventoryStore::class);
+        $inventory->expects(self::once())->method('updateHomeProduct')->with(
+            self::HOME_ID,
+            self::PRODUCT_ID,
+            true,
+            'Sorghum meal',
+            'sorghum meal',
+            true,
+            null,
+            true,
+            self::LIST_ID,
+            'active',
+            4,
+            self::isInstanceOf(DateTimeImmutable::class),
+        )->willReturn([
+            'status' => 'updated',
+            'record' => [
+                'id' => self::PRODUCT_ID,
+                'productId' => null,
+                'packId' => null,
+                'privateName' => 'Sorghum meal',
+                'originalPackText' => null,
+                'homeCategoryId' => self::LIST_ID,
+                'status' => 'active',
+                'revision' => 5,
+                'updatedAt' => '2026-08-24T12:00:00Z',
+            ],
+        ]);
+
+        $result = $this->dispatcher(
+            $inventory,
+            $this->createStub(PurchasingStore::class),
+        )->dispatch(
+            $this->identity(),
+            self::HOME_ID,
+            new SyncCommand(
+                self::OPERATION_ID,
+                'inventory.home-product.update',
+                self::PRODUCT_ID,
+                4,
+                '2026-08-24T11:59:00+00:00',
+                1,
+                [
+                    'privateName' => 'Sorghum meal',
+                    'originalPackText' => null,
+                    'homeCategoryId' => self::LIST_ID,
+                    'status' => 'active',
+                ],
+            ),
+        );
+
+        self::assertSame(5, $result['revision']);
+        self::assertSame(self::LIST_ID, $result['homeCategoryId']);
+    }
+
     public function testReceiptCommitCarriesTheBaseRevisionAndReplaysCommittedState(): void
     {
         $purchases = $this->createMock(PurchasingStore::class);

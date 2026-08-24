@@ -10,7 +10,8 @@ Every contract file has a SHA-256 lock manifest. Changing bytes requires:
 2. Run contract validation and the generated Dart client proof.
 3. Review semantic compatibility.
 4. Tag and publish the backend contract.
-5. Update the Flutter repository's pinned lock and regenerate.
+5. Copy the exact contract and lock into both `providentia-systems/client` and
+   `providentia-systems/admin`, then regenerate both clients.
 6. Release compatible Flutter clients before removing any deprecated server
    behavior.
 

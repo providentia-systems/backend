@@ -21,6 +21,8 @@ use Providentia\Identity\Application\NotificationOutbox;
 use Providentia\Identity\Application\NotificationPayloadCipher;
 use Providentia\Identity\Application\NotificationTransport;
 use Providentia\Identity\Application\PlatformAdministratorService;
+use Providentia\Identity\Application\PlatformRoleService;
+use Providentia\Identity\Application\PlatformRoleStore;
 use Providentia\Identity\Application\QueuedAccountNotificationSender;
 use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
@@ -35,6 +37,7 @@ use Providentia\Identity\Infrastructure\Doctrine\DbalLoginLinkStore;
 use Providentia\Identity\Infrastructure\Doctrine\DbalNotificationOutbox;
 use Providentia\Identity\Infrastructure\Cli\LoginLinkPurgeCommand;
 use Providentia\Identity\Infrastructure\Cli\NotificationDeliverCommand;
+use Providentia\Identity\Infrastructure\Cli\PlatformRoleCommand;
 use Providentia\Identity\Infrastructure\Doctrine\DbalAuthenticationRateLimitStore;
 use Providentia\Identity\Infrastructure\Notification\SmtpAccountNotificationSender;
 use Providentia\Identity\Infrastructure\Security\NativeCredentialHasher;
@@ -140,6 +143,9 @@ final class IdentityFactory
                 $config['identity']['rate_limit_retention_days'],
             );
         }
+        if ($requestedName === PlatformRoleCommand::class) {
+            return new PlatformRoleCommand($container->get(PlatformRoleService::class));
+        }
         if ($requestedName === AuthenticationService::class) {
             return new AuthenticationService(
                 $container->get(IdentityStore::class),
@@ -191,6 +197,14 @@ final class IdentityFactory
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
                 $container->get(AccountNotificationSender::class),
+            );
+        }
+        if ($requestedName === PlatformRoleService::class) {
+            return new PlatformRoleService(
+                $container->get(PlatformRoleStore::class),
+                $container->get(UuidGenerator::class),
+                $container->get(Clock::class),
+                $container->get(TransactionManager::class),
             );
         }
         if ($requestedName === BearerAuthenticationMiddleware::class) {

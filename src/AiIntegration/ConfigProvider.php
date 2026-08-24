@@ -75,6 +75,7 @@ final class ConfigProvider
                     'ai.profiles.list' => AiIntegrationFactory::class,
                     'ai.profiles.put' => AiIntegrationFactory::class,
                     'ai.profiles.delete' => AiIntegrationFactory::class,
+                    'ai.profiles.credential.delete' => AiIntegrationFactory::class,
                     'ai.policy.get' => AiIntegrationFactory::class,
                     'ai.policy.put' => AiIntegrationFactory::class,
                     'ai.extractions.create' => AiIntegrationFactory::class,

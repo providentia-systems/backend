@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Inventory\Application;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use DomainException;
 use InvalidArgumentException;
 use Providentia\Home\Application\HomeAuthorization;
@@ -27,6 +28,126 @@ final class InventoryService implements InventoryMovementGateway
         private readonly TransactionManager $transactions,
         private readonly ?ChangeFeedWriter $changes = null,
     ) {
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function categories(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        bool $includeArchived = false,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
+
+        return $this->inventory->categories($homeId, $includeArchived);
+    }
+
+    /** @return array<string, mixed> */
+    public function createHomeCategory(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $name,
+        ?string $requestedId = null,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
+        $name = $this->categoryName($name);
+        $id = $this->identifier($requestedId);
+        $at = $this->clock->now();
+        try {
+            $this->transactions->transactional(function () use ($identity, $homeId, $id, $name, $at): void {
+                $this->inventory->createHomeCategory($id, $homeId, $name, $this->normalize($name), $at);
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'inventory-home-category',
+                    $id,
+                    1,
+                    ['name' => $name, 'status' => 'active'],
+                    $at,
+                );
+            });
+        } catch (DomainException $error) {
+            throw new Problem(422, 'Invalid category', $error->getMessage());
+        }
+
+        $timestamp = $at->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z');
+
+        return [
+            'id' => $id,
+            'name' => $name,
+            'status' => 'active',
+            'revision' => 1,
+            'createdAt' => $timestamp,
+            'updatedAt' => $timestamp,
+            'archivedAt' => null,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function updateHomeCategory(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $categoryId,
+        ?string $name,
+        ?string $status,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
+        if ($expectedRevision < 1) {
+            throw new Problem(422, 'Invalid category', 'A positive expected revision is required.');
+        }
+        if ($name === null && $status === null) {
+            throw new Problem(422, 'Invalid category', 'Provide a name or status change.');
+        }
+        $name = $name === null ? null : $this->categoryName($name);
+        if ($status !== null && ! in_array($status, ['active', 'archived'], true)) {
+            throw new Problem(422, 'Invalid category', 'Category status must be active or archived.');
+        }
+        $at = $this->clock->now();
+        try {
+            $result = $this->transactions->transactional(function () use (
+                $identity,
+                $homeId,
+                $categoryId,
+                $name,
+                $status,
+                $expectedRevision,
+                $at,
+            ): array {
+                $result = $this->inventory->updateHomeCategory(
+                    $homeId,
+                    $categoryId,
+                    $name,
+                    $name === null ? null : $this->normalize($name),
+                    $status,
+                    $expectedRevision,
+                    $at,
+                );
+                if ($result['status'] === 'updated') {
+                    $record = $result['record'];
+                    $this->changes?->put(
+                        $homeId,
+                        $identity->userId,
+                        'inventory-home-category',
+                        $categoryId,
+                        (int) $record['revision'],
+                        ['name' => (string) $record['name'], 'status' => (string) $record['status']],
+                        $at,
+                    );
+                }
+
+                return $result;
+            });
+        } catch (DomainException $error) {
+            throw new Problem(422, 'Invalid category', $error->getMessage());
+        }
+
+        return match ($result['status']) {
+            'updated' => $result['record'],
+            'not-found' => throw new Problem(404, 'Not found', 'The category is unavailable.'),
+            'revision-conflict' => throw new Problem(409, 'Revision conflict', 'The category changed on another device.'),
+            'category-in-use' => throw new Problem(409, 'Category in use', 'Move or archive active products before archiving this category.'),
+            default => throw new \LogicException('Unknown home-category update result.'),
+        };
     }
 
     /** @return list<array<string, mixed>> */
@@ -77,17 +198,21 @@ final class InventoryService implements InventoryMovementGateway
         string $homeId,
         string $query,
         ?string $categoryId,
+        ?string $homeCategoryId,
         int $limit,
         int $offset,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
+
+        [$categoryId, $homeCategoryId] = $this->categoryFilters($categoryId, $homeCategoryId);
 
         $limit = min(100, max(1, $limit));
         $offset = max(0, $offset);
         $page = $this->inventory->itemMaster(
             $homeId,
             mb_substr(trim($query), 0, 191),
-            $categoryId === '' ? null : $categoryId,
+            $categoryId,
+            $homeCategoryId,
             $limit,
             $offset,
         );
@@ -114,15 +239,19 @@ final class InventoryService implements InventoryMovementGateway
         string $homeId,
         string $query,
         ?string $categoryId,
+        ?string $homeCategoryId,
         int $limit,
         int $offset,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
 
+        [$categoryId, $homeCategoryId] = $this->categoryFilters($categoryId, $homeCategoryId);
+
         return $this->inventory->stock(
             $homeId,
             mb_substr(trim($query), 0, 191),
-            $categoryId === '' ? null : $categoryId,
+            $categoryId,
+            $homeCategoryId,
             min(100, max(1, $limit)),
             max(0, $offset),
         );
@@ -136,6 +265,7 @@ final class InventoryService implements InventoryMovementGateway
         ?string $packId,
         ?string $privateName,
         ?string $originalPackText,
+        ?string $homeCategoryId = null,
         ?string $requestedId = null,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
@@ -144,6 +274,9 @@ final class InventoryService implements InventoryMovementGateway
         }
         if ($packId !== null && $packId === '') {
             $packId = null;
+        }
+        if ($homeCategoryId === '') {
+            $homeCategoryId = null;
         }
         $privateName = $privateName === null ? null : trim($privateName);
         if ($productId === null && $packId === null && ($privateName === null || $privateName === '')) {
@@ -166,6 +299,7 @@ final class InventoryService implements InventoryMovementGateway
                 $packId,
                 $privateName,
                 $originalPackText,
+                $homeCategoryId,
                 $identity,
                 $at,
             ): void {
@@ -177,6 +311,7 @@ final class InventoryService implements InventoryMovementGateway
                     $privateName,
                     $privateName === null ? null : $this->normalize($privateName),
                     $originalPackText,
+                    $homeCategoryId,
                     $at,
                 );
                 $this->changes?->put(
@@ -190,6 +325,7 @@ final class InventoryService implements InventoryMovementGateway
                         'packId' => $packId,
                         'privateName' => $privateName,
                         'originalPackText' => $originalPackText,
+                        'homeCategoryId' => $homeCategoryId,
                         'status' => 'active',
                     ],
                     $at,
@@ -200,6 +336,109 @@ final class InventoryService implements InventoryMovementGateway
         }
 
         return ['id' => $id];
+    }
+
+    /** @return array<string, mixed> */
+    public function updateHomeProduct(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $homeProductId,
+        bool $privateNameProvided,
+        ?string $privateName,
+        bool $originalPackTextProvided,
+        ?string $originalPackText,
+        bool $homeCategoryProvided,
+        ?string $homeCategoryId,
+        ?string $status,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
+        if ($expectedRevision < 1) {
+            throw new Problem(422, 'Invalid item', 'A positive expected revision is required.');
+        }
+        if (! $privateNameProvided && ! $originalPackTextProvided && ! $homeCategoryProvided && $status === null) {
+            throw new Problem(422, 'Invalid item', 'Provide at least one product change.');
+        }
+        if ($privateNameProvided) {
+            $privateName = trim((string) $privateName);
+            if ($privateName === '' || mb_strlen($privateName) > 191) {
+                throw new Problem(422, 'Invalid item', 'Private product name must contain 1 to 191 characters.');
+            }
+        }
+        if ($originalPackTextProvided) {
+            $originalPackText = $originalPackText === null ? null : trim($originalPackText);
+            if ($originalPackText !== null && mb_strlen($originalPackText) > 191) {
+                throw new Problem(422, 'Invalid item', 'Original pack text exceeds 191 characters.');
+            }
+        }
+        if ($homeCategoryId === '') {
+            $homeCategoryId = null;
+        }
+        if ($status !== null && ! in_array($status, ['active', 'archived'], true)) {
+            throw new Problem(422, 'Invalid item', 'Product status must be active or archived.');
+        }
+        $at = $this->clock->now();
+        $result = $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $homeProductId,
+            $privateNameProvided,
+            $privateName,
+            $originalPackTextProvided,
+            $originalPackText,
+            $homeCategoryProvided,
+            $homeCategoryId,
+            $status,
+            $expectedRevision,
+            $at,
+        ): array {
+            $result = $this->inventory->updateHomeProduct(
+                $homeId,
+                $homeProductId,
+                $privateNameProvided,
+                $privateName,
+                $privateNameProvided ? $this->normalize((string) $privateName) : null,
+                $originalPackTextProvided,
+                $originalPackText,
+                $homeCategoryProvided,
+                $homeCategoryId,
+                $status,
+                $expectedRevision,
+                $at,
+            );
+            if ($result['status'] === 'updated') {
+                $record = $result['record'];
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'inventory-home-product',
+                    $homeProductId,
+                    (int) $record['revision'],
+                    [
+                        'productId' => $record['productId'],
+                        'packId' => $record['packId'],
+                        'privateName' => $record['privateName'],
+                        'originalPackText' => $record['originalPackText'],
+                        'homeCategoryId' => $record['homeCategoryId'],
+                        'status' => $record['status'],
+                    ],
+                    $at,
+                );
+            }
+
+            return $result;
+        });
+
+        return match ($result['status']) {
+            'updated' => $result['record'],
+            'not-found' => throw new Problem(404, 'Not found', 'The product is unavailable.'),
+            'revision-conflict' => throw new Problem(409, 'Revision conflict', 'The product changed on another device.'),
+            'category-unavailable' => throw new Problem(422, 'Invalid category', 'The private category is unavailable.'),
+            'balance-not-zero' => throw new Problem(409, 'Product has stock', 'Adjust the product balance to zero before archiving it.'),
+            'product-in-use' => throw new Problem(409, 'Product in use', 'Finish active counts and draft receipts before archiving this product.'),
+            'catalog-product' => throw new Problem(422, 'Catalog product', 'Only home-private products can be edited here.'),
+            default => throw new \LogicException('Unknown home-product update result.'),
+        };
     }
 
     /** @return array<string, mixed> */
@@ -652,19 +891,23 @@ final class InventoryService implements InventoryMovementGateway
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
         }
 
-        $result = $this->inventory->appendMovement(
-            $this->ids->generate(),
-            $homeId,
-            $homeProductId,
-            $movementType,
-            $quantityDelta,
-            $sourceType,
-            $sourceId,
-            mb_substr($reason, 0, 191),
-            $actorUserId,
-            $occurredAt,
-            $this->clock->now(),
-        );
+        try {
+            $result = $this->inventory->appendMovement(
+                $this->ids->generate(),
+                $homeId,
+                $homeProductId,
+                $movementType,
+                $quantityDelta,
+                $sourceType,
+                $sourceId,
+                mb_substr($reason, 0, 191),
+                $actorUserId,
+                $occurredAt,
+                $this->clock->now(),
+            );
+        } catch (DomainException) {
+            throw new Problem(409, 'Product unavailable', 'The product was archived while stock was changing.');
+        }
         if (! (bool) ($result['replayed'] ?? false)) {
             $this->changes?->put(
                 $homeId,
@@ -710,15 +953,57 @@ final class InventoryService implements InventoryMovementGateway
         return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
     }
 
+    private function categoryName(string $name): string
+    {
+        $name = trim($name);
+        if ($name === '' || mb_strlen($name) > 191) {
+            throw new Problem(422, 'Invalid category', 'Category name must contain 1 to 191 characters.');
+        }
+
+        return $name;
+    }
+
+    /** @return array{?string, ?string} */
+    private function categoryFilters(?string $categoryId, ?string $homeCategoryId): array
+    {
+        $categoryId = $categoryId === null || trim($categoryId) === '' ? null : trim($categoryId);
+        $homeCategoryId = $homeCategoryId === null || trim($homeCategoryId) === ''
+            ? null
+            : trim($homeCategoryId);
+        if ($categoryId !== null && $homeCategoryId !== null) {
+            throw new Problem(
+                422,
+                'Invalid category filter',
+                'Use either categoryId for the global catalog or homeCategoryId for private products.',
+            );
+        }
+        if (
+            ($categoryId !== null && ! $this->validIdentifier($categoryId))
+            || ($homeCategoryId !== null && ! $this->validIdentifier($homeCategoryId))
+        ) {
+            throw new Problem(422, 'Invalid category filter', 'Category filters must be UUIDs.');
+        }
+
+        return [$categoryId, $homeCategoryId];
+    }
+
     private function identifier(?string $requestedId): string
     {
         if ($requestedId === null) {
             return $this->ids->generate();
         }
-        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $requestedId) !== 1) {
+        if (! $this->validIdentifier($requestedId)) {
             throw new Problem(422, 'Invalid identifier', 'The client-provided identifier is invalid.');
         }
 
         return strtolower($requestedId);
+    }
+
+    private function validIdentifier(string $value): bool
+    {
+        return preg_match(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+            $value,
+        ) === 1;
     }
 }

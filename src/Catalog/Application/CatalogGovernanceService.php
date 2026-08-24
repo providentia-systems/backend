@@ -124,6 +124,13 @@ final class CatalogGovernanceService
             $resolved = null;
             try {
                 if ($decision === 'approve') {
+                    if (! $this->catalog->proposalSourceEligible($proposalId)) {
+                        throw new Problem(
+                            409,
+                            'Proposal source changed',
+                            'The approved contribution behind this proposal is no longer eligible.',
+                        );
+                    }
                     $resolved = $this->catalog->publishProposal(
                         $proposal,
                         $this->ids->generate(),
@@ -335,6 +342,7 @@ final class CatalogGovernanceService
     private function sanitize(string $type, array $payload): array
     {
         $definitions = [
+            'category' => ['canonicalName'],
             'product' => ['canonicalName', 'brand', 'categoryId'],
             'pack' => ['productId', 'originalPackText', 'unitId', 'amount', 'multiplicity'],
             'alias' => ['productId', 'variantId', 'packId', 'rawAlias'],
@@ -357,11 +365,26 @@ final class CatalogGovernanceService
         }
 
         return match ($type) {
+            'category' => $this->categoryPayload($payload),
             'product' => $this->productPayload($payload),
             'pack' => $this->packPayload($payload),
             'alias' => $this->aliasPayload($payload),
             'barcode' => $this->barcodePayload($payload),
         };
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array{canonicalName: string}
+     */
+    private function categoryPayload(array $payload): array
+    {
+        $name = trim((string) $payload['canonicalName']);
+        if ($name === '' || mb_strlen($name) > 191) {
+            throw new Problem(422, 'Invalid proposal', 'The category name is invalid.');
+        }
+
+        return ['canonicalName' => $name];
     }
 
     /**
@@ -458,6 +481,7 @@ final class CatalogGovernanceService
     private function normalizedKey(string $type, array $payload): string
     {
         $value = match ($type) {
+            'category' => (string) $payload['canonicalName'],
             'product' => (string) $payload['categoryId'] . '|'
                 . (string) $payload['canonicalName'] . '|'
                 . (string) $payload['brand'],

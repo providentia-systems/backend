@@ -1,5 +1,11 @@
 # Phase 0–10 acceptance report
 
+> Historical release-candidate snapshot: the API 1.13.2 identity below is
+> preserved as evidence, not the current contract. API 1.15.0 and the separate
+> Linux Flutter Admin client are governed by `docs/product/project-memory.md`
+> and `docs/inventory-integration-roadmap.md`; a new acceptance run must record
+> their immutable commits and artifacts.
+
 This document is the release-candidate evidence index. Automated results are
 attached by immutable commit SHA; operator evidence is recorded against the
 same container digests. A blank or failed evidence reference keeps the release

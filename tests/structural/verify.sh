@@ -107,6 +107,18 @@ grep -Fxq '/.agent-tools/' .gitignore \
   || fail '.agent-tools must remain ignored'
 grep -Fq 'bash tools/agent-setup.sh --check' .github/workflows/quality.yml \
   || fail 'quality workflow must verify the agent environment contract'
+setup_function="$(sed -n '/^setup() {/,/^}/p' tools/agent-setup.sh)"
+install_line="$(grep -n 'install_system_packages' <<<"$setup_function" | cut -d: -f1)"
+validate_line="$(grep -n 'validate_contract' <<<"$setup_function" | cut -d: -f1)"
+[[ -n "$install_line" && -n "$validate_line" && "$install_line" -lt "$validate_line" ]] \
+  || fail 'agent setup must install prerequisites before Node-based validation'
+grep -Fq -- "--check) validate_contract" tools/agent-setup.sh \
+  || fail 'agent --check must remain a non-mutating contract validation'
+grep -Fq -- "--matrix) matrix" tools/agent-setup.sh \
+  || fail 'agent setup must expose the executable compatibility matrix'
+doctor_function="$(sed -n '/^doctor() {/,/^}/p' tools/agent-setup.sh)"
+grep -Fq 'run_compatibility_matrix' <<<"$doctor_function" \
+  || fail 'agent doctor must execute the local compatibility matrix'
 
 node <<'NODE'
 const fs = require('node:fs');
@@ -117,17 +129,32 @@ if (manifest.schemaVersion !== 1 || manifest.repositoryRole !== 'backend') {
 const pins = {
   php: '8.5.9',
   composer: '2.10.2',
+  gdWebp: 'bundled-php-8.5.9',
   redisExtension: '6.3.0',
   xdebug: '3.5.3',
+  node: '22.14.0',
+  nodeMinimum: '18.19.0',
 };
 for (const [name, value] of Object.entries(pins)) {
   if (manifest.runtime?.[name] !== value) {
     throw new Error(`Agent environment ${name} pin is not ${value}.`);
   }
 }
-for (const domain of ['repo.packagist.org', 'pecl.php.net', 'registry-1.docker.io', 'ghcr.io']) {
+for (const domain of ['nodejs.org', 'repo.packagist.org', 'pecl.php.net', 'registry-1.docker.io', 'ghcr.io']) {
   if (!manifest.networkAllowlist?.includes(domain)) {
     throw new Error(`Agent environment network allowlist is missing ${domain}.`);
+  }
+}
+for (const [architecture, checksum] of Object.entries({
+  x64: '69b09dba5c8dcb05c4e4273a4340db1005abeafe3927efda2bc5b249e80437ec',
+  arm64: '08bfbf538bad0e8cbb0269f0173cca28d705874a67a22f60b57d99dc99e30050',
+})) {
+  if (manifest.nodeDownloads?.linux?.[architecture]?.sha256 !== checksum) {
+    throw new Error(`Agent environment Node.js ${architecture} checksum is not pinned.`);
+  }
+  const expectedUrl = `https://nodejs.org/download/release/v22.14.0/node-v22.14.0-linux-${architecture}.tar.xz`;
+  if (manifest.nodeDownloads.linux[architecture].url !== expectedUrl) {
+    throw new Error(`Agent environment Node.js ${architecture} URL is not pinned.`);
   }
 }
 for (const command of [
@@ -135,12 +162,20 @@ for (const command of [
   'composer test:coverage && composer coverage:check',
   'composer test:mutation',
   'composer audit --locked',
+  'bash tools/agent-setup.sh --matrix',
 ]) {
   if (!manifest.validation?.includes(command)) {
     throw new Error(`Agent environment validation is missing ${command}.`);
   }
 }
 NODE
+
+for php_image in Dockerfile Dockerfile.production infrastructure/agent/Dockerfile; do
+  grep -Fq 'docker-php-ext-configure gd --with-jpeg --with-webp' "$php_image" \
+    || fail "$php_image must configure GD with JPEG and WebP support"
+  grep -Fq 'docker-php-ext-install -j"$(nproc)" gd' "$php_image" \
+    || fail "$php_image must install the GD extension"
+done
 
 node <<'NODE'
 const fs = require('node:fs');
@@ -403,6 +438,28 @@ done
 assert_no_matches "catalog seed importer references private household lineage fields" \
   -ni --glob 'src/Catalog/Infrastructure/Doctrine/DbalCatalogStore.php' \
   'knownFrom|currentStock|stockLevel|receipt|medical|privateNote|mediaPath'
+
+assert_no_matches "Catalog persistence reaches into Inventory-owned home products" \
+  -ni --glob 'src/Catalog/Infrastructure/Doctrine/*.php' \
+  'home_products|stock_movements|inventory_balances|stock_count'
+grep -Fq 'implements CatalogContributionSourceReader' \
+  src/Inventory/Infrastructure/Doctrine/DbalCatalogContributionSourceReader.php \
+  || fail 'Inventory must implement the narrow Catalog contribution-source reader'
+grep -Fq 'implements CatalogImportHomeProductGateway' \
+  src/Inventory/Infrastructure/Doctrine/DbalCatalogImportHomeProductGateway.php \
+  || fail 'Inventory must implement the narrow Catalog import-home-product gateway'
+grep -Fq 'implements CatalogMergeHomeProductGateway' \
+  src/Inventory/Infrastructure/Doctrine/DbalCatalogMergeHomeProductGateway.php \
+  || fail 'Inventory must implement the narrow Catalog merge-home-product gateway'
+grep -Fq 'implements CatalogHomeAccess' \
+  src/Home/Infrastructure/Adapter/CatalogHomeAccessAdapter.php \
+  || fail 'Home must implement the narrow Catalog access port'
+grep -Fq 'implements CatalogAuditRecorder' \
+  src/Home/Infrastructure/Adapter/CatalogAuditRecorderAdapter.php \
+  || fail 'Home must implement the narrow Catalog audit port'
+assert_no_matches "Catalog contribution images reuse AI private-media infrastructure" \
+  -n --glob 'src/Catalog/**/*.php' \
+  'Providentia\\AiIntegration\\|AI_MEDIA_ROOT|ai_media_assets'
 
 assert_no_matches "Domain layer imports infrastructure or transport code" \
   -n --glob 'src/*/Domain/**/*.php' \

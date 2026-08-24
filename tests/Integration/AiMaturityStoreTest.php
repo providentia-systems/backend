@@ -7,6 +7,7 @@ namespace ProvidentiaTest\Integration;
 use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use PHPUnit\Framework\TestCase;
 use Providentia\AiIntegration\Application\Media\EncryptedMediaObject;
 use Providentia\AiIntegration\Infrastructure\Doctrine\DbalAiStore;
@@ -65,6 +66,90 @@ final class AiMaturityStoreTest extends TestCase
             'home-1', 'extraction-1', 0, 'accepted_primary', 1, 'user-1', $this->at,
         ));
         self::assertFalse($this->store->hasBlockingExtractionDiscrepancies('home-1', 'extraction-1'));
+    }
+
+    public function testProfileCredentialRevocationClearsAllSecretsWithCasAndSanitizedAudit(): void
+    {
+        self::assertTrue($this->store->saveProviderProfile([
+            'id' => 'profile-1', 'homeId' => 'home-1', 'label' => 'OpenAI primary',
+            'provider' => 'openai', 'model' => 'vision', 'ciphertext' => 'cipher',
+            'nonce' => 'nonce', 'keyVersion' => 1, 'lastFour' => '1234',
+            'estimatedCostMicros' => 250, 'actorUserId' => 'user-1',
+        ], 0, $this->at));
+
+        self::assertTrue($this->connection->transactional(
+            fn (): bool => $this->store->revokeProviderProfileCredential(
+                'audit-1', 'home-1', 'profile-1', 1, 'user-1', $this->at,
+            ),
+        ));
+        $profile = $this->connection->fetchAssociative(
+            'SELECT ciphertext, nonce, key_version AS keyVersion, last_four AS lastFour, revision
+             FROM ai_provider_profiles WHERE id = :id',
+            ['id' => 'profile-1'],
+        );
+        self::assertIsArray($profile);
+        self::assertNull($profile['ciphertext']);
+        self::assertNull($profile['nonce']);
+        self::assertNull($profile['keyVersion']);
+        self::assertNull($profile['lastFour']);
+        self::assertSame(2, (int) $profile['revision']);
+        $audit = $this->connection->fetchAssociative(
+            'SELECT action, details FROM audit_events WHERE id = :id',
+            ['id' => 'audit-1'],
+        );
+        self::assertIsArray($audit);
+        self::assertSame('ai.provider-profile.credential-revoked', $audit['action']);
+        self::assertSame([
+            'expectedRevision' => 1,
+            'revision' => 2,
+            'credentialConfigured' => false,
+        ], json_decode((string) $audit['details'], true, 8, JSON_THROW_ON_ERROR));
+        self::assertFalse($this->store->revokeProviderProfileCredential(
+            'audit-stale', 'home-1', 'profile-1', 1, 'user-1', $this->at,
+        ));
+        self::assertFalse($this->store->revokeProviderProfileCredential(
+            'audit-wrong-home', 'home-2', 'profile-1', 2, 'user-1', $this->at,
+        ));
+        self::assertSame(1, $this->tableCount('audit_events'));
+    }
+
+    public function testProfileCredentialRevocationRollsBackWhenItsAuditCannotBeWritten(): void
+    {
+        self::assertTrue($this->store->saveProviderProfile([
+            'id' => 'profile-1', 'homeId' => 'home-1', 'label' => 'OpenAI primary',
+            'provider' => 'openai', 'model' => 'vision', 'ciphertext' => 'cipher',
+            'nonce' => 'nonce', 'keyVersion' => 1, 'lastFour' => '1234',
+            'estimatedCostMicros' => 250, 'actorUserId' => 'user-1',
+        ], 0, $this->at));
+        $this->connection->insert('audit_events', [
+            'id' => 'audit-conflict',
+            'action' => 'existing',
+        ]);
+
+        $auditFailed = false;
+        try {
+            $this->connection->transactional(
+                fn (): bool => $this->store->revokeProviderProfileCredential(
+                    'audit-conflict', 'home-1', 'profile-1', 1, 'user-1', $this->at,
+                ),
+            );
+            self::fail('The credential clear committed without its audit event.');
+        } catch (UniqueConstraintViolationException) {
+            $auditFailed = true;
+        }
+        self::assertTrue($auditFailed);
+
+        $profile = $this->connection->fetchAssociative(
+            'SELECT ciphertext, nonce, key_version AS keyVersion, last_four AS lastFour, revision
+             FROM ai_provider_profiles WHERE id = :id',
+            ['id' => 'profile-1'],
+        );
+        self::assertIsArray($profile);
+        self::assertSame('cipher', $profile['ciphertext']);
+        self::assertSame('nonce', $profile['nonce']);
+        self::assertSame(1, (int) $profile['keyVersion']);
+        self::assertSame('1234', $profile['lastFour']);
+        self::assertSame(1, (int) $profile['revision']);
     }
 
     public function testMediaQuotaDigestLifecycleAndDuplicateReviewRemainHomeScoped(): void
@@ -145,6 +230,10 @@ final class AiMaturityStoreTest extends TestCase
                 decision_type TEXT, left_reference TEXT, right_reference TEXT, evidence_json TEXT,
                 decision TEXT, revision INTEGER, reviewed_by_user_id TEXT NULL, reviewed_at TEXT NULL,
                 created_at TEXT, updated_at TEXT)',
+            'CREATE TABLE audit_events (
+                id TEXT PRIMARY KEY, home_id TEXT NULL, actor_user_id TEXT NULL,
+                action TEXT, target_type TEXT, target_id TEXT, details TEXT, occurred_at TEXT
+            )',
         ];
     }
 

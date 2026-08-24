@@ -63,7 +63,44 @@ final class AiStoreTest extends TestCase
                 PRIMARY KEY (extraction_id, position)
             )',
         );
+        $this->connection->executeStatement(
+            'CREATE TABLE receipts (
+                id VARCHAR(36) PRIMARY KEY,
+                home_id VARCHAR(36) NOT NULL,
+                status VARCHAR(24) NOT NULL
+            )',
+        );
+        $this->connection->executeStatement(
+            'CREATE TABLE stock_count_sessions (
+                id VARCHAR(36) PRIMARY KEY,
+                home_id VARCHAR(36) NOT NULL,
+                status VARCHAR(24) NOT NULL
+            )',
+        );
         $this->store = new DbalAiStore($this->connection);
+    }
+
+    public function testExtractionTargetsMustBeOpenWorkflowsInTheSameHome(): void
+    {
+        $this->connection->insert('receipts', ['id' => 'receipt-1', 'home_id' => 'home-1', 'status' => 'draft']);
+        $this->connection->insert('receipts', ['id' => 'receipt-2', 'home_id' => 'home-1', 'status' => 'committed']);
+        $this->connection->insert(
+            'stock_count_sessions',
+            ['id' => 'count-1', 'home_id' => 'home-1', 'status' => 'open'],
+        );
+        $this->connection->insert(
+            'stock_count_sessions',
+            ['id' => 'count-2', 'home_id' => 'home-1', 'status' => 'closed'],
+        );
+
+        self::assertTrue($this->store->targetExists('home-1', 'receipt', 'receipt-1'));
+        self::assertTrue($this->store->targetExists('home-1', 'receipt', null));
+        self::assertTrue($this->store->targetExists('home-1', 'receipt', ''));
+        self::assertFalse($this->store->targetExists('home-1', 'receipt', 'receipt-2'));
+        self::assertFalse($this->store->targetExists('home-2', 'receipt', 'receipt-1'));
+        self::assertTrue($this->store->targetExists('home-1', 'stock', 'count-1'));
+        self::assertFalse($this->store->targetExists('home-1', 'stock', 'count-2'));
+        self::assertFalse($this->store->targetExists('home-1', 'stock', null));
     }
 
     public function testCandidateReviewIsRevisionCheckedAndDoesNotCreateDomainData(): void

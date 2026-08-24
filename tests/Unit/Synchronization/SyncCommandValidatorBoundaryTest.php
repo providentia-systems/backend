@@ -74,7 +74,7 @@ final class SyncCommandValidatorBoundaryTest extends TestCase
                 'homeProductId' => self::SECOND_RELATED_ID,
                 'quantity' => '4',
                 'confidence' => null,
-                'source' => 'manual',
+                'source' => 'photo-confirmed',
                 'notes' => '',
             ],
             1,

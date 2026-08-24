@@ -8,6 +8,10 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use Providentia\Catalog\Infrastructure\Cli\CatalogRoleCommand;
+use Providentia\Identity\Application\PlatformRoleService;
+use Providentia\Identity\Infrastructure\Doctrine\DbalIdentityStore;
+use Providentia\Identity\Infrastructure\Cli\PlatformRoleCommand;
+use Providentia\SharedKernel\Application\TransactionManager;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -26,7 +30,9 @@ final class CatalogRoleCommandTest extends TestCase
                 id VARCHAR(36) PRIMARY KEY,
                 normalized_email VARCHAR(254) NOT NULL,
                 status VARCHAR(16) NOT NULL,
-                email_verified_at DATETIME NULL
+                email_verified_at DATETIME NULL,
+                revision INTEGER NOT NULL,
+                updated_at DATETIME NOT NULL
             )',
         );
         $this->connection->executeStatement(
@@ -35,6 +41,10 @@ final class CatalogRoleCommandTest extends TestCase
                 role VARCHAR(64) NOT NULL,
                 granted_at DATETIME NOT NULL,
                 revoked_at DATETIME NULL,
+                granted_by_user_id VARCHAR(36) NULL,
+                source VARCHAR(24) NOT NULL,
+                revision INTEGER NOT NULL,
+                updated_at DATETIME NOT NULL,
                 PRIMARY KEY (user_id, role)
             )',
         );
@@ -50,11 +60,28 @@ final class CatalogRoleCommandTest extends TestCase
                 occurred_at DATETIME NOT NULL
             )',
         );
+        $this->connection->executeStatement(
+            'CREATE TABLE platform_administrator_email_grants (
+                id VARCHAR(36) PRIMARY KEY,
+                normalized_email VARCHAR(254) NOT NULL UNIQUE,
+                status VARCHAR(24) NOT NULL,
+                source VARCHAR(24) NOT NULL,
+                revision INTEGER NOT NULL,
+                granted_by_user_id VARCHAR(36) NULL,
+                accepted_by_user_id VARCHAR(36) NULL,
+                accepted_at DATETIME NULL,
+                revoked_at DATETIME NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )',
+        );
         $this->connection->insert('users', [
             'id' => '01912345-6789-7abc-8def-0123456789ab',
             'normalized_email' => 'admin@example.test',
             'status' => 'active',
             'email_verified_at' => '2026-08-08 12:00:00',
+            'revision' => 1,
+            'updated_at' => '2026-08-08 12:00:00',
         ]);
     }
 
@@ -115,12 +142,54 @@ final class CatalogRoleCommandTest extends TestCase
         ));
     }
 
+    public function testOwnerPlatformCommandBootstrapsAnAdministratorThroughTheSharedService(): void
+    {
+        $status = $this->platformTester()->execute([
+            '--email' => 'admin@example.test',
+            '--role' => PlatformRoleService::ADMINISTRATOR,
+        ]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertSame(1, (int) $this->connection->fetchOne(
+            'SELECT COUNT(*) FROM user_platform_roles
+             WHERE role = :role AND revoked_at IS NULL',
+            ['role' => PlatformRoleService::ADMINISTRATOR],
+        ));
+        self::assertSame('active', $this->connection->fetchOne(
+            'SELECT status FROM platform_administrator_email_grants
+             WHERE normalized_email = :email',
+            ['email' => 'admin@example.test'],
+        ));
+        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM audit_events'));
+    }
+
     private function tester(): CommandTester
     {
-        return new CommandTester(new CatalogRoleCommand(
-            $this->connection,
-            new CatalogRoleFixedClock(),
+        return new CommandTester(new CatalogRoleCommand($this->roles()));
+    }
+
+    private function platformTester(): CommandTester
+    {
+        return new CommandTester(new PlatformRoleCommand($this->roles()));
+    }
+
+    private function roles(): PlatformRoleService
+    {
+        $transactions = new class ($this->connection) implements TransactionManager {
+            public function __construct(private readonly Connection $connection)
+            {
+            }
+
+            public function transactional(callable $operation): mixed
+            {
+                return $this->connection->transactional(static fn (): mixed => $operation());
+            }
+        };
+        return new PlatformRoleService(
+            new DbalIdentityStore($this->connection),
             new SequenceUuidGenerator(),
-        ));
+            new CatalogRoleFixedClock(),
+            $transactions,
+        );
     }
 }

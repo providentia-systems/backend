@@ -165,11 +165,18 @@ if [[ ! -f "$env_file" ]]; then
         printf 'SYNC_CURSOR_SECRET=%s\n' "$(openssl rand -hex 32)"
         printf 'NOTIFICATION_PAYLOAD_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')"
         printf 'AI_MEDIA_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')"
+        printf 'CATALOG_IMAGE_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')"
         printf 'DATA_EXPORT_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')"
         printf 'PROVIDENTIA_DEV_EMAIL=%s\n' "$generated_email"
         printf 'PROVIDENTIA_DEV_PASSWORD=%s\n' "$generated_password"
         printf 'PROVIDENTIA_DEV_DEVICE_ID=%s\n' "$(cat /proc/sys/kernel/random/uuid)"
     } >"$env_file"
+    chmod 0600 "$env_file"
+fi
+
+if ! grep -q '^CATALOG_IMAGE_KEK=' "$env_file"; then
+    umask 077
+    printf 'CATALOG_IMAGE_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')" >>"$env_file"
     chmod 0600 "$env_file"
 fi
 

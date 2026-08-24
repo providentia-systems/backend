@@ -1,7 +1,8 @@
 # Inventory integration roadmap — P0 through P3
 
 This roadmap is the shared implementation contract for
-`providentia-systems/backend` and `providentia-systems/client`. The P0–P3
+`providentia-systems/backend`, `providentia-systems/client`, and
+`providentia-systems/admin`. The P0–P3
 labels below are **integration priorities**, not the historical product phases
 in the master implementation prompt.
 
@@ -11,6 +12,9 @@ in the master implementation prompt.
   domain transactions, audit history, queues, and global catalog.
 - The Flutter client owns authenticated presentation, the local Drift
   projection, the durable client-operation outbox, and platform packaging.
+- The separate Flutter Admin client owns only the operator/catalog workbench,
+  initially as a Linux desktop package. It uses the shared auth protocol but a
+  distinct installation, keyring/database boundary and generated API client.
 - Every private record is authorized from the authenticated user and active
   home on the server. A path, body, cached, or locally selected home ID is
   never authorization.
@@ -28,7 +32,7 @@ in the master implementation prompt.
 
 ## P0 — security and contract lock
 
-Outcome: both repositories agree on one immutable API, one privacy boundary,
+Outcome: all three repositories agree on one immutable API, one privacy boundary,
 and fail-closed behavior before additional screens are called integrated.
 
 - Pin the backend OpenAPI bytes and deterministic client generation output.
@@ -42,8 +46,8 @@ and fail-closed behavior before additional screens are called integrated.
   is quiesced, and never resume it without fresh server authorization.
 
 Exit evidence: contract checks, authorization/privacy regressions, generated
-client checks, and synchronized risk/security documentation pass on the same
-backend and client commits.
+client checks, and synchronized risk/security documentation pass on compatible
+backend, homeowner-client and Admin commits.
 
 ## P1 — authoritative inventory and counting
 
@@ -141,9 +145,11 @@ remains required.
   backend diagnostic detail in presentation state.
 - Connect revision-bound catalog decisions, icon metadata, merge previews,
   reversible merges, and sanitized catalog audit history.
-- Implement the still-missing general sanitized catalog-proposal handoff and
-  explicit global-alias publication/moderation workflow. Raw receipt text and
-  private aliases remain home-private until that Phase 7 path exists.
+- Use the delivered contribution-to-proposal bridge for approved product
+  identities: a curator explicitly selects a published category, an idempotent
+  durable link creates one ordinary proposal, and existing proposal review is
+  the only canonical publication gate. Raw receipt text and private aliases
+  remain home-private.
 - Keep platform administration and catalog administration separate from home
   membership and render no private household payload on either surface.
 - Automate a live backend/client acceptance suite for login, home selection,
@@ -160,25 +166,25 @@ remains required.
 
 1. Implement and test a backend contract change.
 2. Publish immutable OpenAPI bytes with a semantic version.
-3. Pin those exact bytes and lock digest in the Flutter repository.
-4. Regenerate the client; never hand-edit generated Dart.
+3. Pin those exact bytes and lock digest in both Flutter repositories.
+4. Regenerate both clients; never hand-edit generated Dart.
 5. Implement application-owned adapters and presentation.
-6. Pass both repositories' quality gates and the connected acceptance suite.
-7. Release the backend before the compatible client.
+6. Pass all three repositories' quality gates and the connected acceptance suite.
+7. Release the backend before either compatible client.
 
 ## Current contract baseline
 
-- Backend API: `1.13.2`
-- Client lock SHA-256:
-  `1b6b7f09240ace0ba6b7e7279259687569dfbacb112ea7dbd4094fe27ccd0108`
-- Contract additions: public, bounded catalog contributions from API 1.12;
-  revision-bound, movement-free stock-count cancellation and precise direct
-  extraction versus encrypted private-media disclosure, and a typed paged
-  home item-master feed in API 1.13; exhaustive AI/shopping non-disclosing
-  denials and durable approved/unresolved receipt review in API 1.13.2.
+- Backend API: `1.15.0`
+- Exact backend/client/Admin lock SHA-256: recorded after the release artifact
+  is frozen in `contracts/openapi/contract.lock.json`.
+- Contract additions: home-private category/product lifecycle and item-master
+  union; protocol-v2 private taxonomy commands; privacy-safe operator account
+  lifecycle/role control; published category selection; category proposals;
+  and the idempotent approved-contribution-to-product-proposal link with
+  restart-safe review projection.
 - Generic protocol-v1 entities: `home-preference`, `private-note`
 - Pantry mutations: closed protocol-v2 commands only, including count cancel
   and revisioned receipt-line unresolved decisions
 
-This file must be changed in both repositories when a priority, privacy rule,
-contract baseline, responsibility, or exit gate changes.
+This file must be changed in all three repositories when a priority, privacy
+rule, contract baseline, responsibility, or exit gate changes.

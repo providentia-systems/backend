@@ -23,6 +23,8 @@ final class InventoryItemMasterTest extends TestCase
     private const RICE_PACK = '01912345-6789-7abc-9def-1123456789ab';
     private const HOME_PRODUCT_ID = '01912345-6789-7abc-adef-1123456789ab';
     private const OTHER_HOME_PRODUCT_ID = '01912345-6789-7abc-bdef-2123456789ab';
+    private const HOME_CATEGORY_ID = '01912345-6789-7abc-cdef-2123456789ab';
+    private const PRIVATE_PRODUCT_ID = '01912345-6789-7abc-ddef-2123456789ab';
 
     private Connection $connection;
     private DbalInventoryStore $store;
@@ -39,8 +41,8 @@ final class InventoryItemMasterTest extends TestCase
 
     public function testPagesAreStableTypedAndExposeOnlyAuthorizedAliases(): void
     {
-        $first = $this->store->itemMaster(self::HOME_ID, '', null, 2, 0);
-        $second = $this->store->itemMaster(self::HOME_ID, '', null, 2, 2);
+        $first = $this->store->itemMaster(self::HOME_ID, '', null, null, 2, 0);
+        $second = $this->store->itemMaster(self::HOME_ID, '', null, null, 2, 2);
 
         self::assertSame(3, $first['total']);
         self::assertSame(3, $second['total']);
@@ -77,10 +79,10 @@ final class InventoryItemMasterTest extends TestCase
 
     public function testSearchAndCategoryFiltersRespectAliasScopeAndPackIdentity(): void
     {
-        $homeAlias = $this->store->itemMaster(self::HOME_ID, 'bulk beans', null, 100, 0);
-        $otherHomeAlias = $this->store->itemMaster(self::HOME_ID, 'other home secret', null, 100, 0);
-        $globalAlias = $this->store->itemMaster(self::HOME_ID, 'kidney beans', null, 100, 0);
-        $category = $this->store->itemMaster(self::HOME_ID, '', self::OTHER_CATEGORY_ID, 100, 0);
+        $homeAlias = $this->store->itemMaster(self::HOME_ID, 'bulk beans', null, null, 100, 0);
+        $otherHomeAlias = $this->store->itemMaster(self::HOME_ID, 'other home secret', null, null, 100, 0);
+        $globalAlias = $this->store->itemMaster(self::HOME_ID, 'kidney beans', null, null, 100, 0);
+        $category = $this->store->itemMaster(self::HOME_ID, '', self::OTHER_CATEGORY_ID, null, 100, 0);
 
         self::assertSame([self::BEANS_PACK_ONE], array_column($homeAlias['items'], 'packId'));
         self::assertSame(0, $otherHomeAlias['total']);
@@ -102,6 +104,7 @@ final class InventoryItemMasterTest extends TestCase
             null,
             null,
             '2 kg',
+            null,
             new DateTimeImmutable('2026-08-11T10:00:00+00:00'),
         );
 
@@ -110,6 +113,208 @@ final class InventoryItemMasterTest extends TestCase
         self::assertSame(self::RICE_ID, $stored['productId']);
         self::assertSame(self::RICE_PACK, $stored['packId']);
         self::assertSame('Rice', $stored['productName']);
+    }
+
+    public function testPrivateProductsJoinTheItemMasterWithoutPretendingToBeCatalogRows(): void
+    {
+        $this->insertPrivateCategory();
+        $this->insertPrivateProduct();
+        $this->connection->insert('inventory_balances', [
+            'home_id' => self::HOME_ID,
+            'home_product_id' => self::PRIVATE_PRODUCT_ID,
+            'quantity' => '4.00000000',
+        ]);
+
+        $page = $this->store->itemMaster(
+            self::HOME_ID,
+            'sorghum',
+            null,
+            self::HOME_CATEGORY_ID,
+            100,
+            0,
+        );
+
+        self::assertSame(1, $page['total']);
+        $private = $page['items'][0];
+        self::assertNull($private['productId']);
+        self::assertNull($private['packId']);
+        self::assertNull($private['categoryId']);
+        self::assertNull($private['packStatus']);
+        self::assertSame(self::PRIVATE_PRODUCT_ID, $private['homeProductId']);
+        self::assertSame(self::HOME_CATEGORY_ID, $private['homeCategoryId']);
+        self::assertSame('home', $private['categorySource']);
+        self::assertSame('Dry goods', $private['categoryName']);
+        self::assertSame('4.00000000', $private['quantity']);
+        self::assertSame([], $private['aliases']);
+    }
+
+    public function testCategoryAndPrivateProductArchiveSafeguardsAreRevisionBound(): void
+    {
+        $this->insertPrivateCategory();
+        $this->insertPrivateProduct();
+        $at = new DateTimeImmutable('2026-08-24T10:00:00+00:00');
+
+        $blocked = $this->store->updateHomeCategory(
+            self::HOME_ID,
+            self::HOME_CATEGORY_ID,
+            null,
+            null,
+            'archived',
+            1,
+            $at,
+        );
+        self::assertSame('category-in-use', $blocked['status']);
+
+        $archivedProduct = $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::PRIVATE_PRODUCT_ID,
+            false,
+            null,
+            null,
+            false,
+            null,
+            false,
+            null,
+            'archived',
+            1,
+            $at,
+        );
+        self::assertSame('updated', $archivedProduct['status']);
+        self::assertSame('archived', $archivedProduct['record']['status']);
+
+        $archivedCategory = $this->store->updateHomeCategory(
+            self::HOME_ID,
+            self::HOME_CATEGORY_ID,
+            'Shelf-stable',
+            'shelf stable',
+            'archived',
+            1,
+            $at,
+        );
+        self::assertSame('updated', $archivedCategory['status']);
+        self::assertSame(2, $archivedCategory['record']['revision']);
+        self::assertSame('2026-08-24T10:00:00Z', $archivedCategory['record']['updatedAt']);
+        self::assertSame([], $this->store->categories(self::HOME_ID, false));
+        self::assertCount(1, $this->store->categories(self::HOME_ID, true));
+    }
+
+    public function testCategoryUniqueConstraintRaceIsTranslatedToADomainConflict(): void
+    {
+        $candidate = '01912345-6789-7abc-cdef-3123456789ab';
+        $this->connection->executeStatement(
+            "CREATE TRIGGER inject_category_race BEFORE INSERT ON home_categories
+             WHEN NEW.id = '$candidate'
+             BEGIN
+               INSERT INTO home_categories
+                 (id, home_id, name, normalized_name, status, revision, created_at, updated_at, archived_at)
+               VALUES
+                 ('01912345-6789-7abc-ddef-3123456789ab', NEW.home_id, 'Race winner',
+                  NEW.normalized_name, 'active', 1, NEW.created_at, NEW.updated_at, NULL);
+             END",
+        );
+
+        $this->expectException(\DomainException::class);
+        $this->expectExceptionMessage('already exists');
+        $this->store->createHomeCategory(
+            $candidate,
+            self::HOME_ID,
+            'Race candidate',
+            'race category',
+            new DateTimeImmutable('2026-08-24T10:00:00+00:00'),
+        );
+    }
+
+    public function testCategoryAndProductCasFailuresCannotReportUpdated(): void
+    {
+        $this->insertPrivateCategory();
+        $this->insertPrivateProduct();
+        $this->connection->executeStatement(
+            "CREATE TRIGGER reject_category_cas BEFORE UPDATE OF revision ON home_categories
+             WHEN OLD.id = '" . self::HOME_CATEGORY_ID . "'
+             BEGIN SELECT RAISE(IGNORE); END",
+        );
+        self::assertSame('revision-conflict', $this->store->updateHomeCategory(
+            self::HOME_ID,
+            self::HOME_CATEGORY_ID,
+            'Changed',
+            'changed',
+            null,
+            1,
+            new DateTimeImmutable('2026-08-24T10:00:00+00:00'),
+        )['status']);
+
+        $this->connection->executeStatement(
+            "CREATE TRIGGER reject_product_cas BEFORE UPDATE OF revision ON home_products
+             WHEN OLD.id = '" . self::PRIVATE_PRODUCT_ID . "'
+             BEGIN SELECT RAISE(IGNORE); END",
+        );
+        self::assertSame('revision-conflict', $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::PRIVATE_PRODUCT_ID,
+            true,
+            'Changed product',
+            'changed product',
+            false,
+            null,
+            false,
+            null,
+            null,
+            1,
+            new DateTimeImmutable('2026-08-24T10:00:00+00:00'),
+        )['status']);
+    }
+
+    public function testPrivateCategoryAssignmentCannotCrossTheHomeBoundary(): void
+    {
+        $this->connection->insert('home_categories', [
+            'id' => self::HOME_CATEGORY_ID,
+            'home_id' => self::OTHER_HOME_ID,
+            'name' => 'Other home category',
+            'normalized_name' => 'other home category',
+            'status' => 'active',
+            'revision' => 1,
+            'created_at' => '2026-08-24 09:00:00',
+            'updated_at' => '2026-08-24 09:00:00',
+            'archived_at' => null,
+        ]);
+        try {
+            $this->store->createHomeProduct(
+                self::PRIVATE_PRODUCT_ID,
+                self::HOME_ID,
+                null,
+                null,
+                'Private item',
+                'private item',
+                null,
+                self::HOME_CATEGORY_ID,
+                new DateTimeImmutable('2026-08-24T10:00:00+00:00'),
+            );
+            self::fail('A category from another home was assigned.');
+        } catch (\DomainException $error) {
+            self::assertStringContainsString('unavailable', $error->getMessage());
+        }
+
+        $this->connection->update('home_categories', ['home_id' => self::HOME_ID], [
+            'id' => self::HOME_CATEGORY_ID,
+        ]);
+        $this->insertPrivateProduct();
+        $this->connection->update('home_categories', ['home_id' => self::OTHER_HOME_ID], [
+            'id' => self::HOME_CATEGORY_ID,
+        ]);
+        self::assertSame('category-unavailable', $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::PRIVATE_PRODUCT_ID,
+            false,
+            null,
+            null,
+            false,
+            null,
+            true,
+            self::HOME_CATEGORY_ID,
+            null,
+            1,
+            new DateTimeImmutable('2026-08-24T10:00:00+00:00'),
+        )['status']);
     }
 
     /** @return list<string> */
@@ -131,14 +336,33 @@ final class InventoryItemMasterTest extends TestCase
                 product_id TEXT NOT NULL, variant_id TEXT NULL, pack_id TEXT NULL,
                 raw_alias TEXT NOT NULL, normalized_alias TEXT NOT NULL, status TEXT NOT NULL
             )',
+            'CREATE TABLE home_categories (
+                id TEXT PRIMARY KEY, home_id TEXT NOT NULL, name TEXT NOT NULL,
+                normalized_name TEXT NOT NULL, status TEXT NOT NULL, revision INTEGER NOT NULL,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT NULL,
+                UNIQUE (home_id, normalized_name)
+            )',
             'CREATE TABLE home_products (
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, product_id TEXT NULL, pack_id TEXT NULL,
                 private_name TEXT NULL, normalized_private_name TEXT NULL,
-                original_pack_text TEXT NULL, status TEXT NOT NULL, revision INTEGER NOT NULL,
+                original_pack_text TEXT NULL, home_category_id TEXT NULL,
+                status TEXT NOT NULL, revision INTEGER NOT NULL,
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )',
             'CREATE TABLE inventory_balances (
                 home_id TEXT NOT NULL, home_product_id TEXT NOT NULL, quantity TEXT NOT NULL
+            )',
+            'CREATE TABLE stock_count_sessions (
+                id TEXT PRIMARY KEY, home_id TEXT NOT NULL, status TEXT NOT NULL
+            )',
+            'CREATE TABLE stock_count_lines (
+                session_id TEXT NOT NULL, home_id TEXT NOT NULL, home_product_id TEXT NOT NULL
+            )',
+            'CREATE TABLE receipts (
+                id TEXT PRIMARY KEY, home_id TEXT NOT NULL, status TEXT NOT NULL
+            )',
+            'CREATE TABLE receipt_lines (
+                receipt_id TEXT NOT NULL, home_id TEXT NOT NULL, home_product_id TEXT NULL
             )',
         ];
     }
@@ -241,6 +465,39 @@ final class InventoryItemMasterTest extends TestCase
             'brand' => $brand,
             'normalized_brand' => $normalizedBrand,
             'status' => 'published',
+        ]);
+    }
+
+    private function insertPrivateCategory(): void
+    {
+        $this->connection->insert('home_categories', [
+            'id' => self::HOME_CATEGORY_ID,
+            'home_id' => self::HOME_ID,
+            'name' => 'Dry goods',
+            'normalized_name' => 'dry goods',
+            'status' => 'active',
+            'revision' => 1,
+            'created_at' => '2026-08-24 09:00:00',
+            'updated_at' => '2026-08-24 09:00:00',
+            'archived_at' => null,
+        ]);
+    }
+
+    private function insertPrivateProduct(): void
+    {
+        $this->connection->insert('home_products', [
+            'id' => self::PRIVATE_PRODUCT_ID,
+            'home_id' => self::HOME_ID,
+            'product_id' => null,
+            'pack_id' => null,
+            'private_name' => 'Sorghum meal',
+            'normalized_private_name' => 'sorghum meal',
+            'original_pack_text' => '1 kg',
+            'home_category_id' => self::HOME_CATEGORY_ID,
+            'status' => 'active',
+            'revision' => 1,
+            'created_at' => '2026-08-24 09:00:00',
+            'updated_at' => '2026-08-24 09:00:00',
         ]);
     }
 

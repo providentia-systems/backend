@@ -54,4 +54,61 @@ final class SyncCommandValidatorTest extends TestCase
         $this->expectExceptionMessage('serverRevision');
         $validator->validate($value);
     }
+
+    public function testPrivateTaxonomyCommandsUseClosedRevisionedPayloads(): void
+    {
+        $validator = new SyncCommandValidator(65536);
+        $category = $validator->validate($this->command(
+            'inventory.home-category.update',
+            3,
+            ['name' => 'Shelf-stable', 'status' => 'active'],
+        ));
+        $product = $validator->validate($this->command(
+            'inventory.home-product.update',
+            5,
+            [
+                'privateName' => 'Sorghum meal',
+                'originalPackText' => null,
+                'homeCategoryId' => '01912345-6789-7abc-adef-0123456789ab',
+                'status' => 'archived',
+            ],
+        ));
+
+        self::assertSame(3, $category->baseRevision);
+        self::assertSame(5, $product->baseRevision);
+    }
+
+    public function testPrivateProductUpdateRejectsUnrecognizedServerFields(): void
+    {
+        $this->expectException(Problem::class);
+        $this->expectExceptionMessage('serverRevision');
+        (new SyncCommandValidator(65536))->validate($this->command(
+            'inventory.home-product.update',
+            1,
+            [
+                'privateName' => 'Sorghum meal',
+                'originalPackText' => null,
+                'homeCategoryId' => null,
+                'status' => 'active',
+                'serverRevision' => 9,
+            ],
+        ));
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function command(string $commandType, ?int $revision, array $payload): array
+    {
+        return [
+            'operationId' => '01912345-6789-7abc-8def-0123456789ab',
+            'commandType' => $commandType,
+            'entityId' => '01912345-6789-7abc-9def-0123456789ab',
+            'baseRevision' => $revision,
+            'clientTimestamp' => '2026-08-24T12:00:00+00:00',
+            'payloadSchemaVersion' => 1,
+            'payload' => $payload,
+        ];
+    }
 }

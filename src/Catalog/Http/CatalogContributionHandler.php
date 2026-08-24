@@ -48,6 +48,29 @@ final readonly class CatalogContributionHandler implements RequestHandlerInterfa
         /** @var array<string, mixed> $body */
         $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
         $homeId = (string) $request->getAttribute('homeId', '');
+        match ($this->action) {
+            'consent.put' => $this->requireExactFields($body, [
+                'expectedRevision',
+                'noticeVersion',
+                'shareProductIdentity',
+                'shareProductImages',
+                'shareStorePrices',
+            ]),
+            'submit' => $this->requireExactFields($body, [
+                'expectedConsentRevision',
+                'payload',
+                'sourceEntityId',
+                'submissionId',
+                'type',
+            ]),
+            'review.decide' => $this->requireExactFields($body, [
+                'decision',
+                'expectedRevision',
+                'reason',
+            ]),
+            default => null,
+        };
+
         return match ($this->action) {
             'consent.get' => new JsonResponse($this->catalog->consent($identity, $homeId)),
             'consent.put' => new JsonResponse($this->catalog->configureConsent(
@@ -59,14 +82,7 @@ final readonly class CatalogContributionHandler implements RequestHandlerInterfa
                 (string) ($body['noticeVersion'] ?? ''),
                 (int) ($body['expectedRevision'] ?? -1),
             )),
-            'submit' => new JsonResponse($this->catalog->submit(
-                $identity,
-                $homeId,
-                (string) ($body['type'] ?? ''),
-                isset($body['sourceEntityId']) ? (string) $body['sourceEntityId'] : null,
-                (int) ($body['expectedConsentRevision'] ?? 0),
-                is_array($body['payload'] ?? null) ? $body['payload'] : [],
-            ), 201),
+            'submit' => $this->submit($identity, $homeId, $body),
             'list' => new JsonResponse(['data' => $this->catalog->contributions(
                 $identity,
                 $homeId,
@@ -85,6 +101,25 @@ final readonly class CatalogContributionHandler implements RequestHandlerInterfa
     }
 
     /** @param array<string, mixed> $body */
+    private function submit(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        array $body,
+    ): ResponseInterface {
+        $submission = $this->catalog->submit(
+            $identity,
+            $homeId,
+            (string) ($body['submissionId'] ?? ''),
+            (string) ($body['type'] ?? ''),
+            isset($body['sourceEntityId']) ? (string) $body['sourceEntityId'] : null,
+            (int) ($body['expectedConsentRevision'] ?? 0),
+            is_array($body['payload'] ?? null) ? $body['payload'] : [],
+        );
+
+        return new JsonResponse($submission->contribution, $submission->created ? 201 : 200);
+    }
+
+    /** @param array<string, mixed> $body */
     private function decide(
         AuthenticatedIdentity $identity,
         ServerRequestInterface $request,
@@ -99,5 +134,16 @@ final readonly class CatalogContributionHandler implements RequestHandlerInterfa
         );
 
         return new EmptyResponse(204);
+    }
+
+    /** @param array<string, mixed> $body @param list<string> $expected */
+    private function requireExactFields(array $body, array $expected): void
+    {
+        $actual = array_keys($body);
+        sort($actual);
+        sort($expected);
+        if ($actual !== $expected) {
+            throw new HttpProblem(422, 'Validation failed', 'The request fields do not match the operation.');
+        }
     }
 }

@@ -47,6 +47,15 @@ $exposeDevelopmentTokens = filter_var(
 $aiServerProxyEnabled = filter_var($env('AI_SERVER_PROXY_ENABLED', '0'), FILTER_VALIDATE_BOOL);
 $aiCredentialKek = $env('AI_CREDENTIAL_KEK', '');
 $aiMediaKek = $env('AI_MEDIA_KEK', '');
+$catalogImageKek = $env('CATALOG_IMAGE_KEK', '');
+$catalogImageKeyVersionValue = $env('CATALOG_IMAGE_KEY_VERSION', '1');
+if (
+    preg_match('/^[1-9][0-9]*$/', $catalogImageKeyVersionValue) !== 1
+    || (int) $catalogImageKeyVersionValue > 2147483647
+) {
+    throw new RuntimeException('CATALOG_IMAGE_KEY_VERSION must be a positive 32-bit integer.');
+}
+$catalogImageKeyVersion = (int) $catalogImageKeyVersionValue;
 $aiCompatibleEndpoint = rtrim($env('AI_COMPATIBLE_ENDPOINT', ''), '/');
 $aiOllamaEndpoint = rtrim($env('AI_OLLAMA_ENDPOINT', ''), '/');
 $aiAllowPrivateEndpoints = filter_var(
@@ -116,6 +125,49 @@ if ($dataExportKek === '' && $environment !== 'production') {
 if ($aiMediaKek === '' && $environment !== 'production') {
     $aiMediaKek = base64_encode(hash('sha256', $tokenPepper . ':private-media', true));
 }
+if ($catalogImageKek === '' && $environment !== 'production') {
+    $catalogImageKek = base64_encode(hash('sha256', $tokenPepper . ':catalog-images', true));
+}
+$catalogImagePreviousKeysJson = $env('CATALOG_IMAGE_PREVIOUS_KEYS_JSON', '[]');
+try {
+    $catalogImagePreviousKeys = json_decode(
+        $catalogImagePreviousKeysJson,
+        true,
+        16,
+        JSON_THROW_ON_ERROR,
+    );
+} catch (JsonException) {
+    throw new RuntimeException('CATALOG_IMAGE_PREVIOUS_KEYS_JSON must be valid JSON.');
+}
+if (! is_array($catalogImagePreviousKeys) || ! array_is_list($catalogImagePreviousKeys)) {
+    throw new RuntimeException('CATALOG_IMAGE_PREVIOUS_KEYS_JSON must be a JSON list.');
+}
+$catalogImageKeyVersions = [$catalogImageKeyVersion => true];
+foreach ($catalogImagePreviousKeys as &$catalogImagePreviousKey) {
+    if (! is_array($catalogImagePreviousKey)) {
+        throw new RuntimeException('Every previous catalog image key must be an object.');
+    }
+    $keys = array_keys($catalogImagePreviousKey);
+    sort($keys);
+    $version = $catalogImagePreviousKey['version'] ?? null;
+    $kek = $catalogImagePreviousKey['kek'] ?? null;
+    $decoded = is_string($kek) ? base64_decode(trim($kek), true) : false;
+    if (
+        $keys !== ['kek', 'version']
+        || ! is_int($version)
+        || $version < 1
+        || isset($catalogImageKeyVersions[$version])
+        || ! is_string($decoded)
+        || strlen($decoded) !== 32
+    ) {
+        throw new RuntimeException(
+            'Previous catalog image keys need unique positive versions and 32-byte base64 keys.',
+        );
+    }
+    $catalogImageKeyVersions[$version] = true;
+    $catalogImagePreviousKey = ['version' => $version, 'kek' => trim($kek)];
+}
+unset($catalogImagePreviousKey);
 
 if ($environment === 'production') {
     $placeholderSecrets = [
@@ -180,6 +232,10 @@ if ($environment === 'production') {
     $decodedMediaKey = base64_decode($aiMediaKek, true);
     if (! is_string($decodedMediaKey) || strlen($decodedMediaKey) !== 32) {
         throw new RuntimeException('Production AI_MEDIA_KEK must contain exactly 32 base64-encoded bytes.');
+    }
+    $decodedCatalogImageKey = base64_decode($catalogImageKek, true);
+    if (! is_string($decodedCatalogImageKey) || strlen($decodedCatalogImageKey) !== 32) {
+        throw new RuntimeException('Production CATALOG_IMAGE_KEK must contain exactly 32 base64-encoded bytes.');
     }
     if ($billingAllowPrivateEndpoints) {
         throw new RuntimeException('BILLING_ALLOW_PRIVATE_ENDPOINTS cannot be enabled in production.');
@@ -302,7 +358,7 @@ return [
             1048576,
             min(16777216, (int) $env('AI_MAX_IMAGE_BYTES', '8388608')),
         ),
-        'max_images' => max(1, min(16, (int) $env('AI_MAX_IMAGES', '8'))),
+        'max_images' => max(1, min(8, (int) $env('AI_MAX_IMAGES', '8'))),
         'media_root' => $env('AI_MEDIA_ROOT', 'var/private-media'),
         'media_kek' => $aiMediaKek,
         'media_key_version' => max(1, (int) $env('AI_MEDIA_KEY_VERSION', '1')),
@@ -333,6 +389,14 @@ return [
         ),
         'ffprobe_binary' => $env('AI_FFPROBE_BINARY', '/usr/bin/ffprobe'),
         'ffmpeg_binary' => $env('AI_FFMPEG_BINARY', '/usr/bin/ffmpeg'),
+    ],
+    'catalog_contribution_images' => [
+        'kek' => $catalogImageKek,
+        'key_version' => $catalogImageKeyVersion,
+        'previous_keys' => $catalogImagePreviousKeys,
+        'max_upload_bytes' => 5242880,
+        'max_dimension' => 4096,
+        'max_pixels' => 16777216,
     ],
     'billing' => [
         'enabled' => $billingEnabled,
