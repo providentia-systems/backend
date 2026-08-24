@@ -58,7 +58,9 @@ jobs:
           tools: composer:2.10.2
       - run: test -f composer.lock
       - name: Verify catalog image codec support
-        run: php -r 'exit(extension_loaded("gd") && function_exists("imagewebp") && (gd_info()["WebP Support"] ?? false) ? 0 : 1);'
+        run: >-
+          php -r 'exit(extension_loaded("gd") && function_exists("imagewebp")
+          && (gd_info()["WebP Support"] ?? false) ? 0 : 1);'
       - run: composer install --no-interaction --prefer-dist --no-progress
       - run: composer check
       - name: Exercise built-in server logging without CLI stream constants
