@@ -56,7 +56,10 @@ assert_no_matches "former prototype name leaked outside historical evidence" \
   .
 
 for file in composer.json compose.yaml contracts/openapi/providentia-v1.json \
-  contracts/design-tokens/providentia-v1.json; do
+  contracts/design-tokens/providentia-v1.json \
+  tools/agent-requirements.json infrastructure/agent/Dockerfile \
+  infrastructure/agent/Dockerfile.dockerignore \
+  docs/deployment/agent-development.md AGENTS.md; do
   test -s "$file" || fail "$file is missing or empty"
 done
 
@@ -84,7 +87,7 @@ for executable in bin/doctrine-migrations bin/providentia \
   tool/check-composer-licenses.php tests/structural/verify.sh \
   scripts/create-development-handover.sh scripts/setup-development.sh \
   scripts/provision-development-user.sh \
-  scripts/reset-development.sh; do
+  scripts/reset-development.sh tools/agent-setup.sh; do
   test -x "$executable" || fail "$executable must be executable"
 done
 
@@ -92,10 +95,52 @@ for shell_script in infrastructure/compose/entrypoint.sh tool/generate-dart-clie
   scripts/create-development-handover.sh scripts/setup-development.sh \
   scripts/provision-development-user.sh \
   scripts/reset-development.sh \
+  tools/agent-setup.sh \
   tests/Acceptance/development-http-smoke.sh \
   tests/Acceptance/development-auth-http-smoke.sh; do
   bash -n "$shell_script" || fail "$shell_script has invalid shell syntax"
 done
+
+grep -Fxq '/.agent-env' .gitignore \
+  || fail '.agent-env must remain ignored'
+grep -Fxq '/.agent-tools/' .gitignore \
+  || fail '.agent-tools must remain ignored'
+grep -Fq 'bash tools/agent-setup.sh --check' .github/workflows/quality.yml \
+  || fail 'quality workflow must verify the agent environment contract'
+
+node <<'NODE'
+const fs = require('node:fs');
+const manifest = JSON.parse(fs.readFileSync('tools/agent-requirements.json', 'utf8'));
+if (manifest.schemaVersion !== 1 || manifest.repositoryRole !== 'backend') {
+  throw new Error('Unexpected backend agent environment schema.');
+}
+const pins = {
+  php: '8.5.9',
+  composer: '2.10.2',
+  redisExtension: '6.3.0',
+  xdebug: '3.5.3',
+};
+for (const [name, value] of Object.entries(pins)) {
+  if (manifest.runtime?.[name] !== value) {
+    throw new Error(`Agent environment ${name} pin is not ${value}.`);
+  }
+}
+for (const domain of ['repo.packagist.org', 'pecl.php.net', 'registry-1.docker.io', 'ghcr.io']) {
+  if (!manifest.networkAllowlist?.includes(domain)) {
+    throw new Error(`Agent environment network allowlist is missing ${domain}.`);
+  }
+}
+for (const command of [
+  'composer check',
+  'composer test:coverage && composer coverage:check',
+  'composer test:mutation',
+  'composer audit --locked',
+]) {
+  if (!manifest.validation?.includes(command)) {
+    throw new Error(`Agent environment validation is missing ${command}.`);
+  }
+}
+NODE
 
 node <<'NODE'
 const fs = require('node:fs');

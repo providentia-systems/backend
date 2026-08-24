@@ -23,6 +23,8 @@ jobs:
           sudo apt-get install --yes ripgrep
       - name: Run dependency-free foundation checks
         run: bash tests/structural/verify.sh
+      - name: Verify the reproducible agent environment contract
+        run: bash tools/agent-setup.sh --check
 
   source-image:
     runs-on: ubuntu-24.04
