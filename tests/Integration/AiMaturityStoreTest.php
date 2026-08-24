@@ -126,7 +126,6 @@ final class AiMaturityStoreTest extends TestCase
             'action' => 'existing',
         ]);
 
-        $auditFailed = false;
         try {
             $this->connection->transactional(
                 fn (): bool => $this->store->revokeProviderProfileCredential(
@@ -135,9 +134,8 @@ final class AiMaturityStoreTest extends TestCase
             );
             self::fail('The credential clear committed without its audit event.');
         } catch (UniqueConstraintViolationException) {
-            $auditFailed = true;
+            // Expected: the duplicate audit identifier must abort the transaction.
         }
-        self::assertTrue($auditFailed);
 
         $profile = $this->connection->fetchAssociative(
             'SELECT ciphertext, nonce, key_version AS keyVersion, last_four AS lastFour, revision

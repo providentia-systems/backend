@@ -247,7 +247,10 @@ final class DbalCatalogContributionImageStore implements CatalogContributionImag
         return $this->imageRow($row);
     }
 
-    /** @param array<string, mixed> $row @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
     private function imageRow(array $row): array
     {
         $row['ciphertext'] = $this->blob($row['ciphertext']);

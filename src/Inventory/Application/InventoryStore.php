@@ -20,7 +20,8 @@ interface InventoryStore
     ): void;
 
     /**
-     * @return array{status: 'updated'|'not-found'|'revision-conflict'|'category-in-use', record?: array<string, mixed>}
+     * @return array{status: 'updated', record: array<string, mixed>}
+     *     |array{status: 'not-found'|'revision-conflict'|'category-in-use'}
      */
     public function updateHomeCategory(
         string $homeId,
@@ -80,11 +81,11 @@ interface InventoryStore
     ): void;
 
     /**
-     * @return array{
-     *     status: 'updated'|'not-found'|'revision-conflict'|'category-unavailable'
-     *         |'balance-not-zero'|'product-in-use'|'catalog-product',
-     *     record?: array<string, mixed>
-     * }
+     * @return array{status: 'updated', record: array<string, mixed>}
+     *     |array{
+     *         status: 'not-found'|'revision-conflict'|'category-unavailable'
+     *             |'balance-not-zero'|'product-in-use'|'catalog-product'
+     *     }
      */
     public function updateHomeProduct(
         string $homeId,

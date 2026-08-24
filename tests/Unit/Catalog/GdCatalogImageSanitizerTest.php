@@ -52,6 +52,10 @@ final class GdCatalogImageSanitizerTest extends TestCase
         }
     }
 
+    /**
+     * @param positive-int $width
+     * @param positive-int $height
+     */
     private function png(int $width, int $height): string
     {
         $image = imagecreatetruecolor($width, $height);
@@ -59,9 +63,10 @@ final class GdCatalogImageSanitizerTest extends TestCase
             throw new \RuntimeException('Unable to create the test image.');
         }
         $color = imagecolorallocate($image, 40, 80, 120);
-        if ($color === false || ! imagefill($image, 0, 0, $color)) {
-            throw new \RuntimeException('Unable to fill the test image.');
+        if ($color === false) {
+            throw new \RuntimeException('Unable to allocate the test image color.');
         }
+        imagefill($image, 0, 0, $color);
         $bytes = false;
         ob_start();
         self::assertTrue(imagepng($image));

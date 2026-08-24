@@ -1251,7 +1251,10 @@ final class DbalIdentityStore implements
         ], ['id' => $userId]);
     }
 
-    /** @param array<string, mixed> $row */
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
     private function operatorProjection(array $row): array
     {
         $row['emailVerified'] = (bool) $row['emailVerified'];

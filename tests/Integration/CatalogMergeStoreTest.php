@@ -150,10 +150,13 @@ final class CatalogMergeStoreTest extends TestCase
             'SELECT canonical_name, normalized_name, status, revision FROM categories WHERE id = :id',
             ['id' => 'category-1'],
         ));
-        self::assertSame(
-            'category-1',
-            $this->store->conflictFor('category', 'dry goods', ['canonicalName' => 'Dry Goods'])['entityId'],
+        $conflict = $this->store->conflictFor(
+            'category',
+            'dry goods',
+            ['canonicalName' => 'Dry Goods'],
         );
+        self::assertIsArray($conflict);
+        self::assertSame('category-1', $conflict['entityId'] ?? null);
     }
 
     /** @return list<string> */

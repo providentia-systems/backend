@@ -1159,7 +1159,10 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         return $date->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
     }
 
-    /** @param array<string, mixed> $row */
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
     private function categoryRecord(array $row): array
     {
         $row['revision'] = (int) $row['revision'];

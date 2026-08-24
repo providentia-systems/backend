@@ -218,7 +218,7 @@ $bootstrap = $contract['components']['schemas']['CurrentUserBootstrap'] ?? [];
 $operationCount = 0;
 foreach ($contract['paths'] as $pathTemplate => $pathItem) {
     preg_match_all('/\{([^}]+)\}/', (string) $pathTemplate, $matches);
-    $templateParameters = array_values(array_unique($matches[1] ?? []));
+    $templateParameters = array_values(array_unique($matches[1]));
     foreach (['get', 'post', 'put', 'patch', 'delete'] as $method) {
         if (! isset($pathItem[$method])) {
             continue;
