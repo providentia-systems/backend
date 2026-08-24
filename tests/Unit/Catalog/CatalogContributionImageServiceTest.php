@@ -37,9 +37,9 @@ final class CatalogContributionImageServiceTest extends TestCase
     private const USER_ID = '01912345-6789-7abc-9def-0123456789ab';
     private const RECEIPT_ID = '01912345-6789-7abc-adef-0123456789ab';
     private const CONTRIBUTION_ID = '01912345-6789-7abc-bdef-0123456789ab';
-    private const HOME_PRODUCT_ID = '01912345-6789-7abc-cdef-0123456789ab';
-    private const PRODUCT_ID = '01912345-6789-7abc-ddef-0123456789ab';
-    private const ICON_ID = '01912345-6789-7abc-edef-0123456789ab';
+    private const HOME_PRODUCT_ID = '01912345-6789-7abc-8def-2123456789ab';
+    private const PRODUCT_ID = '01912345-6789-7abc-9def-2123456789ab';
+    private const ICON_ID = '01912345-6789-7abc-adef-2123456789ab';
     private const ASSET_ID = '01912345-6789-7abc-8def-1123456789ab';
     private const RAW = 'source-jpeg-bytes';
     private const SANITIZED = 'sanitized-webp-bytes';

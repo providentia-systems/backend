@@ -64,12 +64,8 @@ final class GdCatalogImageSanitizerTest extends TestCase
         }
         $bytes = false;
         ob_start();
-        try {
-            self::assertTrue(imagepng($image));
-            $bytes = ob_get_clean();
-        } finally {
-            imagedestroy($image);
-        }
+        self::assertTrue(imagepng($image));
+        $bytes = ob_get_clean();
 
         self::assertIsString($bytes);
 

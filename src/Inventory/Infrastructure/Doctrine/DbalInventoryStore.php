@@ -22,17 +22,20 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
 
     public function categories(string $homeId, bool $includeArchived): array
     {
+        $sql = 'SELECT id, name, status, revision, created_at AS createdAt,
+                       updated_at AS updatedAt, archived_at AS archivedAt
+                FROM home_categories
+                WHERE home_id = :home';
+        $parameters = ['home' => $homeId];
+        if (! $includeArchived) {
+            $sql .= ' AND status = :active';
+            $parameters['active'] = 'active';
+        }
+        $sql .= ' ORDER BY normalized_name, id';
+
         $rows = $this->connection->fetchAllAssociative(
-            'SELECT id, name, status, revision, created_at AS createdAt,
-                    updated_at AS updatedAt, archived_at AS archivedAt
-             FROM home_categories
-             WHERE home_id = :home AND (:include_archived = 1 OR status = :active)
-             ORDER BY normalized_name, id',
-            [
-                'home' => $homeId,
-                'include_archived' => $includeArchived ? 1 : 0,
-                'active' => 'active',
-            ],
+            $sql,
+            $parameters,
         );
 
         return array_map(fn (array $row): array => $this->categoryRecord($row), $rows);

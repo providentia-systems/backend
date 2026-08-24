@@ -397,14 +397,15 @@ final class OperatorControlPlaneProjectionTest extends TestCase
                 return $this->connection->transactional(static fn (): mixed => $operation());
             }
         };
+        $ids = new SequenceUuidGenerator();
 
         return new OperatorAccountService(
             $identities,
             $identities,
             new DbalHomeStore($this->connection),
             new DbalBillingStore($this->connection),
-            new PlatformRoleService($identities, new SequenceUuidGenerator(), $clock, $transactions),
-            new SequenceUuidGenerator(),
+            new PlatformRoleService($identities, $ids, $clock, $transactions),
+            $ids,
             $clock,
             $transactions,
         );

@@ -143,9 +143,17 @@ final class OperatorAccountService
         match ($result) {
             'updated', 'unchanged' => null,
             'not-found' => throw new Problem(404, 'Not found', 'The account is unavailable.'),
-            'revision-conflict' => throw new Problem(409, 'Revision conflict', 'The account changed since it was read.'),
+            'revision-conflict' => throw new Problem(
+                409,
+                'Revision conflict',
+                'The account changed since it was read.',
+            ),
             'closed-terminal' => throw new Problem(409, 'Closed account', 'A closed account cannot be reactivated.'),
-            'last-administrator' => throw new Problem(409, 'Last administrator safeguard', 'Grant another active administrator before disabling this account.'),
+            'last-administrator' => throw new Problem(
+                409,
+                'Last administrator safeguard',
+                'Grant another active administrator before disabling this account.',
+            ),
             default => throw new \LogicException('Unknown account-status change result.'),
         };
 

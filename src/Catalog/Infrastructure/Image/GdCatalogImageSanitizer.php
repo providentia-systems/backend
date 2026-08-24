@@ -62,8 +62,6 @@ final class GdCatalogImageSanitizer implements CatalogImageSanitizer
                 ob_end_clean();
             }
             throw new CatalogImageRejection(422, 'The image could not be sanitized.');
-        } finally {
-            imagedestroy($image);
         }
         if ($encoded !== true || ! is_string($sanitized) || $sanitized === '') {
             throw new CatalogImageRejection(422, 'The image could not be sanitized.');
