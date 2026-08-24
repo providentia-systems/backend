@@ -30,6 +30,24 @@ final class InventoryHandler implements RequestHandlerInterface
         $query = $request->getQueryParams();
 
         return match ($this->action) {
+            'categories.list' => new JsonResponse(['data' => $this->inventory->categories(
+                $identity,
+                $homeId,
+                $this->booleanQuery($query, 'includeArchived'),
+            )]),
+            'categories.create' => new JsonResponse($this->inventory->createHomeCategory(
+                $identity,
+                $homeId,
+                (string) ($body['name'] ?? ''),
+            ), 201),
+            'categories.update' => new JsonResponse($this->inventory->updateHomeCategory(
+                $identity,
+                $homeId,
+                (string) $request->getAttribute('homeCategoryId', ''),
+                array_key_exists('name', $body) ? (string) $body['name'] : null,
+                array_key_exists('status', $body) ? (string) $body['status'] : null,
+                (int) ($body['expectedRevision'] ?? 0),
+            )),
             'locations.list' => new JsonResponse(['data' => $this->inventory->locations($identity, $homeId)]),
             'locations.create' => new JsonResponse($this->inventory->createLocation(
                 $identity,
@@ -42,6 +60,7 @@ final class InventoryHandler implements RequestHandlerInterface
                 $homeId,
                 (string) ($query['q'] ?? ''),
                 isset($query['categoryId']) ? (string) $query['categoryId'] : null,
+                isset($query['homeCategoryId']) ? (string) $query['homeCategoryId'] : null,
                 (int) ($query['limit'] ?? 50),
                 (int) ($query['offset'] ?? 0),
             )),
@@ -52,12 +71,31 @@ final class InventoryHandler implements RequestHandlerInterface
                 isset($body['packId']) ? (string) $body['packId'] : null,
                 isset($body['privateName']) ? (string) $body['privateName'] : null,
                 isset($body['originalPackText']) ? (string) $body['originalPackText'] : null,
+                isset($body['homeCategoryId']) ? (string) $body['homeCategoryId'] : null,
             ), 201),
+            'items.update' => new JsonResponse($this->inventory->updateHomeProduct(
+                $identity,
+                $homeId,
+                (string) $request->getAttribute('homeProductId', ''),
+                array_key_exists('privateName', $body),
+                array_key_exists('privateName', $body) ? (string) $body['privateName'] : null,
+                array_key_exists('originalPackText', $body),
+                array_key_exists('originalPackText', $body) && $body['originalPackText'] !== null
+                    ? (string) $body['originalPackText']
+                    : null,
+                array_key_exists('homeCategoryId', $body),
+                array_key_exists('homeCategoryId', $body) && $body['homeCategoryId'] !== null
+                    ? (string) $body['homeCategoryId']
+                    : null,
+                array_key_exists('status', $body) ? (string) $body['status'] : null,
+                (int) ($body['expectedRevision'] ?? 0),
+            )),
             'stock.list' => new JsonResponse(['data' => $this->inventory->stock(
                 $identity,
                 $homeId,
                 (string) ($query['q'] ?? ''),
                 isset($query['categoryId']) ? (string) $query['categoryId'] : null,
+                isset($query['homeCategoryId']) ? (string) $query['homeCategoryId'] : null,
                 (int) ($query['limit'] ?? 50),
                 (int) ($query['offset'] ?? 0),
             )]),
@@ -67,6 +105,7 @@ final class InventoryHandler implements RequestHandlerInterface
                     $homeId,
                     (string) ($query['q'] ?? ''),
                     isset($query['categoryId']) ? (string) $query['categoryId'] : null,
+                    isset($query['homeCategoryId']) ? (string) $query['homeCategoryId'] : null,
                     (int) ($query['limit'] ?? 50),
                     (int) ($query['offset'] ?? 0),
                 ),
@@ -141,6 +180,14 @@ final class InventoryHandler implements RequestHandlerInterface
         $key = trim($request->getHeaderLine('Idempotency-Key'));
 
         return $key === '' ? (string) ($body['operationId'] ?? '') : $key;
+    }
+
+    /** @param array<string, mixed> $query */
+    private function booleanQuery(array $query, string $field): bool
+    {
+        $value = $query[$field] ?? false;
+
+        return $value === true || $value === 1 || $value === '1' || $value === 'true';
     }
 
     private function identity(ServerRequestInterface $request): AuthenticatedIdentity

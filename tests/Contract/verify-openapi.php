@@ -27,10 +27,30 @@ $expected = [
     '/api/v1/platform/administrators/{administratorId}/revoke' => [
         'post' => 'revokePlatformAdministrator',
     ],
+    '/api/v1/admin/accounts' => ['get' => 'listOperatorAccounts'],
+    '/api/v1/admin/accounts/{userId}' => ['get' => 'getOperatorAccount'],
+    '/api/v1/admin/accounts/{userId}/status' => ['patch' => 'updateOperatorAccountStatus'],
+    '/api/v1/admin/accounts/{userId}/roles/{role}' => [
+        'put' => 'grantOperatorAccountRole',
+        'delete' => 'revokeOperatorAccountRole',
+    ],
     '/api/v1/homes' => ['get' => 'listHomes'],
     '/api/v1/homes/{homeId}' => ['get' => 'getHome', 'patch' => 'updateHome'],
     '/api/v1/homes/{homeId}/ownership-transfer' => ['post' => 'transferHomeOwnership'],
     '/api/v1/catalog/products' => ['get' => 'searchCatalogProducts'],
+    '/api/v1/catalog/categories' => ['get' => 'listPublishedCatalogCategories'],
+    '/api/v1/catalog-contributions/{contributionId}/proposal' => [
+        'put' => 'putCatalogContributionProposal',
+    ],
+    '/api/v1/homes/{homeId}/categories' => [
+        'get' => 'listHomeCategories',
+        'post' => 'createHomeCategory',
+    ],
+    '/api/v1/homes/{homeId}/categories/{homeCategoryId}' => ['patch' => 'updateHomeCategory'],
+    '/api/v1/homes/{homeId}/products/{homeProductId}' => ['patch' => 'updateHomeProduct'],
+    '/api/v1/homes/{homeId}/ai/profiles/{profileId}/credential' => [
+        'delete' => 'revokeAiProviderProfileCredential',
+    ],
     '/api/v1/homes/{homeId}/sync/push' => ['post' => 'pushHomeSynchronization'],
     '/api/v1/homes/{homeId}/sync/pull' => ['get' => 'pullHomeSynchronization'],
     '/api/v1/homes/{homeId}/sync/bootstrap' => ['get' => 'bootstrapHomeSynchronization'],
@@ -76,9 +96,23 @@ foreach (
         'PlatformAdministrator',
         'PlatformAdministratorGrantRequest',
         'PlatformAdministratorRevokeRequest',
+        'OperatorAccount',
+        'OperatorAccountDetail',
+        'OperatorAccountStatusRequest',
+        'OperatorRoleChangeRequest',
+        'PublishedCatalogCategory',
+        'PublishedCatalogCategoryPage',
+        'CatalogCategoryProposal',
+        'CatalogContributionProposalRequest',
+        'CatalogContributionProposalLink',
         'Home',
         'UpdateHomeRequest',
         'HomeMembership',
+        'HomeCategory',
+        'CreateHomeCategoryRequest',
+        'UpdateHomeCategoryRequest',
+        'UpdateHomeProductRequest',
+        'HomeStockItem',
         'RecipientHomeInvitation',
         'HomeInvitationAcceptance',
         'SyncPrivateNotePayload',
@@ -96,6 +130,9 @@ foreach (
         'HomeReport',
         'ReceiptLineDecisionResult',
         'SyncReceiptLineUnresolvePayload',
+        'SyncHomeCategoryCreatePayload',
+        'SyncHomeCategoryUpdatePayload',
+        'SyncHomeProductUpdatePayload',
     ] as $schema
 ) {
     if (! isset($contract['components']['schemas'][$schema])) {
@@ -178,6 +215,223 @@ if (! in_array('denied', $loginLinkStatuses, true)) {
 }
 
 $bootstrap = $contract['components']['schemas']['CurrentUserBootstrap'] ?? [];
+$operationCount = 0;
+foreach ($contract['paths'] as $pathTemplate => $pathItem) {
+    preg_match_all('/\{([^}]+)\}/', (string) $pathTemplate, $matches);
+    $templateParameters = array_values(array_unique($matches[1] ?? []));
+    foreach (['get', 'post', 'put', 'patch', 'delete'] as $method) {
+        if (! isset($pathItem[$method])) {
+            continue;
+        }
+        $operationCount++;
+        $declared = [];
+        foreach (array_merge($pathItem['parameters'] ?? [], $pathItem[$method]['parameters'] ?? []) as $parameter) {
+            if (isset($parameter['$ref'])) {
+                $name = basename((string) $parameter['$ref']);
+                $parameter = $contract['components']['parameters'][$name] ?? [];
+            }
+            $key = ($parameter['in'] ?? '') . ':' . ($parameter['name'] ?? '');
+            if (isset($declared[$key])) {
+                throw new RuntimeException(sprintf(
+                    'Duplicate %s parameter at %s %s.',
+                    $key,
+                    strtoupper($method),
+                    $pathTemplate,
+                ));
+            }
+            $declared[$key] = true;
+        }
+        $declaredPathParameters = array_map(
+            static fn (string $key): string => substr($key, strlen('path:')),
+            array_values(array_filter(
+                array_keys($declared),
+                static fn (string $key): bool => str_starts_with($key, 'path:'),
+            )),
+        );
+        sort($declaredPathParameters);
+        $expectedPathParameters = $templateParameters;
+        sort($expectedPathParameters);
+        if ($declaredPathParameters !== $expectedPathParameters) {
+            throw new RuntimeException(sprintf(
+                'Path parameters do not match the template at %s %s.',
+                strtoupper($method),
+                $pathTemplate,
+            ));
+        }
+    }
+}
+if (count($contract['paths']) !== 151 || $operationCount !== 174) {
+    throw new RuntimeException('API 1.15 must expose exactly 151 paths and 174 operations.');
+}
+
+$homeProducts = $contract['paths']['/api/v1/homes/{homeId}/products'] ?? [];
+$stock = $contract['paths']['/api/v1/homes/{homeId}/stock']['get'] ?? [];
+foreach ([$homeProducts['get'] ?? [], $stock] as $categoryFilteredOperation) {
+    $queryNames = array_values(array_map(
+        static fn (array $parameter): string => (string) ($parameter['name'] ?? ''),
+        array_values(array_filter(
+            $categoryFilteredOperation['parameters'] ?? [],
+            static fn (array $parameter): bool => ($parameter['in'] ?? null) === 'query',
+        )),
+    ));
+    foreach (['categoryId', 'homeCategoryId'] as $categoryFilter) {
+        if (count(array_keys($queryNames, $categoryFilter, true)) !== 1) {
+            throw new RuntimeException('Inventory category filters must be distinct and singular.');
+        }
+    }
+    foreach (['404', '422'] as $response) {
+        if (! isset($categoryFilteredOperation['responses'][$response])) {
+            throw new RuntimeException('Inventory projections must document home concealment and invalid filters.');
+        }
+    }
+}
+foreach (['404', '422'] as $response) {
+    if (! isset($homeProducts['post']['responses'][$response])) {
+        throw new RuntimeException('Home-product creation must document unavailable and invalid taxonomy.');
+    }
+}
+
+$itemMaster = $contract['components']['schemas']['HomeItemMasterProduct'] ?? [];
+foreach (['productId', 'packId', 'categoryId', 'homeCategoryId'] as $nullableId) {
+    if (! in_array('null', $itemMaster['properties'][$nullableId]['type'] ?? [], true)) {
+        throw new RuntimeException('Home item master must represent global and home-private identifiers.');
+    }
+}
+foreach (['homeCategoryId', 'categorySource'] as $requiredProjection) {
+    if (! in_array($requiredProjection, $itemMaster['required'] ?? [], true)) {
+        throw new RuntimeException('Home item master omits private-taxonomy projection fields.');
+    }
+}
+
+$syncCommands = $contract['components']['schemas']['SyncPantryCommand'] ?? [];
+foreach (
+    [
+        'inventory.home-category.create' => ['SyncHomeCategoryCreatePayload', false],
+        'inventory.home-category.update' => ['SyncHomeCategoryUpdatePayload', true],
+        'inventory.home-product.create' => ['SyncHomeProductCreatePayload', false],
+        'inventory.home-product.update' => ['SyncHomeProductUpdatePayload', true],
+    ] as $commandType => [$payloadSchema, $revisionRequired]
+) {
+    if (! in_array($commandType, $syncCommands['properties']['commandType']['enum'] ?? [], true)) {
+        throw new RuntimeException('Protocol v2 is missing command ' . $commandType . '.');
+    }
+    $branches = array_values(array_filter(
+        $syncCommands['allOf'] ?? [],
+        static fn (array $branch): bool =>
+            ($branch['if']['properties']['commandType']['const'] ?? null) === $commandType,
+    ));
+    if (
+        count($branches) !== 1
+        || ($branches[0]['then']['properties']['payload']['$ref'] ?? null)
+            !== '#/components/schemas/' . $payloadSchema
+        || ($revisionRequired && ! in_array('baseRevision', $branches[0]['then']['required'] ?? [], true))
+    ) {
+        throw new RuntimeException('Protocol-v2 payload binding is incomplete for ' . $commandType . '.');
+    }
+}
+
+$supportedCountSources = ['manual', 'photo-confirmed', 'import'];
+foreach (
+    [
+        'RecordCountRequest',
+        'StockCountLine',
+        'SyncCountLineUpsertPayload',
+    ] as $countSchema
+) {
+    if (
+        ($contract['components']['schemas'][$countSchema]['properties']['source']['enum'] ?? null)
+        !== $supportedCountSources
+    ) {
+        throw new RuntimeException($countSchema . ' must preserve the supported stock-count source mapping.');
+    }
+}
+
+$directExtractionMultipart = $contract['paths']['/api/v1/homes/{homeId}/ai/extractions']['post']
+    ['requestBody']['content']['multipart/form-data']['schema'] ?? [];
+$storedExtraction = $contract['components']['schemas']['CreateStoredMediaExtractionRequest'] ?? [];
+if (
+    ! isset($directExtractionMultipart['properties']['image'])
+    || ! isset($directExtractionMultipart['properties']['images[]'])
+    || ($directExtractionMultipart['properties']['images[]']['type'] ?? null) !== 'array'
+    || isset($directExtractionMultipart['properties']['images'])
+    || ($directExtractionMultipart['additionalProperties'] ?? null) !== false
+    || ! isset($contract['paths']['/api/v1/homes/{homeId}/ai/extractions']['post']['responses']['422'])
+    || in_array('targetId', $directExtractionMultipart['required'] ?? [], true)
+    || in_array('targetId', $storedExtraction['required'] ?? [], true)
+    || ($directExtractionMultipart['allOf'][0]['then']['required'] ?? null) !== ['targetId']
+    || ($storedExtraction['allOf'][0]['then']['required'] ?? null) !== ['targetId']
+) {
+    throw new RuntimeException('AI multipart arrays and conditional receipt/stock target binding are incomplete.');
+}
+
+$profileCredentialRevocation = $contract['paths'][
+    '/api/v1/homes/{homeId}/ai/profiles/{profileId}/credential'
+]['delete'] ?? [];
+$profileSchema = $contract['components']['schemas']['AiProviderProfile'] ?? [];
+$profileCredentialInput = $contract['components']['schemas']['PutAiProviderProfileRequest']
+    ['properties']['credential'] ?? [];
+if (
+    ($profileCredentialRevocation['requestBody']['content']['application/json']['schema']['$ref'] ?? null)
+        !== '#/components/schemas/ExpectedRevisionRequest'
+    || ($profileCredentialRevocation['responses']['200']['content']['application/json']['schema']['$ref'] ?? null)
+        !== '#/components/schemas/AiProviderProfile'
+    || ($profileSchema['additionalProperties'] ?? true) !== false
+    || ! in_array('lastFour', $profileSchema['required'] ?? [], true)
+    || ($profileCredentialInput['writeOnly'] ?? false) !== true
+    || array_intersect(
+        ['credential', 'ciphertext', 'nonce', 'keyVersion'],
+        array_keys($profileSchema['properties'] ?? []),
+    ) !== []
+) {
+    throw new RuntimeException('Profile credential revocation must expose only the revision-bound privacy projection.');
+}
+
+$publishedCategoryOperation = $contract['paths']['/api/v1/catalog/categories']['get'] ?? [];
+$publishedCategoryPage = $contract['components']['schemas']['PublishedCatalogCategoryPage'] ?? [];
+$publishedCategory = $contract['components']['schemas']['PublishedCatalogCategory'] ?? [];
+$submitProposal = $contract['components']['schemas']['SubmitCatalogProposalRequest'] ?? [];
+$proposalTypes = $submitProposal['properties']['type']['enum'] ?? [];
+$proposalPayloadRefs = array_values(array_map(
+    static fn (array $branch): string => (string) ($branch['$ref'] ?? ''),
+    $submitProposal['properties']['payload']['oneOf'] ?? [],
+));
+$promotionOperation = $contract['paths'][
+    '/api/v1/catalog-contributions/{contributionId}/proposal'
+]['put'] ?? [];
+if (
+    ($publishedCategoryOperation['security'] ?? null) !== []
+    || ($publishedCategoryOperation['responses']['200']['content']['application/json']['schema']['$ref'] ?? null)
+        !== '#/components/schemas/PublishedCatalogCategoryPage'
+    || ($publishedCategoryPage['required'] ?? null) !== ['data', 'pagination']
+    || ($publishedCategory['required'] ?? null) !== ['id', 'canonicalName', 'revision']
+    || ! in_array('category', $proposalTypes, true)
+    || ! in_array('#/components/schemas/CatalogCategoryProposal', $proposalPayloadRefs, true)
+    || ($promotionOperation['requestBody']['content']['application/json']['schema']['$ref'] ?? null)
+        !== '#/components/schemas/CatalogContributionProposalRequest'
+    || ($promotionOperation['responses']['200']['content']['application/json']['schema']['$ref'] ?? null)
+        !== '#/components/schemas/CatalogContributionProposalLink'
+    || ($contract['components']['schemas']['CatalogContribution']['properties']['proposalLink']['$ref'] ?? null)
+        !== '#/components/schemas/CatalogContributionProposalLink'
+    || ! in_array(
+        'publishedCategoryName',
+        $contract['components']['schemas']['CatalogContributionProposalLink']['required'] ?? [],
+        true,
+    )
+) {
+    throw new RuntimeException('Governed category and contribution-promotion contracts are incomplete.');
+}
+
+$operatorSchemas = json_encode([
+    $contract['components']['schemas']['OperatorAccount'] ?? [],
+    $contract['components']['schemas']['OperatorAccountDetail'] ?? [],
+    $contract['components']['schemas']['OperatorHomeMembership'] ?? [],
+], JSON_THROW_ON_ERROR);
+foreach (['stock', 'receipt', 'purchase', 'location', 'priceObservation', 'aiMedia'] as $privateField) {
+    if (stripos($operatorSchemas, $privateField) !== false) {
+        throw new RuntimeException('Operator account schemas expose household content: ' . $privateField . '.');
+    }
+}
+
 if (
     ! in_array('pendingInvitations', $bootstrap['required'] ?? [], true)
     || ($bootstrap['properties']['pendingInvitations']['items']['$ref'] ?? null)
@@ -266,6 +520,11 @@ if (($refreshRequestToken['writeOnly'] ?? false) !== true || isset($refreshReque
 
 $aiSettings = $contract['components']['schemas']['AiSettings'] ?? [];
 $mediaHandling = $contract['components']['schemas']['AiMediaHandling'] ?? [];
+$aiCredential = $contract['components']['schemas']['PutAiCredentialRequest']['properties']['credential'] ?? [];
+$directExtraction = $contract['paths']['/api/v1/homes/{homeId}/ai/extractions']['post']
+    ['requestBody']['content']['multipart/form-data']['schema'] ?? [];
+$storedExtraction = $contract['components']['schemas']['CreateStoredMediaExtractionRequest'] ?? [];
+$extractionCreated = $contract['components']['schemas']['AiExtractionCreated'] ?? [];
 if (
     ($aiSettings['properties']['serverPersistsUploadedMedia']['enum'] ?? null) !== [false]
     || ($aiSettings['properties']['serverPersistsUploadedMedia']['deprecated'] ?? null) !== true
@@ -277,8 +536,20 @@ if (
         !== 'explicit_encrypted_opt_in'
     || ($mediaHandling['properties']['plaintextMediaAtRest']['const'] ?? null) !== false
     || ($mediaHandling['properties']['cloudProviderTransmissionRequiresConsent']['const'] ?? null) !== true
+    || ($aiCredential['writeOnly'] ?? false) !== true
+    || ! in_array('availableServerProviders', $aiSettings['required'] ?? [], true)
+    || ! in_array('credentialEncryptionAvailable', $aiSettings['required'] ?? [], true)
+    || in_array('targetId', $directExtraction['required'] ?? [], true)
+    || ($directExtraction['properties']['targetId']['format'] ?? null) !== 'uuid'
+    || ! in_array('null', $directExtraction['properties']['targetId']['type'] ?? [], true)
+    || ($directExtraction['allOf'][0]['then']['required'] ?? null) !== ['targetId']
+    || in_array('targetId', $storedExtraction['required'] ?? [], true)
+    || ($storedExtraction['properties']['targetId']['format'] ?? null) !== 'uuid'
+    || ! in_array('null', $storedExtraction['properties']['targetId']['type'] ?? [], true)
+    || ($storedExtraction['allOf'][0]['then']['required'] ?? null) !== ['targetId']
+    || ! in_array('observationCount', $extractionCreated['required'] ?? [], true)
 ) {
-    throw new RuntimeException('AI media-handling privacy contract regression detected.');
+    throw new RuntimeException('AI capability, credential, target, or media privacy contract regression detected.');
 }
 
 $itemMaster = $contract['components']['schemas']['HomeItemMasterProduct'] ?? [];
@@ -399,6 +670,8 @@ $requiredItemMasterFields = [
     'brand',
     'categoryId',
     'categoryName',
+    'homeCategoryId',
+    'categorySource',
     'packText',
     'packStatus',
     'aliases',
@@ -412,7 +685,7 @@ if (
         !== '#/components/schemas/OffsetPagination'
     || ($itemMaster['required'] ?? null) !== $requiredItemMasterFields
     || ($itemMaster['properties']['aliases']['uniqueItems'] ?? null) !== true
-    || ($itemMaster['properties']['packStatus']['enum'] ?? null) !== ['published', 'pending-normalization']
+    || ($itemMaster['properties']['packStatus']['enum'] ?? null) !== ['published', 'pending-normalization', null]
     || ($itemMaster['properties']['homeProductStatus']['enum'] ?? null) !== ['active', null]
     || ($createHomeProductSchema['$ref'] ?? null) !== '#/components/schemas/CreatedHomeProduct'
     || count($syncHomeProductCreate['anyOf'] ?? []) !== 3
@@ -496,7 +769,7 @@ if (
         $contract['components']['schemas']['RegisterResponse']['required'] ?? [],
         true,
     )
-    || ($contract['info']['version'] ?? '') !== '1.13.2'
+    || ($contract['info']['version'] ?? '') !== '1.15.0'
     || stripos($source, 'magic' . '-link') !== false
     || stripos($source, 'magic' . 'link') !== false
     || isset($contract['paths']['/api/v1/auth/' . 'magic' . '-links'])

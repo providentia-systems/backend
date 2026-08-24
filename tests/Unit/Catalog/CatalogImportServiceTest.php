@@ -6,10 +6,9 @@ namespace ProvidentiaTest\Unit\Catalog;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
+use Providentia\Catalog\Application\CatalogHomeAccess;
 use Providentia\Catalog\Application\CatalogImportService;
 use Providentia\Catalog\Application\CatalogImportStore;
-use Providentia\Home\Application\HomeAuthorization;
-use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\Problem;
@@ -215,15 +214,13 @@ final class CatalogImportServiceTest extends TestCase
         array $ids = [],
         ?ChangeFeedWriter $changes = null,
     ): CatalogImportService {
-        $homes = $this->createStub(HomeStore::class);
-        $homes->method('membership')->willReturnCallback(
-            static fn (string $homeId, string $_userId): ?array => $homeId === self::HOME_ID ? [
-                'home_id' => self::HOME_ID,
-                'user_id' => self::USER_ID,
-                'status' => 'active',
-                'role' => HomeAuthorization::OWNER,
-                'revision' => 1,
-            ] : null,
+        $homes = $this->createStub(CatalogHomeAccess::class);
+        $homes->method('requireImport')->willReturnCallback(
+            static function (AuthenticatedIdentity $_identity, string $homeId): void {
+                if ($homeId !== self::HOME_ID) {
+                    throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+                }
+            },
         );
         $uuid = $this->createStub(UuidGenerator::class);
         if ($ids !== []) {
@@ -232,7 +229,7 @@ final class CatalogImportServiceTest extends TestCase
 
         return new CatalogImportService(
             $store,
-            new HomeAuthorization($homes),
+            $homes,
             $uuid,
             new HomeFixedClock(new DateTimeImmutable('2026-08-04T12:00:00+00:00')),
             new RecordingTransactionManager(),

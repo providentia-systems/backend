@@ -8,9 +8,11 @@ use Doctrine\DBAL\Connection;
 use Providentia\Catalog\Application\CatalogAuthorization;
 use Providentia\Catalog\Application\CatalogGovernanceService;
 use Providentia\Catalog\Application\CatalogGovernanceStore;
+use Providentia\Catalog\Application\CatalogMergeHomeProductGateway;
 use Providentia\Catalog\Application\CatalogQueryService;
 use Providentia\Catalog\Application\CatalogSeedService;
 use Providentia\Catalog\Application\CatalogStore;
+use Providentia\Catalog\Http\CatalogCategoryHandler;
 use Providentia\Catalog\Http\CatalogSearchHandler;
 use Providentia\Catalog\Http\CatalogGovernanceHandler;
 use Providentia\Catalog\Http\CatalogProductHandler;
@@ -18,6 +20,7 @@ use Providentia\Catalog\Infrastructure\Cli\CatalogSeedCommand;
 use Providentia\Catalog\Infrastructure\Cli\CatalogRoleCommand;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogGovernanceStore;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogStore;
+use Providentia\Identity\Application\PlatformRoleService;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
@@ -35,6 +38,7 @@ final class CatalogFactory
             $requestedName === DbalCatalogGovernanceStore::class => new DbalCatalogGovernanceStore(
                 $container->get(Connection::class),
                 $container->get(UuidGenerator::class),
+                $container->get(CatalogMergeHomeProductGateway::class),
             ),
             $requestedName === CatalogQueryService::class => new CatalogQueryService(
                 $container->get(CatalogStore::class),
@@ -55,6 +59,9 @@ final class CatalogFactory
             $requestedName === CatalogSearchHandler::class => new CatalogSearchHandler(
                 $container->get(CatalogQueryService::class),
             ),
+            $requestedName === CatalogCategoryHandler::class => new CatalogCategoryHandler(
+                $container->get(CatalogQueryService::class),
+            ),
             $requestedName === CatalogProductHandler::class => new CatalogProductHandler(
                 $container->get(CatalogQueryService::class),
             ),
@@ -66,9 +73,7 @@ final class CatalogFactory
                 $container->get(CatalogSeedService::class),
             ),
             $requestedName === CatalogRoleCommand::class => new CatalogRoleCommand(
-                $container->get(Connection::class),
-                $container->get(Clock::class),
-                $container->get(UuidGenerator::class),
+                $container->get(PlatformRoleService::class),
             ),
             default => throw new \LogicException('Unsupported catalog service: ' . $requestedName),
         };

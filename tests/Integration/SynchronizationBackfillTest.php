@@ -20,6 +20,8 @@ final class SynchronizationBackfillTest extends TestCase
     private const LOCATION_ID = '01912345-6789-7abc-bdef-0123456789ab';
     private const LIST_ID = '01912345-6789-7abc-8def-1123456789ab';
     private const LINE_ID = '01912345-6789-7abc-9def-1123456789ab';
+    private const CATEGORY_ID = '01912345-6789-7abc-adef-1123456789ab';
+    private const PRODUCT_ID = '01912345-6789-7abc-bdef-1123456789ab';
 
     private Connection $connection;
 
@@ -126,6 +128,50 @@ final class SynchronizationBackfillTest extends TestCase
         self::assertFalse($payload['checked']);
     }
 
+    public function testPrivateCategoryPrecedesTheProductThatReferencesIt(): void
+    {
+        $at = '2026-08-24 12:00:00';
+        $this->connection->insert('home_categories', [
+            'id' => self::CATEGORY_ID,
+            'home_id' => self::HOME_ONE,
+            'name' => 'Dry goods',
+            'status' => 'active',
+            'revision' => 1,
+            'updated_at' => $at,
+        ]);
+        $this->connection->insert('home_products', [
+            'id' => self::PRODUCT_ID,
+            'home_id' => self::HOME_ONE,
+            'product_id' => null,
+            'pack_id' => null,
+            'private_name' => 'Sorghum',
+            'original_pack_text' => '1 kg',
+            'home_category_id' => self::CATEGORY_ID,
+            'status' => 'active',
+            'revision' => 1,
+            'updated_at' => $at,
+        ]);
+
+        $result = (new SyncBackfillService(
+            new DbalSyncBackfillStore($this->connection),
+            new DbalChangeFeedWriter($this->connection, new SequenceUuidGenerator()),
+            new BackfillDbalTransactionManager($this->connection),
+        ))->run(self::HOME_ONE, 10);
+
+        self::assertSame(2, $result['appended']);
+        $changes = $this->connection->fetchAllAssociative(
+            'SELECT entity_type, payload_json FROM change_log
+             WHERE home_id = :home ORDER BY sequence_id',
+            ['home' => self::HOME_ONE],
+        );
+        self::assertSame(
+            ['inventory-home-category', 'inventory-home-product'],
+            array_column($changes, 'entity_type'),
+        );
+        $product = json_decode((string) $changes[1]['payload_json'], true, 32, JSON_THROW_ON_ERROR);
+        self::assertSame(self::CATEGORY_ID, $product['homeCategoryId']);
+    }
+
     /** @return list<string> */
     private function schema(): array
     {
@@ -156,9 +202,13 @@ final class SynchronizationBackfillTest extends TestCase
                 reliability TEXT, status TEXT, revision INTEGER, opened_by_user_id TEXT,
                 closed_by_user_id TEXT, updated_at TEXT
             )',
+            'CREATE TABLE home_categories (
+                id TEXT, home_id TEXT, name TEXT, status TEXT, revision INTEGER, updated_at TEXT
+            )',
             'CREATE TABLE home_products (
                 id TEXT, home_id TEXT, product_id TEXT, pack_id TEXT, private_name TEXT,
-                original_pack_text TEXT, status TEXT, revision INTEGER, updated_at TEXT
+                original_pack_text TEXT, home_category_id TEXT, status TEXT,
+                revision INTEGER, updated_at TEXT
             )',
             'CREATE TABLE home_locations (
                 id TEXT, home_id TEXT, name TEXT, kind TEXT, status TEXT,

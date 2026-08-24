@@ -9,6 +9,30 @@ use DateTimeImmutable;
 interface InventoryStore
 {
     /** @return list<array<string, mixed>> */
+    public function categories(string $homeId, bool $includeArchived): array;
+
+    public function createHomeCategory(
+        string $id,
+        string $homeId,
+        string $name,
+        string $normalizedName,
+        DateTimeImmutable $at,
+    ): void;
+
+    /**
+     * @return array{status: 'updated'|'not-found'|'revision-conflict'|'category-in-use', record?: array<string, mixed>}
+     */
+    public function updateHomeCategory(
+        string $homeId,
+        string $categoryId,
+        ?string $name,
+        ?string $normalizedName,
+        ?string $status,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): array;
+
+    /** @return list<array<string, mixed>> */
     public function locations(string $homeId): array;
 
     public function createLocation(
@@ -21,10 +45,24 @@ interface InventoryStore
     ): void;
 
     /** @return array{items: list<array<string, mixed>>, total: int} */
-    public function itemMaster(string $homeId, string $query, ?string $categoryId, int $limit, int $offset): array;
+    public function itemMaster(
+        string $homeId,
+        string $query,
+        ?string $categoryId,
+        ?string $homeCategoryId,
+        int $limit,
+        int $offset,
+    ): array;
 
     /** @return list<array<string, mixed>> */
-    public function stock(string $homeId, string $query, ?string $categoryId, int $limit, int $offset): array;
+    public function stock(
+        string $homeId,
+        string $query,
+        ?string $categoryId,
+        ?string $homeCategoryId,
+        int $limit,
+        int $offset,
+    ): array;
 
     /** @return array<string, mixed>|null */
     public function homeProduct(string $homeId, string $homeProductId): ?array;
@@ -37,8 +75,27 @@ interface InventoryStore
         ?string $privateName,
         ?string $normalizedPrivateName,
         ?string $originalPackText,
+        ?string $homeCategoryId,
         DateTimeImmutable $at,
     ): void;
+
+    /**
+     * @return array{status: 'updated'|'not-found'|'revision-conflict'|'category-unavailable'|'balance-not-zero'|'product-in-use'|'catalog-product', record?: array<string, mixed>}
+     */
+    public function updateHomeProduct(
+        string $homeId,
+        string $homeProductId,
+        bool $privateNameProvided,
+        ?string $privateName,
+        ?string $normalizedPrivateName,
+        bool $originalPackTextProvided,
+        ?string $originalPackText,
+        bool $homeCategoryProvided,
+        ?string $homeCategoryId,
+        ?string $status,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): array;
 
     /** @return array<string, mixed> */
     public function appendMovement(

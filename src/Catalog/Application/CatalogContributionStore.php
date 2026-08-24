@@ -23,7 +23,10 @@ interface CatalogContributionStore
         DateTimeImmutable $at,
     ): bool;
 
-    /** @param array<string, string> $payload */
+    /**
+     * @param array<string, string> $payload
+     * @return array{outcome: 'created'|'replayed'|'conflict', record?: array<string, mixed>}
+     */
     public function createContribution(
         string $id,
         string $homeId,
@@ -33,7 +36,7 @@ interface CatalogContributionStore
         array $payload,
         string $actorUserId,
         DateTimeImmutable $at,
-    ): bool;
+    ): array;
 
     /** @return list<array<string, mixed>> */
     public function contributionsForHome(string $homeId, int $limit, int $offset): array;
@@ -60,6 +63,22 @@ interface CatalogContributionStore
         string $reason,
         int $expectedRevision,
         string $reviewerUserId,
+        DateTimeImmutable $at,
+    ): bool;
+
+    /**
+     * Locks the contribution before creating or replaying its proposal link.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function contributionForProposal(string $id): ?array;
+
+    public function linkContributionProposal(
+        string $contributionId,
+        int $contributionRevision,
+        string $proposalId,
+        string $publishedCategoryId,
+        string $actorUserId,
         DateTimeImmutable $at,
     ): bool;
 }

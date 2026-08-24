@@ -24,10 +24,11 @@ RUN apk add --no-cache ca-certificates git \
         -o /usr/local/bin/caddy github.com/caddyserver/caddy/v2/cmd/caddy
 
 FROM ${PHP_IMAGE} AS php-base
-RUN apk add --no-cache icu-libs libzip oniguruma sqlite-libs \
+RUN apk add --no-cache icu-libs libjpeg-turbo libpng libwebp libzip oniguruma sqlite-libs \
     && apk add --no-cache --virtual .build-deps \
-        ${PHPIZE_DEPS} icu-dev libzip-dev oniguruma-dev sqlite-dev \
-    && docker-php-ext-install -j"$(nproc)" intl mbstring pdo_mysql pdo_sqlite \
+        ${PHPIZE_DEPS} icu-dev libjpeg-turbo-dev libpng-dev libwebp-dev libzip-dev oniguruma-dev sqlite-dev \
+    && docker-php-ext-configure gd --with-jpeg --with-webp \
+    && docker-php-ext-install -j"$(nproc)" gd intl mbstring pdo_mysql pdo_sqlite \
     && pecl install redis-6.3.0 \
     && docker-php-ext-enable redis \
     && apk del .build-deps
@@ -54,6 +55,7 @@ LABEL org.opencontainers.image.title="Providentia backend" \
       org.opencontainers.image.revision="${VCS_REF}"
 WORKDIR /app
 COPY --from=dependencies /app /app
+COPY infrastructure/php/request-limits.ini /usr/local/etc/php/conf.d/zz-providentia-request-limits.ini
 COPY infrastructure/php/production.ini /usr/local/etc/php/conf.d/zz-providentia-production.ini
 RUN chmod +x bin/doctrine-migrations bin/providentia tool/*.sh \
     && mkdir -p var/cache var/log \

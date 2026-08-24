@@ -29,6 +29,20 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
         $payload = $command->payload;
 
         return match ($command->commandType) {
+            'inventory.home-category.create' => $this->inventory->createHomeCategory(
+                $identity,
+                $homeId,
+                $this->string($payload, 'name'),
+                $command->entityId,
+            ),
+            'inventory.home-category.update' => $this->inventory->updateHomeCategory(
+                $identity,
+                $homeId,
+                $command->entityId,
+                $this->string($payload, 'name'),
+                $this->string($payload, 'status'),
+                $this->revision($command),
+            ),
             'inventory.location.create' => $this->inventory->createLocation(
                 $identity,
                 $homeId,
@@ -43,7 +57,21 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->nullableString($payload, 'packId'),
                 $this->nullableString($payload, 'privateName'),
                 $this->nullableString($payload, 'originalPackText'),
+                $this->nullableString($payload, 'homeCategoryId'),
                 $command->entityId,
+            ),
+            'inventory.home-product.update' => $this->inventory->updateHomeProduct(
+                $identity,
+                $homeId,
+                $command->entityId,
+                true,
+                $this->string($payload, 'privateName'),
+                true,
+                $this->nullableString($payload, 'originalPackText'),
+                true,
+                $this->nullableString($payload, 'homeCategoryId'),
+                $this->string($payload, 'status'),
+                $this->revision($command),
             ),
             'inventory.adjustment.create' => $this->inventory->manualAdjustment(
                 $identity,

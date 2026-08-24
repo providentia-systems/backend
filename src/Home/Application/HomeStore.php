@@ -19,7 +19,7 @@ interface HomeStore extends HomeAuditRecorder
     ): void;
 
     public function updateHome(
-        string $homeId,
+        ?string $homeId,
         string $name,
         string $locale,
         string $currency,

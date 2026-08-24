@@ -26,7 +26,7 @@ The phase records clarify implementation decisions; they do not silently
 weaken its acceptance criteria.
 
 The historical product phases above are distinct from the current P0–P3
-cross-repository integration priorities. Backend/client responsibilities,
+cross-repository integration priorities. Backend/homeowner-client/Linux-Admin responsibilities,
 privacy invariants, contract pinning, delivery order, and current API digest
 are synchronized in the
 [inventory integration roadmap](../inventory-integration-roadmap.md).

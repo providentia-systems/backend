@@ -90,6 +90,20 @@ final class SyncCommandValidator
     private function validatePayload(string $type, array $payload, ?int $baseRevision): void
     {
         match ($type) {
+            'inventory.home-category.create' => $this->shape(
+                $payload,
+                ['name'],
+                ['name'],
+                false,
+                $baseRevision,
+            ),
+            'inventory.home-category.update' => $this->shape(
+                $payload,
+                ['name', 'status'],
+                ['name', 'status'],
+                true,
+                $baseRevision,
+            ),
             'inventory.location.create' => $this->shape(
                 $payload,
                 ['name', 'kind'],
@@ -99,9 +113,16 @@ final class SyncCommandValidator
             ),
             'inventory.home-product.create' => $this->shape(
                 $payload,
-                ['productId', 'packId', 'privateName', 'originalPackText'],
-                ['productId', 'packId', 'privateName', 'originalPackText'],
+                ['productId', 'packId', 'privateName', 'originalPackText', 'homeCategoryId'],
+                ['productId', 'packId', 'privateName', 'originalPackText', 'homeCategoryId'],
                 false,
+                $baseRevision,
+            ),
+            'inventory.home-product.update' => $this->shape(
+                $payload,
+                ['privateName', 'originalPackText', 'homeCategoryId', 'status'],
+                ['privateName', 'originalPackText', 'homeCategoryId', 'status'],
+                true,
                 $baseRevision,
             ),
             'inventory.adjustment.create' => $this->shape(
@@ -222,7 +243,8 @@ final class SyncCommandValidator
     private function validateFieldTypes(string $type, array $payload): void
     {
         $uuidFields = match ($type) {
-            'inventory.home-product.create' => ['productId', 'packId'],
+            'inventory.home-product.create' => ['productId', 'packId', 'homeCategoryId'],
+            'inventory.home-product.update' => ['homeCategoryId'],
             'inventory.count-session.create' => ['locationId'],
             'inventory.count-line.upsert' => ['sessionId', 'homeProductId'],
             'purchasing.receipt.create' => ['storeId'],

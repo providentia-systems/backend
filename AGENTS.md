@@ -20,7 +20,8 @@ source .agent-env
 Read `tools/agent-requirements.json` and
 `docs/deployment/agent-development.md` before changing toolchains or workflows.
 Use `bash tools/agent-setup.sh --check` for a non-mutating setup check and
-`bash tools/agent-setup.sh --doctor` for the complete local validation lane.
+`bash tools/agent-setup.sh --matrix` for the pinned database/broker matrix.
+Use `bash tools/agent-setup.sh --doctor` for the complete local validation lane.
 Do not describe unrun checks as passing; do not weaken gates because a managed
 runner lacks package or Docker access.
 

@@ -10,7 +10,7 @@ identity/home/catalog increment, Phase 4 home-scoped synchronization protocol,
 Phase 5 ledger-backed household operations, Phase 6 privacy-controlled AI,
 Phase 7 governed catalog administration, and Phase 8 deterministic shopping
 intelligence and reporting. The generic protocol-v1 synchronization allowlist
-remains limited to `home-preference` and `private-note`; API 1.14.0 publishes
+remains limited to `home-preference` and `private-note`; API 1.15.0 publishes
 typed protocol-v2 pantry commands, home-private taxonomy, privacy-safe operator
 account controls, and an attribution-free projection of moderator-approved
 catalog contributions.
@@ -27,8 +27,14 @@ source .agent-env
 bash tools/agent-setup.sh --doctor
 ```
 
-The setup contract includes its required network endpoints and complete local
-quality/build lane. See [agent development](docs/deployment/agent-development.md).
+The setup self-provisions a SHA-256-pinned project Node.js runtime before its
+contract validation; `--check` remains non-mutating. The contract includes all
+required network endpoints and the complete local quality/build lane. See
+[agent development](docs/deployment/agent-development.md).
+
+The separate Linux Flutter operator application and its privacy-safe API
+boundary are defined in the
+[administrator control-plane architecture](docs/architecture/admin-control-plane.md).
 
 ## Requirements
 

@@ -8,6 +8,8 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Providentia\Inventory\Application\InventoryAnalyticsReader;
 use Providentia\Inventory\Application\InventoryStore;
 use Providentia\Inventory\Application\InventorySummaryReader;
@@ -16,6 +18,129 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
 {
     public function __construct(private readonly Connection $connection)
     {
+    }
+
+    public function categories(string $homeId, bool $includeArchived): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT id, name, status, revision, created_at AS createdAt,
+                    updated_at AS updatedAt, archived_at AS archivedAt
+             FROM home_categories
+             WHERE home_id = :home AND (:include_archived = 1 OR status = :active)
+             ORDER BY normalized_name, id',
+            [
+                'home' => $homeId,
+                'include_archived' => $includeArchived ? 1 : 0,
+                'active' => 'active',
+            ],
+        );
+
+        return array_map(fn (array $row): array => $this->categoryRecord($row), $rows);
+    }
+
+    public function createHomeCategory(
+        string $id,
+        string $homeId,
+        string $name,
+        string $normalizedName,
+        DateTimeImmutable $at,
+    ): void {
+        if ((int) $this->connection->fetchOne(
+            'SELECT COUNT(*) FROM home_categories
+             WHERE home_id = :home AND normalized_name = :name',
+            ['home' => $homeId, 'name' => $normalizedName],
+        ) > 0) {
+            throw new \DomainException('A category with this name already exists in the home.');
+        }
+        $now = $this->date($at);
+        try {
+            $this->connection->insert('home_categories', [
+                'id' => $id,
+                'home_id' => $homeId,
+                'name' => $name,
+                'normalized_name' => $normalizedName,
+                'status' => 'active',
+                'revision' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
+                'archived_at' => null,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            throw new \DomainException('A category with this name already exists in the home.');
+        }
+    }
+
+    public function updateHomeCategory(
+        string $homeId,
+        string $categoryId,
+        ?string $name,
+        ?string $normalizedName,
+        ?string $status,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): array {
+        $row = $this->one(
+            $this->forUpdate('SELECT id, name, normalized_name, status, revision,
+                    created_at AS createdAt, updated_at AS updatedAt, archived_at AS archivedAt
+             FROM home_categories
+             WHERE home_id = :home AND id = :id'),
+            ['home' => $homeId, 'id' => $categoryId],
+        );
+        if ($row === null) {
+            return ['status' => 'not-found'];
+        }
+        if ((int) $row['revision'] !== $expectedRevision) {
+            return ['status' => 'revision-conflict'];
+        }
+        $nextName = $name ?? (string) $row['name'];
+        $nextNormalizedName = $normalizedName ?? (string) $row['normalized_name'];
+        $nextStatus = $status ?? (string) $row['status'];
+        if ($nextNormalizedName !== (string) $row['normalized_name'] && (int) $this->connection->fetchOne(
+            'SELECT COUNT(*) FROM home_categories
+             WHERE home_id = :home AND normalized_name = :name AND id <> :id',
+            ['home' => $homeId, 'name' => $nextNormalizedName, 'id' => $categoryId],
+        ) > 0) {
+            throw new \DomainException('A category with this name already exists in the home.');
+        }
+        if ($nextStatus === 'archived' && (string) $row['status'] !== 'archived') {
+            $inUse = (int) $this->connection->fetchOne(
+                'SELECT COUNT(*) FROM home_products
+                 WHERE home_id = :home AND home_category_id = :category AND status = :active',
+                ['home' => $homeId, 'category' => $categoryId, 'active' => 'active'],
+            );
+            if ($inUse > 0) {
+                return ['status' => 'category-in-use'];
+            }
+        }
+        $now = $this->date($at);
+        try {
+            $updated = $this->connection->update('home_categories', [
+                'name' => $nextName,
+                'normalized_name' => $nextNormalizedName,
+                'status' => $nextStatus,
+                'revision' => $expectedRevision + 1,
+                'updated_at' => $now,
+                'archived_at' => $nextStatus === 'archived' ? $now : null,
+            ], ['home_id' => $homeId, 'id' => $categoryId, 'revision' => $expectedRevision]);
+        } catch (UniqueConstraintViolationException) {
+            throw new \DomainException('A category with this name already exists in the home.');
+        }
+        if ($updated !== 1) {
+            return ['status' => 'revision-conflict'];
+        }
+
+        return [
+            'status' => 'updated',
+            'record' => $this->categoryRecord([
+                'id' => $categoryId,
+                'name' => $nextName,
+                'status' => $nextStatus,
+                'revision' => $expectedRevision + 1,
+                'createdAt' => $row['createdAt'],
+                'updatedAt' => $now,
+                'archivedAt' => $nextStatus === 'archived' ? $now : null,
+            ]),
+        ];
     }
 
     public function locations(string $homeId): array
@@ -52,29 +177,45 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         ]);
     }
 
-    public function itemMaster(string $homeId, string $query, ?string $categoryId, int $limit, int $offset): array
-    {
+    public function itemMaster(
+        string $homeId,
+        string $query,
+        ?string $categoryId,
+        ?string $homeCategoryId,
+        int $limit,
+        int $offset,
+    ): array {
         $pattern = '%' . mb_strtolower($query) . '%';
-        $where = 'p.status = :published AND pk.status <> :archived
-               AND (:category_empty = :empty OR c.id = :category)
-               AND (:query_empty = :empty OR p.normalized_name LIKE :pattern
-                    OR p.normalized_brand LIKE :pattern
-                    OR pk.original_pack_text LIKE :pattern
-                    OR EXISTS (
-                        SELECT 1 FROM product_aliases a
-                        WHERE a.product_id = p.id AND a.status = :approved
-                          AND (a.scope = :global_scope
-                               OR (a.scope = :home_scope AND a.home_id = :home))
-                          AND (a.pack_id IS NULL OR a.pack_id = pk.id)
-                          AND (a.variant_id IS NULL OR a.variant_id = pk.variant_id)
-                          AND a.normalized_alias LIKE :pattern
-                    ))';
-        $filterParameters = [
+        $globalWhere = 'p.status = :published AND pk.status <> :archived
+            AND :home_category_empty = :empty
+            AND (:category_empty = :empty OR c.id = :category)
+            AND (:query_empty = :empty OR p.normalized_name LIKE :pattern
+                 OR p.normalized_brand LIKE :pattern
+                 OR pk.original_pack_text LIKE :pattern
+                 OR EXISTS (
+                     SELECT 1 FROM product_aliases a
+                     WHERE a.product_id = p.id AND a.status = :approved
+                       AND (a.scope = :global_scope
+                            OR (a.scope = :home_scope AND a.home_id = :home))
+                       AND (a.pack_id IS NULL OR a.pack_id = pk.id)
+                       AND (a.variant_id IS NULL OR a.variant_id = pk.variant_id)
+                       AND a.normalized_alias LIKE :pattern
+                 ))';
+        $privateWhere = 'hp.home_id = :home AND hp.status = :home_product_status
+            AND hp.product_id IS NULL AND hp.pack_id IS NULL
+            AND :category_empty = :empty
+            AND (:home_category_empty = :empty OR hc.id = :home_category)
+            AND (:query_empty = :empty OR hp.normalized_private_name LIKE :pattern
+                 OR hp.original_pack_text LIKE :pattern)';
+        $parameters = [
             'home' => $homeId,
             'published' => 'published',
             'archived' => 'archived',
+            'home_product_status' => 'active',
             'category_empty' => $categoryId ?? '',
             'category' => $categoryId ?? '',
+            'home_category_empty' => $homeCategoryId ?? '',
+            'home_category' => $homeCategoryId ?? '',
             'query_empty' => $query,
             'empty' => '',
             'pattern' => $pattern,
@@ -82,38 +223,51 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'global_scope' => 'global',
             'home_scope' => 'home',
         ];
-        $parameters = ['home_product_status' => 'active', ...$filterParameters];
+        $union = 'SELECT pk.id AS packId, pk.variant_id AS variantId, p.id AS productId,
+                         p.canonical_name AS canonicalName, p.brand,
+                         c.id AS categoryId, NULL AS homeCategoryId,
+                         c.canonical_name AS categoryName, :global_scope AS categorySource,
+                         pk.original_pack_text AS packText, pk.status AS packStatus,
+                         hp.id AS homeProductId, hp.status AS homeProductStatus,
+                         COALESCE(ib.quantity, 0) AS quantity,
+                         p.normalized_name AS sortName, p.normalized_brand AS sortBrand
+                  FROM product_packs pk
+                  INNER JOIN products p ON p.id = pk.product_id
+                  INNER JOIN categories c ON c.id = p.category_id
+                  LEFT JOIN home_products hp
+                    ON hp.id = (
+                        SELECT MIN(hp2.id) FROM home_products hp2
+                        WHERE hp2.home_id = :home AND hp2.pack_id = pk.id
+                          AND hp2.status = :home_product_status
+                    )
+                  LEFT JOIN inventory_balances ib
+                    ON ib.home_id = :home AND ib.home_product_id = hp.id
+                  WHERE ' . $globalWhere . '
+                  UNION ALL
+                  SELECT NULL AS packId, NULL AS variantId, NULL AS productId,
+                         hp.private_name AS canonicalName, :empty AS brand,
+                         NULL AS categoryId, hc.id AS homeCategoryId,
+                         hc.name AS categoryName,
+                         CASE WHEN hc.id IS NULL THEN NULL ELSE :home_scope END AS categorySource,
+                         COALESCE(hp.original_pack_text, :empty) AS packText,
+                         NULL AS packStatus, hp.id AS homeProductId,
+                         hp.status AS homeProductStatus, COALESCE(ib.quantity, 0) AS quantity,
+                         hp.normalized_private_name AS sortName, :empty AS sortBrand
+                  FROM home_products hp
+                  LEFT JOIN home_categories hc
+                    ON hc.id = hp.home_category_id AND hc.home_id = hp.home_id
+                  LEFT JOIN inventory_balances ib
+                    ON ib.home_id = hp.home_id AND ib.home_product_id = hp.id
+                  WHERE ' . $privateWhere;
         $items = $this->connection->fetchAllAssociative(
-            'SELECT pk.id AS packId, pk.variant_id AS variantId, p.id AS productId,
-                    p.canonical_name AS canonicalName, p.brand,
-                    c.id AS categoryId, c.canonical_name AS categoryName,
-                    pk.original_pack_text AS packText, pk.status AS packStatus,
-                    hp.id AS homeProductId, hp.status AS homeProductStatus,
-                    COALESCE(ib.quantity, 0) AS quantity
-             FROM product_packs pk
-             INNER JOIN products p ON p.id = pk.product_id
-             INNER JOIN categories c ON c.id = p.category_id
-             LEFT JOIN home_products hp
-               ON hp.id = (
-                   SELECT MIN(hp2.id) FROM home_products hp2
-                   WHERE hp2.home_id = :home AND hp2.pack_id = pk.id
-                     AND hp2.status = :home_product_status
-               )
-             LEFT JOIN inventory_balances ib
-               ON ib.home_id = :home AND ib.home_product_id = hp.id
-             WHERE ' . $where . '
-             ORDER BY p.normalized_name, p.normalized_brand, pk.original_pack_text,
-                      p.id, pk.id
+            'SELECT * FROM (' . $union . ') item_master
+             ORDER BY sortName, sortBrand, packText, productId, packId, homeProductId
              LIMIT ' . $limit . ' OFFSET ' . $offset,
             $parameters,
         );
         $total = (int) $this->connection->fetchOne(
-            'SELECT COUNT(*)
-             FROM product_packs pk
-             INNER JOIN products p ON p.id = pk.product_id
-             INNER JOIN categories c ON c.id = p.category_id
-             WHERE ' . $where,
-            $filterParameters,
+            'SELECT COUNT(*) FROM (' . $union . ') item_master_count',
+            $parameters,
         );
         if ($items === []) {
             return ['items' => [], 'total' => $total];
@@ -121,14 +275,14 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
 
         $aliases = $this->aliasesForItemMasterPage($homeId, $items);
         foreach ($items as &$item) {
-            $packId = (string) $item['packId'];
-            $item['aliases'] = $aliases[$packId] ?? [];
+            $packId = $item['packId'] === null ? null : (string) $item['packId'];
+            $item['aliases'] = $packId === null ? [] : ($aliases[$packId] ?? []);
             $item['homeProductId'] = $item['homeProductId'] === null ? null : (string) $item['homeProductId'];
             $item['homeProductStatus'] = $item['homeProductStatus'] === null
                 ? null
                 : (string) $item['homeProductStatus'];
             $item['quantity'] = (string) $item['quantity'];
-            unset($item['variantId']);
+            unset($item['variantId'], $item['sortName'], $item['sortBrand']);
         }
         unset($item);
 
@@ -141,13 +295,20 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
      */
     private function aliasesForItemMasterPage(string $homeId, array $items): array
     {
+        $globalItems = array_values(array_filter(
+            $items,
+            static fn (array $item): bool => $item['packId'] !== null && $item['productId'] !== null,
+        ));
+        if ($globalItems === []) {
+            return [];
+        }
         $packIds = array_values(array_unique(array_map(
             static fn (array $item): string => (string) $item['packId'],
-            $items,
+            $globalItems,
         )));
         $productIds = array_values(array_unique(array_map(
             static fn (array $item): string => (string) $item['productId'],
-            $items,
+            $globalItems,
         )));
         $rows = $this->connection->createQueryBuilder()
             ->select('id', 'product_id', 'variant_id', 'pack_id', 'raw_alias')
@@ -167,7 +328,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             ->fetchAllAssociative();
         $aliases = array_fill_keys($packIds, []);
         foreach ($rows as $row) {
-            foreach ($items as $item) {
+            foreach ($globalItems as $item) {
                 if ((string) $item['productId'] !== (string) $row['product_id']) {
                     continue;
                 }
@@ -188,15 +349,26 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         return $aliases;
     }
 
-    public function stock(string $homeId, string $query, ?string $categoryId, int $limit, int $offset): array
+    public function stock(
+        string $homeId,
+        string $query,
+        ?string $categoryId,
+        ?string $homeCategoryId,
+        int $limit,
+        int $offset,
+    ): array
     {
         $pattern = '%' . mb_strtolower($query) . '%';
 
-        return $this->connection->fetchAllAssociative(
+        $rows = $this->connection->fetchAllAssociative(
             'SELECT hp.id AS homeProductId, hp.product_id AS productId, hp.pack_id AS packId,
                     COALESCE(p.canonical_name, hp.private_name) AS productName,
                     COALESCE(p.brand, :empty) AS brand,
-                    c.id AS categoryId, c.canonical_name AS category,
+                    c.id AS categoryId, hc.id AS homeCategoryId,
+                    COALESCE(c.canonical_name, hc.name) AS category,
+                    COALESCE(c.canonical_name, hc.name) AS categoryName,
+                    CASE WHEN c.id IS NOT NULL THEN :global_scope
+                         WHEN hc.id IS NOT NULL THEN :home_scope ELSE NULL END AS categorySource,
                     COALESCE(pk.original_pack_text, hp.original_pack_text, :empty) AS packText,
                     COALESCE(ib.quantity, 0) AS quantity,
                     COALESCE(ib.revision, 0) AS balanceRevision,
@@ -206,6 +378,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
              FROM home_products hp
              LEFT JOIN products p ON p.id = hp.product_id
              LEFT JOIN categories c ON c.id = p.category_id
+             LEFT JOIN home_categories hc
+               ON hc.id = hp.home_category_id AND hc.home_id = hp.home_id
              LEFT JOIN product_packs pk ON pk.id = hp.pack_id
              LEFT JOIN inventory_balances ib
                ON ib.home_id = hp.home_id AND ib.home_product_id = hp.id
@@ -213,6 +387,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                ON sp.home_id = hp.home_id AND sp.home_product_id = hp.id
              WHERE hp.home_id = :home AND hp.status = :status
                AND (:category_empty = :empty OR c.id = :category)
+               AND (:home_category_empty = :empty OR hc.id = :home_category)
                AND (:query_empty = :empty
                     OR p.normalized_name LIKE :pattern
                     OR p.normalized_brand LIKE :pattern
@@ -232,13 +407,30 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                 'status' => 'active',
                 'category_empty' => $categoryId ?? '',
                 'category' => $categoryId ?? '',
+                'home_category_empty' => $homeCategoryId ?? '',
+                'home_category' => $homeCategoryId ?? '',
                 'query_empty' => $query,
                 'empty' => '',
                 'pattern' => $pattern,
                 'approved' => 'approved',
                 'global_scope' => 'global',
+                'home_scope' => 'home',
             ],
         );
+
+        return array_map(function (array $row): array {
+            $row['balanceRevision'] = (int) $row['balanceRevision'];
+            $row['revision'] = (int) $row['revision'];
+            $row['quantity'] = (string) $row['quantity'];
+            $row['minimumQuantity'] = $row['minimumQuantity'] === null
+                ? null
+                : (string) $row['minimumQuantity'];
+            $row['alwaysKeep'] = (bool) $row['alwaysKeep'];
+            $row['neverSuggest'] = (bool) $row['neverSuggest'];
+            $row['updatedAt'] = $this->atom((string) $row['updatedAt']);
+
+            return $row;
+        }, $rows);
     }
 
     public function inventoryReport(string $homeId): array
@@ -272,7 +464,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         return $this->one(
             'SELECT hp.id, hp.home_id AS homeId, hp.product_id AS productId,
                     hp.pack_id AS packId, hp.private_name AS privateName,
-                    hp.original_pack_text AS originalPackText, hp.status, hp.revision,
+                    hp.original_pack_text AS originalPackText,
+                    hp.home_category_id AS homeCategoryId, hp.status, hp.revision,
                     COALESCE(p.canonical_name, hp.private_name) AS productName
              FROM home_products hp
              LEFT JOIN products p ON p.id = hp.product_id
@@ -289,6 +482,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         ?string $privateName,
         ?string $normalizedPrivateName,
         ?string $originalPackText,
+        ?string $homeCategoryId,
         DateTimeImmutable $at,
     ): void {
         if ($productId !== null) {
@@ -315,6 +509,19 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             }
             $productId ??= (string) $catalogPack['product_id'];
         }
+        if ($homeCategoryId !== null) {
+            if ($productId !== null || $packId !== null) {
+                throw new \DomainException('A private category can only be assigned to a private product.');
+            }
+            $category = $this->one(
+                $this->forUpdate('SELECT id FROM home_categories
+                 WHERE id = :category AND home_id = :home AND status = :active'),
+                ['category' => $homeCategoryId, 'home' => $homeId, 'active' => 'active'],
+            );
+            if ($category === null) {
+                throw new \DomainException('The selected private category is unavailable.');
+            }
+        }
         $now = $this->date($at);
         $this->connection->insert('home_products', [
             'id' => $id,
@@ -324,11 +531,141 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'private_name' => $privateName,
             'normalized_private_name' => $normalizedPrivateName,
             'original_pack_text' => $originalPackText,
+            'home_category_id' => $homeCategoryId,
             'status' => 'active',
             'revision' => 1,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+    }
+
+    public function updateHomeProduct(
+        string $homeId,
+        string $homeProductId,
+        bool $privateNameProvided,
+        ?string $privateName,
+        ?string $normalizedPrivateName,
+        bool $originalPackTextProvided,
+        ?string $originalPackText,
+        bool $homeCategoryProvided,
+        ?string $homeCategoryId,
+        ?string $status,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): array {
+        $productSql = 'SELECT id, product_id AS productId, pack_id AS packId,
+                              private_name AS privateName,
+                              normalized_private_name AS normalizedPrivateName,
+                              original_pack_text AS originalPackText,
+                              home_category_id AS homeCategoryId, status, revision
+                       FROM home_products
+                       WHERE home_id = :home AND id = :id';
+        $parameters = ['home' => $homeId, 'id' => $homeProductId];
+        $row = $this->one(
+            $productSql,
+            $parameters,
+        );
+        if ($row === null) {
+            return ['status' => 'not-found'];
+        }
+        if ((int) $row['revision'] !== $expectedRevision) {
+            return ['status' => 'revision-conflict'];
+        }
+        if ($row['productId'] !== null || $row['packId'] !== null) {
+            return ['status' => 'catalog-product'];
+        }
+        $nextCategoryId = $homeCategoryProvided ? $homeCategoryId : $row['homeCategoryId'];
+        if ($nextCategoryId !== null) {
+            $category = $this->one(
+                $this->forUpdate('SELECT id FROM home_categories
+                 WHERE id = :category AND home_id = :home AND status = :active'),
+                ['category' => $nextCategoryId, 'home' => $homeId, 'active' => 'active'],
+            );
+            if ($category === null) {
+                return ['status' => 'category-unavailable'];
+            }
+        }
+        // Category changes take the category lock before the product lock, the
+        // same order used while archiving a category. Re-read the product under
+        // lock so a concurrent edit is still rejected by its revision CAS.
+        $row = $this->one($this->forUpdate($productSql), $parameters);
+        if ($row === null) {
+            return ['status' => 'not-found'];
+        }
+        if ((int) $row['revision'] !== $expectedRevision) {
+            return ['status' => 'revision-conflict'];
+        }
+        if ($row['productId'] !== null || $row['packId'] !== null) {
+            return ['status' => 'catalog-product'];
+        }
+        $nextCategoryId = $homeCategoryProvided ? $homeCategoryId : $row['homeCategoryId'];
+        $nextStatus = $status ?? (string) $row['status'];
+        if ($nextStatus === 'archived' && (string) $row['status'] !== 'archived') {
+            $balance = $this->connection->fetchOne(
+                'SELECT COALESCE(quantity, 0) FROM inventory_balances
+                 WHERE home_id = :home AND home_product_id = :product',
+                ['home' => $homeId, 'product' => $homeProductId],
+            );
+            if ($balance !== false && preg_match('/^[+-]?0+(?:\.0+)?$/', trim((string) $balance)) !== 1) {
+                return ['status' => 'balance-not-zero'];
+            }
+            $activeUse = (int) $this->connection->fetchOne(
+                'SELECT
+                    (SELECT COUNT(*) FROM stock_count_lines cl
+                     INNER JOIN stock_count_sessions cs
+                       ON cs.id = cl.session_id AND cs.home_id = cl.home_id
+                     WHERE cl.home_id = :home AND cl.home_product_id = :product
+                       AND cs.status = :open)
+                  + (SELECT COUNT(*) FROM receipt_lines rl
+                     INNER JOIN receipts r
+                       ON r.id = rl.receipt_id AND r.home_id = rl.home_id
+                     WHERE rl.home_id = :home AND rl.home_product_id = :product
+                       AND r.status NOT IN (:committed, :cancelled))',
+                [
+                    'home' => $homeId,
+                    'product' => $homeProductId,
+                    'open' => 'open',
+                    'committed' => 'committed',
+                    'cancelled' => 'cancelled',
+                ],
+            );
+            if ($activeUse > 0) {
+                return ['status' => 'product-in-use'];
+            }
+        }
+        $now = $this->date($at);
+        $nextPrivateName = $privateNameProvided ? $privateName : $row['privateName'];
+        $nextNormalizedPrivateName = $privateNameProvided
+            ? $normalizedPrivateName
+            : $row['normalizedPrivateName'];
+        $nextPackText = $originalPackTextProvided ? $originalPackText : $row['originalPackText'];
+        $updated = $this->connection->update('home_products', [
+            'private_name' => $nextPrivateName,
+            'normalized_private_name' => $nextNormalizedPrivateName,
+            'original_pack_text' => $nextPackText,
+            'home_category_id' => $nextCategoryId,
+            'status' => $nextStatus,
+            'revision' => $expectedRevision + 1,
+            'updated_at' => $now,
+        ], ['home_id' => $homeId, 'id' => $homeProductId, 'revision' => $expectedRevision]);
+        if ($updated !== 1) {
+            return ['status' => 'revision-conflict'];
+        }
+
+        return [
+            'status' => 'updated',
+            'record' => [
+                'id' => $homeProductId,
+                'productId' => null,
+                'packId' => null,
+                'privateName' => $nextPrivateName,
+                'originalPackText' => $nextPackText,
+                'homeCategoryId' => $nextCategoryId,
+                'status' => $nextStatus,
+                'revision' => $expectedRevision + 1,
+                'updatedAt' => $this->atom($now),
+            ],
+        ];
     }
 
     public function appendMovement(
@@ -344,6 +681,30 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         DateTimeImmutable $occurredAt,
         DateTimeImmutable $recordedAt,
     ): array {
+        $existing = $this->one(
+            'SELECT id FROM stock_movements
+             WHERE home_id = :home AND source_type = :source_type
+               AND source_id = :source_id AND home_product_id = :product',
+            [
+                'home' => $homeId,
+                'source_type' => $sourceType,
+                'source_id' => $sourceId,
+                'product' => $homeProductId,
+            ],
+        );
+        if ($existing !== null) {
+            return $this->movementResult($homeId, (string) $existing['id'], true);
+        }
+        $product = $this->one(
+            $this->forUpdate('SELECT id, status FROM home_products
+             WHERE home_id = :home AND id = :product'),
+            ['home' => $homeId, 'product' => $homeProductId],
+        );
+        if ($product === null || (string) $product['status'] !== 'active') {
+            throw new \DomainException('The selected home product is unavailable.');
+        }
+        // A matching request may have committed while this transaction waited
+        // for the product lock. Recheck before appending the ledger entry.
         $existing = $this->one(
             'SELECT id FROM stock_movements
              WHERE home_id = :home AND source_type = :source_type
@@ -545,12 +906,20 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         int $expectedRevision,
         DateTimeImmutable $at,
     ): bool {
-        $product = (int) $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM home_products
-             WHERE id = :product AND home_id = :home AND status = :status',
-            ['product' => $homeProductId, 'home' => $homeId, 'status' => 'active'],
+        $product = $this->one(
+            $this->forUpdate('SELECT id, status FROM home_products
+             WHERE id = :product AND home_id = :home'),
+            ['product' => $homeProductId, 'home' => $homeId],
         );
-        if ($product !== 1) {
+        if ($product === null || (string) $product['status'] !== 'active') {
+            return false;
+        }
+        $session = $this->one(
+            $this->forUpdate('SELECT id FROM stock_count_sessions
+             WHERE id = :session AND home_id = :home AND status = :status'),
+            ['session' => $sessionId, 'home' => $homeId, 'status' => 'open'],
+        );
+        if ($session === null) {
             return false;
         }
         $existing = $this->one(
@@ -781,5 +1150,34 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     private function date(DateTimeImmutable $date): string
     {
         return $date->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    }
+
+    /** @param array<string, mixed> $row */
+    private function categoryRecord(array $row): array
+    {
+        $row['revision'] = (int) $row['revision'];
+        $row['createdAt'] = $this->atom((string) $row['createdAt']);
+        $row['updatedAt'] = $this->atom((string) $row['updatedAt']);
+        $row['archivedAt'] = $row['archivedAt'] === null
+            ? null
+            : $this->atom((string) $row['archivedAt']);
+
+        return $row;
+    }
+
+    private function atom(string $date): string
+    {
+        return (new DateTimeImmutable($date, new DateTimeZone('UTC')))
+            ->setTimezone(new DateTimeZone('UTC'))
+            ->format('Y-m-d\TH:i:s\Z');
+    }
+
+    private function forUpdate(string $sql): string
+    {
+        if ($this->connection->getDatabasePlatform() instanceof SQLitePlatform) {
+            return $sql;
+        }
+
+        return $sql . ' FOR UPDATE';
     }
 }

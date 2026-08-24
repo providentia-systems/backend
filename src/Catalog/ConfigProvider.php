@@ -10,10 +10,20 @@ use Providentia\Catalog\Application\CatalogStore;
 use Providentia\Catalog\Application\CatalogAuthorization;
 use Providentia\Catalog\Application\CatalogGovernanceService;
 use Providentia\Catalog\Application\CatalogGovernanceStore;
+use Providentia\Catalog\Application\CatalogContributionPromotionService;
 use Providentia\Catalog\Application\CatalogContributionService;
+use Providentia\Catalog\Application\CatalogContributionImageService;
+use Providentia\Catalog\Application\CatalogContributionImageStore;
 use Providentia\Catalog\Application\CatalogContributionStore;
+use Providentia\Catalog\Application\CatalogImageCipher;
+use Providentia\Catalog\Application\CatalogImageSanitizer;
+use Providentia\Catalog\Application\CatalogIconPublisher;
 use Providentia\Catalog\Application\CatalogImportService;
 use Providentia\Catalog\Application\CatalogImportStore;
+use Providentia\Catalog\Application\PublishedCategoryReader;
+use Providentia\Catalog\Application\PublishedPackReader;
+use Providentia\Catalog\Http\CatalogCategoryHandler;
+use Providentia\Catalog\Http\CatalogContributionPromotionHandler;
 use Providentia\Catalog\Http\CatalogProductHandler;
 use Providentia\Catalog\Http\CatalogSearchHandler;
 use Providentia\Catalog\Infrastructure\Cli\CatalogSeedCommand;
@@ -21,6 +31,9 @@ use Providentia\Catalog\Infrastructure\Cli\CatalogRoleCommand;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogGovernanceStore;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogStore;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogContributionStore;
+use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogContributionImageStore;
+use Providentia\Catalog\Infrastructure\Image\GdCatalogImageSanitizer;
+use Providentia\Catalog\Infrastructure\Security\SodiumCatalogImageCipher;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogImportStore;
 use Providentia\Catalog\Infrastructure\Factory\CatalogContributionFactory;
 use Providentia\Catalog\Infrastructure\Factory\CatalogFactory;
@@ -35,15 +48,26 @@ final class ConfigProvider
             'dependencies' => [
                 'aliases' => [
                     CatalogStore::class => DbalCatalogStore::class,
+                    PublishedCategoryReader::class => DbalCatalogStore::class,
+                    PublishedPackReader::class => DbalCatalogStore::class,
                     CatalogGovernanceStore::class => DbalCatalogGovernanceStore::class,
+                    CatalogIconPublisher::class => DbalCatalogGovernanceStore::class,
                     CatalogContributionStore::class => DbalCatalogContributionStore::class,
+                    CatalogContributionImageStore::class => DbalCatalogContributionImageStore::class,
+                    CatalogImageSanitizer::class => GdCatalogImageSanitizer::class,
+                    CatalogImageCipher::class => SodiumCatalogImageCipher::class,
                     CatalogImportStore::class => DbalCatalogImportStore::class,
                 ],
                 'factories' => [
                     DbalCatalogStore::class => CatalogFactory::class,
                     DbalCatalogGovernanceStore::class => CatalogFactory::class,
                     DbalCatalogContributionStore::class => CatalogContributionFactory::class,
+                    DbalCatalogContributionImageStore::class => CatalogContributionFactory::class,
+                    GdCatalogImageSanitizer::class => CatalogContributionFactory::class,
+                    SodiumCatalogImageCipher::class => CatalogContributionFactory::class,
+                    CatalogContributionPromotionService::class => CatalogContributionFactory::class,
                     CatalogContributionService::class => CatalogContributionFactory::class,
+                    CatalogContributionImageService::class => CatalogContributionFactory::class,
                     DbalCatalogImportStore::class => CatalogImportFactory::class,
                     CatalogImportService::class => CatalogImportFactory::class,
                     CatalogQueryService::class => CatalogFactory::class,
@@ -51,6 +75,8 @@ final class ConfigProvider
                     CatalogAuthorization::class => CatalogFactory::class,
                     CatalogGovernanceService::class => CatalogFactory::class,
                     CatalogSearchHandler::class => CatalogFactory::class,
+                    CatalogCategoryHandler::class => CatalogFactory::class,
+                    CatalogContributionPromotionHandler::class => CatalogContributionFactory::class,
                     CatalogProductHandler::class => CatalogFactory::class,
                     'catalog.governance.proposals.submit' => CatalogFactory::class,
                     'catalog.governance.workbench' => CatalogFactory::class,
@@ -67,6 +93,10 @@ final class ConfigProvider
                     'catalog.contributions.published.list' => CatalogContributionFactory::class,
                     'catalog.contributions.review.list' => CatalogContributionFactory::class,
                     'catalog.contributions.review.decide' => CatalogContributionFactory::class,
+                    'catalog.contribution-images.upload' => CatalogContributionFactory::class,
+                    'catalog.contribution-images.preview' => CatalogContributionFactory::class,
+                    'catalog.contribution-images.publication' => CatalogContributionFactory::class,
+                    'catalog.contribution-images.content' => CatalogContributionFactory::class,
                     'catalog.imports.stage' => CatalogImportFactory::class,
                     'catalog.imports.get' => CatalogImportFactory::class,
                     'catalog.imports.confirm' => CatalogImportFactory::class,

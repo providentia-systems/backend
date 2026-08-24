@@ -34,4 +34,19 @@ final class CatalogQueryServiceTest extends TestCase
 
         self::assertSame([], (new CatalogQueryService($catalog))->search(' ', 0, 4));
     }
+
+    public function testPublishedCategoryPaginationUsesTheCatalogReadPort(): void
+    {
+        $catalog = $this->createMock(CatalogStore::class);
+        $catalog->expects(self::once())
+            ->method('publishedCategories')
+            ->with('dry', 25, 5)
+            ->willReturn([[
+                'id' => '01991f22-6b2f-7e30-8ef6-4f62cc89a002',
+                'canonicalName' => 'Dry Goods',
+                'revision' => 1,
+            ]]);
+
+        self::assertCount(1, (new CatalogQueryService($catalog))->categories(' dry ', 25, 5));
+    }
 }

@@ -38,6 +38,10 @@ interface AiStore
 
     public function removeCredential(string $homeId, string $provider, DateTimeImmutable $at): bool;
 
+    /**
+     * Receipt intake may start without a target; a supplied target must be a
+     * same-home draft. Stock intake always requires a same-home open count.
+     */
     public function targetExists(string $homeId, string $kind, ?string $targetId): bool;
 
     public function startExtraction(

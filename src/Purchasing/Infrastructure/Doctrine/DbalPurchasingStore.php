@@ -7,6 +7,7 @@ namespace Providentia\Purchasing\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Providentia\Purchasing\Application\PurchaseAnalyticsReader;
 use Providentia\Purchasing\Application\PurchaseSummaryReader;
 use Providentia\Purchasing\Application\PurchasingStore;
@@ -277,12 +278,12 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         string $actorUserId,
         DateTimeImmutable $at,
     ): bool {
-        $product = (int) $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM home_products
-             WHERE id = :product AND home_id = :home AND status = :status',
+        $product = $this->one(
+            $this->forUpdate('SELECT id FROM home_products
+             WHERE id = :product AND home_id = :home AND status = :status'),
             ['product' => $homeProductId, 'home' => $homeId, 'status' => 'active'],
         );
-        if ($product !== 1) {
+        if ($product === null) {
             return false;
         }
         $now = $this->date($at);
@@ -506,5 +507,14 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
     private function date(DateTimeImmutable $date): string
     {
         return $date->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    }
+
+    private function forUpdate(string $sql): string
+    {
+        if ($this->connection->getDatabasePlatform() instanceof SQLitePlatform) {
+            return $sql;
+        }
+
+        return $sql . ' FOR UPDATE';
     }
 }

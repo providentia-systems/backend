@@ -7,8 +7,11 @@ namespace Providentia\Catalog\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use DomainException;
 use Providentia\Catalog\Application\CatalogGovernanceStore;
+use Providentia\Catalog\Application\CatalogMergeHomeProductGateway;
 use Providentia\SharedKernel\Application\UuidGenerator;
 
 final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
@@ -16,6 +19,7 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
     public function __construct(
         private readonly Connection $connection,
         private readonly UuidGenerator $ids,
+        private readonly CatalogMergeHomeProductGateway $homeProducts,
     ) {
     }
 
@@ -26,6 +30,14 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
     public function conflictFor(string $type, string $normalizedKey, array $payload): ?array
     {
         $row = match ($type) {
+            'category' => $this->one(
+                'SELECT id AS entityId FROM categories
+                 WHERE normalized_name = :name AND status <> :archived',
+                [
+                    'name' => $this->normalize((string) $payload['canonicalName']),
+                    'archived' => 'archived',
+                ],
+            ),
             'product' => $this->one(
                 'SELECT id AS entityId FROM products
                  WHERE category_id = :category AND normalized_name = :name
@@ -68,7 +80,7 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         }
         $row['conflictKey'] = $normalizedKey;
         $row['conflictType'] = match ($type) {
-            'product', 'pack' => 'duplicate',
+            'category', 'product', 'pack' => 'duplicate',
             'alias' => 'alias',
             'barcode' => 'barcode',
             default => 'unknown',
@@ -109,7 +121,7 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
             return;
         }
         $conflictType = match ($type) {
-            'product', 'pack' => 'duplicate',
+            'category', 'product', 'pack' => 'duplicate',
             'alias' => 'alias',
             'barcode' => 'barcode',
             default => 'unknown',
@@ -152,6 +164,25 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         unset($row['proposalJson']);
 
         return $row;
+    }
+
+    public function proposalSourceEligible(string $proposalId): bool
+    {
+        $sql = 'SELECT c.moderation_status AS contributionStatus, c.revision,
+                       l.contribution_revision AS linkedRevision
+                FROM catalog_contribution_proposals l
+                INNER JOIN catalog_contributions c ON c.id = l.contribution_id
+                WHERE l.proposal_id = :proposal';
+        if (! $this->connection->getDatabasePlatform() instanceof SQLitePlatform) {
+            $sql .= ' FOR UPDATE';
+        }
+        $row = $this->one($sql, ['proposal' => $proposalId]);
+        if ($row === null) {
+            return true;
+        }
+
+        return (string) $row['contributionStatus'] === 'approved'
+            && (int) $row['revision'] === (int) $row['linkedRevision'];
     }
 
     public function workbench(string $queue, int $limit, int $offset): array
@@ -255,22 +286,44 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         $type = (string) $proposal['proposalType'];
         $now = $this->date($at);
 
+        if ($type === 'category') {
+            try {
+                $this->connection->insert('categories', [
+                    'id' => $entityId,
+                    'parent_id' => null,
+                    'canonical_name' => $payload['canonicalName'],
+                    'normalized_name' => $this->normalize((string) $payload['canonicalName']),
+                    'status' => 'published',
+                    'revision' => 1,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                throw new DomainException('A matching category was published concurrently.');
+            }
+
+            return ['entityType' => 'category', 'entityId' => $entityId];
+        }
         if ($type === 'product') {
             if (! $this->exists('categories', (string) $payload['categoryId'], 'published')) {
                 throw new DomainException('The proposed category is unavailable.');
             }
-            $this->connection->insert('products', [
-                'id' => $entityId,
-                'category_id' => $payload['categoryId'],
-                'canonical_name' => $payload['canonicalName'],
-                'normalized_name' => $this->normalize((string) $payload['canonicalName']),
-                'brand' => $payload['brand'],
-                'normalized_brand' => $this->normalize((string) $payload['brand']),
-                'status' => 'published',
-                'revision' => 1,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
+            try {
+                $this->connection->insert('products', [
+                    'id' => $entityId,
+                    'category_id' => $payload['categoryId'],
+                    'canonical_name' => $payload['canonicalName'],
+                    'normalized_name' => $this->normalize((string) $payload['canonicalName']),
+                    'brand' => $payload['brand'],
+                    'normalized_brand' => $this->normalize((string) $payload['brand']),
+                    'status' => 'published',
+                    'revision' => 1,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                throw new DomainException('A matching product was published concurrently.');
+            }
 
             return ['entityType' => 'product', 'entityId' => $entityId];
         }
@@ -529,6 +582,20 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         if (! $this->exists($table, $targetId, 'published')) {
             throw new DomainException('The icon target is unavailable.');
         }
+        $asset = $this->one(
+            'SELECT media_type AS mediaType, width, height, byte_size AS byteSize
+             FROM catalog_public_assets WHERE asset_digest = :digest',
+            ['digest' => $assetDigest],
+        );
+        if (
+            $asset === null
+            || (string) $asset['mediaType'] !== $mediaType
+            || (int) $asset['width'] !== $width
+            || (int) $asset['height'] !== $height
+            || (int) $asset['byteSize'] !== $byteSize
+        ) {
+            throw new DomainException('The icon asset is unavailable or its metadata does not match.');
+        }
         $existing = $this->one(
             'SELECT id, revision, asset_digest AS assetDigest
              FROM catalog_icons
@@ -537,31 +604,31 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
             ['type' => $targetType, 'target' => $targetId, 'status' => 'active'],
         );
         $now = $this->date($at);
-        $targetTable = $targetType === 'product' ? 'products' : 'categories';
-        if (! $this->exists($targetTable, $targetId, 'published')) {
-            throw new DomainException('The icon target is unavailable.');
-        }
         if ($existing === null) {
             if ($expectedRevision !== 0) {
                 throw new DomainException('The icon revision is stale.');
             }
-            $this->connection->insert('catalog_icons', [
-                'id' => $id,
-                'target_type' => $targetType,
-                'target_id' => $targetId,
-                'asset_digest' => $assetDigest,
-                'media_type' => $mediaType,
-                'provenance' => $provenance,
-                'status' => 'active',
-                'revision' => 1,
-                'alt_text' => $altText,
-                'width' => $width,
-                'height' => $height,
-                'byte_size' => $byteSize,
-                'updated_by_user_id' => $actorUserId,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
+            try {
+                $this->connection->insert('catalog_icons', [
+                    'id' => $id,
+                    'target_type' => $targetType,
+                    'target_id' => $targetId,
+                    'asset_digest' => $assetDigest,
+                    'media_type' => $mediaType,
+                    'provenance' => $provenance,
+                    'status' => 'active',
+                    'revision' => 1,
+                    'alt_text' => $altText,
+                    'width' => $width,
+                    'height' => $height,
+                    'byte_size' => $byteSize,
+                    'updated_by_user_id' => $actorUserId,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                throw new DomainException('The icon was created concurrently.');
+            }
             $iconId = $id;
             $revision = 1;
             $before = null;
@@ -657,7 +724,7 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
             $counts['variants'] += $this->count('product_variants', 'product_id', $duplicateId);
             $counts['packs'] += $this->count('product_packs', 'product_id', $duplicateId);
             $counts['aliases'] += $this->count('product_aliases', 'product_id', $duplicateId);
-            $counts['homeReferences'] += $this->count('home_products', 'product_id', $duplicateId);
+            $counts['homeReferences'] += count($this->homeProducts->references($duplicateId));
             $counts['icons'] += (int) $this->connection->fetchOne(
                 'SELECT COUNT(*) FROM catalog_icons
                  WHERE target_type = :type AND target_id = :id AND status = :status',
@@ -963,10 +1030,25 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
                 }
             }
         }
+        foreach ($this->homeProducts->references($duplicateId) as $referenceId) {
+            $this->connection->insert('catalog_merge_relinks', [
+                'merge_event_id' => $mergeId,
+                'duplicate_product_id' => $duplicateId,
+                'reference_type' => 'home_product',
+                'reference_id' => $referenceId,
+                'created_at' => $this->date($at),
+            ]);
+            if (! $this->homeProducts->relink($referenceId, $duplicateId, $survivorId)) {
+                throw new DomainException('A home product reference changed during the merge.');
+            }
+        }
     }
 
     private function referencePointsTo(string $type, string $referenceId, string $survivorId): bool
     {
+        if ($type === 'home_product') {
+            return $this->homeProducts->pointsTo($referenceId, $survivorId);
+        }
         $definitions = $this->referenceDefinitions();
         if (! isset($definitions[$type])) {
             return false;
@@ -994,6 +1076,13 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         string $duplicateId,
         string $survivorId,
     ): void {
+        if ($type === 'home_product') {
+            if (! $this->homeProducts->relink($referenceId, $survivorId, $duplicateId)) {
+                throw new DomainException('A merge reference could not be restored.');
+            }
+
+            return;
+        }
         $definitions = $this->referenceDefinitions();
         if (! isset($definitions[$type])) {
             throw new DomainException('A merge reference type is invalid.');
@@ -1029,7 +1118,6 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
             'variant' => ['table' => 'product_variants'],
             'pack' => ['table' => 'product_packs'],
             'alias' => ['table' => 'product_aliases'],
-            'home_product' => ['table' => 'home_products'],
             'catalog_icon' => ['table' => 'catalog_icons'],
         ];
     }

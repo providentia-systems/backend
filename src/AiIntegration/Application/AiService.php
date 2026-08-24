@@ -342,6 +342,58 @@ final class AiService
     }
 
     /** @return array<string, mixed> */
+    public function revokeProviderProfileCredential(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $profileId,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
+        if (preg_match('/^[A-Za-z0-9-]{1,36}$/', $profileId) !== 1 || $expectedRevision < 1) {
+            throw new Problem(
+                422,
+                'Invalid AI provider profile',
+                'A valid profile identity and positive expected revision are required.',
+            );
+        }
+        $profile = $this->maturity->providerProfile($homeId, $profileId);
+        if ($profile === null || (string) ($profile['status'] ?? '') !== 'active') {
+            throw new Problem(404, 'Not found', 'The provider profile is unavailable.');
+        }
+        if ((int) ($profile['revision'] ?? 0) !== $expectedRevision) {
+            throw new Problem(409, 'Revision conflict', 'The provider profile changed on another device.');
+        }
+        if (
+            ($profile['ciphertext'] ?? null) === null
+            && ($profile['nonce'] ?? null) === null
+            && ($profile['keyVersion'] ?? null) === null
+            && ($profile['lastFour'] ?? null) === null
+        ) {
+            return $this->publicProfile($profile);
+        }
+        $revoked = $this->transactions->transactional(
+            fn (): bool => $this->maturity->revokeProviderProfileCredential(
+                $this->ids->generate(),
+                $homeId,
+                $profileId,
+                $expectedRevision,
+                $identity->userId,
+                $this->clock->now(),
+            ),
+        );
+        if (! $revoked) {
+            throw new Problem(409, 'Revision conflict', 'The provider profile changed on another device.');
+        }
+        $profile['ciphertext'] = null;
+        $profile['nonce'] = null;
+        $profile['keyVersion'] = null;
+        $profile['lastFour'] = null;
+        $profile['revision'] = $expectedRevision + 1;
+
+        return $this->publicProfile($profile);
+    }
+
+    /** @return array<string, mixed> */
     public function orchestrationPolicy(AuthenticatedIdentity $identity, string $homeId): array
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_READ);
@@ -910,12 +962,22 @@ final class AiService
      */
     private function publicProfiles(array $profiles): array
     {
-        return array_map(static function (array $profile): array {
-            unset($profile['ciphertext'], $profile['nonce'], $profile['keyVersion']);
-            $profile['credentialConfigured'] = ($profile['lastFour'] ?? null) !== null;
+        return array_map(fn (array $profile): array => $this->publicProfile($profile), $profiles);
+    }
 
-            return $profile;
-        }, $profiles);
+    /** @param array<string, mixed> $profile @return array<string, mixed> */
+    private function publicProfile(array $profile): array
+    {
+        return [
+            'id' => (string) $profile['id'],
+            'label' => (string) $profile['label'],
+            'provider' => (string) $profile['provider'],
+            'model' => (string) $profile['model'],
+            'credentialConfigured' => is_string($profile['ciphertext'] ?? null),
+            'lastFour' => isset($profile['lastFour']) ? (string) $profile['lastFour'] : null,
+            'estimatedCostMicros' => (int) $profile['estimatedCostMicros'],
+            'revision' => (int) $profile['revision'],
+        ];
     }
 
     /**

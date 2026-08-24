@@ -26,6 +26,10 @@ final class ProductionConfigurationTest extends TestCase
                 'AI_SERVER_PROXY_ENABLED',
                 'AI_CREDENTIAL_KEK',
                 'AI_MEDIA_KEK',
+                'AI_MAX_IMAGES',
+                'CATALOG_IMAGE_KEK',
+                'CATALOG_IMAGE_KEY_VERSION',
+                'CATALOG_IMAGE_PREVIOUS_KEYS_JSON',
                 'NOTIFICATION_PAYLOAD_KEK',
                 'DATA_EXPORT_KEK',
                 'BILLING_ENABLED',
@@ -116,6 +120,50 @@ final class ProductionConfigurationTest extends TestCase
         require dirname(__DIR__, 3) . '/config/autoload/global.php';
     }
 
+    public function testDirectAiImageCountCannotExceedTheHttpUploadBoundary(): void
+    {
+        $this->productionEnvironment();
+        putenv('AI_MAX_IMAGES=16');
+
+        /** @var array{ai: array{max_images: int}} $config */
+        $config = require dirname(__DIR__, 3) . '/config/autoload/global.php';
+
+        self::assertSame(8, $config['ai']['max_images']);
+    }
+
+    public function testProductionCatalogImagesRequireAnIndependentEnvelopeEncryptionKey(): void
+    {
+        $this->productionEnvironment();
+        putenv('CATALOG_IMAGE_KEK=invalid');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('CATALOG_IMAGE_KEK');
+        require dirname(__DIR__, 3) . '/config/autoload/global.php';
+    }
+
+    public function testCatalogImageReadKeyRingRejectsTheCurrentOrMalformedVersions(): void
+    {
+        $this->productionEnvironment();
+        putenv('CATALOG_IMAGE_KEY_VERSION=2');
+        putenv('CATALOG_IMAGE_PREVIOUS_KEYS_JSON=' . json_encode([
+            ['version' => 2, 'kek' => base64_encode(str_repeat('o', 32))],
+        ], JSON_THROW_ON_ERROR));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Previous catalog image keys need unique positive versions');
+        require dirname(__DIR__, 3) . '/config/autoload/global.php';
+    }
+
+    public function testCatalogImageWriteKeyVersionMustBePositive(): void
+    {
+        $this->productionEnvironment();
+        putenv('CATALOG_IMAGE_KEY_VERSION=0');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('CATALOG_IMAGE_KEY_VERSION must be a positive');
+        require dirname(__DIR__, 3) . '/config/autoload/global.php';
+    }
+
     public function testProductionPayPalRequiresServerCredentialsAndWebhookIdentity(): void
     {
         $this->productionEnvironment();
@@ -156,6 +204,10 @@ final class ProductionConfigurationTest extends TestCase
         putenv('AI_SERVER_PROXY_ENABLED=0');
         putenv('AI_CREDENTIAL_KEK=');
         putenv('AI_MEDIA_KEK=' . base64_encode(str_repeat('m', 32)));
+        putenv('AI_MAX_IMAGES=8');
+        putenv('CATALOG_IMAGE_KEK=' . base64_encode(str_repeat('c', 32)));
+        putenv('CATALOG_IMAGE_KEY_VERSION=1');
+        putenv('CATALOG_IMAGE_PREVIOUS_KEYS_JSON=[]');
         putenv('NOTIFICATION_PAYLOAD_KEK=' . base64_encode(str_repeat('n', 32)));
         putenv('DATA_EXPORT_KEK=' . base64_encode(str_repeat('e', 32)));
         putenv('BILLING_ENABLED=0');

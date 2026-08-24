@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Providentia\Catalog\Application;
 
 use JsonException;
-use Providentia\Home\Application\HomeAuthorization;
-use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\Clock;
@@ -50,7 +48,7 @@ final class CatalogImportService
 
     public function __construct(
         private readonly CatalogImportStore $store,
-        private readonly HomeAuthorization $homes,
+        private readonly CatalogHomeAccess $homes,
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
@@ -68,7 +66,7 @@ final class CatalogImportService
         string $idempotencyKey,
         array $records,
     ): array {
-        $this->homes->requirePermission($identity, $homeId, HomePermission::CATALOG_IMPORT);
+        $this->homes->requireImport($identity, $homeId);
         $idempotencyKey = trim($idempotencyKey);
         if (strlen($idempotencyKey) < 8 || strlen($idempotencyKey) > 128) {
             throw new Problem(422, 'Invalid catalog import', 'An 8 to 128 character Idempotency-Key is required.');
@@ -156,7 +154,7 @@ final class CatalogImportService
     /** @return array<string, mixed> */
     public function get(AuthenticatedIdentity $identity, string $homeId, string $batchId): array
     {
-        $this->homes->requirePermission($identity, $homeId, HomePermission::CATALOG_IMPORT);
+        $this->homes->requireImport($identity, $homeId);
         $batch = $this->store->batch($homeId, $batchId);
         if ($batch === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
@@ -173,7 +171,7 @@ final class CatalogImportService
         int $expectedRevision,
         string $confirmation,
     ): array {
-        $this->homes->requirePermission($identity, $homeId, HomePermission::CATALOG_IMPORT);
+        $this->homes->requireImport($identity, $homeId);
         if ($confirmation !== self::CONFIRMATION || $expectedRevision < 1) {
             throw new Problem(
                 422,

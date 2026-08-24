@@ -6,7 +6,7 @@ namespace Providentia\Catalog\Application;
 
 use DateTimeImmutable;
 
-interface CatalogGovernanceStore
+interface CatalogGovernanceStore extends CatalogIconPublisher
 {
     /**
      * @param array<string, mixed> $payload
@@ -28,6 +28,12 @@ interface CatalogGovernanceStore
 
     /** @return array<string, mixed>|null */
     public function proposal(string $id): ?array;
+
+    /**
+     * Standalone proposals are eligible. Contribution-linked proposals are
+     * eligible only while their approved source and linked revision remain current.
+     */
+    public function proposalSourceEligible(string $proposalId): bool;
 
     /** @return list<array<string, mixed>> */
     public function workbench(string $queue, int $limit, int $offset): array;
@@ -63,24 +69,6 @@ interface CatalogGovernanceStore
         string $revisionId,
         DateTimeImmutable $at,
     ): bool;
-
-    /** @return array{id: string, revision: int} */
-    public function putIcon(
-        string $id,
-        string $targetType,
-        string $targetId,
-        string $assetDigest,
-        string $mediaType,
-        string $altText,
-        int $width,
-        int $height,
-        int $byteSize,
-        string $provenance,
-        int $expectedRevision,
-        string $actorUserId,
-        string $revisionId,
-        DateTimeImmutable $at,
-    ): array;
 
     /**
      * @param list<string> $duplicateIds

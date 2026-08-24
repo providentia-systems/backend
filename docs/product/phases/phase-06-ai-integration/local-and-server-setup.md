@@ -43,20 +43,38 @@ provider and local Ollama tests remain explicit opt-in checks.
 
 ## API smoke path
 
+For direct multi-image extraction, send the primary file as multipart `image`
+and every additional observation as a repeated part named exactly `images[]`.
+Do not repeat a bare `images` name: standard PHP request parsing only builds the
+handler's `images` array from the bracketed wire name. The configured total
+image count and per-image byte limits apply before provider dispatch.
+
 With an authenticated owner/manager token and a disposable home:
 
 1. verify settings return `manual_only` before configuration;
 2. enter a credential where required and confirm only `lastFour` returns;
 3. enable `server_proxy` with settings revision `0`;
-4. submit one metadata-free synthetic JPEG/PNG/WebP using multipart fields
-   `kind`, optional `targetId`, `transmissionConsent=true`, and `image`;
+4. for receipt intake, submit metadata-free synthetic JPEG/PNG/WebP without a
+   `targetId`; the normal draft receipt is created only after accepted review
+   handoff. For stock intake, first create/synchronize an open count session and
+   submit its required `targetId`. A supplied receipt target must be a same-home
+   draft; a stock target must be a same-home open count. Both use
+   `transmissionConsent=true` and `image`;
 5. retrieve the extraction and confirm `review_required`, schema/prompt
    versions, digest, duration, candidates, and no media field;
 6. accept or reject a candidate with `expectedRevision=1`;
 7. verify a stale repeat returns `409`;
 8. verify inventory and receipt/count revisions are unchanged;
-9. submit a corrected normal receipt-line or count-line command;
-10. revoke the credential and return the home to `manual_only`.
+9. submit corrected accepted facts through the normal revisioned receipt-line
+   or count-line command and use its existing idempotent approve/commit flow;
+10. revoke a profile credential with revision-bound
+    `DELETE /api/v1/homes/{homeId}/ai/profiles/{profileId}/credential`. Confirm
+    the response contains `credentialConfigured=false`, `lastFour=null`, and
+    no encrypted fields. Policy references deliberately do not block emergency
+    revocation; an extraction through that profile must then fail closed. A
+    retry with the pre-revocation revision returns `409`, while a current-
+    revision delete of an already-clear profile is an idempotent `200`;
+11. return the home to `manual_only`.
 
 Negative checks must cover oversized input, MIME/magic mismatch, EXIF-bearing
 input, missing consent, unrelated/medical classification, invalid JSON,

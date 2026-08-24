@@ -14,10 +14,14 @@ use Providentia\Identity\Application\IdentityStore;
 use Providentia\Identity\Application\LoginLinkService;
 use Providentia\Identity\Application\LoginLinkStore;
 use Providentia\Identity\Application\PlatformAdministratorService;
+use Providentia\Identity\Application\PlatformRoleService;
+use Providentia\Identity\Application\PlatformRoleStore;
 use Providentia\Identity\Application\NotificationDeliveryService;
 use Providentia\Identity\Application\NotificationOutbox;
 use Providentia\Identity\Application\NotificationPayloadCipher;
 use Providentia\Identity\Application\NotificationTransport;
+use Providentia\Identity\Application\OperatorAccountControl;
+use Providentia\Identity\Application\OperatorIdentityDirectory;
 use Providentia\Identity\Application\QueuedAccountNotificationSender;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
@@ -27,6 +31,7 @@ use Providentia\Identity\Infrastructure\Doctrine\DbalLoginLinkStore;
 use Providentia\Identity\Infrastructure\Doctrine\DbalNotificationOutbox;
 use Providentia\Identity\Infrastructure\Cli\LoginLinkPurgeCommand;
 use Providentia\Identity\Infrastructure\Cli\NotificationDeliverCommand;
+use Providentia\Identity\Infrastructure\Cli\PlatformRoleCommand;
 use Providentia\Identity\Infrastructure\Doctrine\DbalAuthenticationRateLimitStore;
 use Providentia\Identity\Infrastructure\Factory\IdentityFactory;
 use Providentia\Identity\Infrastructure\Notification\SmtpAccountNotificationSender;
@@ -42,6 +47,9 @@ final class ConfigProvider
             'dependencies' => [
                 'aliases' => [
                     IdentityStore::class => DbalIdentityStore::class,
+                    OperatorAccountControl::class => DbalIdentityStore::class,
+                    OperatorIdentityDirectory::class => DbalIdentityStore::class,
+                    PlatformRoleStore::class => DbalIdentityStore::class,
                     LoginLinkStore::class => DbalLoginLinkStore::class,
                     CredentialHasher::class => NativeCredentialHasher::class,
                     AccountNotificationSender::class => QueuedAccountNotificationSender::class,
@@ -62,10 +70,12 @@ final class ConfigProvider
                     NotificationDeliveryService::class => IdentityFactory::class,
                     NotificationDeliverCommand::class => IdentityFactory::class,
                     LoginLinkPurgeCommand::class => IdentityFactory::class,
+                    PlatformRoleCommand::class => IdentityFactory::class,
                     AuthenticationService::class => IdentityFactory::class,
                     CurrentUserService::class => IdentityFactory::class,
                     LoginLinkService::class => IdentityFactory::class,
                     PlatformAdministratorService::class => IdentityFactory::class,
+                    PlatformRoleService::class => IdentityFactory::class,
                     BearerAuthenticationMiddleware::class => IdentityFactory::class,
                     AuthenticationRateLimiter::class => IdentityFactory::class,
                     AuthenticationRateLimitMiddleware::class => IdentityFactory::class,
@@ -100,6 +110,7 @@ final class ConfigProvider
                 'commands' => [
                     'notification:deliver' => NotificationDeliverCommand::class,
                     'login-link:purge' => LoginLinkPurgeCommand::class,
+                    'platform:role' => PlatformRoleCommand::class,
                 ],
             ],
         ];

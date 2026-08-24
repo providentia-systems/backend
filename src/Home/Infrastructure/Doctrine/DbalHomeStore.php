@@ -6,13 +6,15 @@ namespace Providentia\Home\Infrastructure\Doctrine;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomePermission;
 use Providentia\Home\Application\HomeStore;
+use Providentia\Home\Application\OperatorHomeAccessReader;
 
-final class DbalHomeStore implements HomeStore
+final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
 {
     public function __construct(private readonly Connection $connection)
     {
@@ -53,7 +55,7 @@ final class DbalHomeStore implements HomeStore
     }
 
     public function updateHome(
-        string $homeId,
+        ?string $homeId,
         string $name,
         string $locale,
         string $currency,
@@ -91,6 +93,34 @@ final class DbalHomeStore implements HomeStore
              ORDER BY h.name, h.id',
             ['user' => $userId, 'member_status' => 'active', 'home_status' => 'active'],
         );
+    }
+
+    public function operatorHomeAccess(array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+        $rows = $this->connection->executeQuery(
+            'SELECT m.user_id AS userId, h.id AS homeId, h.name,
+                    m.role AS membershipRole, m.status AS membershipStatus
+             FROM home_memberships m INNER JOIN homes h ON h.id = m.home_id
+             WHERE m.user_id IN (:users)
+             ORDER BY m.user_id, h.name, h.id',
+            ['users' => array_values(array_unique($userIds))],
+            ['users' => ArrayParameterType::STRING],
+        )->fetchAllAssociative();
+        $access = array_fill_keys($userIds, []);
+        foreach ($rows as $row) {
+            $userId = (string) $row['userId'];
+            $access[$userId][] = [
+                'homeId' => (string) $row['homeId'],
+                'name' => (string) $row['name'],
+                'membershipRole' => (string) $row['membershipRole'],
+                'membershipStatus' => (string) $row['membershipStatus'],
+            ];
+        }
+
+        return $access;
     }
 
     public function findHome(string $homeId): ?array

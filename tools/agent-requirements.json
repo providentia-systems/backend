@@ -4,10 +4,23 @@
   "runtime": {
     "php": "8.5.9",
     "composer": "2.10.2",
-    "composerPharSha256": "5ee7125f8a30a34d246cefdc0bc85b8a783b28f2aec968994118512350d28027",
+    "gdWebp": "bundled-php-8.5.9",
     "redisExtension": "6.3.0",
     "xdebug": "3.5.3",
+    "node": "22.14.0",
     "nodeMinimum": "18.19.0"
+  },
+  "nodeDownloads": {
+    "linux": {
+      "x64": {
+        "url": "https://nodejs.org/download/release/v22.14.0/node-v22.14.0-linux-x64.tar.xz",
+        "sha256": "69b09dba5c8dcb05c4e4273a4340db1005abeafe3927efda2bc5b249e80437ec"
+      },
+      "arm64": {
+        "url": "https://nodejs.org/download/release/v22.14.0/node-v22.14.0-linux-arm64.tar.xz",
+        "sha256": "08bfbf538bad0e8cbb0269f0173cca28d705874a67a22f60b57d99dc99e30050"
+      }
+    }
   },
   "linux": {
     "aptPackages": [
@@ -20,6 +33,7 @@
       "nodejs",
       "openssl",
       "ripgrep",
+      "xz-utils",
       "unzip",
       "zip"
     ]
@@ -40,6 +54,7 @@
     "api.github.com",
     "objects.githubusercontent.com",
     "codeload.github.com",
+    "nodejs.org",
     "repo.packagist.org",
     "packagist.org",
     "pecl.php.net",
@@ -57,6 +72,7 @@
     "composer test:coverage && composer coverage:check",
     "composer test:mutation",
     "composer audit --locked",
+    "bash tools/agent-setup.sh --matrix",
     "docker compose --profile sqlite --profile mysql --profile mariadb --profile redis --profile valkey config --quiet",
     "docker build --file Dockerfile.production --target runtime .",
     "docker build --file Dockerfile.production --target media-worker .",

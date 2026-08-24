@@ -75,6 +75,22 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                   AND c.entity_id = ";
 
         return [
+            // Dependency order matters for a clean bootstrap: private
+            // categories must arrive before products that reference them.
+            'inventory-home-category' =>
+                'SELECT t.home_id, t.id AS entity_id, t.revision,
+                        NULL AS actor_user_id, t.updated_at AS changed_at,
+                        t.name, t.status
+                 FROM home_categories t'
+                . $missing('inventory-home-category') . 't.id)',
+            'inventory-home-product' =>
+                'SELECT t.home_id, t.id AS entity_id, t.revision,
+                        NULL AS actor_user_id, t.updated_at AS changed_at,
+                        t.product_id, t.pack_id, t.private_name,
+                        t.home_category_id,
+                        t.original_pack_text, t.status
+                 FROM home_products t'
+                . $missing('inventory-home-product') . 't.id)',
             'inventory-balance' =>
                 'SELECT t.home_id, t.home_product_id AS entity_id, t.revision,
                         sm.actor_user_id, t.updated_at AS changed_at,
@@ -96,13 +112,6 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                         t.scope_complete, t.reliability, t.status
                  FROM stock_count_sessions t'
                 . $missing('inventory-count-session') . 't.id)',
-            'inventory-home-product' =>
-                'SELECT t.home_id, t.id AS entity_id, t.revision,
-                        NULL AS actor_user_id, t.updated_at AS changed_at,
-                        t.product_id, t.pack_id, t.private_name,
-                        t.original_pack_text, t.status
-                 FROM home_products t'
-                . $missing('inventory-home-product') . 't.id)',
             'inventory-location' =>
                 'SELECT t.home_id, t.id AS entity_id, t.revision,
                         NULL AS actor_user_id, t.updated_at AS changed_at,
@@ -154,6 +163,10 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
     private function record(string $entityType, array $row): SyncBackfillRecord
     {
         $representation = match ($entityType) {
+            'inventory-home-category' => [
+                'name' => (string) $row['name'],
+                'status' => (string) $row['status'],
+            ],
             'inventory-balance' => [
                 'homeProductId' => (string) $row['entity_id'],
                 'quantity' => (string) $row['quantity'],
@@ -180,6 +193,7 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'packId' => $this->nullableString($row['pack_id']),
                 'privateName' => $this->nullableString($row['private_name']),
                 'originalPackText' => $this->nullableString($row['original_pack_text']),
+                'homeCategoryId' => $this->nullableString($row['home_category_id']),
                 'status' => (string) $row['status'],
             ],
             'inventory-location' => [

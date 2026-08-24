@@ -51,20 +51,67 @@ bash tests/structural/verify.sh
 
 ## Remote deployment
 
-- Run `Version20260730000700` before enabling catalog-admin routes.
+- Run all migrations through `Version20260824002000` before enabling the
+  contribution-image routes.
+- Build PHP with GD JPEG/PNG/WebP support. The source, production, and agent
+  images verify `imagewebp` support; do not accept uploads on an image that
+  lacks it.
+- Generate a dedicated catalog-image key independently from AI media and other
+  deployment keys:
+
+  ```bash
+  openssl rand -base64 32
+  ```
+
+  Store it as `CATALOG_IMAGE_KEK`, set
+  `CATALOG_IMAGE_KEY_VERSION=1`, and start with
+  `CATALOG_IMAGE_PREVIOUS_KEYS_JSON=[]`. Never commit or bake these values into
+  an image. Uploads are capped at five MiB, 4096 pixels on either axis, and
+  16,777,216 decoded pixels; the HTTP proxy and PHP request limits must remain
+  at least as strict as the checked-in configuration.
 - Grant roles from a protected operator shell, never through direct browser
   requests or client-supplied claims.
 - Place catalog-admin routes behind normal TLS, authentication, request limits,
   rate limits, and privileged-access monitoring.
-- Restrict the external public-asset bucket to scanned content-addressed
-  objects; raw uploads must not be served as active catalog icons.
+- Serve only the attribution-free, sanitized public-asset table through its
+  digest-addressed endpoint. Raw uploads and encrypted quarantine rows must
+  never be served as active catalog icons.
 - Alert on conflict backlog, stale pending proposals, merge/reversal failures,
   role changes, and unusually high moderation volume.
 - Back up merge events, relink ledgers, redirects, revisions, and audit events
-  with the catalog tables.
+  with the catalog tables, encrypted image BLOBs, and key-version inventory.
 - Restore into staging and test an old redirected product ID plus one merge
   reversal before declaring the backup usable.
 
 Do not seed production roles with shared accounts. Use named verified users,
 least privilege, session revocation on departure, and periodic review of
 active `user_platform_roles`.
+
+## Catalog image key rotation
+
+`CATALOG_IMAGE_KEK` is always the write key. Previous read keys use a closed
+JSON list, for example:
+
+```text
+CATALOG_IMAGE_KEY_VERSION=2
+CATALOG_IMAGE_KEK=<new-version-2-base64-key>
+CATALOG_IMAGE_PREVIOUS_KEYS_JSON=[{"version":1,"kek":"<old-version-1-base64-key>"}]
+```
+
+Versions must be unique positive integers and every key must decode to exactly
+32 bytes. Rotation order is deliberate:
+
+1. add the old write key to the previous-key list and deploy the new write key
+   and incremented version together;
+2. verify moderator preview and public reads for synthetic assets written under
+   every retained version, then verify a new upload is stored at the new
+   version;
+3. re-encrypt all remaining quarantine and public-asset rows under the current
+   key in a separately reviewed maintenance operation;
+4. prove no row references the old version before removing that read key from
+   the secret manager and configuration.
+
+This release provides the bounded read-key ring but no automatic bulk
+re-encryption command. Removing an old key early intentionally fails closed
+for media still using that version. Keep key escrow separate from database
+backups and record rotation and restore rehearsals in the release evidence.

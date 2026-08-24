@@ -49,6 +49,7 @@ final class InventoryServiceTest extends TestCase
                 self::HOME_ID,
                 '',
                 null,
+                null,
                 100,
                 0,
             );
@@ -88,7 +89,7 @@ final class InventoryServiceTest extends TestCase
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::once())
             ->method('itemMaster')
-            ->with(self::HOME_ID, 'beans', null, 2, 0)
+            ->with(self::HOME_ID, 'beans', null, null, 2, 0)
             ->willReturn([
                 'items' => [
                     ['packId' => 'pack-1'],
@@ -115,9 +116,46 @@ final class InventoryServiceTest extends TestCase
             self::HOME_ID,
             'beans',
             null,
+            null,
             2,
             0,
         ));
+    }
+
+    public function testItemMasterRejectsMixedGlobalAndPrivateCategoryFilters(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $store->expects(self::never())->method('itemMaster');
+
+        $this->expectException(Problem::class);
+        $this->expectExceptionMessage('Use either categoryId');
+        $this->service($store)->itemMaster(
+            $this->identity(),
+            self::HOME_ID,
+            '',
+            self::PRODUCT_ID,
+            self::SESSION_ID,
+            100,
+            0,
+        );
+    }
+
+    public function testItemMasterRejectsAMalformedCategoryFilterBeforeQueryingTheStore(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $store->expects(self::never())->method('itemMaster');
+
+        $this->expectException(Problem::class);
+        $this->expectExceptionMessage('Category filters must be UUIDs.');
+        $this->service($store)->itemMaster(
+            $this->identity(),
+            self::HOME_ID,
+            '',
+            'not-a-category-id',
+            null,
+            100,
+            0,
+        );
     }
 
     public function testViewerIsARealMemberAndCanReadTheItemMaster(): void
@@ -125,7 +163,7 @@ final class InventoryServiceTest extends TestCase
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::once())
             ->method('itemMaster')
-            ->with(self::HOME_ID, '', null, 100, 0)
+            ->with(self::HOME_ID, '', null, null, 100, 0)
             ->willReturn(['items' => [], 'total' => 0]);
 
         self::assertSame(
@@ -150,6 +188,7 @@ final class InventoryServiceTest extends TestCase
                 self::HOME_ID,
                 '',
                 null,
+                null,
                 100,
                 0,
             ),
@@ -166,6 +205,7 @@ final class InventoryServiceTest extends TestCase
                 self::HOME_ID,
                 null,
                 self::LINE_ID,
+                null,
                 null,
                 null,
                 null,
@@ -324,6 +364,48 @@ final class InventoryServiceTest extends TestCase
             'manual',
             '',
             2,
+        );
+    }
+
+    public function testPhotoConfirmedCountSourceIsStoredWithoutTranslation(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $store->method('countSession')->with(self::HOME_ID, self::SESSION_ID)->willReturn([
+            'id' => self::SESSION_ID,
+            'status' => 'open',
+            'revision' => 4,
+        ]);
+        $store->expects(self::once())
+            ->method('saveCountLine')
+            ->with(
+                self::LINE_ID,
+                self::HOME_ID,
+                self::SESSION_ID,
+                self::PRODUCT_ID,
+                '4',
+                '0.875',
+                'photo-confirmed',
+                '',
+                self::USER_ID,
+                2,
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(true);
+
+        self::assertSame(
+            ['id' => self::LINE_ID],
+            $this->service($store)->recordCount(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                self::LINE_ID,
+                self::PRODUCT_ID,
+                '4.000',
+                '0.875',
+                'photo-confirmed',
+                '',
+                2,
+            ),
         );
     }
 

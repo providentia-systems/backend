@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Providentia\Identity\Application\AccountNotificationSender;
 use Providentia\Identity\Application\AuthenticatedIdentity;
+use Providentia\Identity\Application\ConcurrentPlatformRoleChange;
 use Providentia\Identity\Application\IdentityStore;
 use Providentia\Identity\Application\PlatformAdministratorService;
 use Providentia\SharedKernel\Application\Problem;
@@ -84,6 +85,22 @@ final class PlatformAdministratorServiceTest extends TestCase
         } catch (Problem $problem) {
             self::assertSame(409, $problem->status);
             self::assertSame('Last administrator safeguard', $problem->title);
+        }
+    }
+
+    public function testConcurrentAccountRevisionChangeIsReportedAsConflict(): void
+    {
+        $store = $this->createStub(IdentityStore::class);
+        $store->method('grantPlatformAdministrator')->willThrowException(
+            new ConcurrentPlatformRoleChange(),
+        );
+
+        try {
+            $this->service($store)->grant($this->administrator(), 'next@example.test');
+            self::fail('A concurrent account revision change was hidden.');
+        } catch (Problem $problem) {
+            self::assertSame(409, $problem->status);
+            self::assertSame('Revision conflict', $problem->title);
         }
     }
 

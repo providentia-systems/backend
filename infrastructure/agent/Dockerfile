@@ -9,10 +9,11 @@ FROM ${PHP_IMAGE}
 ARG REDIS_EXTENSION_VERSION=6.3.0
 ARG XDEBUG_VERSION=3.5.3
 
-RUN apk add --no-cache bash curl ffmpeg git icu-libs jq libzip oniguruma sqlite-libs \
+RUN apk add --no-cache bash curl ffmpeg git icu-libs jq libjpeg-turbo libpng libwebp libzip oniguruma sqlite-libs \
     && apk add --no-cache --virtual .build-deps \
-        ${PHPIZE_DEPS} icu-dev libzip-dev oniguruma-dev sqlite-dev \
-    && docker-php-ext-install -j"$(nproc)" intl mbstring pdo_mysql pdo_sqlite \
+        ${PHPIZE_DEPS} icu-dev libjpeg-turbo-dev libpng-dev libwebp-dev libzip-dev oniguruma-dev sqlite-dev \
+    && docker-php-ext-configure gd --with-jpeg --with-webp \
+    && docker-php-ext-install -j"$(nproc)" gd intl mbstring pdo_mysql pdo_sqlite \
     && pecl install \
         "redis-${REDIS_EXTENSION_VERSION}" \
         "xdebug-${XDEBUG_VERSION}" \

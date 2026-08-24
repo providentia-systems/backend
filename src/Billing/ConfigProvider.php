@@ -11,6 +11,7 @@ use Providentia\Billing\Application\BillingService;
 use Providentia\Billing\Application\BillingStore;
 use Providentia\Billing\Application\CheckoutGatewayRegistry;
 use Providentia\Billing\Application\HostedCardCheckoutGateway;
+use Providentia\Billing\Application\OperatorSubscriptionReader;
 use Providentia\Billing\Application\PayPalHostedCheckoutGateway;
 use Providentia\Billing\Infrastructure\Doctrine\DbalBillingStore;
 use Providentia\Billing\Infrastructure\Factory\BillingFactory;
@@ -56,6 +57,7 @@ final class ConfigProvider
             'dependencies' => [
                 'aliases' => [
                     BillingStore::class => DbalBillingStore::class,
+                    OperatorSubscriptionReader::class => DbalBillingStore::class,
                     BillingHttpTransport::class => StreamBillingHttpTransport::class,
                     PayPalHostedCheckoutGateway::class => PayPalHostedCheckoutAdapter::class,
                     HostedCardCheckoutGateway::class => HostedCardRedirectAdapter::class,

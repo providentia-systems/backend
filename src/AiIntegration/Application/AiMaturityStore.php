@@ -26,6 +26,19 @@ interface AiMaturityStore
         DateTimeImmutable $at,
     ): bool;
 
+    /**
+     * Clears every encrypted credential field under the profile revision CAS
+     * and records the credential-revocation audit event.
+     */
+    public function revokeProviderProfileCredential(
+        string $auditId,
+        string $homeId,
+        string $profileId,
+        int $expectedRevision,
+        string $actorUserId,
+        DateTimeImmutable $at,
+    ): bool;
+
     /** @return array<string, mixed>|null */
     public function orchestrationPolicy(string $homeId): ?array;
 

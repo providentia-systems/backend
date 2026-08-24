@@ -8,12 +8,15 @@ use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use JsonException;
+use Providentia\Catalog\Application\CatalogImportHomeProductGateway;
 use Providentia\Catalog\Application\CatalogImportStore;
 
 final readonly class DbalCatalogImportStore implements CatalogImportStore
 {
-    public function __construct(private Connection $connection)
-    {
+    public function __construct(
+        private Connection $connection,
+        private CatalogImportHomeProductGateway $homeProducts,
+    ) {
     }
 
     public function findByIdempotency(string $homeId, string $idempotencyKeyHash): ?array
@@ -172,17 +175,16 @@ final readonly class DbalCatalogImportStore implements CatalogImportStore
         }
 
         if ($resolvedProduct !== null) {
-            $existing = $this->connection->fetchAssociative(
-                'SELECT id FROM home_products
-                 WHERE home_id = :home AND product_id = :product AND status = :active
-                   AND ((pack_id = :pack) OR (pack_id IS NULL AND :pack IS NULL))
-                 ORDER BY id LIMIT 1',
-                ['home' => $homeId, 'product' => $resolvedProduct, 'pack' => $resolvedPack, 'active' => 'active'],
+            $existingId = $this->homeProducts->matchingActiveId(
+                $homeId,
+                $resolvedProduct,
+                $resolvedPack,
+                null,
             );
-            if ($existing !== false) {
+            if ($existingId !== null) {
                 return [
                     'resolution' => 'existing_home',
-                    'homeProductId' => (string) $existing['id'],
+                    'homeProductId' => $existingId,
                     'productId' => $resolvedProduct,
                     'packId' => $resolvedPack,
                 ];
@@ -192,14 +194,14 @@ final readonly class DbalCatalogImportStore implements CatalogImportStore
         }
 
         if ($normalizedPrivateName !== '') {
-            $existing = $this->connection->fetchAssociative(
-                'SELECT id FROM home_products
-                 WHERE home_id = :home AND normalized_private_name = :name AND status = :active
-                 ORDER BY id LIMIT 1',
-                ['home' => $homeId, 'name' => $normalizedPrivateName, 'active' => 'active'],
+            $existingId = $this->homeProducts->matchingActiveId(
+                $homeId,
+                null,
+                null,
+                $normalizedPrivateName,
             );
-            if ($existing !== false) {
-                return ['resolution' => 'existing_home', 'homeProductId' => (string) $existing['id']];
+            if ($existingId !== null) {
+                return ['resolution' => 'existing_home', 'homeProductId' => $existingId];
             }
         }
 
@@ -317,19 +319,16 @@ final readonly class DbalCatalogImportStore implements CatalogImportStore
             if ($productId !== null && ! $this->publishedTargetExists($productId, $packId)) {
                 throw new \DomainException('A staged catalog target is no longer published.');
             }
-            $this->connection->insert('home_products', [
-                'id' => (string) $row['targetHomeProductId'],
-                'home_id' => $homeId,
-                'product_id' => $productId,
-                'pack_id' => $packId,
-                'private_name' => $row['privateName'],
-                'normalized_private_name' => $normalizedPrivateName,
-                'original_pack_text' => $row['packText'],
-                'status' => 'active',
-                'revision' => 1,
-                'created_at' => $this->date($at),
-                'updated_at' => $this->date($at),
-            ]);
+            $this->homeProducts->create(
+                (string) $row['targetHomeProductId'],
+                $homeId,
+                $productId,
+                $packId,
+                $row['privateName'] === null ? null : (string) $row['privateName'],
+                $normalizedPrivateName,
+                $row['packText'] === null ? null : (string) $row['packText'],
+                $at,
+            );
             $importedRecords[] = [
                 'id' => (string) $row['targetHomeProductId'],
                 'productId' => $productId,
@@ -372,20 +371,12 @@ final readonly class DbalCatalogImportStore implements CatalogImportStore
         ?string $packId,
         ?string $normalizedPrivateName,
     ): bool {
-        if ($productId !== null) {
-            return $this->connection->fetchOne(
-                'SELECT id FROM home_products
-                 WHERE home_id = :home AND product_id = :product AND status = :active
-                   AND ((pack_id = :pack) OR (pack_id IS NULL AND :pack IS NULL))',
-                ['home' => $homeId, 'product' => $productId, 'pack' => $packId, 'active' => 'active'],
-            ) !== false;
-        }
-
-        return $normalizedPrivateName !== null && $this->connection->fetchOne(
-            'SELECT id FROM home_products
-             WHERE home_id = :home AND normalized_private_name = :name AND status = :active',
-            ['home' => $homeId, 'name' => $normalizedPrivateName, 'active' => 'active'],
-        ) !== false;
+        return $this->homeProducts->matchingActiveId(
+            $homeId,
+            $productId,
+            $packId,
+            $normalizedPrivateName,
+        ) !== null;
     }
 
     private function publishedTargetExists(string $productId, ?string $packId): bool

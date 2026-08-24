@@ -10,6 +10,9 @@ use Providentia\Inventory\Application\InventoryService;
 use Providentia\Inventory\Application\InventoryStore;
 use Providentia\Inventory\Http\InventoryHandler;
 use Providentia\Inventory\Infrastructure\Doctrine\DbalInventoryStore;
+use Providentia\Inventory\Infrastructure\Doctrine\DbalCatalogContributionSourceReader;
+use Providentia\Inventory\Infrastructure\Doctrine\DbalCatalogImportHomeProductGateway;
+use Providentia\Inventory\Infrastructure\Doctrine\DbalCatalogMergeHomeProductGateway;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\TransactionManager;
@@ -22,6 +25,15 @@ final class InventoryFactory
     {
         return match (true) {
             $requestedName === DbalInventoryStore::class => new DbalInventoryStore(
+                $container->get(Connection::class),
+            ),
+            $requestedName === DbalCatalogContributionSourceReader::class => new DbalCatalogContributionSourceReader(
+                $container->get(Connection::class),
+            ),
+            $requestedName === DbalCatalogImportHomeProductGateway::class => new DbalCatalogImportHomeProductGateway(
+                $container->get(Connection::class),
+            ),
+            $requestedName === DbalCatalogMergeHomeProductGateway::class => new DbalCatalogMergeHomeProductGateway(
                 $container->get(Connection::class),
             ),
             $requestedName === InventoryService::class => new InventoryService(

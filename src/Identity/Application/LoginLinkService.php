@@ -206,93 +206,97 @@ final class LoginLinkService
         // Validate and persist expiry outside the approval transaction so an
         // expired terminal state is not rolled back with the HTTP problem.
         $this->review($requestId, $approvalToken);
-        $result = $this->transactions->transactional(function () use ($requestId, $approvalToken): array {
-            $request = $this->requests->find($requestId);
-            if ($request === null || (string) $request['status'] !== 'pending') {
-                return ['status' => 'unavailable'];
-            }
-            $now = $this->clock->now();
-            $email = (string) $request['normalized_email'];
-            $this->requests->lockEmail($email);
-            $user = $this->identities->findUserByEmail($email);
-            if ($user !== null && (string) $user['status'] !== 'active') {
-                $this->requests->deny($requestId, $this->hasher->hashToken($approvalToken), $now);
-                return ['status' => 'inactive'];
-            }
-            $exchangeExpiresAt = $now->add(new DateInterval('PT' . $this->exchangeTtlSeconds . 'S'));
-            if (
-                ! $this->requests->reserveApproval(
-                    $requestId,
-                    $this->hasher->hashToken($approvalToken),
-                    $now,
-                    $exchangeExpiresAt,
-                )
-            ) {
-                throw new Problem(409, 'Login request unavailable', 'This login request was already handled.');
-            }
+        try {
+            $result = $this->transactions->transactional(function () use ($requestId, $approvalToken): array {
+                $request = $this->requests->find($requestId);
+                if ($request === null || (string) $request['status'] !== 'pending') {
+                    return ['status' => 'unavailable'];
+                }
+                $now = $this->clock->now();
+                $email = (string) $request['normalized_email'];
+                $this->requests->lockEmail($email);
+                $user = $this->identities->findUserByEmail($email);
+                if ($user !== null && (string) $user['status'] !== 'active') {
+                    $this->requests->deny($requestId, $this->hasher->hashToken($approvalToken), $now);
+                    return ['status' => 'inactive'];
+                }
+                $exchangeExpiresAt = $now->add(new DateInterval('PT' . $this->exchangeTtlSeconds . 'S'));
+                if (
+                    ! $this->requests->reserveApproval(
+                        $requestId,
+                        $this->hasher->hashToken($approvalToken),
+                        $now,
+                        $exchangeExpiresAt,
+                    )
+                ) {
+                    throw new Problem(409, 'Login request unavailable', 'This login request was already handled.');
+                }
 
-            $newAccount = $user === null;
-            $userId = $newAccount ? $this->ids->generate() : (string) $user['id'];
-            if ($newAccount) {
-                $name = strstr($email, '@', true);
-                $this->identities->createUser(
+                $newAccount = $user === null;
+                $userId = $newAccount ? $this->ids->generate() : (string) $user['id'];
+                if ($newAccount) {
+                    $name = strstr($email, '@', true);
+                    $this->identities->createUser(
+                        $userId,
+                        $email,
+                        $this->hasher->hashPassword($this->tokens->generate()),
+                        is_string($name) && $name !== '' ? mb_substr($name, 0, 120) : 'Member',
+                        $this->defaultHome['locale'],
+                        $this->defaultHome['timezone'],
+                        $now,
+                    );
+                    $this->identities->markEmailVerified($userId, $now);
+                    $firstVerification = true;
+                } else {
+                    $firstVerification = $this->identities->claimEmailVerification($userId, $now);
+                }
+
+                $onboardingHomeId = null;
+                if ($firstVerification && $this->homes->listForUser($userId) === []) {
+                    $onboardingHomeId = $this->ids->generate();
+                    $this->homes->createHome(
+                        $onboardingHomeId,
+                        $userId,
+                        $this->defaultHome['name'],
+                        $this->defaultHome['locale'],
+                        $this->defaultHome['currency'],
+                        $this->defaultHome['timezone'],
+                        $now,
+                    );
+                    $this->homes->recordAudit(
+                        $this->ids->generate(),
+                        $userId,
+                        'home.created',
+                        'home',
+                        $onboardingHomeId,
+                        $onboardingHomeId,
+                        json_encode(['source' => 'login-link-onboarding'], JSON_THROW_ON_ERROR),
+                        $now,
+                    );
+                }
+
+                if (in_array($email, $this->bootstrapAdministratorEmails, true)) {
+                    $this->identities->seedBootstrapAdministrator(
+                        $this->ids->generate(),
+                        $this->ids->generate(),
+                        $userId,
+                        $email,
+                        $now,
+                    );
+                }
+                $this->identities->activatePendingAdministratorGrant(
+                    $this->ids->generate(),
                     $userId,
                     $email,
-                    $this->hasher->hashPassword($this->tokens->generate()),
-                    is_string($name) && $name !== '' ? mb_substr($name, 0, 120) : 'Member',
-                    $this->defaultHome['locale'],
-                    $this->defaultHome['timezone'],
                     $now,
                 );
-                $this->identities->markEmailVerified($userId, $now);
-                $firstVerification = true;
-            } else {
-                $firstVerification = $this->identities->claimEmailVerification($userId, $now);
-            }
+                $this->requests->completeApproval($requestId, $userId, $onboardingHomeId, $now);
 
-            $onboardingHomeId = null;
-            if ($firstVerification && $this->homes->listForUser($userId) === []) {
-                $onboardingHomeId = $this->ids->generate();
-                $this->homes->createHome(
-                    $onboardingHomeId,
-                    $userId,
-                    $this->defaultHome['name'],
-                    $this->defaultHome['locale'],
-                    $this->defaultHome['currency'],
-                    $this->defaultHome['timezone'],
-                    $now,
-                );
-                $this->homes->recordAudit(
-                    $this->ids->generate(),
-                    $userId,
-                    'home.created',
-                    'home',
-                    $onboardingHomeId,
-                    $onboardingHomeId,
-                    json_encode(['source' => 'login-link-onboarding'], JSON_THROW_ON_ERROR),
-                    $now,
-                );
-            }
-
-            if (in_array($email, $this->bootstrapAdministratorEmails, true)) {
-                $this->identities->seedBootstrapAdministrator(
-                    $this->ids->generate(),
-                    $this->ids->generate(),
-                    $userId,
-                    $email,
-                    $now,
-                );
-            }
-            $this->identities->activatePendingAdministratorGrant(
-                $this->ids->generate(),
-                $userId,
-                $email,
-                $now,
-            );
-            $this->requests->completeApproval($requestId, $userId, $onboardingHomeId, $now);
-
-            return ['status' => 'approved'];
-        });
+                return ['status' => 'approved'];
+            });
+        } catch (ConcurrentPlatformRoleChange) {
+            throw new Problem(409, 'Login request conflict', 'The account role changed during approval.');
+        }
         if ($result['status'] === 'inactive') {
             throw new Problem(403, 'Login unavailable', 'This login request cannot be approved.');
         }
