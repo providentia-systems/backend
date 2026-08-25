@@ -237,7 +237,11 @@ final class LoginLinkService
         $application = LoginApplicationKind::fromInput($applicationKind);
         $this->approvalRequest($requestId, $approvalToken, $application);
         try {
-            $result = $this->transactions->transactional(function () use ($requestId, $approvalToken): array {
+            $result = $this->transactions->transactional(function () use (
+                $requestId,
+                $approvalToken,
+                $application,
+            ): array {
                 $request = $this->requests->find($requestId);
                 if ($request === null || (string) $request['status'] !== 'pending') {
                     return ['status' => 'unavailable'];
@@ -282,7 +286,11 @@ final class LoginLinkService
                 }
 
                 $onboardingHomeId = null;
-                if ($firstVerification && $this->homes->listForUser($userId) === []) {
+                if (
+                    $application === LoginApplicationKind::HOMEOWNER
+                    && $firstVerification
+                    && $this->homes->listForUser($userId) === []
+                ) {
                     $onboardingHomeId = $this->ids->generate();
                     $this->homes->createHome(
                         $onboardingHomeId,

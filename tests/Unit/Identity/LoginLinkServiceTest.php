@@ -309,6 +309,30 @@ final class LoginLinkServiceTest extends TestCase
         self::assertSame(['status' => 'approved'], $result);
     }
 
+    public function testFirstAdministratorAccountNeverReceivesAnOnboardingHome(): void
+    {
+        $requests = $this->approvalStore(applicationKind: 'admin');
+        $identities = $this->createMock(IdentityStore::class);
+        $identities->method('findUserByEmail')->willReturn(null);
+        $identities->expects(self::once())->method('createUser');
+        $identities->expects(self::once())->method('markEmailVerified');
+        $identities->expects(self::once())->method('seedBootstrapAdministrator');
+        $homes = $this->createMock(HomeStore::class);
+        $homes->expects(self::never())->method('listForUser');
+        $homes->expects(self::never())->method('createHome');
+        $homes->expects(self::never())->method('recordAudit');
+
+        $result = $this->service(
+            $requests,
+            $identities,
+            $homes,
+            $this->ids(self::USER_ID, 'admin-grant-id', 'admin-seed-audit-id', 'admin-audit-id'),
+            bootstrapAdministratorEmails: ['person@example.test'],
+        )->approve(self::REQUEST_ID, 'approval-token', 'admin');
+
+        self::assertSame(['status' => 'approved'], $result);
+    }
+
     public function testExistingVerifiedAccountNeverReceivesAnOnboardingHome(): void
     {
         $requests = $this->approvalStore();
@@ -393,9 +417,13 @@ final class LoginLinkServiceTest extends TestCase
         ];
     }
 
-    private function approvalStore(bool $expectsCompletion = true): LoginLinkStore
+    private function approvalStore(
+        bool $expectsCompletion = true,
+        string $applicationKind = 'homeowner',
+    ): LoginLinkStore
     {
         $row = $this->approvalRequest();
+        $row['application_kind'] = $applicationKind;
         $requests = $this->createMock(LoginLinkStore::class);
         $requests->method('find')->willReturn($row);
         $requests->expects(self::once())->method('lockEmail')->with('person@example.test');
@@ -422,12 +450,14 @@ final class LoginLinkServiceTest extends TestCase
         ];
     }
 
+    /** @param list<string> $bootstrapAdministratorEmails */
     private function service(
         LoginLinkStore $requests,
         ?IdentityStore $identities = null,
         ?HomeStore $homes = null,
         ?UuidGenerator $ids = null,
         ?AccountNotificationSender $notifications = null,
+        array $bootstrapAdministratorEmails = [],
     ): LoginLinkService {
         $hasher = $this->createStub(CredentialHasher::class);
         $hasher->method('hashToken')->willReturnCallback(
@@ -468,7 +498,7 @@ final class LoginLinkServiceTest extends TestCase
             3,
             2592000,
             5184000,
-            [],
+            $bootstrapAdministratorEmails,
             [
                 'name' => 'My home',
                 'locale' => 'en-NA',
