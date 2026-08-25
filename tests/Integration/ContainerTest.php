@@ -19,6 +19,7 @@ use Providentia\Identity\Application\AuthenticationService;
 use Providentia\SharedKernel\Application\Async\AsyncMessageBus;
 use Providentia\SharedKernel\Application\Async\OutboxStore;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
+use Providentia\SharedKernel\Http\MetricsHandler;
 use Providentia\SharedKernel\Http\NotFoundHandler;
 use Providentia\Synchronization\Application\SynchronizationService;
 use Psr\Container\ContainerInterface;
@@ -45,6 +46,7 @@ final class ContainerTest extends TestCase
         self::assertInstanceOf(OutboxStore::class, $this->container->get(OutboxStore::class));
         self::assertInstanceOf(AsyncMessageBus::class, $this->container->get(AsyncMessageBus::class));
         self::assertInstanceOf(LivenessHandler::class, $this->container->get(LivenessHandler::class));
+        self::assertInstanceOf(MetricsHandler::class, $this->container->get(MetricsHandler::class));
         self::assertInstanceOf(NotFoundHandler::class, $this->container->get(NotFoundHandler::class));
         self::assertInstanceOf(AuthenticationService::class, $this->container->get(AuthenticationService::class));
         self::assertInstanceOf(HomeService::class, $this->container->get(HomeService::class));

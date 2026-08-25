@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Providentia\SharedKernel\Http;
 
-use Laminas\Diactoros\Response\EmptyResponse;
 use Laminas\Diactoros\Response\TextResponse;
 use Providentia\SharedKernel\Application\Async\OutboxStore;
 use Providentia\SharedKernel\Application\Async\QueueMetricsProbe;
@@ -22,6 +21,7 @@ final class MetricsHandler implements RequestHandlerInterface
         private readonly SyncMetricsProbe $sync,
         private readonly bool $enabled,
         private readonly string $credentialHash,
+        private readonly NotFoundHandler $notFound,
     ) {
     }
 
@@ -30,7 +30,7 @@ final class MetricsHandler implements RequestHandlerInterface
         if (! $this->authorized($request)) {
             // Disabled and unauthorized metrics are intentionally
             // indistinguishable and never enter exception logging.
-            return new EmptyResponse(404);
+            return $this->notFound->handle($request);
         }
         try {
             $metrics = $this->outbox->metrics();

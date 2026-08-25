@@ -1,19 +1,24 @@
 # Providentia backend
 
-Providentia household stock-control backend and anonymous public surface. The
-application is a modular monolith built with Mezzio, selected Laminas
-components, Doctrine ORM/DBAL/Migrations, and a project-owned asynchronous
-messaging boundary backed by Enqueue Redis.
+Providentia is a headless JSON API for household stock control. It serves no
+browser login, homeowner application, or administrative user interface. Homeowners
+use the separate [Flutter Client](https://github.com/providentia-systems/client),
+while authorized platform staff use the separate Linux
+[Flutter Admin](https://github.com/providentia-systems/admin) application. The
+backend is a modular monolith built with Mezzio, selected Laminas components,
+Doctrine ORM/DBAL/Migrations, and a project-owned asynchronous messaging boundary
+backed by Enqueue Redis.
 
 The repository includes the Phase 1 production foundation, Phase 2
 identity/home/catalog increment, Phase 4 home-scoped synchronization protocol,
 Phase 5 ledger-backed household operations, Phase 6 privacy-controlled AI,
 Phase 7 governed catalog administration, and Phase 8 deterministic shopping
 intelligence and reporting. The generic protocol-v1 synchronization allowlist
-remains limited to `home-preference` and `private-note`; API 1.15.0 publishes
+remains limited to `home-preference` and `private-note`; API 1.18.0 publishes
 typed protocol-v2 pantry commands, home-private taxonomy, privacy-safe operator
-account controls, and an attribution-free projection of moderator-approved
-catalog contributions.
+account controls, app-bound account links, reviewed AI quantity ranges,
+compare-and-swap stock-count lines, and an attribution-free projection of
+moderator-approved catalog contributions.
 
 ## Automated contributor environment
 

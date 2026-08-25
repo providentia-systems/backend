@@ -11,6 +11,7 @@ use Providentia\SharedKernel\Application\SystemInformationProvider;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
 use Providentia\SharedKernel\Http\Health\ReadinessHandler;
 use Providentia\SharedKernel\Http\MetricsHandler;
+use Providentia\SharedKernel\Http\NotFoundHandler;
 use Providentia\SharedKernel\Http\ProblemDetailsMiddleware;
 use Providentia\SharedKernel\Http\SystemInfoHandler;
 use Providentia\SharedKernel\Http\CorsMiddleware;
@@ -34,6 +35,7 @@ final class HttpHandlerFactory
                 $container->get(SyncMetricsProbe::class),
                 $config['metrics']['enabled'],
                 $config['metrics']['credential_hash'],
+                $container->get(NotFoundHandler::class),
             ),
             ProblemDetailsMiddleware::class => new ProblemDetailsMiddleware(
                 $config['app']['debug'],
