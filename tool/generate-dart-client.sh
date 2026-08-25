@@ -5,6 +5,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_dir="${1:-${repo_root}/var/generated/providentia_api}"
 generator_image="openapitools/openapi-generator-cli:v7.15.0"
 
+bash "$repo_root/tool/materialize-openapi-contract.sh"
+
 mkdir -p "$(dirname "$output_dir")"
 rm -rf "$output_dir"
 

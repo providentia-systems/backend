@@ -25,12 +25,64 @@ if (
 ) {
     throw new RuntimeException('PUBLIC_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment.');
 }
-$publicBaseHost = (string) $publicBaseParts['host'];
-if (str_contains($publicBaseHost, ':') && ! str_starts_with($publicBaseHost, '[')) {
-    $publicBaseHost = '[' . $publicBaseHost . ']';
+$loginLinkAllowedHosts = array_values(array_unique(array_filter(array_map(
+    static fn (string $host): string => mb_strtolower(trim($host)),
+    explode(',', $env('AUTH_LOGIN_LINK_ALLOWED_HOSTS', 'login-link,localhost,127.0.0.1')),
+))));
+$loginApplicationLink = static function (
+    string $environmentName,
+    string $value,
+    string $name,
+    string $nativeScheme,
+    array $allowedHosts,
+): string {
+    $value = rtrim(trim($value), '/');
+    $parts = parse_url($value);
+    $allowedSchemes = ['https', $nativeScheme];
+    if ($environmentName !== 'production') {
+        $allowedSchemes[] = 'http';
+    }
+    $scheme = mb_strtolower((string) ($parts['scheme'] ?? ''));
+    $host = mb_strtolower((string) ($parts['host'] ?? ''));
+    if (
+        $value === ''
+        || $parts === false
+        || $scheme === ''
+        || $host === ''
+        || ! in_array($scheme, $allowedSchemes, true)
+        || ! in_array($host, $allowedHosts, true)
+        || isset($parts['user'])
+        || isset($parts['pass'])
+        || isset($parts['query'])
+        || isset($parts['fragment'])
+        || str_contains($value, "\r")
+        || str_contains($value, "\n")
+    ) {
+        throw new RuntimeException(
+            $name . ' must be an absolute application URL with an allowlisted scheme and host, '
+            . 'without credentials, query, or fragment.',
+        );
+    }
+
+    return $value;
+};
+$homeownerAppLinkBase = $loginApplicationLink(
+    $environment,
+    $env('HOMEOWNER_APP_LINK_BASE', 'providentia://login-link/homeowner'),
+    'HOMEOWNER_APP_LINK_BASE',
+    'providentia',
+    $loginLinkAllowedHosts,
+);
+$adminAppLinkBase = $loginApplicationLink(
+    $environment,
+    $env('ADMIN_APP_LINK_BASE', 'providentia-admin://login-link/admin'),
+    'ADMIN_APP_LINK_BASE',
+    'providentia-admin',
+    $loginLinkAllowedHosts,
+);
+if (hash_equals($homeownerAppLinkBase, $adminAppLinkBase)) {
+    throw new RuntimeException('Homeowner and administrator application-link bases must be distinct.');
 }
-$publicOrigin = mb_strtolower((string) $publicBaseParts['scheme']) . '://' . $publicBaseHost
-    . (isset($publicBaseParts['port']) ? ':' . (int) $publicBaseParts['port'] : '');
 $corsAllowedOrigins = array_values(array_unique(array_filter(array_map(
     'trim',
     explode(',', $env(
@@ -38,12 +90,15 @@ $corsAllowedOrigins = array_values(array_unique(array_filter(array_map(
         'http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:8081,http://localhost:8081',
     )),
 ))));
-$corsAllowedOrigins[] = $publicOrigin;
-$corsAllowedOrigins = array_values(array_unique($corsAllowedOrigins));
 $exposeDevelopmentTokens = filter_var(
     $env('EXPOSE_DEVELOPMENT_TOKENS', '0'),
     FILTER_VALIDATE_BOOL,
 );
+$metricsEnabled = filter_var($env('METRICS_ENABLED', '0'), FILTER_VALIDATE_BOOL);
+$metricsBearerToken = $env('METRICS_BEARER_TOKEN', '');
+if ($metricsEnabled && strlen($metricsBearerToken) < 32) {
+    throw new RuntimeException('Enabled metrics require METRICS_BEARER_TOKEN with at least 32 characters.');
+}
 $aiServerProxyEnabled = filter_var($env('AI_SERVER_PROXY_ENABLED', '0'), FILTER_VALIDATE_BOOL);
 $aiCredentialKek = $env('AI_CREDENTIAL_KEK', '');
 $aiMediaKek = $env('AI_MEDIA_KEK', '');
@@ -310,6 +365,10 @@ return [
             '2',
         ))),
         'bootstrap_administrator_emails' => $bootstrapAdministratorEmails,
+        'login_application_links' => [
+            'homeowner' => $homeownerAppLinkBase,
+            'admin' => $adminAppLinkBase,
+        ],
         'onboarding_home' => [
             'name' => $onboardingHomeName,
             'locale' => $onboardingHomeLocale,
@@ -445,6 +504,10 @@ return [
     'http' => [
         'allowed_origins' => $corsAllowedOrigins,
     ],
+    'metrics' => [
+        'enabled' => $metricsEnabled,
+        'credential_hash' => hash('sha256', $metricsBearerToken),
+    ],
     'queue' => [
         'dsn' => $env('QUEUE_DSN', 'redis+phpredis://127.0.0.1:6379'),
         'name' => $env('QUEUE_NAME', 'providentia.default'),
@@ -456,11 +519,5 @@ return [
         'artifact_root' => $env('DATA_EXPORT_ROOT', 'var/data-exports'),
         'artifact_kek' => $dataExportKek,
         'page_size' => max(25, min(1000, (int) $env('DATA_EXPORT_PAGE_SIZE', '250'))),
-    ],
-    'templates' => [
-        'paths' => [
-            'public-site' => ['templates/public-site'],
-            'error' => ['templates/error'],
-        ],
     ],
 ];

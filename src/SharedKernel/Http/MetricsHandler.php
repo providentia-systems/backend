@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace Providentia\SharedKernel\Http;
 
+use Laminas\Diactoros\Response\EmptyResponse;
 use Laminas\Diactoros\Response\TextResponse;
 use Providentia\SharedKernel\Application\Async\OutboxStore;
 use Providentia\SharedKernel\Application\Async\QueueMetricsProbe;
+use Providentia\SharedKernel\Application\Health\SyncMetricsProbe;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Throwable;
-use Providentia\SharedKernel\Application\Health\SyncMetricsProbe;
 
 final class MetricsHandler implements RequestHandlerInterface
 {
@@ -19,11 +20,18 @@ final class MetricsHandler implements RequestHandlerInterface
         private readonly OutboxStore $outbox,
         private readonly QueueMetricsProbe $queue,
         private readonly SyncMetricsProbe $sync,
+        private readonly bool $enabled,
+        private readonly string $credentialHash,
     ) {
     }
 
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
+        if (! $this->authorized($request)) {
+            // Disabled and unauthorized metrics are intentionally
+            // indistinguishable and never enter exception logging.
+            return new EmptyResponse(404);
+        }
         try {
             $metrics = $this->outbox->metrics();
             $up = 1;
@@ -90,5 +98,18 @@ final class MetricsHandler implements RequestHandlerInterface
             200,
             ['Content-Type' => 'text/plain; version=0.0.4; charset=utf-8'],
         );
+    }
+
+    private function authorized(ServerRequestInterface $request): bool
+    {
+        if (! $this->enabled) {
+            return false;
+        }
+        $authorization = $request->getHeaderLine('Authorization');
+        if (preg_match('/^Bearer ([A-Za-z0-9._~-]{32,256})$/', $authorization, $matches) !== 1) {
+            return false;
+        }
+
+        return hash_equals($this->credentialHash, hash('sha256', $matches[1]));
     }
 }

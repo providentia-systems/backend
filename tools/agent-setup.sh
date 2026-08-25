@@ -172,7 +172,7 @@ install_node_runtime() {
     echo 'The pinned Node.js archive checksum did not match.' >&2
     exit 65
   }
-  tar --extract --xz --no-same-owner --file "$archive" --directory "$agent_node_home" --strip-components=1
+  tar --extract --xz --file "$archive" --directory "$agent_node_home" --strip-components=1
   rm -f -- "$archive"
   "$agent_node_home/bin/node" --version
 }

@@ -62,6 +62,7 @@ final class DbalLoginLinkStore implements LoginLinkStore
         return $this->connection->executeStatement(
             'UPDATE auth_login_link_requests
              SET status = :next, approval_token_hash = NULL, approved_at = :approved,
+                 revision = revision + 1,
                  exchange_expires_at = :exchange_expiry, updated_at = :approved
              WHERE id = :id AND status = :pending AND approval_token_hash = :approval
                AND expires_at > :approved',
@@ -84,7 +85,8 @@ final class DbalLoginLinkStore implements LoginLinkStore
     ): void {
         $updated = $this->connection->executeStatement(
             'UPDATE auth_login_link_requests
-             SET status = :approved, user_id = :user, onboarding_home_id = :home, updated_at = :at
+             SET status = :approved, user_id = :user, onboarding_home_id = :home,
+                 revision = revision + 1, updated_at = :at
              WHERE id = :id AND status = :approving',
             [
                 'approved' => 'approved',
@@ -104,7 +106,8 @@ final class DbalLoginLinkStore implements LoginLinkStore
     {
         return $this->connection->executeStatement(
             'UPDATE auth_login_link_requests
-             SET status = :denied, approval_token_hash = NULL, denied_at = :at, updated_at = :at
+             SET status = :denied, approval_token_hash = NULL, denied_at = :at,
+                 revision = revision + 1, updated_at = :at
              WHERE id = :id AND status = :pending AND approval_token_hash = :approval
                AND expires_at > :at',
             [
@@ -121,7 +124,7 @@ final class DbalLoginLinkStore implements LoginLinkStore
     {
         $this->connection->executeStatement(
             'UPDATE auth_login_link_requests SET status = :expired,
-                    approval_token_hash = NULL, updated_at = :at
+                    approval_token_hash = NULL, revision = revision + 1, updated_at = :at
              WHERE id = :id AND (
                  (status = :pending AND expires_at <= :at)
                  OR (status = :approved AND exchange_expires_at <= :at)
@@ -140,7 +143,8 @@ final class DbalLoginLinkStore implements LoginLinkStore
     {
         return $this->connection->executeStatement(
             'UPDATE auth_login_link_requests SET status = :cancelled,
-                    approval_token_hash = NULL, cancelled_at = :at, updated_at = :at
+                    approval_token_hash = NULL, cancelled_at = :at,
+                    revision = revision + 1, updated_at = :at
              WHERE id = :id AND status IN (:pending, :approved)',
             [
                 'cancelled' => 'cancelled',
@@ -159,6 +163,7 @@ final class DbalLoginLinkStore implements LoginLinkStore
              SET failed_proof_attempts = failed_proof_attempts + 1,
                  status = CASE WHEN failed_proof_attempts >= 4 THEN :cancelled ELSE status END,
                  cancelled_at = CASE WHEN failed_proof_attempts >= 4 THEN :at ELSE cancelled_at END,
+                 revision = revision + 1,
                  updated_at = :at
              WHERE id = :id AND status IN (:pending, :approved)',
             [
@@ -180,7 +185,8 @@ final class DbalLoginLinkStore implements LoginLinkStore
     {
         return $this->connection->executeStatement(
             'UPDATE auth_login_link_requests
-             SET status = :exchanging, exchanged_at = :at, updated_at = :at
+             SET status = :exchanging, exchanged_at = :at,
+                 revision = revision + 1, updated_at = :at
              WHERE id = :id AND status = :approved AND exchange_expires_at > :at',
             [
                 'exchanging' => 'exchanging',
@@ -195,7 +201,8 @@ final class DbalLoginLinkStore implements LoginLinkStore
     {
         return $this->connection->executeStatement(
             'UPDATE auth_login_link_requests
-             SET status = :cancelled, cancelled_at = :at, updated_at = :at
+             SET status = :cancelled, cancelled_at = :at,
+                 revision = revision + 1, updated_at = :at
              WHERE id = :id AND status = :exchanging',
             [
                 'cancelled' => 'cancelled',
@@ -210,7 +217,8 @@ final class DbalLoginLinkStore implements LoginLinkStore
     {
         $updated = $this->connection->executeStatement(
             'UPDATE auth_login_link_requests
-             SET status = :exchanged, issued_session_id = :session, updated_at = :at
+             SET status = :exchanged, issued_session_id = :session,
+                 revision = revision + 1, updated_at = :at
              WHERE id = :id AND status = :exchanging',
             [
                 'exchanged' => 'exchanged',
@@ -233,7 +241,8 @@ final class DbalLoginLinkStore implements LoginLinkStore
         $now = $this->date($at);
         $expired = (int) $this->connection->executeStatement(
             'UPDATE auth_login_link_requests
-             SET status = :expired, approval_token_hash = NULL, updated_at = :at
+             SET status = :expired, approval_token_hash = NULL,
+                 revision = revision + 1, updated_at = :at
              WHERE (status = :pending AND expires_at <= :at)
                 OR (status = :approved AND exchange_expires_at <= :at)',
             [

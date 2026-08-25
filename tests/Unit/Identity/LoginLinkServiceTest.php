@@ -7,7 +7,6 @@ namespace ProvidentiaTest\Unit\Identity;
 use DateTimeImmutable;
 use Laminas\Diactoros\ServerRequest;
 use Laminas\Diactoros\Uri;
-use Mezzio\Template\TemplateRendererInterface;
 use PHPUnit\Framework\TestCase;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AccountNotificationSender;
@@ -15,9 +14,10 @@ use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\ConcurrentPlatformRoleChange;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
+use Providentia\Identity\Application\LoginApplicationKind;
 use Providentia\Identity\Application\LoginLinkService;
 use Providentia\Identity\Application\LoginLinkStore;
-use Providentia\Identity\Http\LoginLinkApprovalHandler;
+use Providentia\Identity\Http\LoginLinkHandler;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Providentia\SharedKernel\Application\UuidGenerator;
@@ -50,6 +50,7 @@ final class LoginLinkServiceTest extends TestCase
             'person@example.test',
             self::REQUEST_ID,
             'approval-token',
+            LoginApplicationKind::HOMEOWNER,
         );
 
         $service = $this->service($requests, notifications: $notifications);
@@ -65,63 +66,59 @@ final class LoginLinkServiceTest extends TestCase
         ], array_keys($first));
     }
 
-    public function testBrowserLaunchIsScannerSafeAndDoesNotTouchRequestState(): void
+    public function testApplicationProofReturnsNoAccountIdentityOrCredential(): void
     {
+        $row = $this->approvalRequest();
         $requests = $this->createMock(LoginLinkStore::class);
-        $requests->expects(self::never())->method('find');
-        $tokens = $this->createStub(SecureTokenGenerator::class);
-        $tokens->method('generate')->willReturn(str_repeat('n', 43));
-        $handler = new LoginLinkApprovalHandler(
-            $this->service($requests),
-            $this->createStub(TemplateRendererInterface::class),
-            $tokens,
-            'launch',
-            true,
-            900,
-        );
-        $request = (new ServerRequest(
-            [],
-            [],
-            new Uri('https://api.example.test/login-links/' . self::REQUEST_ID),
-            'GET',
-        ))->withAttribute('requestId', self::REQUEST_ID);
+        $requests->method('find')->willReturn($row);
 
-        $response = $handler->handle($request);
-
-        self::assertSame(200, $response->getStatusCode());
-        self::assertStringContainsString(
-            "script-src 'nonce-" . str_repeat('n', 43) . "'",
-            $response->getHeaderLine('Content-Security-Policy'),
+        $proof = $this->service($requests)->proof(
+            self::REQUEST_ID,
+            'approval-token',
+            'homeowner',
         );
-        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
-        self::assertSame('same-origin', $response->getHeaderLine('Referrer-Policy'));
+
+        self::assertSame(
+            ['valid', 'requestId', 'applicationKind', 'expiresAt'],
+            array_keys($proof),
+        );
+        self::assertSame('homeowner', $proof['applicationKind']);
     }
 
-    public function testBrowserCaptureMovesPostedCapabilityToCookieAndCleanReviewUrl(): void
+    public function testApplicationProofCannotCrossFromHomeownerToAdministrator(): void
     {
-        $handler = new LoginLinkApprovalHandler(
-            $this->service($this->createStub(LoginLinkStore::class)),
-            $this->createStub(TemplateRendererInterface::class),
-            $this->createStub(SecureTokenGenerator::class),
-            'capture',
-            true,
-            900,
-        );
+        $requests = $this->createStub(LoginLinkStore::class);
+        $requests->method('find')->willReturn($this->approvalRequest());
+
+        $this->expectException(Problem::class);
+        $this->service($requests)->proof(self::REQUEST_ID, 'approval-token', 'admin');
+    }
+
+    public function testDecisionEndpointReturnsGenericAcceptedForReplay(): void
+    {
+        $token = str_repeat('a', 43);
+        $row = $this->approvalRequest();
+        $row['approval_token_hash'] = 'hash:' . $token;
+        $requests = $this->createStub(LoginLinkStore::class);
+        $requests->method('find')->willReturn($row);
+        $requests->method('reserveApproval')->willReturn(false);
+        $handler = new LoginLinkHandler($this->service($requests), 'decision');
         $request = (new ServerRequest(
             [],
             [],
-            new Uri('https://api.example.test/login-links/' . self::REQUEST_ID . '/capture'),
+            new Uri('https://api.example.test/api/v1/auth/login-links/' . self::REQUEST_ID . '/decision'),
             'POST',
         ))->withAttribute('requestId', self::REQUEST_ID)->withParsedBody([
-            'approval' => str_repeat('a', 43),
+            'applicationKind' => 'homeowner',
+            'approvalToken' => $token,
+            'decision' => 'approve',
         ]);
 
         $response = $handler->handle($request);
+        $payload = json_decode((string) $response->getBody(), true, 8, JSON_THROW_ON_ERROR);
 
-        self::assertSame(303, $response->getStatusCode());
-        self::assertSame('/login-links/' . self::REQUEST_ID . '/review', $response->getHeaderLine('Location'));
-        self::assertStringNotContainsString('approval=', $response->getHeaderLine('Location'));
-        self::assertStringContainsString('Max-Age=900', $response->getHeaderLine('Set-Cookie'));
+        self::assertSame(202, $response->getStatusCode());
+        self::assertSame('received', $payload['status']);
     }
 
     public function testWrongOriginProofIsRecordedBeforeTheProblemIsRaised(): void
@@ -222,6 +219,7 @@ final class LoginLinkServiceTest extends TestCase
         $row = [
             'id' => self::REQUEST_ID,
             'status' => 'pending',
+            'application_kind' => 'homeowner',
             'approval_token_hash' => 'hash:approval-token',
             'expires_at' => '2026-08-09 12:00:00',
             'created_at' => '2026-08-09 11:45:00',
@@ -240,7 +238,7 @@ final class LoginLinkServiceTest extends TestCase
         $requests->expects(self::never())->method('deny');
 
         try {
-            $this->service($requests)->deny(self::REQUEST_ID, 'approval-token');
+            $this->service($requests)->deny(self::REQUEST_ID, 'approval-token', 'homeowner');
             self::fail('An expired login request was denied as though still pending.');
         } catch (Problem $problem) {
             self::assertSame(410, $problem->status);
@@ -306,7 +304,7 @@ final class LoginLinkServiceTest extends TestCase
             $identities,
             $homes,
             $this->ids(self::USER_ID, self::HOME_ID, 'audit-id', 'admin-audit-id'),
-        )->approve(self::REQUEST_ID, 'approval-token');
+        )->approve(self::REQUEST_ID, 'approval-token', 'homeowner');
 
         self::assertSame(['status' => 'approved'], $result);
     }
@@ -329,7 +327,7 @@ final class LoginLinkServiceTest extends TestCase
             $identities,
             $homes,
             $this->ids('admin-audit-id'),
-        )->approve(self::REQUEST_ID, 'approval-token');
+        )->approve(self::REQUEST_ID, 'approval-token', 'homeowner');
 
         self::assertSame(['status' => 'approved'], $result);
     }
@@ -353,7 +351,7 @@ final class LoginLinkServiceTest extends TestCase
                 $requests,
                 $identities,
                 ids: $this->ids('admin-audit-id'),
-            )->approve(self::REQUEST_ID, 'approval-token');
+            )->approve(self::REQUEST_ID, 'approval-token', 'homeowner');
             self::fail('A concurrent bootstrap role change was hidden.');
         } catch (Problem $problem) {
             self::assertSame(409, $problem->status);
@@ -367,6 +365,7 @@ final class LoginLinkServiceTest extends TestCase
         return [
             'requestId' => self::REQUEST_ID,
             'email' => 'person@example.test',
+            'applicationKind' => 'homeowner',
             'pollChallenge' => str_repeat('p', 43),
             'codeChallenge' => str_repeat('c', 43),
             'codeChallengeMethod' => 'S256',
@@ -384,6 +383,7 @@ final class LoginLinkServiceTest extends TestCase
         return [
             'id' => self::REQUEST_ID,
             'status' => 'approved',
+            'application_kind' => 'homeowner',
             'poll_challenge' => $this->s256(str_repeat('p', 43)),
             'state_hash' => 'hash:' . str_repeat('s', 32),
             'code_challenge' => str_repeat('c', 43),
@@ -395,16 +395,7 @@ final class LoginLinkServiceTest extends TestCase
 
     private function approvalStore(bool $expectsCompletion = true): LoginLinkStore
     {
-        $row = [
-            'id' => self::REQUEST_ID,
-            'status' => 'pending',
-            'normalized_email' => 'person@example.test',
-            'approval_token_hash' => 'hash:approval-token',
-            'device_name' => 'Kitchen tablet',
-            'platform' => 'android',
-            'expires_at' => '2026-08-09 12:15:00',
-            'created_at' => '2026-08-09 12:00:00',
-        ];
+        $row = $this->approvalRequest();
         $requests = $this->createMock(LoginLinkStore::class);
         $requests->method('find')->willReturn($row);
         $requests->expects(self::once())->method('lockEmail')->with('person@example.test');
@@ -413,6 +404,22 @@ final class LoginLinkServiceTest extends TestCase
             ->method('completeApproval');
 
         return $requests;
+    }
+
+    /** @return array<string, mixed> */
+    private function approvalRequest(): array
+    {
+        return [
+            'id' => self::REQUEST_ID,
+            'status' => 'pending',
+            'application_kind' => 'homeowner',
+            'normalized_email' => 'person@example.test',
+            'approval_token_hash' => 'hash:approval-token',
+            'device_name' => 'Kitchen tablet',
+            'platform' => 'android',
+            'expires_at' => '2026-08-09 12:15:00',
+            'created_at' => '2026-08-09 12:00:00',
+        ];
     }
 
     private function service(

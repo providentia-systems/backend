@@ -13,6 +13,9 @@ $expected = [
     '/api/v1/auth/register' => ['post' => 'registerAccount'],
     '/api/v1/auth/login' => ['post' => 'login'],
     '/api/v1/auth/login-links' => ['post' => 'startLoginLink'],
+    '/api/v1/auth/login-links/{requestId}/proof' => ['post' => 'proveLoginLinkApproval'],
+    '/api/v1/auth/login-links/{requestId}/review' => ['post' => 'reviewLoginLinkApproval'],
+    '/api/v1/auth/login-links/{requestId}/decision' => ['post' => 'decideLoginLinkApproval'],
     '/api/v1/auth/login-links/{requestId}/status' => ['post' => 'getLoginLinkStatus'],
     '/api/v1/auth/login-links/{requestId}/exchange' => ['post' => 'exchangeLoginLink'],
     '/api/v1/auth/login-links/{requestId}/cancel' => ['post' => 'cancelLoginLink'],
@@ -85,6 +88,12 @@ foreach (
         'RegisterRequest',
         'LoginLinkStartRequest',
         'LoginLinkStarted',
+        'LoginApplicationKind',
+        'LoginLinkApprovalProof',
+        'LoginLinkApprovalValidity',
+        'LoginLinkApprovalReview',
+        'LoginLinkDecisionRequest',
+        'LoginLinkDecisionReceived',
         'LoginLinkRequestProof',
         'LoginLinkStatus',
         'LoginLinkExchangeRequest',
@@ -170,6 +179,8 @@ foreach (
         ['LoginLinkStartRequest', 'pollChallenge'],
         ['LoginLinkStartRequest', 'codeChallenge'],
         ['LoginLinkStartRequest', 'state'],
+        ['LoginLinkApprovalProof', 'approvalToken'],
+        ['LoginLinkDecisionRequest', 'approvalToken'],
         ['LoginLinkRequestProof', 'pollToken'],
         ['LoginLinkExchangeRequest', 'pollToken'],
         ['LoginLinkExchangeRequest', 'codeVerifier'],
@@ -187,6 +198,7 @@ foreach (
     [
         'requestId',
         'email',
+        'applicationKind',
         'pollChallenge',
         'codeChallenge',
         'codeChallengeMethod',
@@ -212,6 +224,25 @@ foreach (['accepted', 'requestId', 'expiresAt', 'pollIntervalSeconds'] as $field
 $loginLinkStatuses = $contract['components']['schemas']['LoginLinkStatus']['properties']['status']['enum'] ?? [];
 if (! in_array('denied', $loginLinkStatuses, true)) {
     throw new RuntimeException('LoginLinkStatus must expose the terminal denied browser decision.');
+}
+$loginApplicationKinds = $contract['components']['schemas']['LoginApplicationKind']['enum'] ?? [];
+$approvalReview = $contract['components']['schemas']['LoginLinkApprovalReview'] ?? [];
+$decisionResponses = $contract['paths'][
+    '/api/v1/auth/login-links/{requestId}/decision'
+]['post']['responses'] ?? [];
+$metricsSecurity = $contract['paths']['/metrics']['get']['security'] ?? [];
+if (
+    $loginApplicationKinds !== ['homeowner', 'admin']
+    || ($contract['components']['schemas']['LoginLinkStatus']['properties']['applicationKind']['$ref'] ?? null)
+        !== '#/components/schemas/LoginApplicationKind'
+    || array_intersect(['email', 'userId', 'accountId'], array_keys($approvalReview['properties'] ?? [])) !== []
+    || ! isset($decisionResponses['202'])
+    || isset($decisionResponses['404'])
+    || isset($decisionResponses['409'])
+    || isset($decisionResponses['410'])
+    || $metricsSecurity !== [['metricsBearerAuth' => []]]
+) {
+    throw new RuntimeException('Application-bound login approval or private metrics contracts are incomplete.');
 }
 
 $bootstrap = $contract['components']['schemas']['CurrentUserBootstrap'] ?? [];
@@ -260,8 +291,8 @@ foreach ($contract['paths'] as $pathTemplate => $pathItem) {
         }
     }
 }
-if (count($contract['paths']) !== 151 || $operationCount !== 174) {
-    throw new RuntimeException('API 1.15 must expose exactly 151 paths and 174 operations.');
+if (count($contract['paths']) !== 154 || $operationCount !== 177) {
+    throw new RuntimeException('API 1.16 must expose exactly 154 paths and 177 operations.');
 }
 
 $homeProducts = $contract['paths']['/api/v1/homes/{homeId}/products'] ?? [];
@@ -774,7 +805,7 @@ if (
         $contract['components']['schemas']['RegisterResponse']['required'] ?? [],
         true,
     )
-    || ($contract['info']['version'] ?? '') !== '1.15.0'
+    || ($contract['info']['version'] ?? '') !== '1.16.0'
     || stripos($source, 'magic' . '-link') !== false
     || stripos($source, 'magic' . 'link') !== false
     || isset($contract['paths']['/api/v1/auth/' . 'magic' . '-links'])

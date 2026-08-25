@@ -10,8 +10,6 @@ $providers = [
     Mezzio\Router\ConfigProvider::class,
     Mezzio\Router\FastRouteRouter\ConfigProvider::class,
     Mezzio\Helper\ConfigProvider::class,
-    Laminas\View\ConfigProvider::class,
-    Mezzio\LaminasView\ConfigProvider::class,
     Providentia\SharedKernel\ConfigProvider::class,
     Providentia\Identity\ConfigProvider::class,
     Providentia\Home\ConfigProvider::class,
@@ -25,7 +23,6 @@ $providers = [
     Providentia\Billing\ConfigProvider::class,
     Providentia\Administration\ConfigProvider::class,
     Providentia\Reporting\ConfigProvider::class,
-    Providentia\PublicSite\ConfigProvider::class,
     new ArrayProvider(require __DIR__ . '/autoload/global.php'),
     new ArrayProvider(require __DIR__ . '/autoload/local.php'),
 ];

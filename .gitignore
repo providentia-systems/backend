@@ -3,6 +3,7 @@
 /.phpunit.result.cache
 /.php-cs-fixer.cache
 /var/*
+/contracts/openapi/providentia-v1.json
 !/var/.gitkeep
 /.env
 /.env.*

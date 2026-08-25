@@ -43,11 +43,15 @@ final class AuthenticationRateLimiter
         }
     }
 
-    public function assertLoginLinkProofAllowed(string $ipAddress): void
+    public function assertLoginLinkProofAllowed(string $ipAddress, ?string $requestId = null): void
     {
-        // Do not persist a bucket derived from an unverified request ID: an
-        // attacker could otherwise create unbounded rows with random UUIDs.
         $buckets = ['login-link-ip:' . $ipAddress => 3000];
+        if ($requestId !== null) {
+            // The middleware adds these buckets only after proving the request
+            // exists, preventing random UUIDs from creating unbounded rows.
+            $buckets['login-link-request:' . $requestId] = 600;
+            $buckets['login-link-request-ip:' . $requestId . '|' . $ipAddress] = 600;
+        }
         foreach ($buckets as $bucket => $limit) {
             if (
                 ! $this->store->consume(

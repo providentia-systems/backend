@@ -10,7 +10,6 @@ use Providentia\Catalog\Http\CatalogProductHandler;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
 use Providentia\Identity\Http\LoginLinkProofRateLimitMiddleware;
-use Providentia\PublicSite\Http\HomePageHandler;
 use Providentia\Reporting\Http\DashboardHandler;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
 use Providentia\SharedKernel\Http\Health\ReadinessHandler;
@@ -18,32 +17,6 @@ use Providentia\SharedKernel\Http\MetricsHandler;
 use Providentia\SharedKernel\Http\SystemInfoHandler;
 
 return static function (Application $app): void {
-    $app->get('/', HomePageHandler::class, 'public.home');
-    $app->get(
-        '/login-links/{requestId}',
-        'identity.login-link-browser-launch',
-        'public.login-links.launch',
-    );
-    $app->post(
-        '/login-links/{requestId}/capture',
-        'identity.login-link-browser-capture',
-        'public.login-links.capture',
-    );
-    $app->get(
-        '/login-links/{requestId}/review',
-        'identity.login-link-browser-review',
-        'public.login-links.review',
-    );
-    $app->post(
-        '/login-links/{requestId}/approve',
-        'identity.login-link-browser-approve',
-        'public.login-links.approve',
-    );
-    $app->post(
-        '/login-links/{requestId}/deny',
-        'identity.login-link-browser-deny',
-        'public.login-links.deny',
-    );
     $app->get('/health/live', LivenessHandler::class, 'health.live');
     $app->get('/health/ready', ReadinessHandler::class, 'health.ready');
     $app->get('/api/v1/system/info', SystemInfoHandler::class, 'api.system.info');
@@ -63,6 +36,21 @@ return static function (Application $app): void {
         '/api/v1/auth/login-links/{requestId}/status',
         [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-status'],
         'api.auth.login-links.status',
+    );
+    $app->post(
+        '/api/v1/auth/login-links/{requestId}/proof',
+        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-proof'],
+        'api.auth.login-links.proof',
+    );
+    $app->post(
+        '/api/v1/auth/login-links/{requestId}/review',
+        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-review'],
+        'api.auth.login-links.review',
+    );
+    $app->post(
+        '/api/v1/auth/login-links/{requestId}/decision',
+        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-decision'],
+        'api.auth.login-links.decision',
     );
     $app->post(
         '/api/v1/auth/login-links/{requestId}/exchange',
