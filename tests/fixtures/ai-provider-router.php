@@ -14,10 +14,13 @@ declare(strict_types=1);
 function respond(int $status, array $body): never
 {
     $encoded = json_encode($body, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+    json_decode($encoded, true, 128, JSON_THROW_ON_ERROR);
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
     header('Content-Length: ' . strlen($encoded));
+    header('X-Acceptance-Body-Length: ' . strlen($encoded));
+    header('X-Acceptance-Body-Sha256: ' . hash('sha256', $encoded));
     header('Connection: close');
     echo $encoded;
     exit;

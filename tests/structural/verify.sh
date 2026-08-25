@@ -466,10 +466,18 @@ grep -Fq 'test -r /app/var/providentia.sqlite' tests/Acceptance/compose.headless
   || fail 'the notification worker must expose a database-readiness healthcheck to Compose'
 grep -Fq "header('Content-Length: ' . strlen(\$encoded));" tests/fixtures/ai-provider-router.php \
   || fail 'the deterministic AI fixture must frame its strict JSON response completely'
+grep -Fq "header('X-Acceptance-Body-Sha256: ' . hash('sha256', \$encoded));" \
+  tests/fixtures/ai-provider-router.php \
+  || fail 'the deterministic AI fixture must expose only bounded response-integrity evidence'
 grep -Fq "\$method === 'GET' && \$path === '/self-test'" tests/fixtures/ai-provider-router.php \
   || fail 'the deterministic AI fixture must expose its network-local framing self-test'
 grep -Fq '"http://ai-fixture:8090/self-test"' tests/Acceptance/headless-platform-acceptance.sh \
   || fail 'headless acceptance must preflight fixture framing independently of request validation'
+grep -Fq 'ProviderJsonDecoder::httpResponse' tests/Acceptance/headless-platform-acceptance.sh \
+  || fail 'headless acceptance must exercise the production provider JSON decoder'
+grep -Fq 'json_error=%d json_error_code=%s expected_length=%s expected_sha256=%s' \
+  tests/Acceptance/headless-platform-acceptance.sh \
+  || fail 'AI fixture failures must emit bounded framing evidence without response contents'
 grep -Fq 'preflight_ai_fixture' tests/Acceptance/headless-platform-acceptance.sh \
   || fail 'headless acceptance must distinguish provider transport JSON from structured output'
 dockerfile_copy_line="$(grep -n '^COPY \. \.$' Dockerfile | cut -d: -f1)"
