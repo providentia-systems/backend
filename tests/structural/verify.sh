@@ -460,8 +460,21 @@ grep -Fq "'billing.enforced' => false" src/Billing/Application/BillingService.ph
   || fail 'free-phase household billing must remain explicitly non-enforcing'
 grep -Fq 'tool/materialize-openapi-contract.sh' tests/Acceptance/headless-platform-acceptance.sh \
   || fail 'headless acceptance must materialize and verify the pinned API contract'
-grep -Fq '$$socket = @fsockopen' tests/Acceptance/compose.headless-platform-acceptance.yaml \
-  || fail 'the fixture readiness probe must escape its PHP variable from Compose interpolation'
+grep -Fq 'context: tests/fixtures' tests/Acceptance/compose.headless-platform-acceptance.yaml \
+  || fail 'the AI fixture must build from its isolated context instead of the test-excluding app context'
+grep -Fq 'dockerfile: Dockerfile.ai-provider' tests/Acceptance/compose.headless-platform-acceptance.yaml \
+  || fail 'the AI fixture must use its dedicated minimal image'
+grep -Fq "@file_get_contents('http://127.0.0.1:8090/health')" \
+  tests/Acceptance/compose.headless-platform-acceptance.yaml \
+  || fail 'the AI fixture healthcheck must exercise its JSON router, not only an open TCP port'
+grep -Fq "JSON_THROW_ON_ERROR" tests/Acceptance/compose.headless-platform-acceptance.yaml \
+  || fail 'the AI fixture healthcheck must reject malformed non-JSON responses'
+grep -Fq "=== ['status' => 'ready']" tests/Acceptance/compose.headless-platform-acceptance.yaml \
+  || fail 'the AI fixture healthcheck must require its exact readiness document'
+grep -Fq 'COPY ai-provider-router.php /fixture/router.php' tests/fixtures/Dockerfile.ai-provider \
+  || fail 'the dedicated AI fixture image must contain its router'
+grep -Fq '"tests/fixtures/**"' .github/workflows/headless-platform-acceptance.yml \
+  || fail 'every deterministic AI fixture change must trigger deployed headless acceptance'
 grep -Fq 'test -r /app/var/providentia.sqlite' tests/Acceptance/compose.headless-platform-acceptance.yaml \
   || fail 'the notification worker must expose a database-readiness healthcheck to Compose'
 grep -Fq "header('Content-Length: ' . strlen(\$encoded));" tests/fixtures/ai-provider-router.php \

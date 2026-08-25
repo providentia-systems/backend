@@ -14,7 +14,7 @@ on:
       - "src/**"
       - "tests/Acceptance/compose.headless-platform-acceptance.yaml"
       - "tests/Acceptance/headless-platform-acceptance.sh"
-      - "tests/fixtures/ai-provider-router.php"
+      - "tests/fixtures/**"
   workflow_dispatch:
 
 permissions:
