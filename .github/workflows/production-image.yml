@@ -251,7 +251,20 @@ jobs:
           PROVIDENTIA_DEV_DEVICE_ID=01912345-6789-7abc-8def-0123456789ab
           EOF
           PROVIDENTIA_PREBUILT_ENV_FILE="$prebuilt_env" bash scripts/setup-prebuilt.sh
-          curl --fail-with-body --silent http://127.0.0.1:18083/ | grep -Fq '<title>Providentia</title>'
+          root_response="$(curl --silent --show-error --write-out $'\n%{http_code}\n%{content_type}' \
+            http://127.0.0.1:18083/)"
+          root_content_type="${root_response##*$'\n'}"
+          root_without_type="${root_response%$'\n'*}"
+          root_status="${root_without_type##*$'\n'}"
+          root_body="${root_without_type%$'\n'*}"
+          test "$root_status" = '404'
+          test "$root_content_type" = 'application/problem+json'
+          jq -e '.status == 404 and .title == "Not Found" and .instance == "/"' \
+            <<<"$root_body" >/dev/null
+          if grep -Eiq '<(!doctype|html|form|script)' <<<"$root_body"; then
+            printf 'Prebuilt headless root returned an interactive document.\n' >&2
+            exit 1
+          fi
           jq -e '
             .apiBaseUrl == "http://127.0.0.1:18083"
             and .email == "prebuilt-ci@example.test"

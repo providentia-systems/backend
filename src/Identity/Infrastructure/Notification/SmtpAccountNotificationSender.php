@@ -82,7 +82,7 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
                 sprintf(
                     "Review this login request in the %s application:\n%s#requestId=%s&approval=%s\n\n"
                     . 'The credential is single-use and does not sign a browser or the backend in.',
-                    $loginApplication?->value,
+                    $loginApplication->value,
                     $loginApplicationLink,
                     rawurlencode((string) ($context['requestId'] ?? '')),
                     rawurlencode((string) ($context['approvalToken'] ?? '')),
