@@ -15,8 +15,12 @@ final class SodiumSensitiveBufferEraser implements SensitiveBufferEraser
         }
 
         if (function_exists('sodium_memzero')) {
-            sodium_memzero($buffer);
+            // sodium_memzero() changes its argument to null. Keep that
+            // extension-owned postcondition away from this method's string
+            // reference contract while still erasing the exact owned bytes.
+            $owned = $buffer;
             $buffer = '';
+            sodium_memzero($owned);
 
             return;
         }
