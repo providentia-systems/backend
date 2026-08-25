@@ -26,11 +26,16 @@ function respond(int $status, array $body): never
     exit;
 }
 
-function reject(string $detail): never
+function reject(string $code, string $detail, int $status = 422): never
 {
-    respond(422, [
+    if (preg_match('/^[a-z0-9_]{1,64}$/D', $code) !== 1) {
+        throw new LogicException('The acceptance rejection code is not bounded.');
+    }
+    header('X-Acceptance-Rejection-Code: ' . $code);
+    error_log('AI_FIXTURE_REJECTION code=' . $code);
+    respond($status, [
         'error' => [
-            'type' => 'invalid_acceptance_request',
+            'type' => $code,
             'message' => $detail,
         ],
     ]);
@@ -121,23 +126,23 @@ if ($method !== 'POST' || $path !== '/v1/chat/completions') {
 
 $authorization = (string) ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
 if (! hash_equals('Bearer acceptance-ai-token-replacement-2222', $authorization)) {
-    respond(401, ['error' => ['type' => 'authentication_failed', 'message' => 'Credential rejected.']]);
+    reject('authentication_failed', 'Credential rejected.', 401);
 }
 
 $raw = file_get_contents('php://input');
 if (! is_string($raw) || $raw === '' || strlen($raw) > 1048576) {
-    reject('The request body is missing or too large.');
+    reject('invalid_body_size', 'The request body is missing or too large.');
 }
 try {
     $request = json_decode($raw, true, 128, JSON_THROW_ON_ERROR);
 } catch (JsonException) {
-    reject('The request body is not JSON.');
+    reject('invalid_json', 'The request body is not JSON.');
 }
 if (! is_array($request) || array_is_list($request)) {
-    reject('The request body must be an object.');
+    reject('invalid_object', 'The request body must be an object.');
 }
 if (($request['model'] ?? null) !== 'acceptance-vision' || ($request['stream'] ?? null) !== false) {
-    reject('The deterministic model and non-streaming mode are required.');
+    reject('invalid_model_or_stream', 'The deterministic model and non-streaming mode are required.');
 }
 
 $format = $request['response_format']['json_schema'] ?? null;
@@ -151,12 +156,12 @@ if (
     || ! in_array('quantityMinimum', $format['schema']['properties']['candidates']['items']['required'] ?? [], true)
     || ! in_array('quantityMaximum', $format['schema']['properties']['candidates']['items']['required'] ?? [], true)
 ) {
-    reject('The API 1.18 strict quantity-range response schema is required.');
+    reject('invalid_response_schema', 'The API 1.18 strict quantity-range response schema is required.');
 }
 
 $content = $request['messages'][0]['content'] ?? null;
 if (! is_array($content) || ! array_is_list($content)) {
-    reject('The provider request has no multimodal content list.');
+    reject('invalid_multimodal_content', 'The provider request has no multimodal content list.');
 }
 $hasPrompt = false;
 $hasPng = false;
@@ -177,7 +182,7 @@ foreach ($content as $part) {
     }
 }
 if (! $hasPrompt || ! $hasPng) {
-    reject('The request must contain the review disclosure and one inline PNG.');
+    reject('missing_disclosure_or_png', 'The request must contain the review disclosure and one inline PNG.');
 }
 
 respond(200, deterministicProviderResponse());
