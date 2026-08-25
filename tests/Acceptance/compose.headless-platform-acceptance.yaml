@@ -1,0 +1,54 @@
+services:
+  api-sqlite:
+    environment:
+      AUTH_PASSWORD_LOGIN_ENABLED: "0"
+      AUTH_TOKEN_PEPPER: acceptance-authentication-pepper-at-least-32-bytes
+      PLATFORM_BOOTSTRAP_ADMIN_EMAILS: acceptance-admin@example.test
+      NOTIFICATION_PAYLOAD_KEK: bm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm4=
+      EXPOSE_DEVELOPMENT_TOKENS: "0"
+      HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/homeowner
+      ADMIN_APP_LINK_BASE: providentia-admin://login-link/admin
+      AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,login-link
+      CORS_ALLOWED_ORIGINS: https://app.example.invalid
+      METRICS_ENABLED: "0"
+      AI_SERVER_PROXY_ENABLED: "1"
+      AI_CREDENTIAL_KEK: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=
+      AI_COMPATIBLE_ENDPOINT: http://ai-fixture:8090/v1/chat/completions
+      AI_ALLOW_PRIVATE_ENDPOINTS: "1"
+    depends_on:
+      ai-fixture:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
+  notification-sqlite:
+    environment:
+      AUTH_PASSWORD_LOGIN_ENABLED: "0"
+      AUTH_TOKEN_PEPPER: acceptance-authentication-pepper-at-least-32-bytes
+      NOTIFICATION_PAYLOAD_KEK: bm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm4=
+      HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/homeowner
+      ADMIN_APP_LINK_BASE: providentia-admin://login-link/admin
+      AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,login-link
+
+  ai-fixture:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint:
+      - php
+      - -S
+      - 0.0.0.0:8090
+      - tests/fixtures/ai-provider-router.php
+    command: []
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - >-
+          exit(str_contains((string) @file_get_contents('http://127.0.0.1:8090/health'), 'ready') ? 0 : 1);
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s

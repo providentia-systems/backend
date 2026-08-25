@@ -57,6 +57,16 @@ $expected = [
     '/api/v1/homes/{homeId}/sync/push' => ['post' => 'pushHomeSynchronization'],
     '/api/v1/homes/{homeId}/sync/pull' => ['get' => 'pullHomeSynchronization'],
     '/api/v1/homes/{homeId}/sync/bootstrap' => ['get' => 'bootstrapHomeSynchronization'],
+    '/api/v1/homes/{homeId}/stock-count-sessions' => [
+        'get' => 'listStockCountSessions',
+        'post' => 'startStockCountSession',
+    ],
+    '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}' => [
+        'get' => 'getStockCountSession',
+    ],
+    '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/close' => [
+        'post' => 'closeStockCountSession',
+    ],
     '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/cancel' => [
         'post' => 'cancelStockCountSession',
     ],
@@ -138,6 +148,8 @@ foreach (
         'SuggestionExplanation',
         'PriceComparison',
         'StockPreference',
+        'StockCountSession',
+        'StockCountLine',
         'SuggestionBacktest',
         'HomeReport',
         'ReceiptLineDecisionResult',
@@ -328,6 +340,37 @@ if (
     ) === false
 ) {
     throw new RuntimeException('AI extraction schema v2 must preserve receipt quantity and stock count ranges.');
+}
+
+$stockCountSessionReference = '#/components/schemas/StockCountSession';
+foreach (
+    [
+        ['/api/v1/homes/{homeId}/stock-count-sessions', 'post', '201'],
+        ['/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}', 'get', '200'],
+        ['/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/close', 'post', '200'],
+    ] as [$stockCountPath, $stockCountMethod, $stockCountStatus]
+) {
+    $responseReference = $contract['paths'][$stockCountPath][$stockCountMethod]
+        ['responses'][$stockCountStatus]['content']['application/json']['schema']['$ref'] ?? null;
+    if ($responseReference !== $stockCountSessionReference) {
+        throw new RuntimeException(sprintf(
+            '%s %s must return StockCountSession.',
+            strtoupper($stockCountMethod),
+            $stockCountPath,
+        ));
+    }
+}
+$stockCountListReference = $contract['paths']['/api/v1/homes/{homeId}/stock-count-sessions']
+    ['get']['responses']['200']['content']['application/json']['schema']
+    ['properties']['data']['items']['$ref'] ?? null;
+if ($stockCountListReference !== $stockCountSessionReference) {
+    throw new RuntimeException('The stock-count session list must return StockCountSession items.');
+}
+$requiredStockCountSessionFields = $contract['components']['schemas']['StockCountSession']['required'] ?? [];
+foreach (['id', 'homeId', 'status', 'revision'] as $requiredStockCountSessionField) {
+    if (! in_array($requiredStockCountSessionField, $requiredStockCountSessionFields, true)) {
+        throw new RuntimeException('StockCountSession must require ' . $requiredStockCountSessionField . '.');
+    }
 }
 
 $homeProducts = $contract['paths']['/api/v1/homes/{homeId}/products'] ?? [];

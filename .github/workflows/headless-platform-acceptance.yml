@@ -1,0 +1,43 @@
+name: Headless platform acceptance
+
+on:
+  pull_request:
+    paths:
+      - ".env.production.example"
+      - ".github/workflows/headless-platform-acceptance.yml"
+      - ".github/workflows/production-image.yml"
+      - "compose.yaml"
+      - "config/**"
+      - "contracts/openapi/**"
+      - "contracts/source/**"
+      - "migrations/**"
+      - "src/**"
+      - "tests/Acceptance/compose.headless-platform-acceptance.yaml"
+      - "tests/Acceptance/headless-platform-acceptance.sh"
+      - "tests/fixtures/ai-provider-router.php"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: headless-platform-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-compose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PROVIDENTIA_ACCEPTANCE_PROJECT: providentia-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Run deployed headless platform acceptance
+        run: bash tests/Acceptance/headless-platform-acceptance.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: headless-platform-acceptance-${{ github.sha }}
+          path: var/headless-platform-acceptance/summary.json
+          if-no-files-found: error
+          retention-days: 30

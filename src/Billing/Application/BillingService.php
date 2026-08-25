@@ -316,8 +316,13 @@ final readonly class BillingService
     /** @return array<string, mixed> */
     public function homeSummary(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->configuration->requireEnabled();
         $this->authorization->requireHomeRead($identity, $homeId);
+        if (! $this->configuration->enabled) {
+            return [
+                'subscription' => null,
+                'entitlements' => ['billing.enforced' => false],
+            ];
+        }
         $now = $this->clock->now();
         $subscription = $this->billing->subscription($homeId);
         $values = [];

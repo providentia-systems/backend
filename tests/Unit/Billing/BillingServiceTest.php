@@ -218,6 +218,25 @@ final class BillingServiceTest extends TestCase
         self::assertSame(4294967296, $summary['entitlements']['media.storage.bytes']);
     }
 
+    public function testDisabledBillingReturnsAnAuthorizedFreePhaseSummaryWithoutReadingSubscriptionData(): void
+    {
+        $store = $this->createMock(BillingStore::class);
+        $store->expects(self::never())->method('subscription');
+        $store->expects(self::never())->method('entitlements');
+        $store->expects(self::never())->method('activeOverrides');
+
+        self::assertSame(
+            [
+                'subscription' => null,
+                'entitlements' => ['billing.enforced' => false],
+            ],
+            $this->service($store, new FakePayPalGateway(), false, 'manager')->homeSummary(
+                $this->identity([], 'manager-user'),
+                'home-1',
+            ),
+        );
+    }
+
     /** @param list<string> $roles */
     private function identity(array $roles = [], string $userId = 'user-1'): AuthenticatedIdentity
     {
