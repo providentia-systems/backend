@@ -10,6 +10,7 @@ declare(strict_types=1);
  * shape before returning one stock-count proposal with a bounded quantity.
  */
 
+/** @param array<string, mixed> $body */
 function respond(int $status, array $body): never
 {
     http_response_code($status);
