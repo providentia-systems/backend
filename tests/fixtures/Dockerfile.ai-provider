@@ -5,5 +5,7 @@ COPY ai-provider-router.php /fixture/router.php
 
 USER www-data
 EXPOSE 8090
+HEALTHCHECK --interval=2s --timeout=2s --start-period=5s --retries=30 \
+    CMD ["php", "-r", "try { exit(json_decode((string) @file_get_contents('http://127.0.0.1:8090/health'), true, 4, JSON_THROW_ON_ERROR) === ['status' => 'ready'] ? 0 : 1); } catch (Throwable) { exit(1); }"]
 
 ENTRYPOINT ["php", "-S", "0.0.0.0:8090", "/fixture/router.php"]

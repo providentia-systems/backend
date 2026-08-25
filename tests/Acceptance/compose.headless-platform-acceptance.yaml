@@ -44,21 +44,3 @@ services:
       context: tests/fixtures
       dockerfile: Dockerfile.ai-provider
     restart: unless-stopped
-    healthcheck:
-      test:
-        - CMD
-        - php
-        - -r
-        - >-
-          try {
-            exit(json_decode(
-              (string) @file_get_contents('http://127.0.0.1:8090/health'),
-              true,
-              4,
-              JSON_THROW_ON_ERROR
-            ) === ['status' => 'ready'] ? 0 : 1);
-          } catch (Throwable) { exit(1); }
-      interval: 2s
-      timeout: 2s
-      retries: 30
-      start_period: 5s
