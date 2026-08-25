@@ -256,6 +256,7 @@ preflight_ai_fixture() {
         $stream = @fopen(
             "http://ai-fixture:8090/self-test",
             "rb",
+            false,
             $context,
         );
         if ($stream === false) {
