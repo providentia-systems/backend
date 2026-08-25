@@ -13,7 +13,7 @@ services:
       METRICS_ENABLED: "0"
       AI_SERVER_PROXY_ENABLED: "1"
       AI_CREDENTIAL_KEK: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=
-      AI_COMPATIBLE_ENDPOINT: http://ai-fixture:8090/v1/chat/completions
+      AI_COMPATIBLE_ENDPOINT: http://ai-fixture:8090
       AI_ALLOW_PRIVATE_ENDPOINTS: "1"
     depends_on:
       ai-fixture:
