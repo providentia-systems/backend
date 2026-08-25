@@ -475,6 +475,9 @@ grep -Fq '"http://ai-fixture:8090/self-test"' tests/Acceptance/headless-platform
   || fail 'headless acceptance must preflight fixture framing independently of request validation'
 grep -Fq 'ProviderJsonDecoder::httpResponse' tests/Acceptance/headless-platform-acceptance.sh \
   || fail 'headless acceptance must exercise the production provider JSON decoder'
+sed -n '/"http:\/\/ai-fixture:8090\/self-test"/,+5p' \
+  tests/Acceptance/headless-platform-acceptance.sh | grep -Fq '            false,' \
+  || fail 'the provider self-test stream must pass its context as fopen argument four'
 grep -Fq 'json_error=%d json_error_code=%s expected_length=%s expected_sha256=%s' \
   tests/Acceptance/headless-platform-acceptance.sh \
   || fail 'AI fixture failures must emit bounded framing evidence without response contents'
