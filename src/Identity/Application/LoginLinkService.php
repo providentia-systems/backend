@@ -231,8 +231,7 @@ final class LoginLinkService
         string $requestId,
         string $approvalToken,
         string $applicationKind,
-    ): array
-    {
+    ): array {
         // Validate and persist expiry outside the approval transaction so an
         // expired terminal state is not rolled back with the HTTP problem.
         $application = LoginApplicationKind::fromInput($applicationKind);
@@ -343,8 +342,7 @@ final class LoginLinkService
         string $requestId,
         string $approvalToken,
         string $applicationKind,
-    ): array
-    {
+    ): array {
         $application = LoginApplicationKind::fromInput($applicationKind);
         $this->approvalRequest($requestId, $approvalToken, $application);
         $denied = $this->transactions->transactional(function () use ($requestId, $approvalToken): bool {
@@ -468,8 +466,7 @@ final class LoginLinkService
         string $requestId,
         string $approvalToken,
         LoginApplicationKind $application,
-    ): array
-    {
+    ): array {
         $requestId = $this->uuid($requestId, 'requestId');
         $request = $this->requests->find($requestId);
         if (

@@ -26,6 +26,7 @@ use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
 use Providentia\SharedKernel\Http\Health\ReadinessHandler;
 use Providentia\SharedKernel\Http\MetricsHandler;
+use Providentia\SharedKernel\Http\NotFoundHandler;
 use Providentia\SharedKernel\Http\ProblemDetailsMiddleware;
 use Providentia\SharedKernel\Http\RequestIdMiddleware;
 use Providentia\SharedKernel\Http\SystemInfoHandler;
@@ -99,6 +100,7 @@ final class ConfigProvider
                     LivenessHandler::class => HttpHandlerFactory::class,
                     ReadinessHandler::class => HttpHandlerFactory::class,
                     MetricsHandler::class => HttpHandlerFactory::class,
+                    NotFoundHandler::class => InvokableFactory::class,
                     SystemInfoHandler::class => HttpHandlerFactory::class,
                     ProblemDetailsMiddleware::class => HttpHandlerFactory::class,
                     RequestIdMiddleware::class => InvokableFactory::class,

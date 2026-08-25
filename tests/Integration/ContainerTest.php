@@ -16,10 +16,10 @@ use Providentia\AiIntegration\Application\Media\PrivateMediaService;
 use Providentia\Catalog\Application\CatalogSeedService;
 use Providentia\Home\Application\HomeService;
 use Providentia\Identity\Application\AuthenticationService;
-use Providentia\PublicSite\Http\HomePageHandler;
 use Providentia\SharedKernel\Application\Async\AsyncMessageBus;
 use Providentia\SharedKernel\Application\Async\OutboxStore;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
+use Providentia\SharedKernel\Http\NotFoundHandler;
 use Providentia\Synchronization\Application\SynchronizationService;
 use Psr\Container\ContainerInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
@@ -45,7 +45,7 @@ final class ContainerTest extends TestCase
         self::assertInstanceOf(OutboxStore::class, $this->container->get(OutboxStore::class));
         self::assertInstanceOf(AsyncMessageBus::class, $this->container->get(AsyncMessageBus::class));
         self::assertInstanceOf(LivenessHandler::class, $this->container->get(LivenessHandler::class));
-        self::assertInstanceOf(HomePageHandler::class, $this->container->get(HomePageHandler::class));
+        self::assertInstanceOf(NotFoundHandler::class, $this->container->get(NotFoundHandler::class));
         self::assertInstanceOf(AuthenticationService::class, $this->container->get(AuthenticationService::class));
         self::assertInstanceOf(HomeService::class, $this->container->get(HomeService::class));
         self::assertInstanceOf(CatalogSeedService::class, $this->container->get(CatalogSeedService::class));
@@ -60,14 +60,23 @@ final class ContainerTest extends TestCase
         );
     }
 
-    public function testPublicHomePageRendersThroughTheNamespacedTemplateResolver(): void
+    public function testHeadlessFallbackReturnsProblemDetailsWithoutHtml(): void
     {
-        $response = $this->container->get(HomePageHandler::class)->handle(
+        $response = $this->container->get(NotFoundHandler::class)->handle(
             new ServerRequest([], [], new Uri('http://127.0.0.1/')),
         );
 
-        self::assertSame(200, $response->getStatusCode());
-        self::assertStringContainsString('<title>Providentia</title>', (string) $response->getBody());
+        self::assertSame(404, $response->getStatusCode());
+        self::assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
+        self::assertJsonStringEqualsJsonString(json_encode([
+            'type' => 'about:blank',
+            'title' => 'Not Found',
+            'status' => 404,
+            'detail' => 'The requested API resource is unavailable.',
+            'instance' => '/',
+            'requestId' => $response->getHeaderLine('X-Request-Id'),
+        ], JSON_THROW_ON_ERROR), (string) $response->getBody());
+        self::assertStringNotContainsString('<html', (string) $response->getBody());
     }
 
     public function testEntityManagerUsesAnExplicitProcessLocalCache(): void
