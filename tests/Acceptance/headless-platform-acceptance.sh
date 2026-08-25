@@ -1138,7 +1138,7 @@ assert_json 'Product-image consent was not independently revisioned.' '
 '
 
 catalog_image_file="${evidence_dir}/catalog-source.png"
-printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgAQAAAABbAUdZAAAADElEQVQI12NgGNwAAACgAAFhJX1HAAAAAElFTkSuQmCC' \
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVRIx+3NMQEAAAjDMMC/ZzDBvlRA01vZJvwHAAAAAAAAAAAAbx2jxAE/ehR5RwAAAABJRU5ErkJggg==' \
     | openssl base64 -d -A >"$catalog_image_file"
 catalog_source_digest="$(sha256sum "$catalog_image_file" | awk '{print $1}')"
 image_contribution_id="$(uuid)"
@@ -1374,9 +1374,11 @@ grep -Eiq "^etag:[[:space:]]*\"sha256-${image_asset_digest}\"[[:space:]]*$" "$re
 # is withdrawn. It cannot be previewed, published, or resolved as a public
 # content-addressed asset after that revision transition.
 withdrawn_image_file="${evidence_dir}/catalog-withdrawn-source.png"
-printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgAQAAAABbAUdZAAAAD0lEQVQI12P4DwQMg5cAANrpf4GXVFCUAAAAAElFTkSuQmCC' \
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKUlEQVRIx+3NMQEAAAjDsIF/z2ACvlRAU8nks369AwAAAAAAAAAAgMMWocYBP5JayAYAAAAASUVORK5CYII=' \
     | openssl base64 -d -A >"$withdrawn_image_file"
 withdrawn_source_digest="$(sha256sum "$withdrawn_image_file" | awk '{print $1}')"
+[[ "$withdrawn_source_digest" != "$catalog_source_digest" ]] \
+    || fail 'Distinct RGB source images produced the same source digest.'
 withdrawn_image_id="$(uuid)"
 http_catalog_image_multipart \
     "/api/v1/homes/${home_id}/catalog-contributions/images" \
@@ -1389,12 +1391,12 @@ assert_json 'The second image did not enter pending moderation before consent wi
     and .status == "pending"
     and .revision == 1
     and .payload.sourceDigest == $sourceDigest
-    and .payload.assetDigest != $publishedAssetDigest
 ' \
     --arg submissionId "$withdrawn_image_id" \
-    --arg sourceDigest "$withdrawn_source_digest" \
-    --arg publishedAssetDigest "$image_asset_digest"
+    --arg sourceDigest "$withdrawn_source_digest"
 withdrawn_asset_digest="$(jq -er '.payload.assetDigest' "$response_body")"
+[[ "$withdrawn_asset_digest" != "$image_asset_digest" ]] \
+    || fail 'Distinct RGB source images produced the same sanitized asset digest.'
 
 image_consent_body="$(jq -cn '
     {
