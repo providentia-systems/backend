@@ -30,6 +30,8 @@ final class ExtractionSchemaTest extends TestCase
                 'product' => 'Rice',
                 'variant' => null,
                 'quantity' => '2',
+                'quantityMinimum' => null,
+                'quantityMaximum' => null,
                 'packText' => '1 kg',
                 'unitPrice' => '6.25',
                 'lineTotal' => '12.50',
@@ -50,6 +52,35 @@ final class ExtractionSchemaTest extends TestCase
         ];
 
         self::assertSame($result, (new ExtractionSchema())->validate($result, 'receipt'));
+    }
+
+    public function testValidStockProposalPreservesAnUncertainVisibleCountRange(): void
+    {
+        $result = $this->stockResult('3.5', '5');
+
+        self::assertSame($result, (new ExtractionSchema())->validate($result, 'stock'));
+    }
+
+    public function testStockProposalRejectsAnInvertedVisibleCountRange(): void
+    {
+        $this->expectException(AiProviderException::class);
+        $this->expectExceptionMessage('quantity range is inverted');
+
+        (new ExtractionSchema())->validate($this->stockResult('5.00000001', '5'), 'stock');
+    }
+
+    public function testStockProposalRejectsReceiptQuantityInsteadOfRange(): void
+    {
+        $result = $this->stockResult('2', '2');
+        /** @var list<array<string, mixed>> $candidates */
+        $candidates = $result['candidates'];
+        $candidates[0]['quantity'] = '2';
+        $result['candidates'] = $candidates;
+
+        $this->expectException(AiProviderException::class);
+        $this->expectExceptionMessage('preserve its count as a quantity range');
+
+        (new ExtractionSchema())->validate($result, 'stock');
     }
 
     public function testUnexpectedFieldsAreRejectedEvenWhenTheCoreShapeLooksValid(): void
@@ -110,5 +141,48 @@ final class ExtractionSchemaTest extends TestCase
         $this->expectException(AiProviderException::class);
         $this->expectExceptionMessage('unrelated or sensitive');
         (new ExtractionSchema())->validate($result, 'receipt');
+    }
+
+    /** @return array<string, mixed> */
+    private function stockResult(string $minimum, string $maximum): array
+    {
+        return [
+            'documentType' => 'stock',
+            'merchant' => null,
+            'receiptNumber' => null,
+            'purchaseDate' => null,
+            'currency' => null,
+            'totalAmount' => null,
+            'taxAmount' => null,
+            'notes' => null,
+            'warnings' => ['partial-occlusion'],
+            'candidates' => [[
+                'candidateType' => 'stock_item',
+                'rawText' => null,
+                'description' => 'Canned tomatoes',
+                'brand' => null,
+                'product' => 'Tomatoes',
+                'variant' => 'Canned',
+                'quantity' => null,
+                'quantityMinimum' => $minimum,
+                'quantityMaximum' => $maximum,
+                'packText' => '400 g',
+                'unitPrice' => null,
+                'lineTotal' => null,
+                'discountAmount' => null,
+                'taxAmount' => null,
+                'boundingRegion' => ['x' => 0.1, 'y' => 0.2, 'width' => 0.4, 'height' => 0.5],
+                'confidence' => 0.72,
+                'fieldConfidence' => [
+                    'description' => 0.9,
+                    'quantity' => 0.72,
+                    'packText' => 0.65,
+                    'unitPrice' => null,
+                    'lineTotal' => null,
+                ],
+                'warnings' => ['partial-occlusion'],
+                'unresolvedValues' => [],
+            ]],
+        ];
     }
 }

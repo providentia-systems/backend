@@ -63,7 +63,7 @@ final class IdentityFactory
          *     login_link_retention_days: int,
          *     rate_limit_retention_days: int,
          *     bootstrap_administrator_emails: list<string>,
-         *     login_application_links: array{homeowner: string, admin: string},
+         *     application_links: array{homeowner: string, admin: string},
          *     onboarding_home: array{name: string, locale: string, currency: string, timezone: string},
          *     token_pepper: string,
          *     expose_development_tokens: bool,
@@ -73,7 +73,6 @@ final class IdentityFactory
          *   mail: array{
          *     dsn: string,
          *     from: string,
-         *     public_base_url: string,
          *     notification_payload_kek: string,
          *     notification_key_version: int,
          *     batch_size: int,
@@ -99,8 +98,7 @@ final class IdentityFactory
             return new SmtpAccountNotificationSender(
                 $config['mail']['dsn'],
                 $config['mail']['from'],
-                $config['mail']['public_base_url'],
-                $config['identity']['login_application_links'],
+                $config['identity']['application_links'],
             );
         }
         if ($requestedName === NativeNotificationPayloadCipher::class) {

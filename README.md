@@ -127,14 +127,14 @@ composer serve
 
 Then open:
 
-- public site: `http://127.0.0.1:8080/`
 - liveness: `http://127.0.0.1:8080/health/live`
 - readiness: `http://127.0.0.1:8080/health/ready`
 - system information: `http://127.0.0.1:8080/api/v1/system/info`
-- Prometheus exposition: `http://127.0.0.1:8080/metrics`
 
-`/metrics` must be private in a deployed environment. The supplied Caddy
-baseline denies it at the public edge.
+The root deliberately returns JSON `404`; the backend has no interactive web
+surface. `/metrics` also returns `404` unless `METRICS_ENABLED=1` and a
+dedicated `METRICS_BEARER_TOKEN` are configured, after which it additionally
+requires that bearer credential and a private network/edge policy.
 
 ## Source-build Compose profiles
 
@@ -165,10 +165,10 @@ queue message is never represented as equivalent to the database commit.
 
 ## Product surface
 
-- Email-only login-link onboarding with explicit any-browser approval,
+- Email-only login-link onboarding with explicit Client/Admin application approval,
   origin-client polling and PKCE exchange, automatic first-home ownership,
   refresh rotation, logout, device sessions, and secure-cookie/bearer
-  transports. The approval browser never receives the application session.
+  transports. The approving application never receives the originating application session.
 - Development-opt-in email/password compatibility for isolated loopback
   diagnostics only; production clients and acceptance jobs use login links.
 - Home creation/switching, roles, invitations, membership lifecycle, explicit

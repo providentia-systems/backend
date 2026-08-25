@@ -199,7 +199,11 @@ final class AuthenticationServiceTest extends TestCase
     {
         $transactions = new IdentityTransactionManager();
         $store = $this->createMock(IdentityStore::class);
-        $store->method('consumeOneTimeToken')->willReturn(self::USER_ID);
+        $store->method('consumeOneTimeToken')->with(
+            'password-reset:homeowner',
+            'reset-token-hash',
+            self::isInstanceOf(DateTimeImmutable::class),
+        )->willReturn(self::USER_ID);
         $store->expects(self::once())
             ->method('changePassword')
             ->with(
@@ -221,9 +225,30 @@ final class AuthenticationServiceTest extends TestCase
             $transactions,
         );
 
-        $service->resetPassword('reset-token', 'A-valid-next-password-123');
+        $service->resetPassword('reset-token', 'A-valid-next-password-123', 'homeowner');
 
         self::assertSame(1, $transactions->invocations);
+    }
+
+    public function testOneTimeCapabilityCannotCrossApplicationBoundary(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
+        $store->expects(self::once())->method('consumeOneTimeToken')->with(
+            'verify-email:admin',
+            'capability-hash',
+            self::isInstanceOf(DateTimeImmutable::class),
+        )->willReturn(null);
+        $store->expects(self::never())->method('markEmailVerified');
+        $hasher = $this->createStub(CredentialHasher::class);
+        $hasher->method('hashToken')->willReturn('capability-hash');
+
+        try {
+            $this->service($store, $hasher)->verifyEmail('homeowner-capability', 'admin');
+            self::fail('A homeowner capability crossed into the administrator application.');
+        } catch (Problem $problem) {
+            self::assertSame(422, $problem->status);
+            self::assertSame('Invalid token', $problem->title);
+        }
     }
 
     private function service(

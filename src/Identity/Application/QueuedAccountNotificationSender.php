@@ -29,19 +29,39 @@ final class QueuedAccountNotificationSender implements AccountNotificationSender
         ]);
     }
 
-    public function sendStepUpLink(string $email, string $token, string $action): void
-    {
-        $this->enqueue('step-up-link', $email, ['token' => $token, 'action' => $action]);
+    public function sendStepUpLink(
+        string $email,
+        string $token,
+        string $action,
+        LoginApplicationKind $application,
+    ): void {
+        $this->enqueue('step-up-link', $email, [
+            'token' => $token,
+            'action' => $action,
+            'applicationKind' => $application->value,
+        ]);
     }
 
-    public function sendEmailVerification(string $email, string $token): void
-    {
-        $this->enqueue('email-verification', $email, ['token' => $token]);
+    public function sendEmailVerification(
+        string $email,
+        string $token,
+        LoginApplicationKind $application,
+    ): void {
+        $this->enqueue('email-verification', $email, [
+            'token' => $token,
+            'applicationKind' => $application->value,
+        ]);
     }
 
-    public function sendPasswordReset(string $email, string $token): void
-    {
-        $this->enqueue('password-reset', $email, ['token' => $token]);
+    public function sendPasswordReset(
+        string $email,
+        string $token,
+        LoginApplicationKind $application,
+    ): void {
+        $this->enqueue('password-reset', $email, [
+            'token' => $token,
+            'applicationKind' => $application->value,
+        ]);
     }
 
     public function sendPlatformAdministratorInvitation(string $email): void

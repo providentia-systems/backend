@@ -21,10 +21,9 @@ final class ProductionConfigurationTest extends TestCase
                 'SYNC_CURSOR_SECRET',
                 'EXPOSE_DEVELOPMENT_TOKENS',
                 'MAIL_DSN',
-                'PUBLIC_BASE_URL',
                 'HOMEOWNER_APP_LINK_BASE',
                 'ADMIN_APP_LINK_BASE',
-                'AUTH_LOGIN_LINK_ALLOWED_HOSTS',
+                'AUTH_APP_LINK_ALLOWED_HOSTS',
                 'CORS_ALLOWED_ORIGINS',
                 'METRICS_ENABLED',
                 'METRICS_BEARER_TOKEN',
@@ -101,6 +100,26 @@ final class ProductionConfigurationTest extends TestCase
         self::assertFalse($config['identity']['expose_development_tokens']);
         self::assertFalse($config['identity']['password_login_enabled']);
         self::assertSame(['https://client.example.net'], $config['http']['allowed_origins']);
+    }
+
+    public function testApplicationLinkRejectsAnEmbeddedCapabilityFragment(): void
+    {
+        $this->productionEnvironment();
+        putenv('HOMEOWNER_APP_LINK_BASE=providentia://login-link/homeowner#credential');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('HOMEOWNER_APP_LINK_BASE');
+        require dirname(__DIR__, 3) . '/config/autoload/global.php';
+    }
+
+    public function testApplicationLinkRejectsAHostOutsideTheExactAllowlist(): void
+    {
+        $this->productionEnvironment();
+        putenv('ADMIN_APP_LINK_BASE=providentia-admin://lookalike-login-link/admin');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('ADMIN_APP_LINK_BASE');
+        require dirname(__DIR__, 3) . '/config/autoload/global.php';
     }
 
     public function testProductionAiProxyRequiresAnIndependentEnvelopeEncryptionKey(): void
@@ -204,10 +223,9 @@ final class ProductionConfigurationTest extends TestCase
         putenv('SYNC_CURSOR_SECRET=' . str_repeat('b', 32));
         putenv('EXPOSE_DEVELOPMENT_TOKENS=0');
         putenv('MAIL_DSN=smtps://smtp.example.net:465');
-        putenv('PUBLIC_BASE_URL=https://app.example.net');
         putenv('HOMEOWNER_APP_LINK_BASE=providentia://login-link/homeowner');
         putenv('ADMIN_APP_LINK_BASE=providentia-admin://login-link/admin');
-        putenv('AUTH_LOGIN_LINK_ALLOWED_HOSTS=login-link');
+        putenv('AUTH_APP_LINK_ALLOWED_HOSTS=login-link');
         putenv('CORS_ALLOWED_ORIGINS=https://client.example.net');
         putenv('METRICS_ENABLED=0');
         putenv('METRICS_BEARER_TOKEN=');

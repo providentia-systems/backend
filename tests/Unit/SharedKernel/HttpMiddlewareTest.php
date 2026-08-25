@@ -114,13 +114,13 @@ final class HttpMiddlewareTest extends TestCase
         self::assertSame('Origin', $response->getHeaderLine('Vary'));
     }
 
-    public function testPublicLoginFormPostPassesForConfiguredPublicOrigin(): void
+    public function testJsonApiPostPassesForConfiguredFlutterWebOrigin(): void
     {
         $origin = 'http://127.0.0.1:8080';
         $request = new ServerRequest(
             [],
             [],
-            new Uri($origin . '/login-links/01912345-6789-7abc-8def-0123456789ab/capture'),
+            new Uri($origin . '/api/v1/auth/login-links'),
             'POST',
             'php://memory',
             ['Origin' => [$origin]],
@@ -128,7 +128,7 @@ final class HttpMiddlewareTest extends TestCase
         $response = (new CorsMiddleware([$origin]))->process(
             $request,
             new CallbackRequestHandler(
-                static fn (ServerRequestInterface $request): ResponseInterface => new HtmlResponse('captured'),
+                static fn (ServerRequestInterface $request): ResponseInterface => new JsonResponse(['accepted' => true]),
             ),
         );
 

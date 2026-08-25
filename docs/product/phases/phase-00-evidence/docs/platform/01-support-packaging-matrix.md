@@ -4,7 +4,7 @@
 
 **Verification date:** 2026-07-29
 
-**Architecture baseline:** Flutter for the authenticated application; Mezzio/`laminas-view` for the public site
+**Architecture baseline:** Separate Flutter Client/Admin applications; headless Mezzio JSON API
 
 ## 1. Truth and publication rules
 

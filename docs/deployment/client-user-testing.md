@@ -11,9 +11,9 @@ evidence that the product onboarding flow works. Do not enable password login
 or exposed development tokens in staging or production to bypass a failed
 login-link test.
 
-The backend does not provide an authenticated administration GUI. Its browser
-surface is limited to the public site and the login-link review/result pages.
-All signed-in account, home, invitation, device-session, and platform-admin
+The backend is headless: it provides versioned JSON API and health responses,
+not a public site, browser login, or administration page. All signed-in
+account, home, invitation, device-session, and platform-admin
 actions below must be reachable through the Flutter client, including its web
 build, subject to the current user's permissions.
 
@@ -21,18 +21,17 @@ build, subject to the current user's permissions.
 
 Every test run must preserve these boundaries:
 
-- the person enters their email address in the originating client, not in the
-  browser;
-- the browser that opens the email may be on another device;
+- the person enters their email address in the originating client;
+- the matching application that opens the email may be on another device;
 - merely opening the emailed URL never approves a request;
-- the browser review page requires a deliberate **Approve** or **Deny** POST;
-- the browser never receives the originating client's session;
+- the matching Flutter application requires a deliberate **Approve** or **Deny** action;
+- the approving application never receives the originating client's session;
 - the originating client owns the poll token and PKCE verifier, polls for the
   result, and exchanges an approved request;
-- an app/universal link may help the person return to the client, but is never
-  required for success and is not the authoritative handoff;
+- the configured app/universal link is the approval entry point, while polling
+  remains the authoritative handoff to the originating installation;
 - access, refresh, session, poll, and PKCE credentials never appear in an email
-  URL, browser address bar, referrer, page, analytics event, or application log;
+  URL query, HTTP request target, analytics event, or application log;
 - the response to starting a request does not reveal whether the email is
   already registered;
 - an unknown address is not provisioned just because a request was started;
@@ -107,35 +106,19 @@ defaults unless the specific test is verifying a shorter deployment policy:
 | `ONBOARDING_HOME_TIMEZONE` | `Africa/Windhoek` |
 | `PLATFORM_BOOTSTRAP_ADMIN_EMAILS` | Empty, or a comma-separated exact-email list |
 
-Before opening Flutter, prove the running browser surface has the final header
-after every middleware and proxy layer:
+Before opening Flutter, prove that no interactive backend root or former login
+page is reachable:
 
 ```bash
-curl --silent --show-error --dump-header - --output /dev/null \
-  http://127.0.0.1:8080/login-links/00000000-0000-0000-0000-000000000000 \
-  | grep -i '^Referrer-Policy:'
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  http://127.0.0.1:8080/)" = 404
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  http://127.0.0.1:8080/login-links/00000000-0000-0000-0000-000000000000)" = 404
 ```
 
-Required result:
-
-```text
-Referrer-Policy: same-origin
-```
-
-Then prove the same-origin capture route is accepted:
-
-```bash
-curl --silent --show-error --output /dev/null \
-  --write-out 'status=%{http_code}\n' \
-  -H 'Origin: http://127.0.0.1:8080' \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  -X POST --data 'approval=invalid' \
-  http://127.0.0.1:8080/login-links/00000000-0000-0000-0000-000000000000/capture
-```
-
-Required result is `status=303`. A `403 Origin forbidden` response or a final
-`Referrer-Policy: no-referrer` header means the backend runtime is not ready
-for client login-link testing.
+Both commands must succeed. Any HTML response, redirect, or non-404 status is a
+release-blocking regression of the headless boundary. The approval Flutter
+clients call only the versioned proof/review/decision JSON operations.
 
 `AUTH_REFRESH_TTL_SECONDS` is a legacy compatibility setting; it does not
 replace the transport-specific idle limits above.
@@ -172,22 +155,23 @@ docker compose --env-file .env.prebuilt.local -f compose.prebuilt.yaml \
 Run the same workflow at least once against the deployment's real transactional
 SMTP service. Configure the production profile from `.env.production.example`
 using secrets supplied by the deployment secret manager. At minimum, verify
-the `smtps://` mail transport, sender address, HTTPS public base URL, and running
-notification worker. Never paste SMTP credentials into test notes or client
+the `smtps://` mail transport, sender address, allowlisted
+`HOMEOWNER_APP_LINK_BASE` and `ADMIN_APP_LINK_BASE`, and running notification
+worker. Never paste SMTP credentials into test notes or client
 configuration.
 
 The delivered message must:
 
 - use the same neutral wording for registered and unregistered addresses;
 - call the feature a **login link**;
-- point at the deployment's HTTPS public origin;
+- point at the application base matching the request's `applicationKind`;
 - contain no access, refresh, session, poll, or PKCE credential; and
 - expire and become unusable after its one permitted approval decision.
 
 Mailpit is appropriate only for isolated local development. A local Mailpit
 delivery does not prove DNS, TLS, sender reputation, or real mailbox delivery.
 
-## 3. Client and browser protocol reference
+## 3. Client and application-link protocol reference
 
 The generated client contract is authoritative. The behavioral responsibilities
 below help testers distinguish a UI problem from a contract or security defect.
@@ -217,51 +201,44 @@ reload; it must erase that state on success, cancellation, or expiry. Multiple
 installations and concurrent requests must have independent values; starting
 one request must not invalidate another.
 
-### Browser approval
+### Application-owned approval
 
-The email initially opens a fragment URL. The approval credential after `#`
-is browser-local and is never included in an HTTP request target or access log:
-
-```text
-/login-links/{requestId}#approval=<single-use-browser-approval-credential>
-```
-
-The scanner-safe GET renders a narrowly CSP-nonced capture page but does not
-approve or mutate the request. In an interactive browser, that page removes the
-fragment from browser history and POSTs the credential in the request body:
+The email opens the URI base configured for the request's `applicationKind`.
+The single-use approval credential remains after `#`, so it is not sent in an
+HTTP request target or ordinary access log:
 
 ```text
-POST /login-links/{requestId}/capture
+<HOMEOWNER_APP_LINK_BASE>#requestId=<uuid>&approval=<single-use-credential>
+<ADMIN_APP_LINK_BASE>#requestId=<uuid>&approval=<single-use-credential>
 ```
 
-The launch and review pages use `Referrer-Policy: same-origin`. This keeps
-referrer information out of cross-origin requests while allowing a same-origin
-HTML form POST to carry the public backend origin in its `Origin` header. Do not
-change these pages to `no-referrer`: for navigation-mode form submissions,
-browsers serialize the request origin as `null`, which the backend deliberately
-rejects. Never add `null` to `CORS_ALLOWED_ORIGINS`; opaque origins can also be
-created by untrusted sandboxed or local documents.
-
-Capture only moves the credential into a secure, HttpOnly, request-scoped
-cookie and redirects to a clean URL:
+Only the matching Flutter application handles the URI. It parses and removes
+the fragment from its navigation state, verifies that the proof's
+`applicationKind` is the expected application, and drives the JSON review flow:
 
 ```text
-GET /login-links/{requestId}/review
+POST /api/v1/auth/login-links/{requestId}/proof
+{"approvalToken":"<single-use-credential>"}
+
+POST /api/v1/auth/login-links/{requestId}/review
+{"approvalToken":"<single-use-credential>"}
+
+POST /api/v1/auth/login-links/{requestId}/decision
+{"approvalToken":"<single-use-credential>","decision":"approved"}
 ```
 
-The clean review page may show a masked email, requesting device, request age,
-and expiry. It must not show a session or private client proof. Approval and
-denial are explicit form submissions:
+Proof and review never extend expiry or disclose an account identifier or
+email. Decision is an atomic, single-use transition and returns the same generic
+accepted response for a replay or terminal request. Denial uses the same
+operation with `"decision":"denied"`. The originating installation still
+polls and performs the PKCE exchange; the approving application never receives
+that session.
 
-```text
-POST /login-links/{requestId}/approve
-POST /login-links/{requestId}/deny
-```
-
-The completion page tells the person whether the request was approved, denied,
-expired, or already used and that the browser may be closed. It may offer an
-allowlisted app link as a convenience. Closing the browser and returning to the
-originating client manually must work just as well.
+Prefer an HTTPS universal/app link in production. Linux custom-scheme handlers
+may briefly expose the fragment in process arguments before Flutter receives
+it, so the credential is deliberately short-lived and single-use. Applications
+must not log process arguments or fragment values. The backend has no browser
+approval, login, or administration page.
 
 ## 4. New-person cross-device acceptance
 
@@ -277,13 +254,12 @@ unique suffix for every clean run.
 5. Before approving, confirm polling remains `pending`. Where database-level
    acceptance access is available, also confirm no account or `My home` has
    been created yet.
-6. Open the email on device B, or in a browser profile that has never used the
-   client. Confirm the launch page captures the browser fragment by POST and
-   redirects to the clean review URL; refreshing the clean GET does not approve
-   it.
-7. Choose **Approve** once. Confirm the browser says the request is approved,
-   the browser may be closed, and no authenticated application session was
-   created in that browser.
+6. Open the email on device B in the application named by `applicationKind`.
+   Confirm the other application rejects the link, the matching application
+   clears its fragment state after parsing, and proof/review alone do not
+   approve the request.
+7. Choose **Approve** once. Confirm the application says the request is approved
+   and no authenticated approval-device application session was created.
 8. Return to device A. It must observe `approved` through polling and exchange
    its own poll token, state, and PKCE verifier.
 9. Confirm the client calls `GET /api/v1/me` and displays the new account with
@@ -294,7 +270,8 @@ unique suffix for every clean run.
     without asking for email again.
 
 Repeat once with the email opened on the same device and once with it opened on
-a genuinely separate device. Neither run may depend on a deep link.
+a genuinely separate device. Both runs must enforce the same application-kind
+binding and must never fall back to an interactive backend page.
 
 ## 5. Existing-person and concurrent-device acceptance
 
@@ -468,9 +445,9 @@ more specific response would reveal account existence or secret validity.
 
 | Case | Expected result |
 |---|---|
-| Email link fetched by a preview/scanner | A basic scanner sees only the launch GET; a JavaScript-capable scanner may reach clean review; neither approves because no deliberate approve POST occurred |
-| Browser chooses **Deny** | Origin observes `denied`; exchange cannot create an account or session |
-| Origin chooses cancel | Request becomes `cancelled`; later browser approval and exchange fail safely |
+| Email link fetched by a preview/scanner | The fragment is not sent to the server; no proof, review, or decision occurs |
+| Approving application chooses **Deny** | Origin observes `denied`; exchange cannot create an account or session |
+| Origin chooses cancel | Request becomes `cancelled`; later application approval and exchange fail safely |
 | Request expires before approval | Review and polling report expiry; no account, home, or session is created |
 | Approval is replayed | No second decision or session is created |
 | Wrong poll token | Status, cancel, and exchange fail without revealing the real state |

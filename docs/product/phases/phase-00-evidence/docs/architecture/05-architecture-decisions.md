@@ -55,27 +55,29 @@ A supported target cannot meet a critical capability or accessibility requiremen
 
 ---
 
-## ADR-002: Separate server-rendered public web surface
+## ADR-002: Headless backend surface
 
-**Status:** Accepted — V1 authority
+**Status:** Superseded by API 1.16 headless boundary — 25 August 2026
 
 ### Context
 
-The public website is document-centric and requires search indexing, semantic flow content, privacy and support documentation, social metadata, downloads, and fast anonymous rendering. Flutter web is optimized for interactive applications, not text-rich SEO pages.
+The original Phase 0 design placed a server-rendered public site and login-link
+handoff in the backend. The approved three-repository boundary now requires the
+backend to expose no browser login, administration, or public-site surface.
 
 ### Decision
 
-Render the anonymous public website from the backend repository through the Mezzio `PublicSite` module and `laminas-view`. Keep the authenticated web application in Flutter. Prefer distinct public, application, and API hosts so anonymous content, browser sessions, and APIs have explicit security boundaries.
-
-Approved design tokens and public assets are shared as versioned generated artifacts. PHP templates do not reuse Flutter widgets.
+Keep the backend headless: versioned JSON API, health, explicitly secured
+metrics, and narrow audited owner CLI only. Homeowner and administrator
+presentation and all emailed-capability handling belong to their separately
+packaged Flutter applications. A future marketing site must be a separate
+deployment and may not silently restore UI dependencies or routes here.
 
 ### Consequences
 
-- Public content is accessible without executing a Flutter canvas application.
-- Authentication hand-off, CSP, caching, and deployment rules differ between public, app, and API hosts.
-- Design parity depends on contract-tested tokens rather than shared UI code.
-- The official name is Providentia; final hostnames wait for Providentia
-  domain acquisition and security/legal due diligence.
+- API deployments have one unambiguous, non-interactive attack surface.
+- Application links are configured and allowlisted per Client/Admin principal.
+- Marketing delivery and SEO are independent release concerns.
 
 ### Enforcement and evidence
 
@@ -85,22 +87,27 @@ Approved design tokens and public assets are shared as versioned generated artif
 
 ---
 
-## ADR-003: Two primary repositories with published contracts
+## ADR-003: Three primary repositories with published contracts
 
 **Status:** Accepted — V1 authority
 
 ### Context
 
-The PHP backend and Flutter application have distinct release cadences, toolchains, packaging, secrets, and ownership. A monorepo would couple releases; a third shared-code repository would add premature coordination.
+The PHP backend and the homeowner and administrator Flutter applications have
+distinct release cadences, toolchains, packaging, secrets, security principals,
+and ownership.
 
 ### Decision
 
-Use two primary repositories:
+Use three primary repositories:
 
-1. `vast-development-method/providentia-laminas` for the backend, authoritative OpenAPI and JSON Schemas, public site, migrations, workers, infrastructure, and migration tooling.
-2. `vast-development-method/providentia-flutter` for the authenticated application, Drift migrations, generated client, assets, and platform packaging.
+1. `providentia-systems/backend` for the headless API, authoritative OpenAPI and JSON Schemas, migrations, workers, infrastructure, and migration tooling.
+2. `providentia-systems/client` for the homeowner application, Drift migrations, bounded generated client, assets, and platform packaging.
+3. `providentia-systems/admin` for the separately authenticated Linux operator application and its bounded generated client.
 
-The backend publishes immutable, semantically versioned contract artifacts. The Flutter repository pins a contract release and generates Dart clients and DTOs. Generated code is never hand-edited.
+The backend publishes immutable, semantically versioned contract artifacts.
+Both Flutter repositories pin exact contract bytes and generate only their
+allowed clients and DTOs. Generated code is never hand-edited.
 
 ### Consequences
 
@@ -158,7 +165,7 @@ The initial product needs transactional consistency and strong boundaries withou
 
 Build one deployable backend modular monolith containing:
 
-`SharedKernel`, `Identity`, `Home`, `Catalog`, `Inventory`, `Purchasing`, `Shopping`, `Synchronization`, `AiIntegration`, `Administration`, `Reporting`, and `PublicSite`.
+`SharedKernel`, `Identity`, `Home`, `Catalog`, `Inventory`, `Purchasing`, `Shopping`, `Synchronization`, `AiIntegration`, `Administration`, and `Reporting`.
 
 The dependency direction is:
 

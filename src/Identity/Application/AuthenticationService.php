@@ -76,12 +76,16 @@ final class AuthenticationService
             $this->store->issueOneTimeToken(
                 $this->ids->generate(),
                 $userId,
-                'verify-email',
+                $this->oneTimePurpose('verify-email', LoginApplicationKind::HOMEOWNER),
                 $this->hasher->hashToken($token),
                 $now->add(new DateInterval('P1D')),
                 $now,
             );
-            $this->notifications->sendEmailVerification($normalizedEmail, $token);
+            $this->notifications->sendEmailVerification(
+                $normalizedEmail,
+                $token,
+                LoginApplicationKind::HOMEOWNER,
+            );
 
             return ['verificationToken' => $token];
         });
@@ -89,12 +93,13 @@ final class AuthenticationService
         return $result;
     }
 
-    public function verifyEmail(string $token): void
+    public function verifyEmail(string $token, string $applicationKind): void
     {
-        $this->transactions->transactional(function () use ($token): void {
+        $application = LoginApplicationKind::fromInput($applicationKind);
+        $this->transactions->transactional(function () use ($token, $application): void {
             $now = $this->clock->now();
             $userId = $this->store->consumeOneTimeToken(
-                'verify-email',
+                $this->oneTimePurpose('verify-email', $application),
                 $this->hasher->hashToken($token),
                 $now,
             );
@@ -105,11 +110,21 @@ final class AuthenticationService
         });
     }
 
-    public function requestStepUp(AuthenticatedIdentity $identity, string $action): ?string
+    public function requestStepUp(
+        AuthenticatedIdentity $identity,
+        string $action,
+        string $applicationKind,
+    ): ?string
     {
-        $purpose = $this->stepUpPurpose($action);
+        $application = LoginApplicationKind::fromInput($applicationKind);
+        $purpose = $this->stepUpPurpose($action, $application);
 
-        return $this->transactions->transactional(function () use ($identity, $action, $purpose): ?string {
+        return $this->transactions->transactional(function () use (
+            $identity,
+            $action,
+            $application,
+            $purpose,
+        ): ?string {
             $user = $this->store->findUserById($identity->userId);
             if ($user === null || (string) $user['status'] !== 'active') {
                 return null;
@@ -124,7 +139,12 @@ final class AuthenticationService
                 $now->add(new DateInterval('PT10M')),
                 $now,
             );
-            $this->notifications->sendStepUpLink((string) $user['email'], $token, $action);
+            $this->notifications->sendStepUpLink(
+                (string) $user['email'],
+                $token,
+                $action,
+                $application,
+            );
 
             return $token;
         });
@@ -133,7 +153,7 @@ final class AuthenticationService
     public function consumeStepUp(AuthenticatedIdentity $identity, string $token, string $action): void
     {
         $userId = $this->store->consumeOneTimeToken(
-            $this->stepUpPurpose($action),
+            $this->stepUpPurpose($action, LoginApplicationKind::HOMEOWNER),
             $this->hasher->hashToken($token),
             $this->clock->now(),
         );
@@ -391,12 +411,13 @@ final class AuthenticationService
             && $this->store->verifyCsrf($identity->sessionId, $this->hasher->hashToken($token));
     }
 
-    public function requestPasswordReset(string $email): ?string
+    public function requestPasswordReset(string $email, string $applicationKind): ?string
     {
         $this->requirePasswordLogin();
         $normalizedEmail = $this->normalizeEmail($email);
+        $application = LoginApplicationKind::fromInput($applicationKind);
 
-        return $this->transactions->transactional(function () use ($normalizedEmail): ?string {
+        return $this->transactions->transactional(function () use ($normalizedEmail, $application): ?string {
             $user = $this->store->findUserByEmail($normalizedEmail);
             if ($user === null) {
                 return null;
@@ -406,23 +427,24 @@ final class AuthenticationService
             $this->store->issueOneTimeToken(
                 $this->ids->generate(),
                 (string) $user['id'],
-                'password-reset',
+                $this->oneTimePurpose('password-reset', $application),
                 $this->hasher->hashToken($token),
                 $now->add(new DateInterval('PT1H')),
                 $now,
             );
-            $this->notifications->sendPasswordReset((string) $user['email'], $token);
+            $this->notifications->sendPasswordReset((string) $user['email'], $token, $application);
 
             return $token;
         });
     }
 
-    public function resendVerification(string $email): ?string
+    public function resendVerification(string $email, string $applicationKind): ?string
     {
         $this->requirePasswordLogin();
         $normalizedEmail = $this->normalizeEmail($email);
+        $application = LoginApplicationKind::fromInput($applicationKind);
 
-        return $this->transactions->transactional(function () use ($normalizedEmail): ?string {
+        return $this->transactions->transactional(function () use ($normalizedEmail, $application): ?string {
             $user = $this->store->findUserByEmail($normalizedEmail);
             if ($user === null || $user['email_verified_at'] !== null) {
                 return null;
@@ -432,25 +454,26 @@ final class AuthenticationService
             $this->store->issueOneTimeToken(
                 $this->ids->generate(),
                 (string) $user['id'],
-                'verify-email',
+                $this->oneTimePurpose('verify-email', $application),
                 $this->hasher->hashToken($token),
                 $now->add(new DateInterval('P1D')),
                 $now,
             );
-            $this->notifications->sendEmailVerification((string) $user['email'], $token);
+            $this->notifications->sendEmailVerification((string) $user['email'], $token, $application);
 
             return $token;
         });
     }
 
-    public function resetPassword(string $token, string $password): void
+    public function resetPassword(string $token, string $password, string $applicationKind): void
     {
         $this->requirePasswordLogin();
         $this->assertPassword($password);
-        $this->transactions->transactional(function () use ($token, $password): void {
+        $application = LoginApplicationKind::fromInput($applicationKind);
+        $this->transactions->transactional(function () use ($token, $password, $application): void {
             $now = $this->clock->now();
             $userId = $this->store->consumeOneTimeToken(
-                'password-reset',
+                $this->oneTimePurpose('password-reset', $application),
                 $this->hasher->hashToken($token),
                 $now,
             );
@@ -618,13 +641,21 @@ final class AuthenticationService
         }
     }
 
-    private function stepUpPurpose(string $action): string
+    private function stepUpPurpose(string $action, LoginApplicationKind $application): string
     {
         if ($action !== 'ownership-transfer') {
             throw new Problem(422, 'Validation failed', 'The requested step-up action is not supported.');
         }
+        if ($application !== LoginApplicationKind::HOMEOWNER) {
+            throw new Problem(422, 'Validation failed', 'The requested action is not available in that application.');
+        }
 
-        return 'step-up-ownership';
+        return $this->oneTimePurpose('step-up-ownership', $application);
+    }
+
+    private function oneTimePurpose(string $purpose, LoginApplicationKind $application): string
+    {
+        return $purpose . ':' . $application->value;
     }
 
     private function assertUuid(string $id, string $field): string

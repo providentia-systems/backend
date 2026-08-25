@@ -22,7 +22,6 @@ mkdir -p "${repo_root}/var"
 
 APP_ENV=development \
 APP_DEBUG=1 \
-PUBLIC_BASE_URL="http://127.0.0.1:${port}" \
 AUTH_PASSWORD_LOGIN_ENABLED=1 \
 EXPOSE_DEVELOPMENT_TOKENS=1 \
 AUTH_TOKEN_PEPPER=acceptance-authentication-pepper-at-least-32-bytes \
@@ -103,7 +102,8 @@ verification_token="$(jq -er '.developmentVerificationToken' <<<"$registration_b
 verification_status="$(curl --silent --show-error --output "${repo_root}/var/development-auth-verify.json" \
     --write-out '%{http_code}' -H 'Content-Type: application/json' \
     -X POST "http://127.0.0.1:${port}/api/v1/auth/verify-email" \
-    --data "$(jq -n --arg token "$verification_token" '{token:$token}')")"
+    --data "$(jq -n --arg token "$verification_token" \
+        '{applicationKind:"homeowner",token:$token}')")"
 if [[ "$verification_status" != '204' ]]; then
     printf 'Development email verification failed (HTTP %s).\n' "$verification_status" >&2
     cat "${repo_root}/var/development-auth-verify.json" >&2
