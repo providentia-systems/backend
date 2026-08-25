@@ -322,7 +322,7 @@ if ((skip_provision == 0)); then
         local exchange status response
         exchange="$(post_json_exchange \
             "${api_base}/api/v1/auth/verify-email" \
-            "$(jq -n --arg token "$token" '{token:$token}')")"
+            "$(jq -n --arg token "$token" '{applicationKind:"homeowner",token:$token}')")"
         status="${exchange##*$'\n'}"
         response="${exchange%$'\n'*}"
         if [[ "$status" != '204' ]]; then
@@ -336,7 +336,8 @@ if ((skip_provision == 0)); then
         local exchange status response
         exchange="$(post_json_exchange \
             "${api_base}/api/v1/auth/verify-email/resend" \
-            "$(jq -n --arg email "$PROVIDENTIA_DEV_EMAIL" '{email:$email}')")"
+            "$(jq -n --arg email "$PROVIDENTIA_DEV_EMAIL" \
+                '{applicationKind:"homeowner",email:$email}')")"
         status="${exchange##*$'\n'}"
         response="${exchange%$'\n'*}"
         if [[ "$status" != '202' ]]; then

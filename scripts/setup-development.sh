@@ -223,7 +223,7 @@ verify_development_token() {
     verification_exchange="$(
         post_json_exchange \
             "${api_base}/api/v1/auth/verify-email" \
-            "$(jq -n --arg token "$token" '{token:$token}')"
+            "$(jq -n --arg token "$token" '{applicationKind:"homeowner",token:$token}')"
     )"
     verification_status="${verification_exchange##*$'\n'}"
     verification_response="${verification_exchange%$'\n'*}"
@@ -242,7 +242,7 @@ resend_development_verification() {
     resend_exchange="$(
         post_json_exchange \
             "${api_base}/api/v1/auth/verify-email/resend" \
-            "$(jq -n --arg email "$dev_email" '{email:$email}')"
+            "$(jq -n --arg email "$dev_email" '{applicationKind:"homeowner",email:$email}')"
     )"
     resend_status="${resend_exchange##*$'\n'}"
     resend_response="${resend_exchange%$'\n'*}"

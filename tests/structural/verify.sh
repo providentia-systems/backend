@@ -79,6 +79,15 @@ assert_no_matches "removed browser base URL remains configured" \
   -n 'PUBLIC_BASE_URL|public_base_url|publicBaseUrl' \
   --glob '!docs/product/phases/phase-00-evidence/**' \
   --glob '!tests/structural/verify.sh' .
+for provisioning_script in \
+  scripts/setup-prebuilt.sh \
+  scripts/setup-development.sh \
+  scripts/provision-development-user.sh; do
+  grep -Fq '{applicationKind:"homeowner",token:$token}' "$provisioning_script" \
+    || fail "$provisioning_script must bind email verification to the homeowner application"
+  grep -Fq '{applicationKind:"homeowner",email:$email}' "$provisioning_script" \
+    || fail "$provisioning_script must bind verification resend to the homeowner application"
+done
 for caddyfile in infrastructure/caddy/Caddyfile infrastructure/caddy/Caddyfile.production; do
   for header in X-Content-Type-Options Referrer-Policy Permissions-Policy Content-Security-Policy; do
     grep -Fq "?$header" "$caddyfile" \

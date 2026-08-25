@@ -185,7 +185,7 @@ verify_development_token() {
     local exchange status response
     exchange="$(post_json_exchange \
         "${api_base}/api/v1/auth/verify-email" \
-        "$(jq -n --arg token "$token" '{token:$token}')")"
+        "$(jq -n --arg token "$token" '{applicationKind:"homeowner",token:$token}')")"
     status="${exchange##*$'\n'}"
     response="${exchange%$'\n'*}"
     [[ "$status" == '204' ]] \
@@ -197,7 +197,7 @@ resend_development_token() {
     local exchange status response token
     exchange="$(post_json_exchange \
         "${api_base}/api/v1/auth/verify-email/resend" \
-        "$(jq -n --arg email "$email" '{email:$email}')")"
+        "$(jq -n --arg email "$email" '{applicationKind:"homeowner",email:$email}')")"
     status="${exchange##*$'\n'}"
     response="${exchange%$'\n'*}"
     [[ "$status" == '202' ]] \
