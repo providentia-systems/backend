@@ -348,6 +348,7 @@ final class InventoryServiceTest extends TestCase
                 self::isInstanceOf(DateTimeImmutable::class),
             )
             ->willReturn(false);
+        $store->expects(self::never())->method('countLine');
         $changes = $this->createMock(ChangeFeedWriter::class);
         $changes->expects(self::never())->method('put');
 
@@ -369,6 +370,16 @@ final class InventoryServiceTest extends TestCase
 
     public function testPhotoConfirmedCountSourceIsStoredWithoutTranslation(): void
     {
+        $storedLine = [
+            'id' => self::LINE_ID,
+            'homeProductId' => self::PRODUCT_ID,
+            'quantity' => '4',
+            'confidence' => '0.875',
+            'source' => 'photo-confirmed',
+            'notes' => '',
+            'status' => 'confirmed',
+            'revision' => '1',
+        ];
         $store = $this->createMock(InventoryStore::class);
         $store->method('countSession')->with(self::HOME_ID, self::SESSION_ID)->willReturn([
             'id' => self::SESSION_ID,
@@ -387,13 +398,17 @@ final class InventoryServiceTest extends TestCase
                 'photo-confirmed',
                 '',
                 self::USER_ID,
-                2,
+                0,
                 self::isInstanceOf(DateTimeImmutable::class),
             )
             ->willReturn(true);
+        $store->expects(self::once())
+            ->method('countLine')
+            ->with(self::HOME_ID, self::SESSION_ID, self::LINE_ID)
+            ->willReturn($storedLine);
 
         self::assertSame(
-            ['id' => self::LINE_ID],
+            [...$storedLine, 'revision' => 1],
             $this->service($store)->recordCount(
                 $this->identity(),
                 self::HOME_ID,
@@ -404,8 +419,91 @@ final class InventoryServiceTest extends TestCase
                 '0.875',
                 'photo-confirmed',
                 '',
-                2,
+                0,
             ),
+        );
+    }
+
+    public function testExistingCountLineUsesItsCurrentRevisionAndReturnsTheUpdatedRepresentation(): void
+    {
+        $storedLine = [
+            'id' => self::LINE_ID,
+            'homeProductId' => self::PRODUCT_ID,
+            'quantity' => '5.25',
+            'confidence' => null,
+            'source' => 'manual',
+            'notes' => 'Second pass',
+            'status' => 'confirmed',
+            'revision' => '2',
+        ];
+        $store = $this->createMock(InventoryStore::class);
+        $store->method('countSession')->with(self::HOME_ID, self::SESSION_ID)->willReturn([
+            'id' => self::SESSION_ID,
+            'status' => 'open',
+            'revision' => 5,
+        ]);
+        $store->expects(self::once())
+            ->method('saveCountLine')
+            ->with(
+                self::LINE_ID,
+                self::HOME_ID,
+                self::SESSION_ID,
+                self::PRODUCT_ID,
+                '5.25',
+                null,
+                'manual',
+                'Second pass',
+                self::USER_ID,
+                1,
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(true);
+        $store->expects(self::once())
+            ->method('countLine')
+            ->with(self::HOME_ID, self::SESSION_ID, self::LINE_ID)
+            ->willReturn($storedLine);
+
+        self::assertSame(
+            [...$storedLine, 'revision' => 2],
+            $this->service($store)->recordCount(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                self::LINE_ID,
+                self::PRODUCT_ID,
+                '5.2500',
+                null,
+                'manual',
+                ' Second pass ',
+                1,
+            ),
+        );
+    }
+
+    public function testCountLineRejectsANegativeRevisionBeforeWriting(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $store->method('countSession')->with(self::HOME_ID, self::SESSION_ID)->willReturn([
+            'id' => self::SESSION_ID,
+            'status' => 'open',
+            'revision' => 4,
+        ]);
+        $store->expects(self::never())->method('saveCountLine');
+        $store->expects(self::never())->method('countLine');
+
+        $this->expectException(Problem::class);
+        $this->expectExceptionMessage('Expected revision cannot be negative.');
+        $this->service($store)->recordCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            self::LINE_ID,
+            self::PRODUCT_ID,
+            '4',
+            null,
+            'manual',
+            '',
+            -1,
         );
     }
 

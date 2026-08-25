@@ -900,6 +900,18 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         );
     }
 
+    public function countLine(string $homeId, string $sessionId, string $lineId): ?array
+    {
+        return $this->one(
+            'SELECT sl.id, sl.home_product_id AS homeProductId,
+                    sl.quantity, sl.confidence, sl.source, sl.notes, sl.status,
+                    sl.revision
+             FROM stock_count_lines sl
+             WHERE sl.home_id = :home AND sl.session_id = :session AND sl.id = :id',
+            ['home' => $homeId, 'session' => $sessionId, 'id' => $lineId],
+        );
+    }
+
     public function saveCountLine(
         string $id,
         string $homeId,

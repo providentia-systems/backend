@@ -24,6 +24,8 @@ final class InventoryCountCancellationTest extends TestCase
     private const OTHER_HOME_ID = '01912345-6789-7abc-9def-0123456789ab';
     private const USER_ID = '01912345-6789-7abc-adef-0123456789ab';
     private const SESSION_ID = '01912345-6789-7abc-bdef-0123456789ab';
+    private const PRODUCT_ID = '01912345-6789-7abc-cdef-0123456789ab';
+    private const LINE_ID = '01912345-6789-7abc-ddef-0123456789ab';
 
     private Connection $connection;
     private InventoryService $service;
@@ -49,6 +51,11 @@ final class InventoryCountCancellationTest extends TestCase
             'closed_at' => null,
             'created_at' => '2026-08-11 08:00:00',
             'updated_at' => '2026-08-11 08:00:00',
+        ]);
+        $this->connection->insert('home_products', [
+            'id' => self::PRODUCT_ID,
+            'home_id' => self::HOME_ID,
+            'status' => 'active',
         ]);
         $homes = $this->createStub(HomeStore::class);
         $homes->method('membership')->willReturn([
@@ -147,6 +154,94 @@ final class InventoryCountCancellationTest extends TestCase
         self::assertSame(0, $this->rowCount('stock_movements'));
     }
 
+    public function testCountLineCreationUpdateAndStaleRevisionAreCompareAndSwapSafe(): void
+    {
+        $created = $this->service->recordCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            self::LINE_ID,
+            self::PRODUCT_ID,
+            '4.0000',
+            '0.8750',
+            'photo-confirmed',
+            'First pass',
+            0,
+        );
+
+        self::assertSame([
+            'id' => self::LINE_ID,
+            'homeProductId' => self::PRODUCT_ID,
+            'quantity' => '4',
+            'confidence' => '0.8750',
+            'source' => 'photo-confirmed',
+            'notes' => 'First pass',
+            'status' => 'confirmed',
+            'revision' => 1,
+        ], $created);
+
+        $updated = $this->service->recordCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            self::LINE_ID,
+            self::PRODUCT_ID,
+            '5.25',
+            null,
+            'manual',
+            'Second pass',
+            1,
+        );
+
+        self::assertSame([
+            'id' => self::LINE_ID,
+            'homeProductId' => self::PRODUCT_ID,
+            'quantity' => '5.25',
+            'confidence' => null,
+            'source' => 'manual',
+            'notes' => 'Second pass',
+            'status' => 'confirmed',
+            'revision' => 2,
+        ], $updated);
+
+        try {
+            $this->service->recordCount(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                self::LINE_ID,
+                self::PRODUCT_ID,
+                '99',
+                null,
+                'manual',
+                'Stale device',
+                1,
+            );
+            self::fail('A stale stock-count line revision was accepted.');
+        } catch (Problem $problem) {
+            self::assertSame(409, $problem->status);
+            self::assertSame('Revision conflict', $problem->title);
+        }
+
+        $persisted = $this->connection->fetchAssociative(
+            'SELECT quantity, source, notes, revision FROM stock_count_lines WHERE id = :id',
+            ['id' => self::LINE_ID],
+        );
+        if ($persisted === false) {
+            self::fail('The stock-count line is missing.');
+        }
+        self::assertSame('5.25', $persisted['quantity']);
+        self::assertSame('manual', $persisted['source']);
+        self::assertSame('Second pass', $persisted['notes']);
+        self::assertSame(2, (int) $persisted['revision']);
+        self::assertSame(6, (int) $this->connection->fetchOne(
+            'SELECT revision FROM stock_count_sessions WHERE id = :id',
+            ['id' => self::SESSION_ID],
+        ));
+        self::assertSame(4, $this->rowCount('change_log'));
+        self::assertSame(4, $this->rowCount('outbox_messages'));
+    }
+
     /** @return list<string> */
     private function schema(): array
     {
@@ -159,6 +254,17 @@ final class InventoryCountCancellationTest extends TestCase
                 opened_by_user_id TEXT NOT NULL, opened_at TEXT NOT NULL,
                 closed_by_user_id TEXT NULL, closed_at TEXT NULL,
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            )',
+            'CREATE TABLE home_products (
+                id TEXT PRIMARY KEY, home_id TEXT NOT NULL, status TEXT NOT NULL
+            )',
+            'CREATE TABLE stock_count_lines (
+                id TEXT PRIMARY KEY, home_id TEXT NOT NULL, session_id TEXT NOT NULL,
+                home_product_id TEXT NOT NULL, quantity TEXT NOT NULL,
+                confidence TEXT NULL, source TEXT NOT NULL, notes TEXT NOT NULL,
+                status TEXT NOT NULL, revision INTEGER NOT NULL,
+                counted_by_user_id TEXT NOT NULL, created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )',
             'CREATE TABLE stock_movements (id TEXT PRIMARY KEY)',
             'CREATE TABLE change_log (

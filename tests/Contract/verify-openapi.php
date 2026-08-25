@@ -298,7 +298,7 @@ foreach ($contract['paths'] as $pathTemplate => $pathItem) {
     }
 }
 if (count($contract['paths']) !== 154 || $operationCount !== 177) {
-    throw new RuntimeException('API 1.17 must expose exactly 154 paths and 177 operations.');
+    throw new RuntimeException('API 1.18 must expose exactly 154 paths and 177 operations.');
 }
 
 foreach (
@@ -409,6 +409,26 @@ foreach (
         !== $supportedCountSources
     ) {
         throw new RuntimeException($countSchema . ' must preserve the supported stock-count source mapping.');
+    }
+}
+
+$recordCountRequest = $contract['components']['schemas']['RecordCountRequest'] ?? [];
+$stockCountLine = $contract['components']['schemas']['StockCountLine'] ?? [];
+$putStockCountLine = $contract['paths'][
+    '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/lines/{lineId}'
+]['put'] ?? [];
+if (
+    ($recordCountRequest['properties']['expectedRevision']['minimum'] ?? null) !== 0
+    || ($putStockCountLine['responses']['200']['content']['application/json']['schema']['$ref'] ?? null)
+        !== '#/components/schemas/StockCountLine'
+    || ! isset($putStockCountLine['responses']['409'])
+    || ! isset($putStockCountLine['responses']['422'])
+) {
+    throw new RuntimeException('Stock-count line create/update compare-and-swap semantics are incomplete.');
+}
+foreach (['id', 'homeProductId', 'quantity', 'status', 'revision'] as $requiredCountLineField) {
+    if (! in_array($requiredCountLineField, $stockCountLine['required'] ?? [], true)) {
+        throw new RuntimeException('Stock-count line response omits ' . $requiredCountLineField . '.');
     }
 }
 
@@ -840,7 +860,7 @@ if (
         $contract['components']['schemas']['RegisterResponse']['required'] ?? [],
         true,
     )
-    || ($contract['info']['version'] ?? '') !== '1.17.0'
+    || ($contract['info']['version'] ?? '') !== '1.18.0'
     || stripos($source, 'magic' . '-link') !== false
     || stripos($source, 'magic' . 'link') !== false
     || isset($contract['paths']['/api/v1/auth/' . 'magic' . '-links'])

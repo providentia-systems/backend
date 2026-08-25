@@ -143,6 +143,9 @@ interface InventoryStore
     /** @return list<array<string, mixed>> */
     public function countLines(string $homeId, string $sessionId): array;
 
+    /** @return array<string, mixed>|null */
+    public function countLine(string $homeId, string $sessionId, string $lineId): ?array;
+
     public function saveCountLine(
         string $id,
         string $homeId,
