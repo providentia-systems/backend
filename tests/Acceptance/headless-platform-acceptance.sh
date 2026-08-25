@@ -136,6 +136,63 @@ http_multipart() {
     fi
 }
 
+http_catalog_image_multipart() {
+    local path="$1"
+    local expected_status="$2"
+    local bearer="$3"
+    local image_file="$4"
+    local submission_id="$5"
+    local source_entity_id="$6"
+    local consent_revision="$7"
+    local alt_text="$8"
+    local source_digest="$9"
+
+    response_status="$(curl \
+        --silent --show-error --connect-timeout 10 --max-time 90 \
+        --request POST \
+        --dump-header "$response_headers" \
+        --output "$response_body" \
+        --write-out '%{http_code}' \
+        --header 'Accept: application/json' \
+        --header "Authorization: Bearer ${bearer}" \
+        --form-string "submissionId=${submission_id}" \
+        --form-string "sourceEntityId=${source_entity_id}" \
+        --form-string "expectedConsentRevision=${consent_revision}" \
+        --form-string "altText=${alt_text}" \
+        --form-string "sourceDigest=${source_digest}" \
+        --form-string 'rightsDeclarationVersion=homeowner_original_public_catalog_v1' \
+        --form-string 'submissionConfirmed=true' \
+        --form "image=@${image_file};type=image/png;filename=catalog-source.png" \
+        "${api_base}${path}")"
+    if [[ "$response_status" != "$expected_status" ]]; then
+        fail "POST ${path} returned HTTP ${response_status}; expected ${expected_status}: $(safe_response_summary)"
+    fi
+}
+
+http_binary() {
+    local path="$1"
+    local expected_status="$2"
+    local bearer="$3"
+    local destination="$4"
+    local -a arguments=(
+        --silent --show-error
+        --connect-timeout 10 --max-time 90
+        --request GET
+        --dump-header "$response_headers"
+        --output "$destination"
+        --write-out '%{http_code}'
+        --header 'Accept: image/webp'
+    )
+    if [[ -n "$bearer" ]]; then
+        arguments+=(--header "Authorization: Bearer ${bearer}")
+    fi
+
+    response_status="$(curl "${arguments[@]}" "${api_base}${path}")"
+    if [[ "$response_status" != "$expected_status" ]]; then
+        fail "GET ${path} returned HTTP ${response_status}; expected ${expected_status}."
+    fi
+}
+
 assert_json() {
     local description="$1"
     local filter="$2"
@@ -1058,6 +1115,344 @@ assert_json 'A withdrawn store price remained in the public contribution feed.' 
     .data | all(.payload != $payload)
 ' --argjson payload "$store_price_payload"
 
+# Product-image sharing is independently consented, encrypted at rest while
+# pending, attribution-free for moderators, and published only after a second
+# explicit curator action. Exact multipart retries are stable; changing the
+# same submission intent is rejected instead of silently replacing evidence.
+image_consent_body="$(jq -cn '
+    {
+        shareProductIdentity:true,
+        shareProductImages:true,
+        shareStorePrices:false,
+        noticeVersion:"catalog-sharing-v1",
+        expectedRevision:3
+    }
+')"
+http_json PUT "/api/v1/homes/${home_id}/catalog-contributions/consent" \
+    200 "$homeowner_access_token" "$image_consent_body"
+assert_json 'Product-image consent was not independently revisioned.' '
+    .revision == 4
+    and .shareProductIdentity == true
+    and .shareProductImages == true
+    and .shareStorePrices == false
+'
+
+catalog_image_file="${evidence_dir}/catalog-source.png"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' \
+    | openssl base64 -d -A >"$catalog_image_file"
+catalog_source_digest="$(sha256sum "$catalog_image_file" | awk '{print $1}')"
+image_contribution_id="$(uuid)"
+http_catalog_image_multipart \
+    "/api/v1/homes/${home_id}/catalog-contributions/images" \
+    201 "$homeowner_access_token" "$catalog_image_file" \
+    "$image_contribution_id" "$store_price_source_id" 4 \
+    'Acceptance baked beans product image' "$catalog_source_digest"
+assert_json 'The confirmed product image did not enter encrypted pending moderation.' '
+    .id == $submissionId
+    and .contributionType == "product_image"
+    and .status == "pending"
+    and .revision == 1
+    and .payload.sourceDigest == $sourceDigest
+    and (.payload.assetDigest | test("^[a-f0-9]{64}$"))
+    and .payload.mediaType == "image/webp"
+    and .payload.altText == "Acceptance baked beans product image"
+    and .payload.provenance == "homeowner_original"
+    and .payload.rightsDeclarationVersion == "homeowner_original_public_catalog_v1"
+    and .payload.reuseNoticeVersion == "catalog-image-public-reuse-v1"
+    and (.payload | keys | sort) == [
+        "altText",
+        "assetDigest",
+        "mediaType",
+        "provenance",
+        "reuseNoticeVersion",
+        "rightsDeclarationVersion",
+        "sourceDigest"
+    ]
+' --arg submissionId "$image_contribution_id" --arg sourceDigest "$catalog_source_digest"
+image_asset_digest="$(jq -er '.payload.assetDigest' "$response_body")"
+image_homeowner_payload="$(jq -c '.payload' "$response_body")"
+
+http_catalog_image_multipart \
+    "/api/v1/homes/${home_id}/catalog-contributions/images" \
+    200 "$homeowner_access_token" "$catalog_image_file" \
+    "$image_contribution_id" "$store_price_source_id" 4 \
+    'Acceptance baked beans product image' "$catalog_source_digest"
+assert_json 'An exact image-contribution replay was not idempotent.' '
+    .id == $submissionId
+    and .contributionType == "product_image"
+    and .payload == $payload
+    and .status == "pending"
+    and .revision == 1
+' --arg submissionId "$image_contribution_id" --argjson payload "$image_homeowner_payload"
+http_catalog_image_multipart \
+    "/api/v1/homes/${home_id}/catalog-contributions/images" \
+    409 "$homeowner_access_token" "$catalog_image_file" \
+    "$image_contribution_id" "$store_price_source_id" 4 \
+    'Changed image submission intent' "$catalog_source_digest"
+assert_problem_json
+
+http_json GET '/api/v1/catalog-contributions/review?status=pending&limit=50&offset=0' \
+    200 "$admin_access_token"
+assert_json 'The image contribution was absent from the Admin moderation queue.' '
+    .data
+    | any(
+        .id == $submissionId
+        and .contributionType == "product_image"
+        and .status == "pending"
+        and .revision == 1
+        and .consentNoticeVersion == "catalog-sharing-v1"
+        and .consentRevision == 4
+        and .payload.assetDigest == $assetDigest
+        and .payload.mediaType == "image/webp"
+        and .payload.altText == "Acceptance baked beans product image"
+    )
+' --arg submissionId "$image_contribution_id" --arg assetDigest "$image_asset_digest"
+assert_json 'The image moderation payload was not the closed attribution-free projection.' '
+    (
+        .data
+        | map(select(.id == $submissionId))[0].payload
+        | keys
+        | sort
+    ) == [
+        "altText",
+        "assetDigest",
+        "mediaType",
+        "provenance",
+        "reuseNoticeVersion",
+        "rightsDeclarationVersion"
+    ]
+' --arg submissionId "$image_contribution_id"
+assert_json 'The image moderation projection leaked private attribution or the source digest.' '
+    [.data[]? | .. | objects | keys[]]
+    | all(
+        . != "homeId"
+        and . != "sourceEntityId"
+        and . != "sourceFingerprint"
+        and . != "sourceDigest"
+        and . != "submittedByUserId"
+        and . != "reviewedByUserId"
+        and . != "recordedByUserId"
+        and . != "userId"
+        and . != "email"
+        and . != "consentReceiptId"
+        and . != "receiptId"
+    )
+'
+
+image_preview_file="${evidence_dir}/catalog-preview.webp"
+http_binary \
+    "/api/v1/catalog-contributions/${image_contribution_id}/image-preview?expectedRevision=1" \
+    200 "$admin_access_token" "$image_preview_file"
+preview_length="$(wc -c <"$image_preview_file" | tr -d '[:space:]')"
+preview_digest="$(sha256sum "$image_preview_file" | awk '{print $1}')"
+[[ "$preview_length" -ge 1 && "$preview_length" -le 5242880 ]] \
+    || fail 'The reviewer image preview exceeded its bounded size.'
+[[ "$preview_digest" == "$image_asset_digest" ]] \
+    || fail 'The reviewer image preview did not match its sanitized digest.'
+grep -Eiq '^content-type:[[:space:]]*image/webp[[:space:]]*$' "$response_headers" \
+    || fail 'The reviewer image preview was not WebP.'
+grep -Eiq '^cache-control:[[:space:]]*private, no-store[[:space:]]*$' "$response_headers" \
+    || fail 'The reviewer image preview was cacheable.'
+grep -Eiq '^pragma:[[:space:]]*no-cache[[:space:]]*$' "$response_headers" \
+    || fail 'The reviewer image preview omitted its no-cache compatibility header.'
+grep -Eiq '^x-content-type-options:[[:space:]]*nosniff[[:space:]]*$' "$response_headers" \
+    || fail 'The reviewer image preview permitted content sniffing.'
+grep -Eiq "^content-length:[[:space:]]*${preview_length}[[:space:]]*$" "$response_headers" \
+    || fail 'The reviewer image preview length header was inconsistent.'
+grep -Eiq "^x-content-sha256:[[:space:]]*${image_asset_digest}[[:space:]]*$" "$response_headers" \
+    || fail 'The reviewer image preview digest header was inconsistent.'
+grep -Eiq "^etag:[[:space:]]*\"sha256-${image_asset_digest}\"[[:space:]]*$" "$response_headers" \
+    || fail 'The reviewer image preview ETag was inconsistent.'
+
+decision_body="$(jq -cn '
+    {decision:"approved",reason:"Acceptance product image is safe",expectedRevision:1}
+')"
+http_json PUT "/api/v1/catalog-contributions/${image_contribution_id}/decision" \
+    204 "$admin_access_token" "$decision_body"
+http_json GET '/api/v1/catalog-contributions/review?status=approved&limit=50&offset=0' \
+    200 "$admin_access_token"
+assert_json 'The approved image was not recoverable at its moderation revision.' '
+    .data
+    | any(
+        .id == $submissionId
+        and .contributionType == "product_image"
+        and .status == "approved"
+        and .revision == 2
+        and .payload.assetDigest == $assetDigest
+    )
+' --arg submissionId "$image_contribution_id" --arg assetDigest "$image_asset_digest"
+
+http_json GET "/api/v1/catalog/products/${published_product_id}" 200
+expected_icon_revision="$(jq -er '([.icons[]?.revision] | max) // 0' "$response_body")"
+publication_body="$(jq -cn \
+    --arg productId "$published_product_id" \
+    --argjson expectedIconRevision "$expected_icon_revision" '
+    {
+        productId:$productId,
+        expectedContributionRevision:2,
+        expectedIconRevision:$expectedIconRevision
+    }
+')"
+http_json PUT "/api/v1/catalog-contributions/${image_contribution_id}/image-publication" \
+    200 "$admin_access_token" "$publication_body"
+assert_json 'The approved image was not explicitly published to the canonical product.' '
+    .contributionId == $contributionId
+    and .contributionRevision == 2
+    and .productId == $productId
+    and .productName == "Acceptance baked beans"
+    and (.iconId | type == "string" and length > 0)
+    and .iconRevision == ($expectedIconRevision + 1)
+    and (.publishedAt | type == "string" and length > 0)
+' \
+    --arg contributionId "$image_contribution_id" \
+    --arg productId "$published_product_id" \
+    --argjson expectedIconRevision "$expected_icon_revision"
+image_icon_id="$(jq -er '.iconId' "$response_body")"
+image_icon_revision="$(jq -er '.iconRevision' "$response_body")"
+image_publication="$(jq -c . "$response_body")"
+http_json PUT "/api/v1/catalog-contributions/${image_contribution_id}/image-publication" \
+    200 "$admin_access_token" "$publication_body"
+assert_json 'An exact image-publication replay did not return the same durable link.' '
+    . == $publication
+' --argjson publication "$image_publication"
+
+stale_icon_revision=$((expected_icon_revision + 1))
+stale_publication_body="$(jq -cn \
+    --arg productId "$published_product_id" \
+    --argjson expectedIconRevision "$stale_icon_revision" '
+    {
+        productId:$productId,
+        expectedContributionRevision:2,
+        expectedIconRevision:$expectedIconRevision
+    }
+')"
+http_json PUT "/api/v1/catalog-contributions/${image_contribution_id}/image-publication" \
+    409 "$admin_access_token" "$stale_publication_body"
+assert_problem_json
+
+http_json GET "/api/v1/catalog/products/${published_product_id}" 200
+assert_json 'The published product icon was missing or exposed private provenance.' '
+    .icons
+    | any(
+        .id == $iconId
+        and .assetDigest == $assetDigest
+        and .mediaType == "image/webp"
+        and .altText == "Acceptance baked beans product image"
+        and .revision == $iconRevision
+        and (has("sourceDigest") | not)
+        and (has("homeId") | not)
+        and (has("userId") | not)
+    )
+' \
+    --arg iconId "$image_icon_id" \
+    --arg assetDigest "$image_asset_digest" \
+    --argjson iconRevision "$image_icon_revision"
+
+image_public_file="${evidence_dir}/catalog-public.webp"
+http_binary "/api/v1/catalog/assets/${image_asset_digest}" 200 '' "$image_public_file"
+public_length="$(wc -c <"$image_public_file" | tr -d '[:space:]')"
+public_digest="$(sha256sum "$image_public_file" | awk '{print $1}')"
+[[ "$public_length" -ge 1 && "$public_length" -le 5242880 ]] \
+    || fail 'The public catalog image exceeded its bounded size.'
+[[ "$public_digest" == "$image_asset_digest" ]] \
+    || fail 'The public catalog image did not match its published digest.'
+grep -Eiq '^content-type:[[:space:]]*image/webp[[:space:]]*$' "$response_headers" \
+    || fail 'The public catalog asset was not WebP.'
+grep -Eiq '^cache-control:[[:space:]]*public, max-age=31536000, immutable[[:space:]]*$' \
+    "$response_headers" \
+    || fail 'The content-addressed public catalog asset was not immutable.'
+grep -Eiq '^x-content-type-options:[[:space:]]*nosniff[[:space:]]*$' "$response_headers" \
+    || fail 'The public catalog asset permitted content sniffing.'
+grep -Eiq "^content-length:[[:space:]]*${public_length}[[:space:]]*$" "$response_headers" \
+    || fail 'The public catalog asset length header was inconsistent.'
+grep -Eiq "^x-content-sha256:[[:space:]]*${image_asset_digest}[[:space:]]*$" "$response_headers" \
+    || fail 'The public catalog asset digest header was inconsistent.'
+grep -Eiq "^etag:[[:space:]]*\"sha256-${image_asset_digest}\"[[:space:]]*$" "$response_headers" \
+    || fail 'The public catalog asset ETag was inconsistent.'
+
+# A second, never-approved image is purged from quarantine when image consent
+# is withdrawn. It cannot be previewed, published, or resolved as a public
+# content-addressed asset after that revision transition.
+withdrawn_image_file="${evidence_dir}/catalog-withdrawn-source.png"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVQI12NoAAAAggCB3UNq9AAAAABJRU5ErkJggg==' \
+    | openssl base64 -d -A >"$withdrawn_image_file"
+withdrawn_source_digest="$(sha256sum "$withdrawn_image_file" | awk '{print $1}')"
+withdrawn_image_id="$(uuid)"
+http_catalog_image_multipart \
+    "/api/v1/homes/${home_id}/catalog-contributions/images" \
+    201 "$homeowner_access_token" "$withdrawn_image_file" \
+    "$withdrawn_image_id" "$store_price_source_id" 4 \
+    'Unpublished acceptance product image' "$withdrawn_source_digest"
+assert_json 'The second image did not enter pending moderation before consent withdrawal.' '
+    .id == $submissionId
+    and .contributionType == "product_image"
+    and .status == "pending"
+    and .revision == 1
+    and .payload.sourceDigest == $sourceDigest
+    and .payload.assetDigest != $publishedAssetDigest
+' \
+    --arg submissionId "$withdrawn_image_id" \
+    --arg sourceDigest "$withdrawn_source_digest" \
+    --arg publishedAssetDigest "$image_asset_digest"
+withdrawn_asset_digest="$(jq -er '.payload.assetDigest' "$response_body")"
+
+image_consent_body="$(jq -cn '
+    {
+        shareProductIdentity:true,
+        shareProductImages:false,
+        shareStorePrices:false,
+        noticeVersion:"catalog-sharing-v1",
+        expectedRevision:4
+    }
+')"
+http_json PUT "/api/v1/homes/${home_id}/catalog-contributions/consent" \
+    200 "$homeowner_access_token" "$image_consent_body"
+assert_json 'Product-image consent withdrawal did not advance independently.' '
+    .revision == 5
+    and .shareProductIdentity == true
+    and .shareProductImages == false
+    and .shareStorePrices == false
+'
+http_json GET '/api/v1/catalog-contributions/review?status=withdrawn&limit=50&offset=0' \
+    200 "$admin_access_token"
+assert_json 'The never-approved image was not withdrawn with its current revision.' '
+    .data
+    | any(
+        .id == $submissionId
+        and .contributionType == "product_image"
+        and .status == "withdrawn"
+        and .revision == 2
+        and .payload.assetDigest == $assetDigest
+    )
+' --arg submissionId "$withdrawn_image_id" --arg assetDigest "$withdrawn_asset_digest"
+http_json GET \
+    "/api/v1/catalog-contributions/${withdrawn_image_id}/image-preview?expectedRevision=2" \
+    404 "$admin_access_token"
+assert_problem_json
+withdrawn_publication_body="$(jq -cn \
+    --arg productId "$published_product_id" \
+    --argjson expectedIconRevision "$image_icon_revision" '
+    {
+        productId:$productId,
+        expectedContributionRevision:2,
+        expectedIconRevision:$expectedIconRevision
+    }
+')"
+http_json PUT "/api/v1/catalog-contributions/${withdrawn_image_id}/image-publication" \
+    409 "$admin_access_token" "$withdrawn_publication_body"
+assert_problem_json
+http_json GET "/api/v1/catalog/assets/${withdrawn_asset_digest}" 404
+assert_problem_json
+http_json GET "/api/v1/catalog/products/${published_product_id}" 200
+assert_json 'The withdrawn image appeared as a public product icon.' '
+    .icons | all(.assetDigest != $withdrawnAssetDigest)
+' --arg withdrawnAssetDigest "$withdrawn_asset_digest"
+rm -f \
+    "$catalog_image_file" \
+    "$withdrawn_image_file" \
+    "$image_preview_file" \
+    "$image_public_file"
+
 # A stock photo produces only a proposal. The write-only credential can be
 # replaced, and no count or balance changes before an explicit human commit.
 count_body="$(jq -cn '
@@ -1251,6 +1646,12 @@ jq -n \
         storePricePersisted:true,
         storePriceAttributionFree:true,
         storePriceWithdrawnOnConsentRevocation:true,
+        productImageIdempotent:true,
+        productImageModerationAttributionFree:true,
+        productImagePreviewPrivate:true,
+        productImagePublicationExplicit:true,
+        productImageAssetImmutable:true,
+        productImageWithdrawnOnConsentRevocation:true,
         writeOnlyAiCredentialReplacement:true,
         quantityRangeProposal:true,
         noMutationBeforeHumanCommit:true,
