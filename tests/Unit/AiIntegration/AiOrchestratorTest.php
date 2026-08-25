@@ -12,20 +12,23 @@ use Providentia\AiIntegration\Application\Orchestration\AiExecution;
 use Providentia\AiIntegration\Application\Orchestration\AiOrchestrator;
 use Providentia\AiIntegration\Application\Orchestration\ExtractionReconciler;
 use Providentia\AiIntegration\Application\Orchestration\ProviderFailureClassifier;
+use Providentia\AiIntegration\Application\SensitiveBufferEraser;
 use Providentia\AiIntegration\Domain\ExtractionOutcome;
 use Providentia\AiIntegration\Domain\ExtractionRequest;
+use Providentia\AiIntegration\Infrastructure\Security\SodiumSensitiveBufferEraser;
 
 final class AiOrchestratorTest extends TestCase
 {
     public function testRetryableFailureFailsOverAndIndependentProviderValidates(): void
     {
+        $buffers = new RecordingSensitiveBufferEraser();
         $unreachable = $this->provider('unreachable', static function (): never {
             throw new AiProviderException('provider_timeout', 'Timed out safely.');
         });
         $primary = $this->provider('primary', static fn (): ExtractionOutcome => self::outcome('Shop A'));
         $validator = $this->provider('validator', static fn (): ExtractionOutcome => self::outcome('Shop B'));
 
-        $result = $this->orchestrator()->execute(
+        $result = $this->orchestrator($buffers)->execute(
             'receipt',
             'image/png',
             'image bytes',
@@ -42,17 +45,22 @@ final class AiOrchestratorTest extends TestCase
         self::assertSame('validate', $result->attempts[2]['purpose']);
         self::assertSame('merchant', $result->discrepancies[0]['field']);
         self::assertSame(12, $result->usage['totalTokens']);
+        self::assertContains('image bytes', $buffers->erased);
+        self::assertContains('key-a', $buffers->erased);
+        self::assertContains('key-b', $buffers->erased);
+        self::assertContains('key-c', $buffers->erased);
     }
 
     public function testRefusalCannotFailOverIntoPrivacyBypass(): void
     {
+        $buffers = new RecordingSensitiveBufferEraser();
         $refusal = $this->provider('refusal', static function (): never {
             throw new AiProviderException('provider_refusal', 'The material was refused.');
         });
         $fallback = $this->provider('fallback', static fn (): ExtractionOutcome => self::outcome(null));
 
         try {
-            $this->orchestrator()->execute(
+            $this->orchestrator($buffers)->execute(
                 'receipt',
                 'image/png',
                 'image bytes',
@@ -64,6 +72,8 @@ final class AiOrchestratorTest extends TestCase
             self::fail('A refusal was incorrectly failed over.');
         } catch (AiProviderException $error) {
             self::assertSame('provider_refusal', $error->safeCode);
+            self::assertContains('image bytes', $buffers->erased);
+            self::assertContains('key-a', $buffers->erased);
         }
     }
 
@@ -157,12 +167,13 @@ final class AiOrchestratorTest extends TestCase
         };
     }
 
-    private function orchestrator(): AiOrchestrator
+    private function orchestrator(?SensitiveBufferEraser $buffers = null): AiOrchestrator
     {
         return new AiOrchestrator(
             new ExtractionSchema(),
             new ProviderFailureClassifier(),
             new ExtractionReconciler(),
+            $buffers ?? new SodiumSensitiveBufferEraser(),
         );
     }
 

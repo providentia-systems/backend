@@ -7,6 +7,8 @@ namespace Providentia\AiIntegration\Http;
 use Laminas\Diactoros\Response\EmptyResponse;
 use Laminas\Diactoros\Response\JsonResponse;
 use Providentia\AiIntegration\Application\AiService;
+use Providentia\AiIntegration\Application\SensitiveBufferEraser;
+use Providentia\AiIntegration\Application\SensitiveBufferScope;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\SharedKernel\Http\HttpProblem;
@@ -14,6 +16,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Throwable;
 
 final readonly class AiHandler implements RequestHandlerInterface
 {
@@ -23,6 +26,7 @@ final readonly class AiHandler implements RequestHandlerInterface
         private AiService $ai,
         private string $action,
         private int $maxImageBytes,
+        private SensitiveBufferEraser $buffers,
     ) {
     }
 
@@ -198,74 +202,118 @@ final readonly class AiHandler implements RequestHandlerInterface
         ServerRequestInterface $request,
         array $body,
     ): ResponseInterface {
-        $this->requireExactKeys($body, ['kind', 'targetId', 'transmissionConsent'], ['kind', 'transmissionConsent']);
-        if (! $this->isExplicitTrue($body['transmissionConsent'])) {
-            throw new HttpProblem(
-                422,
-                'Transmission consent required',
-                'Confirm the selected provider and privacy mode before sending an image.',
-            );
-        }
         $uploadedFiles = $request->getUploadedFiles();
-        $fileKeys = array_keys($uploadedFiles);
-        if (
-            array_diff($fileKeys, ['image', 'images', 'images[]']) !== []
-            || (isset($uploadedFiles['images']) && isset($uploadedFiles['images[]']))
-        ) {
-            throw new HttpProblem(422, 'Invalid extraction', 'Multipart file fields do not match the contract.');
+        $bytes = '';
+        $additional = [];
+        $sensitive = new SensitiveBufferScope($this->buffers);
+        $sensitive->track($bytes);
+
+        try {
+            $this->requireExactKeys(
+                $body,
+                ['kind', 'targetId', 'transmissionConsent'],
+                ['kind', 'transmissionConsent'],
+            );
+            if (! $this->isExplicitTrue($body['transmissionConsent'])) {
+                throw new HttpProblem(
+                    422,
+                    'Transmission consent required',
+                    'Confirm the selected provider and privacy mode before sending an image.',
+                );
+            }
+            $fileKeys = array_keys($uploadedFiles);
+            if (
+                array_diff($fileKeys, ['image', 'images', 'images[]']) !== []
+                || (isset($uploadedFiles['images']) && isset($uploadedFiles['images[]']))
+            ) {
+                throw new HttpProblem(422, 'Invalid extraction', 'Multipart file fields do not match the contract.');
+            }
+            $uploaded = $uploadedFiles['image'] ?? null;
+            if (! $uploaded instanceof UploadedFileInterface || $uploaded->getError() !== UPLOAD_ERR_OK) {
+                throw new HttpProblem(422, 'Invalid extraction', 'One successfully uploaded image is required.');
+            }
+            // PHP normalizes repeated multipart fields named `images[]` to
+            // `images`. The literal key supports non-normalizing PSR adapters.
+            $uploads = $uploadedFiles['images'] ?? $uploadedFiles['images[]'] ?? [];
+            if ($uploads instanceof UploadedFileInterface) {
+                $uploads = [$uploads];
+            }
+            if (! is_array($uploads) || count($uploads) > self::MAX_ADDITIONAL_IMAGES) {
+                throw new HttpProblem(413, 'Too many images', 'At most eight image observations may be uploaded.');
+            }
+            $this->validateUpload($uploaded, 'One successfully uploaded image is required.');
+            $bytes = $this->readUpload($uploaded);
+            foreach ($uploads as $observation) {
+                if (! $observation instanceof UploadedFileInterface) {
+                    throw new HttpProblem(422, 'Invalid extraction', 'Every uploaded observation must succeed.');
+                }
+                $this->validateUpload($observation, 'Every uploaded observation must succeed.');
+                $position = count($additional);
+                $additional[$position] = [
+                    'mimeType' => (string) ($observation->getClientMediaType() ?? ''),
+                    'bytes' => $this->readUpload($observation),
+                ];
+                $sensitive->track($additional[$position]['bytes']);
+            }
+
+            return new JsonResponse($this->ai->extract(
+                $identity,
+                $homeId,
+                (string) ($body['kind'] ?? ''),
+                isset($body['targetId']) ? (string) $body['targetId'] : null,
+                true,
+                (string) ($uploaded->getClientMediaType() ?? ''),
+                $bytes,
+                $additional,
+            ), 201);
+        } finally {
+            try {
+                $sensitive->eraseAll();
+            } finally {
+                $this->closeUploads($uploadedFiles);
+            }
         }
-        $uploaded = $uploadedFiles['image'] ?? null;
-        if (! $uploaded instanceof UploadedFileInterface || $uploaded->getError() !== UPLOAD_ERR_OK) {
-            throw new HttpProblem(422, 'Invalid extraction', 'One successfully uploaded image is required.');
+    }
+
+    private function validateUpload(UploadedFileInterface $upload, string $error): void
+    {
+        if ($upload->getError() !== UPLOAD_ERR_OK) {
+            throw new HttpProblem(422, 'Invalid extraction', $error);
         }
-        // PHP normalizes repeated multipart fields named `images[]` to the
-        // `images` array. Accept the literal key for PSR-7 adapters that do
-        // not perform that normalization.
-        $uploads = $uploadedFiles['images'] ?? $uploadedFiles['images[]'] ?? [];
-        if ($uploads instanceof UploadedFileInterface) {
-            $uploads = [$uploads];
-        }
-        if (! is_array($uploads) || count($uploads) > self::MAX_ADDITIONAL_IMAGES) {
-            throw new HttpProblem(413, 'Too many images', 'At most eight image observations may be uploaded.');
-        }
-        $size = $uploaded->getSize();
+        $size = $upload->getSize();
         if ($size === null || $size < 16 || $size > $this->maxImageBytes) {
             throw new HttpProblem(413, 'Image rejected', 'Image size is outside the configured limit.');
         }
-        $stream = $uploaded->getStream();
+    }
+
+    private function readUpload(UploadedFileInterface $upload): string
+    {
+        $stream = $upload->getStream();
         if ($stream->isSeekable()) {
             $stream->rewind();
         }
-        $bytes = $stream->getContents();
-        $additional = [];
-        foreach ($uploads as $observation) {
-            if (! $observation instanceof UploadedFileInterface || $observation->getError() !== UPLOAD_ERR_OK) {
-                throw new HttpProblem(422, 'Invalid extraction', 'Every uploaded observation must succeed.');
-            }
-            $observationSize = $observation->getSize();
-            if ($observationSize === null || $observationSize < 16 || $observationSize > $this->maxImageBytes) {
-                throw new HttpProblem(413, 'Image rejected', 'Image size is outside the configured limit.');
-            }
-            $observationStream = $observation->getStream();
-            if ($observationStream->isSeekable()) {
-                $observationStream->rewind();
-            }
-            $additional[] = [
-                'mimeType' => (string) ($observation->getClientMediaType() ?? ''),
-                'bytes' => $observationStream->getContents(),
-            ];
-        }
 
-        return new JsonResponse($this->ai->extract(
-            $identity,
-            $homeId,
-            (string) ($body['kind'] ?? ''),
-            isset($body['targetId']) ? (string) $body['targetId'] : null,
-            true,
-            (string) ($uploaded->getClientMediaType() ?? ''),
-            $bytes,
-            $additional,
-        ), 201);
+        return $stream->getContents();
+    }
+
+    /** @param array<mixed> $uploads */
+    private function closeUploads(array $uploads): void
+    {
+        foreach ($uploads as $upload) {
+            if (is_array($upload)) {
+                $this->closeUploads($upload);
+                continue;
+            }
+            if (! $upload instanceof UploadedFileInterface) {
+                continue;
+            }
+            try {
+                $upload->getStream()->close();
+            } catch (Throwable) {
+                // Request-scoped cleanup is best effort and never replaces the
+                // authoritative extraction response or validation failure.
+            }
+        }
     }
 
     /** @param array<string, mixed> $body */

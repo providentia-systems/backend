@@ -17,6 +17,7 @@ use Providentia\AiIntegration\Application\Media\VideoProcessor;
 use Providentia\AiIntegration\Application\Orchestration\AiOrchestrator;
 use Providentia\AiIntegration\Application\Orchestration\ExtractionReconciler;
 use Providentia\AiIntegration\Application\Orchestration\ProviderFailureClassifier;
+use Providentia\AiIntegration\Application\SensitiveBufferEraser;
 use Providentia\AiIntegration\Infrastructure\Cli\VideoProcessCommand;
 use Providentia\AiIntegration\Infrastructure\Doctrine\DbalAiStore;
 use Providentia\AiIntegration\Infrastructure\Factory\AiIntegrationFactory;
@@ -31,6 +32,7 @@ use Providentia\AiIntegration\Infrastructure\Provider\OpenAiCompatibleProvider;
 use Providentia\AiIntegration\Infrastructure\Provider\OpenAiResponsesProvider;
 use Providentia\AiIntegration\Infrastructure\Provider\XaiChatCompletionsProvider;
 use Providentia\AiIntegration\Infrastructure\Security\NativeCredentialCipher;
+use Providentia\AiIntegration\Infrastructure\Security\SodiumSensitiveBufferEraser;
 
 final class ConfigProvider
 {
@@ -46,10 +48,12 @@ final class ConfigProvider
                     JsonHttpClient::class => StreamJsonHttpClient::class,
                     MediaStorage::class => EncryptedFilesystemMediaStorage::class,
                     VideoProcessor::class => FfmpegVideoProcessor::class,
+                    SensitiveBufferEraser::class => SodiumSensitiveBufferEraser::class,
                 ],
                 'factories' => [
                     DbalAiStore::class => AiIntegrationFactory::class,
                     NativeCredentialCipher::class => AiIntegrationFactory::class,
+                    SodiumSensitiveBufferEraser::class => AiIntegrationFactory::class,
                     EndpointPolicy::class => AiIntegrationFactory::class,
                     StreamJsonHttpClient::class => AiIntegrationFactory::class,
                     ExtractionSchema::class => AiIntegrationFactory::class,
