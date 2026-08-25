@@ -6,6 +6,7 @@ namespace ProvidentiaTest\Unit\Identity;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
+use Providentia\Identity\Application\LoginApplicationKind;
 use Providentia\Identity\Application\NotificationOutbox;
 use Providentia\Identity\Application\QueuedAccountNotificationSender;
 use Providentia\SharedKernel\Application\Clock;
@@ -24,6 +25,7 @@ final class QueuedAccountNotificationSenderTest extends TestCase
             [
                 'requestId' => '01989f53-a000-7000-8000-000000000002',
                 'approvalToken' => 'approval-capability',
+                'applicationKind' => 'homeowner',
             ],
             $now,
         );
@@ -37,6 +39,7 @@ final class QueuedAccountNotificationSenderTest extends TestCase
             'member@example.test',
             '01989f53-a000-7000-8000-000000000002',
             'approval-capability',
+            LoginApplicationKind::HOMEOWNER,
         );
     }
 }

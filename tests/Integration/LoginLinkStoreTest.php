@@ -24,6 +24,8 @@ final class LoginLinkStoreTest extends TestCase
             'CREATE TABLE auth_login_link_requests (
                 id VARCHAR(36) PRIMARY KEY,
                 normalized_email VARCHAR(254) NOT NULL,
+                application_kind VARCHAR(16) NOT NULL,
+                revision INTEGER NOT NULL,
                 status VARCHAR(16) NOT NULL,
                 failed_proof_attempts INTEGER NOT NULL,
                 approval_token_hash VARCHAR(64) NULL,
@@ -89,6 +91,8 @@ final class LoginLinkStoreTest extends TestCase
         $this->connection->insert('auth_login_link_requests', [
             'id' => self::REQUEST_ID,
             'normalized_email' => 'person@example.test',
+            'application_kind' => 'homeowner',
+            'revision' => 1,
             'status' => $status,
             'failed_proof_attempts' => 0,
             'approval_token_hash' => 'approval-hash',

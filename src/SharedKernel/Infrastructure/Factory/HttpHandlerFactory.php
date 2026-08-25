@@ -22,7 +22,7 @@ final class HttpHandlerFactory
 {
     public function __invoke(ContainerInterface $container, string $requestedName): object
     {
-        /** @var array{app: array{debug: bool, environment: string, version: string}, queue: array{dsn: string}, http: array{allowed_origins: list<string>}} $config */
+        /** @var array{app: array{debug: bool, environment: string, version: string}, queue: array{dsn: string}, http: array{allowed_origins: list<string>}, metrics: array{enabled: bool, credential_hash: string}} $config */
         $config = $container->get('config');
 
         return match ($requestedName) {
@@ -32,6 +32,8 @@ final class HttpHandlerFactory
                 $container->get(OutboxStore::class),
                 $container->get(QueueMetricsProbe::class),
                 $container->get(SyncMetricsProbe::class),
+                $config['metrics']['enabled'],
+                $config['metrics']['credential_hash'],
             ),
             ProblemDetailsMiddleware::class => new ProblemDetailsMiddleware(
                 $config['app']['debug'],

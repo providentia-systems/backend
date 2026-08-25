@@ -5,23 +5,31 @@ declare(strict_types=1);
 namespace Providentia\Identity\Infrastructure\Notification;
 
 use Providentia\Identity\Application\AccountNotificationSender;
+use Providentia\Identity\Application\LoginApplicationKind;
 use Providentia\Identity\Application\NotificationTransport;
 use RuntimeException;
 
 final class SmtpAccountNotificationSender implements AccountNotificationSender, NotificationTransport
 {
+    /** @param array{homeowner: string, admin: string} $loginApplicationLinks */
     public function __construct(
         private readonly string $dsn,
         private readonly string $from,
         private readonly string $publicBaseUrl,
+        private readonly array $loginApplicationLinks,
     ) {
     }
 
-    public function sendLoginLink(string $email, string $requestId, string $approvalToken): void
-    {
+    public function sendLoginLink(
+        string $email,
+        string $requestId,
+        string $approvalToken,
+        LoginApplicationKind $application,
+    ): void {
         $this->deliver('login-link', $email, [
             'requestId' => $requestId,
             'approvalToken' => $approvalToken,
+            'applicationKind' => $application->value,
         ]);
     }
 
@@ -59,13 +67,23 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
     public function deliver(string $template, string $recipient, array $context): void
     {
         $token = rawurlencode((string) ($context['token'] ?? ''));
+        $loginApplication = LoginApplicationKind::tryFrom(
+            (string) ($context['applicationKind'] ?? ''),
+        );
+        if ($template === 'login-link' && $loginApplication === null) {
+            throw new RuntimeException('Login notification has no valid application kind.');
+        }
+        $loginApplicationLink = $loginApplication === null
+            ? ''
+            : $this->loginApplicationLinks[$loginApplication->value];
         [$subject, $body] = match ($template) {
             'login-link' => [
                 'Approve your Providentia login',
                 sprintf(
-                    "Review this login request:\n%s/login-links/%s#approval=%s\n\n"
-                    . 'This link approves the requesting client but does not sign this browser in.',
-                    $this->publicBaseUrl,
+                    "Review this login request in the %s application:\n%s#requestId=%s&approval=%s\n\n"
+                    . 'The credential is single-use and does not sign a browser or the backend in.',
+                    $loginApplication?->value,
+                    $loginApplicationLink,
                     rawurlencode((string) ($context['requestId'] ?? '')),
                     rawurlencode((string) ($context['approvalToken'] ?? '')),
                 ),

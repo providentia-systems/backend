@@ -50,6 +50,7 @@ final class LoginLinkService
     {
         $requestId = $this->uuid((string) ($input['requestId'] ?? ''), 'requestId');
         $email = $this->email((string) ($input['email'] ?? ''));
+        $application = LoginApplicationKind::fromInput((string) ($input['applicationKind'] ?? ''));
         $pollChallenge = $this->challenge((string) ($input['pollChallenge'] ?? ''), 'pollChallenge');
         $codeChallenge = $this->challenge((string) ($input['codeChallenge'] ?? ''), 'codeChallenge');
         if ((string) ($input['codeChallengeMethod'] ?? '') !== 'S256') {
@@ -88,6 +89,7 @@ final class LoginLinkService
         $canonical = [
             'requestId' => $requestId,
             'email' => $email,
+            'applicationKind' => $application->value,
             'pollChallenge' => $pollChallenge,
             'codeChallenge' => $codeChallenge,
             'stateHash' => $stateHash,
@@ -107,6 +109,7 @@ final class LoginLinkService
             return $this->transactions->transactional(function () use (
                 $requestId,
                 $email,
+                $application,
                 $pollChallenge,
                 $codeChallenge,
                 $stateHash,
@@ -138,6 +141,8 @@ final class LoginLinkService
                     'id' => $requestId,
                     'request_hash' => $requestHash,
                     'normalized_email' => $email,
+                    'application_kind' => $application->value,
+                    'revision' => 1,
                     'installation_id' => $installationId,
                     'device_name' => mb_substr($deviceName, 0, 120),
                     'platform' => mb_substr($platform, 0, 40),
@@ -161,7 +166,12 @@ final class LoginLinkService
                     'created_at' => $date,
                     'updated_at' => $date,
                 ]);
-                $this->notifications->sendLoginLink($email, $requestId, $approvalToken);
+                $this->notifications->sendLoginLink(
+                    $email,
+                    $requestId,
+                    $approvalToken,
+                    $application,
+                );
 
                 return $this->started($requestId, $expiresAt);
             });
@@ -186,13 +196,29 @@ final class LoginLinkService
         }
     }
 
-    /** @return array<string, mixed> */
-    public function review(string $requestId, string $approvalToken): array
+    /** @return array{valid: true, requestId: string, applicationKind: string, expiresAt: string} */
+    public function proof(string $requestId, string $approvalToken, string $applicationKind): array
     {
-        $request = $this->approvalRequest($requestId, $approvalToken);
+        $application = LoginApplicationKind::fromInput($applicationKind);
+        $request = $this->approvalRequest($requestId, $approvalToken, $application);
+
+        return [
+            'valid' => true,
+            'requestId' => (string) $request['id'],
+            'applicationKind' => $application->value,
+            'expiresAt' => $this->date((string) $request['expires_at'])->format(DATE_ATOM),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function review(string $requestId, string $approvalToken, string $applicationKind): array
+    {
+        $application = LoginApplicationKind::fromInput($applicationKind);
+        $request = $this->approvalRequest($requestId, $approvalToken, $application);
 
         return [
             'requestId' => (string) $request['id'],
+            'applicationKind' => $application->value,
             'deviceName' => (string) $request['device_name'],
             'platform' => (string) $request['platform'],
             'createdAt' => $this->date((string) $request['created_at'])->format(DATE_ATOM),
@@ -201,11 +227,16 @@ final class LoginLinkService
     }
 
     /** @return array{status: string} */
-    public function approve(string $requestId, string $approvalToken): array
+    public function approve(
+        string $requestId,
+        string $approvalToken,
+        string $applicationKind,
+    ): array
     {
         // Validate and persist expiry outside the approval transaction so an
         // expired terminal state is not rolled back with the HTTP problem.
-        $this->review($requestId, $approvalToken);
+        $application = LoginApplicationKind::fromInput($applicationKind);
+        $this->approvalRequest($requestId, $approvalToken, $application);
         try {
             $result = $this->transactions->transactional(function () use ($requestId, $approvalToken): array {
                 $request = $this->requests->find($requestId);
@@ -308,9 +339,14 @@ final class LoginLinkService
     }
 
     /** @return array{status: string} */
-    public function deny(string $requestId, string $approvalToken): array
+    public function deny(
+        string $requestId,
+        string $approvalToken,
+        string $applicationKind,
+    ): array
     {
-        $this->review($requestId, $approvalToken);
+        $application = LoginApplicationKind::fromInput($applicationKind);
+        $this->approvalRequest($requestId, $approvalToken, $application);
         $denied = $this->transactions->transactional(function () use ($requestId, $approvalToken): bool {
             return $this->requests->deny(
                 $requestId,
@@ -428,12 +464,18 @@ final class LoginLinkService
     }
 
     /** @return array<string, mixed> */
-    private function approvalRequest(string $requestId, string $approvalToken): array
+    private function approvalRequest(
+        string $requestId,
+        string $approvalToken,
+        LoginApplicationKind $application,
+    ): array
     {
         $requestId = $this->uuid($requestId, 'requestId');
         $request = $this->requests->find($requestId);
         if (
             $request === null
+            || ! isset($request['application_kind'])
+            || ! hash_equals((string) $request['application_kind'], $application->value)
             || $approvalToken === ''
             || $request['approval_token_hash'] === null
             || ! hash_equals(
@@ -513,6 +555,7 @@ final class LoginLinkService
         }
         $response = [
             'requestId' => (string) $request['id'],
+            'applicationKind' => (string) $request['application_kind'],
             'status' => $status,
             'expiresAt' => $this->date($expiresAt)->format(DATE_ATOM),
         ];

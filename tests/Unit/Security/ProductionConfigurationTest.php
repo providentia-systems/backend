@@ -22,7 +22,12 @@ final class ProductionConfigurationTest extends TestCase
                 'EXPOSE_DEVELOPMENT_TOKENS',
                 'MAIL_DSN',
                 'PUBLIC_BASE_URL',
+                'HOMEOWNER_APP_LINK_BASE',
+                'ADMIN_APP_LINK_BASE',
+                'AUTH_LOGIN_LINK_ALLOWED_HOSTS',
                 'CORS_ALLOWED_ORIGINS',
+                'METRICS_ENABLED',
+                'METRICS_BEARER_TOKEN',
                 'AI_SERVER_PROXY_ENABLED',
                 'AI_CREDENTIAL_KEK',
                 'AI_MEDIA_KEK',
@@ -95,7 +100,7 @@ final class ProductionConfigurationTest extends TestCase
         self::assertSame('smtps://smtp.example.net:465', $config['mail']['dsn']);
         self::assertFalse($config['identity']['expose_development_tokens']);
         self::assertFalse($config['identity']['password_login_enabled']);
-        self::assertContains('https://app.example.net', $config['http']['allowed_origins']);
+        self::assertSame(['https://client.example.net'], $config['http']['allowed_origins']);
     }
 
     public function testProductionAiProxyRequiresAnIndependentEnvelopeEncryptionKey(): void
@@ -200,7 +205,12 @@ final class ProductionConfigurationTest extends TestCase
         putenv('EXPOSE_DEVELOPMENT_TOKENS=0');
         putenv('MAIL_DSN=smtps://smtp.example.net:465');
         putenv('PUBLIC_BASE_URL=https://app.example.net');
+        putenv('HOMEOWNER_APP_LINK_BASE=providentia://login-link/homeowner');
+        putenv('ADMIN_APP_LINK_BASE=providentia-admin://login-link/admin');
+        putenv('AUTH_LOGIN_LINK_ALLOWED_HOSTS=login-link');
         putenv('CORS_ALLOWED_ORIGINS=https://client.example.net');
+        putenv('METRICS_ENABLED=0');
+        putenv('METRICS_BEARER_TOKEN=');
         putenv('AI_SERVER_PROXY_ENABLED=0');
         putenv('AI_CREDENTIAL_KEK=');
         putenv('AI_MEDIA_KEK=' . base64_encode(str_repeat('m', 32)));

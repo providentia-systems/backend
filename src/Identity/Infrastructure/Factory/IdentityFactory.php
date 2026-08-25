@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Providentia\Identity\Infrastructure\Factory;
 
 use Doctrine\DBAL\Connection;
-use Mezzio\Template\TemplateRendererInterface;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AccountNotificationSender;
 use Providentia\Identity\Application\AuthenticationRateLimiter;
@@ -28,7 +27,6 @@ use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\CurrentUserHandler;
 use Providentia\Identity\Http\IdentityHandler;
-use Providentia\Identity\Http\LoginLinkApprovalHandler;
 use Providentia\Identity\Http\LoginLinkHandler;
 use Providentia\Identity\Http\LoginLinkProofRateLimitMiddleware;
 use Providentia\Identity\Http\PlatformAdministratorHandler;
@@ -65,6 +63,7 @@ final class IdentityFactory
          *     login_link_retention_days: int,
          *     rate_limit_retention_days: int,
          *     bootstrap_administrator_emails: list<string>,
+         *     login_application_links: array{homeowner: string, admin: string},
          *     onboarding_home: array{name: string, locale: string, currency: string, timezone: string},
          *     token_pepper: string,
          *     expose_development_tokens: bool,
@@ -101,6 +100,7 @@ final class IdentityFactory
                 $config['mail']['dsn'],
                 $config['mail']['from'],
                 $config['mail']['public_base_url'],
+                $config['identity']['login_application_links'],
             );
         }
         if ($requestedName === NativeNotificationPayloadCipher::class) {
@@ -228,16 +228,7 @@ final class IdentityFactory
         if ($requestedName === LoginLinkProofRateLimitMiddleware::class) {
             return new LoginLinkProofRateLimitMiddleware(
                 $container->get(AuthenticationRateLimiter::class),
-            );
-        }
-        if (str_starts_with($requestedName, 'identity.login-link-browser-')) {
-            return new LoginLinkApprovalHandler(
-                $container->get(LoginLinkService::class),
-                $container->get(TemplateRendererInterface::class),
-                $container->get(SecureTokenGenerator::class),
-                substr($requestedName, strlen('identity.login-link-browser-')),
-                $config['identity']['cookie_secure'],
-                $config['identity']['login_link_ttl_seconds'],
+                $container->get(LoginLinkStore::class),
             );
         }
         if (str_starts_with($requestedName, 'identity.login-link-')) {

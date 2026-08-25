@@ -16,11 +16,16 @@ final class QueuedAccountNotificationSender implements AccountNotificationSender
     ) {
     }
 
-    public function sendLoginLink(string $email, string $requestId, string $approvalToken): void
-    {
+    public function sendLoginLink(
+        string $email,
+        string $requestId,
+        string $approvalToken,
+        LoginApplicationKind $application,
+    ): void {
         $this->enqueue('login-link', $email, [
             'requestId' => $requestId,
             'approvalToken' => $approvalToken,
+            'applicationKind' => $application->value,
         ]);
     }
 

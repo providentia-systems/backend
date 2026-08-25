@@ -84,7 +84,10 @@
     "coverage:check": "php tool/check-coverage.php var/coverage.xml 60 src/Identity/Application src/Home/Application src/Inventory/Domain src/Shopping/Domain src/Synchronization/Application src/AiIntegration/Application/Orchestration src/AiIntegration/Infrastructure/Security src/AiIntegration/Infrastructure/Media src/Billing/Application src/DataGovernance/Application",
     "test:mutation": "infection --no-progress --threads=max --min-msi=60 --min-covered-msi=70",
     "architecture": "php tests/Architecture/verify.php",
-    "contract": "php tests/Contract/verify-openapi.php",
+        "contract": [
+            "bash tool/materialize-openapi-contract.sh",
+            "php tests/Contract/verify-openapi.php"
+        ],
     "migrate": "php bin/doctrine-migrations migrations:migrate --no-interaction",
     "migrate:status": "php bin/doctrine-migrations migrations:status",
     "serve": "php -S 127.0.0.1:8080 -t public public/index.php",

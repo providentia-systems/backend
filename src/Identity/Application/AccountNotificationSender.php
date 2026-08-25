@@ -6,7 +6,12 @@ namespace Providentia\Identity\Application;
 
 interface AccountNotificationSender
 {
-    public function sendLoginLink(string $email, string $requestId, string $approvalToken): void;
+    public function sendLoginLink(
+        string $email,
+        string $requestId,
+        string $approvalToken,
+        LoginApplicationKind $application,
+    ): void;
 
     public function sendStepUpLink(string $email, string $token, string $action): void;
 

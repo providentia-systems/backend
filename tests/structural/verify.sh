@@ -3,10 +3,11 @@ set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
+bash tool/materialize-openapi-contract.sh
 
 modules=(
   SharedKernel Identity Home Catalog Inventory Purchasing Shopping
-  Synchronization AiIntegration Billing DataGovernance Administration Reporting PublicSite
+  Synchronization AiIntegration Billing DataGovernance Administration Reporting
 )
 layers=(Domain Application Infrastructure Http)
 
@@ -63,8 +64,8 @@ for file in composer.json compose.yaml contracts/openapi/providentia-v1.json \
   test -s "$file" || fail "$file is missing or empty"
 done
 
-grep -Fq '#approval=' src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
-  || fail "login-link email must keep the approval capability in a browser fragment"
+grep -Fq '#requestId=%s&approval=%s' src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
+  || fail "login-link email must keep the request and approval capability in an application fragment"
 assert_no_matches "login-link approval capability can leak through a query string" \
   -n -F '?approval=' src templates docs config
 for caddyfile in infrastructure/caddy/Caddyfile infrastructure/caddy/Caddyfile.production; do
@@ -79,11 +80,14 @@ assert_no_matches "edge proxy must not overwrite application-owned dynamic secur
 legacy_login_segment='magic''-links'
 assert_no_matches "legacy raw-token email login route remains reachable" \
   -n -F "/api/v1/auth/${legacy_login_segment}" config/routes.php
-assert_no_matches "unverified login request IDs create persistent rate-limit buckets" \
-  -n -F 'login-link-request-ip:' src/Identity
+grep -Fq '$this->requests->find($requestId) !== null' src/Identity/Http/LoginLinkProofRateLimitMiddleware.php \
+  || fail "request-scoped login-link rate limits must be created only for existing requests"
+assert_no_matches "interactive backend UI files remain reachable or configured" \
+  -n 'PublicSite|login-link-browser|TemplateRendererInterface|public-site::' src config
 
 for executable in bin/doctrine-migrations bin/providentia \
   infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
+  tool/materialize-openapi-contract.sh \
   tool/check-composer-licenses.php tests/structural/verify.sh \
   scripts/create-development-handover.sh scripts/setup-development.sh \
   scripts/provision-development-user.sh \
@@ -92,6 +96,7 @@ for executable in bin/doctrine-migrations bin/providentia \
 done
 
 for shell_script in infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \
+  tool/materialize-openapi-contract.sh \
   scripts/create-development-handover.sh scripts/setup-development.sh \
   scripts/provision-development-user.sh \
   scripts/reset-development.sh \
@@ -192,6 +197,9 @@ const expected = {
   '/api/v1/auth/register': {post: 'registerAccount'},
   '/api/v1/auth/login': {post: 'login'},
   '/api/v1/auth/login-links': {post: 'startLoginLink'},
+  '/api/v1/auth/login-links/{requestId}/proof': {post: 'proveLoginLinkApproval'},
+  '/api/v1/auth/login-links/{requestId}/review': {post: 'reviewLoginLinkApproval'},
+  '/api/v1/auth/login-links/{requestId}/decision': {post: 'decideLoginLinkApproval'},
   '/api/v1/auth/login-links/{requestId}/status': {post: 'getLoginLinkStatus'},
   '/api/v1/auth/login-links/{requestId}/exchange': {post: 'exchangeLoginLink'},
   '/api/v1/auth/login-links/{requestId}/cancel': {post: 'cancelLoginLink'},
@@ -224,6 +232,8 @@ for (const [path, methods] of Object.entries(expected)) {
 for (const schema of [
   'HealthStatus', 'ReadinessStatus', 'SystemInfo', 'ProblemDetails',
   'RegisterRequest', 'LoginLinkStartRequest', 'LoginLinkStarted',
+  'LoginApplicationKind', 'LoginLinkApprovalProof', 'LoginLinkApprovalValidity',
+  'LoginLinkApprovalReview', 'LoginLinkDecisionRequest', 'LoginLinkDecisionReceived',
   'LoginLinkRequestProof', 'LoginLinkStatus', 'LoginLinkExchangeRequest',
   'SessionCredentials', 'DeviceSession', 'CurrentUserBootstrap',
   'PlatformAdministrator', 'RecipientHomeInvitation',
@@ -257,6 +267,8 @@ for (const [schema, credential] of [
   ['LoginLinkStartRequest', 'pollChallenge'],
   ['LoginLinkStartRequest', 'codeChallenge'],
   ['LoginLinkStartRequest', 'state'],
+  ['LoginLinkApprovalProof', 'approvalToken'],
+  ['LoginLinkDecisionRequest', 'approvalToken'],
   ['LoginLinkRequestProof', 'pollToken'],
   ['LoginLinkExchangeRequest', 'pollToken'],
   ['LoginLinkExchangeRequest', 'codeVerifier'],
@@ -297,19 +309,16 @@ let routeMatch;
 while ((routeMatch = routePattern.exec(routeSource)) !== null) {
   (runtimeRoutes[routeMatch[2]] ??= []).push(routeMatch[1]);
 }
-const undocumentedCompatibilityRoutes = new Set([
-  '/login-links/{requestId}',
-  '/login-links/{requestId}/capture',
-  '/login-links/{requestId}/review',
-  '/login-links/{requestId}/approve',
-  '/login-links/{requestId}/deny',
-]);
 for (const [runtimePath, methods] of Object.entries(runtimeRoutes)) {
-  if (runtimePath === '/' || undocumentedCompatibilityRoutes.has(runtimePath)) continue;
   for (const method of methods) {
     if (!contract.paths?.[runtimePath]?.[method]) {
       throw new Error(`OpenAPI is missing ${method.toUpperCase()} ${runtimePath}`);
     }
+  }
+}
+for (const forbiddenPath of ['/', '/login-links/{requestId}', '/login-links/{requestId}/review']) {
+  if (runtimeRoutes[forbiddenPath]) {
+    throw new Error(`Interactive backend route remains reachable: ${forbiddenPath}`);
   }
 }
 for (const [contractPath, pathItem] of Object.entries(contract.paths)) {
