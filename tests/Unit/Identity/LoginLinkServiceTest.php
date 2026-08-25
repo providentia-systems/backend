@@ -69,7 +69,7 @@ final class LoginLinkServiceTest extends TestCase
     public function testApplicationProofReturnsNoAccountIdentityOrCredential(): void
     {
         $row = $this->approvalRequest();
-        $requests = $this->createMock(LoginLinkStore::class);
+        $requests = $this->createStub(LoginLinkStore::class);
         $requests->method('find')->willReturn($row);
 
         $proof = $this->service($requests)->proof(
