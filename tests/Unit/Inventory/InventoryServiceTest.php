@@ -507,19 +507,102 @@ final class InventoryServiceTest extends TestCase
         );
     }
 
+    public function testStartingAndListingCountsReturnContractCompleteSessions(): void
+    {
+        $session = [
+            'id' => self::SESSION_ID,
+            'homeId' => self::HOME_ID,
+            'status' => 'open',
+            'revision' => '1',
+            'scopeComplete' => 0,
+            'lineCount' => '0',
+        ];
+        $store = $this->createMock(InventoryStore::class);
+        $store->expects(self::once())
+            ->method('createCountSession')
+            ->with(
+                self::SESSION_ID,
+                self::HOME_ID,
+                null,
+                'Shelf count',
+                false,
+                'unassessed',
+                self::USER_ID,
+                self::isInstanceOf(DateTimeImmutable::class),
+            );
+        $store->expects(self::once())
+            ->method('countSession')
+            ->with(self::HOME_ID, self::SESSION_ID)
+            ->willReturn($session);
+        $store->expects(self::once())
+            ->method('countSessions')
+            ->with(self::HOME_ID, 25, 0)
+            ->willReturn([$session]);
+        $service = $this->service($store);
+
+        $created = $service->startCount(
+            $this->identity(),
+            self::HOME_ID,
+            null,
+            'Shelf count',
+            false,
+            'unassessed',
+            self::SESSION_ID,
+        );
+
+        self::assertSame(self::HOME_ID, $created['homeId']);
+        self::assertSame('open', $created['status']);
+        self::assertSame(1, $created['revision']);
+        self::assertSame([], $created['lines']);
+        self::assertSame([
+            [
+                ...$session,
+                'revision' => 1,
+                'scopeComplete' => false,
+                'lineCount' => 0,
+            ],
+        ], $service->countSessions($this->identity(), self::HOME_ID, 25, 0));
+    }
+
     public function testClosingAnAlreadyClosedCountIsAnIdempotentReplay(): void
     {
+        $closedAt = '2026-08-11T10:00:00+00:00';
+        $line = [
+            'id' => self::LINE_ID,
+            'homeProductId' => self::PRODUCT_ID,
+            'quantity' => '4',
+            'confidence' => null,
+            'source' => 'manual',
+            'notes' => '',
+            'status' => 'confirmed',
+            'revision' => '1',
+        ];
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::once())
             ->method('countSession')
             ->with(self::HOME_ID, self::SESSION_ID)
-            ->willReturn(['id' => self::SESSION_ID, 'status' => 'closed', 'revision' => 6]);
-        $store->expects(self::never())->method('countLines');
+            ->willReturn([
+                'id' => self::SESSION_ID,
+                'status' => 'closed',
+                'revision' => 6,
+                'closedAt' => $closedAt,
+            ]);
+        $store->expects(self::once())
+            ->method('countLines')
+            ->with(self::HOME_ID, self::SESSION_ID)
+            ->willReturn([$line]);
         $store->expects(self::never())->method('appendMovement');
         $store->expects(self::never())->method('closeCountSession');
 
         self::assertSame(
-            ['sessionId' => self::SESSION_ID, 'movements' => 0],
+            [
+                'id' => self::SESSION_ID,
+                'status' => 'closed',
+                'revision' => 6,
+                'closedAt' => $closedAt,
+                'homeId' => self::HOME_ID,
+                'lines' => [[...$line, 'revision' => 1]],
+            ],
             $this->service($store)->closeCount($this->identity(), self::HOME_ID, self::SESSION_ID, 5),
         );
     }

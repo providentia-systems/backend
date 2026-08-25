@@ -504,7 +504,7 @@ final class InventoryService implements InventoryMovementGateway
         ));
     }
 
-    /** @return array{id: string, revision: int} */
+    /** @return array<string, mixed> */
     public function startCount(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -573,7 +573,12 @@ final class InventoryService implements InventoryMovementGateway
             throw new Problem(422, 'Invalid count session', $error->getMessage());
         }
 
-        return ['id' => $id, 'revision' => 1];
+        $session = $this->inventory->countSession($homeId, $id);
+        if ($session === null) {
+            throw new \LogicException('Created stock-count session is unavailable.');
+        }
+
+        return $this->stockCountSession($homeId, $session, []);
     }
 
     /** @return list<array<string, mixed>> */
@@ -585,7 +590,10 @@ final class InventoryService implements InventoryMovementGateway
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
 
-        return $this->inventory->countSessions($homeId, min(100, max(1, $limit)), max(0, $offset));
+        return array_map(
+            fn (array $session): array => $this->stockCountSession($homeId, $session),
+            $this->inventory->countSessions($homeId, min(100, max(1, $limit)), max(0, $offset)),
+        );
     }
 
     /** @return array<string, mixed> */
@@ -599,9 +607,11 @@ final class InventoryService implements InventoryMovementGateway
         if ($session === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
         }
-        $session['lines'] = $this->inventory->countLines($homeId, $sessionId);
-
-        return $session;
+        return $this->stockCountSession(
+            $homeId,
+            $session,
+            $this->inventory->countLines($homeId, $sessionId),
+        );
     }
 
     /** @return array<string, mixed> */
@@ -714,7 +724,7 @@ final class InventoryService implements InventoryMovementGateway
         });
     }
 
-    /** @return array{sessionId: string, movements: int} */
+    /** @return array<string, mixed> */
     public function closeCount(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -734,7 +744,11 @@ final class InventoryService implements InventoryMovementGateway
                 throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
             }
             if ((string) $session['status'] === 'closed') {
-                return ['sessionId' => $sessionId, 'movements' => 0];
+                return $this->stockCountSession(
+                    $homeId,
+                    $session,
+                    $this->inventory->countLines($homeId, $sessionId),
+                );
             }
             if ((string) $session['status'] !== 'open' || (int) $session['revision'] !== $expectedRevision) {
                 throw new Problem(409, 'Revision conflict', 'The count session changed on another device.');
@@ -743,7 +757,6 @@ final class InventoryService implements InventoryMovementGateway
             if ($lines === []) {
                 throw new Problem(422, 'Empty count', 'At least one confirmed count line is required.');
             }
-            $movementCount = 0;
             foreach ($lines as $line) {
                 $observed = $this->quantity((string) $line['quantity']);
                 $balance = $this->inventory->balance($homeId, (string) $line['homeProductId']);
@@ -763,7 +776,6 @@ final class InventoryService implements InventoryMovementGateway
                     'Closed physical count reconciliation',
                     $this->clock->now(),
                 );
-                $movementCount++;
             }
             if (
                 ! $this->inventory->closeCountSession(
@@ -791,8 +803,16 @@ final class InventoryService implements InventoryMovementGateway
                 ],
                 $this->clock->now(),
             );
+            $closedSession = $this->inventory->countSession($homeId, $sessionId);
+            if ($closedSession === null || (string) ($closedSession['status'] ?? '') !== 'closed') {
+                throw new \LogicException('Closed stock-count session is unavailable.');
+            }
 
-            return ['sessionId' => $sessionId, 'movements' => $movementCount];
+            return $this->stockCountSession(
+                $homeId,
+                $closedSession,
+                $this->inventory->countLines($homeId, $sessionId),
+            );
         });
     }
 
@@ -963,6 +983,36 @@ final class InventoryService implements InventoryMovementGateway
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $session
+     * @param list<array<string, mixed>>|null $lines
+     * @return array<string, mixed>
+     */
+    private function stockCountSession(string $homeId, array $session, ?array $lines = null): array
+    {
+        $session['homeId'] = $homeId;
+        $session['revision'] = (int) ($session['revision'] ?? 0);
+        if (array_key_exists('scopeComplete', $session)) {
+            $session['scopeComplete'] = (bool) $session['scopeComplete'];
+        }
+        if (array_key_exists('lineCount', $session)) {
+            $session['lineCount'] = (int) $session['lineCount'];
+        }
+        if ($lines !== null) {
+            $session['lines'] = array_map(static function (array $line): array {
+                $line['quantity'] = (string) ($line['quantity'] ?? '0');
+                $line['confidence'] = ($line['confidence'] ?? null) === null
+                    ? null
+                    : (string) $line['confidence'];
+                $line['revision'] = (int) ($line['revision'] ?? 0);
+
+                return $line;
+            }, $lines);
+        }
+
+        return $session;
     }
 
     private function quantity(string|int $value): DecimalQuantity

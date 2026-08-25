@@ -64,9 +64,9 @@ jobs:
       SYNC_CURSOR_SECRET: ci-synchronization-secret-at-least-32-bytes
       MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
       MAIL_FROM: no-reply@example.invalid
-      HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/auth
-      ADMIN_APP_LINK_BASE: https://admin.example.invalid/auth
-      AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,admin.example.invalid
+      HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/homeowner
+      ADMIN_APP_LINK_BASE: providentia-admin://login-link/admin
+      AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,login-link
       CORS_ALLOWED_ORIGINS: https://app.example.invalid
       MYSQL_PASSWORD: test
       MYSQL_ROOT_PASSWORD: test-root
@@ -170,9 +170,9 @@ jobs:
           SYNC_CURSOR_SECRET: ci-synchronization-secret-at-least-32-bytes
           MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
           MAIL_FROM: no-reply@example.invalid
-          HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/auth
-          ADMIN_APP_LINK_BASE: https://admin.example.invalid/auth
-          AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,admin.example.invalid
+          HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/homeowner
+          ADMIN_APP_LINK_BASE: providentia-admin://login-link/admin
+          AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,login-link
           CORS_ALLOWED_ORIGINS: https://app.example.invalid
           EXPOSE_DEVELOPMENT_TOKENS: "0"
         run: |
@@ -460,9 +460,9 @@ jobs:
           SYNC_CURSOR_SECRET: published-synchronization-secret-at-least-32-bytes
           MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
           MAIL_FROM: no-reply@example.invalid
-          HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/auth
-          ADMIN_APP_LINK_BASE: https://admin.example.invalid/auth
-          AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,admin.example.invalid
+          HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/homeowner
+          ADMIN_APP_LINK_BASE: providentia-admin://login-link/admin
+          AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,login-link
           CORS_ALLOWED_ORIGINS: https://app.example.invalid
           EXPOSE_DEVELOPMENT_TOKENS: "0"
           RUNTIME_IMAGE: ${{ steps.tags.outputs.runtime_repository }}@${{ steps.runtime.outputs.digest }}

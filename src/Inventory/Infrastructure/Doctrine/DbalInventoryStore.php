@@ -863,7 +863,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     public function countSessions(string $homeId, int $limit, int $offset): array
     {
         return $this->connection->fetchAllAssociative(
-            'SELECT s.id, s.location_id AS locationId, l.name AS locationName,
+            'SELECT s.id, s.home_id AS homeId, s.location_id AS locationId, l.name AS locationName,
                     s.status, s.notes, s.scope_complete AS scopeComplete,
                     s.reliability, s.revision, s.opened_at AS openedAt,
                     s.closed_at AS closedAt, COUNT(sl.id) AS lineCount
@@ -871,7 +871,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
              LEFT JOIN home_locations l ON l.id = s.location_id AND l.home_id = s.home_id
              LEFT JOIN stock_count_lines sl ON sl.session_id = s.id AND sl.home_id = s.home_id
              WHERE s.home_id = :home
-             GROUP BY s.id, s.location_id, l.name, s.status, s.notes,
+             GROUP BY s.id, s.home_id, s.location_id, l.name, s.status, s.notes,
                       s.scope_complete, s.reliability, s.revision,
                       s.opened_at, s.closed_at
              ORDER BY s.opened_at DESC, s.id DESC

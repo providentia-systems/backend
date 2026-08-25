@@ -26,6 +26,7 @@ final class InventoryCountCancellationTest extends TestCase
     private const SESSION_ID = '01912345-6789-7abc-bdef-0123456789ab';
     private const PRODUCT_ID = '01912345-6789-7abc-cdef-0123456789ab';
     private const LINE_ID = '01912345-6789-7abc-ddef-0123456789ab';
+    private const CREATED_SESSION_ID = '01912345-6789-7abc-edef-0123456789ab';
 
     private Connection $connection;
     private InventoryService $service;
@@ -242,6 +243,67 @@ final class InventoryCountCancellationTest extends TestCase
         self::assertSame(4, $this->rowCount('outbox_messages'));
     }
 
+    public function testCreateListAndCloseReturnPersistedContractCompleteSessions(): void
+    {
+        $created = $this->service->startCount(
+            $this->identity(),
+            self::HOME_ID,
+            null,
+            'Second shelf',
+            false,
+            'unassessed',
+            self::CREATED_SESSION_ID,
+        );
+
+        self::assertSame(self::CREATED_SESSION_ID, $created['id']);
+        self::assertSame(self::HOME_ID, $created['homeId']);
+        self::assertSame('open', $created['status']);
+        self::assertSame(1, $created['revision']);
+        self::assertSame([], $created['lines']);
+
+        $sessions = $this->service->countSessions($this->identity(), self::HOME_ID, 50, 0);
+        self::assertCount(2, $sessions);
+        foreach ($sessions as $session) {
+            self::assertSame(self::HOME_ID, $session['homeId']);
+            self::assertIsInt($session['revision']);
+            self::assertContains($session['status'], ['open', 'closed', 'cancelled']);
+        }
+
+        $this->connection->insert('stock_count_lines', [
+            'id' => self::LINE_ID,
+            'home_id' => self::HOME_ID,
+            'session_id' => self::SESSION_ID,
+            'home_product_id' => self::PRODUCT_ID,
+            'quantity' => '0',
+            'confidence' => null,
+            'source' => 'manual',
+            'notes' => 'Confirmed empty',
+            'status' => 'confirmed',
+            'revision' => 1,
+            'counted_by_user_id' => self::USER_ID,
+            'created_at' => '2026-08-11 09:00:00',
+            'updated_at' => '2026-08-11 09:00:00',
+        ]);
+
+        $closed = $this->service->closeCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            4,
+        );
+
+        self::assertSame(self::SESSION_ID, $closed['id']);
+        self::assertSame(self::HOME_ID, $closed['homeId']);
+        self::assertSame('closed', $closed['status']);
+        self::assertSame(5, $closed['revision']);
+        self::assertSame(self::USER_ID, $closed['closedByUserId']);
+        self::assertSame('2026-08-11 10:00:00', $closed['closedAt']);
+        self::assertCount(1, $closed['lines']);
+        self::assertSame(self::LINE_ID, $closed['lines'][0]['id']);
+        self::assertSame('0', $closed['lines'][0]['quantity']);
+        self::assertSame(0, $this->rowCount('stock_movements'));
+    }
+
     /** @return list<string> */
     private function schema(): array
     {
@@ -256,8 +318,12 @@ final class InventoryCountCancellationTest extends TestCase
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )',
             'CREATE TABLE home_products (
-                id TEXT PRIMARY KEY, home_id TEXT NOT NULL, status TEXT NOT NULL
+                id TEXT PRIMARY KEY, home_id TEXT NOT NULL, product_id TEXT NULL,
+                pack_id TEXT NULL, private_name TEXT NULL, original_pack_text TEXT NULL,
+                status TEXT NOT NULL
             )',
+            'CREATE TABLE products (id TEXT PRIMARY KEY, canonical_name TEXT NOT NULL)',
+            'CREATE TABLE product_packs (id TEXT PRIMARY KEY, original_pack_text TEXT NULL)',
             'CREATE TABLE stock_count_lines (
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, session_id TEXT NOT NULL,
                 home_product_id TEXT NOT NULL, quantity TEXT NOT NULL,
@@ -267,6 +333,11 @@ final class InventoryCountCancellationTest extends TestCase
                 updated_at TEXT NOT NULL
             )',
             'CREATE TABLE stock_movements (id TEXT PRIMARY KEY)',
+            'CREATE TABLE inventory_balances (
+                home_id TEXT NOT NULL, home_product_id TEXT NOT NULL,
+                quantity TEXT NOT NULL, last_movement_id TEXT NULL,
+                revision INTEGER NOT NULL, updated_at TEXT NOT NULL
+            )',
             'CREATE TABLE change_log (
                 sequence_id INTEGER PRIMARY KEY AUTOINCREMENT, home_id TEXT NOT NULL,
                 entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,

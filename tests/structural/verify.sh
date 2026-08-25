@@ -60,7 +60,11 @@ for file in composer.json compose.yaml contracts/openapi/providentia-v1.json \
   contracts/design-tokens/providentia-v1.json \
   tools/agent-requirements.json infrastructure/agent/Dockerfile \
   infrastructure/agent/Dockerfile.dockerignore \
-  docs/deployment/agent-development.md AGENTS.md; do
+  docs/deployment/agent-development.md AGENTS.md \
+  tests/Acceptance/compose.headless-platform-acceptance.yaml \
+  tests/Acceptance/headless-platform-acceptance.sh \
+  tests/fixtures/ai-provider-router.php \
+  .github/workflows/headless-platform-acceptance.yml; do
   test -s "$file" || fail "$file is missing or empty"
 done
 
@@ -79,6 +83,23 @@ assert_no_matches "removed browser base URL remains configured" \
   -n 'PUBLIC_BASE_URL|public_base_url|publicBaseUrl' \
   --glob '!docs/product/phases/phase-00-evidence/**' \
   --glob '!tests/structural/verify.sh' .
+grep -Fxq 'HOMEOWNER_APP_LINK_BASE=https://client.example.net/homeowner' .env.production.example \
+  || fail 'production example must target the homeowner application route'
+grep -Fxq 'ADMIN_APP_LINK_BASE=providentia-admin://login-link/admin' .env.production.example \
+  || fail 'production example must target the Linux Admin application route'
+[[ "$(grep -Fc 'HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/homeowner' \
+    .github/workflows/production-image.yml)" -eq 3 ]] \
+  || fail 'production image validation must use the homeowner application route in every lane'
+[[ "$(grep -Fc 'ADMIN_APP_LINK_BASE: providentia-admin://login-link/admin' \
+    .github/workflows/production-image.yml)" -eq 3 ]] \
+  || fail 'production image validation must use the Linux Admin application route in every lane'
+[[ "$(grep -Fc 'AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,login-link' \
+    .github/workflows/production-image.yml)" -eq 3 ]] \
+  || fail 'production image validation must allow exactly the configured application-link hosts'
+assert_no_matches "stale generic auth application-link path remains configured" \
+  -n '(HOMEOWNER|ADMIN)_APP_LINK_BASE[=:][^#[:space:]]*/auth([[:space:]]|$)' \
+  .env.production.example .github/workflows/production-image.yml \
+  tests/Acceptance/compose.headless-platform-acceptance.yaml
 for provisioning_script in \
   scripts/setup-prebuilt.sh \
   scripts/setup-development.sh \
@@ -122,7 +143,8 @@ for executable in bin/doctrine-migrations bin/providentia \
   tool/check-composer-licenses.php tests/structural/verify.sh \
   scripts/create-development-handover.sh scripts/setup-development.sh \
   scripts/provision-development-user.sh \
-  scripts/reset-development.sh tools/agent-setup.sh; do
+  scripts/reset-development.sh tools/agent-setup.sh \
+  tests/Acceptance/headless-platform-acceptance.sh; do
   test -x "$executable" || fail "$executable must be executable"
 done
 
@@ -133,7 +155,8 @@ for shell_script in infrastructure/compose/entrypoint.sh tool/generate-dart-clie
   scripts/reset-development.sh \
   tools/agent-setup.sh \
   tests/Acceptance/development-http-smoke.sh \
-  tests/Acceptance/development-auth-http-smoke.sh; do
+  tests/Acceptance/development-auth-http-smoke.sh \
+  tests/Acceptance/headless-platform-acceptance.sh; do
   bash -n "$shell_script" || fail "$shell_script has invalid shell syntax"
 done
 
@@ -248,6 +271,13 @@ const expected = {
   '/api/v1/homes/{homeId}/sync/push': {post: 'pushHomeSynchronization'},
   '/api/v1/homes/{homeId}/sync/pull': {get: 'pullHomeSynchronization'},
   '/api/v1/homes/{homeId}/sync/bootstrap': {get: 'bootstrapHomeSynchronization'},
+  '/api/v1/homes/{homeId}/stock-count-sessions': {
+    get: 'listStockCountSessions', post: 'startStockCountSession',
+  },
+  '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}': {get: 'getStockCountSession'},
+  '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/close': {
+    post: 'closeStockCountSession',
+  },
   '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/cancel': {
     post: 'cancelStockCountSession',
   },
@@ -272,7 +302,7 @@ for (const schema of [
   'SyncPrivateNotePayload', 'SyncHomePreferencePayload', 'SyncPushResponse',
   'SyncPullResponse', 'SyncBootstrapResponse', 'ConsumptionEstimate',
   'ShoppingSuggestion', 'SuggestionExplanation', 'PriceComparison',
-  'StockPreference', 'SuggestionBacktest', 'HomeReport',
+  'StockPreference', 'StockCountSession', 'StockCountLine', 'SuggestionBacktest', 'HomeReport',
 ]) {
   if (!contract.components?.schemas?.[schema]) {
     throw new Error(`Missing schema ${schema}`);
@@ -334,6 +364,25 @@ const registrationResponses = contract.paths?.['/api/v1/auth/register']?.post?.r
 if (!registrationResponses['202'] || registrationResponses['409']) {
   throw new Error('Registration must return one generic 202 shape without an account-conflict response');
 }
+const stockCountSessionRef = '#/components/schemas/StockCountSession';
+for (const [path, method] of [
+  ['/api/v1/homes/{homeId}/stock-count-sessions', 'post'],
+  ['/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}', 'get'],
+  ['/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/close', 'post'],
+]) {
+  const ref = contract.paths?.[path]?.[method]?.responses?.['200']
+    ?.content?.['application/json']?.schema?.$ref
+    ?? contract.paths?.[path]?.[method]?.responses?.['201']
+      ?.content?.['application/json']?.schema?.$ref;
+  if (ref !== stockCountSessionRef) {
+    throw new Error(`${method.toUpperCase()} ${path} must return StockCountSession`);
+  }
+}
+const stockCountListItem = contract.paths?.['/api/v1/homes/{homeId}/stock-count-sessions']?.get
+  ?.responses?.['200']?.content?.['application/json']?.schema?.properties?.data?.items?.$ref;
+if (stockCountListItem !== stockCountSessionRef) {
+  throw new Error('The stock-count session list must return StockCountSession items');
+}
 const runtimeRoutes = {};
 const routePattern = /\$app->(get|post|put|patch|delete)\(\s*'([^']+)'/g;
 let routeMatch;
@@ -393,6 +442,24 @@ grep -Fq "APP_ENV', 'development'" config/autoload/global.php \
   || fail "application environment must default to a non-production profile"
 grep -Fq 'AUTH_PASSWORD_LOGIN_ENABLED: ${AUTH_PASSWORD_LOGIN_ENABLED:-0}' compose.production.yaml \
   || fail "production password login must remain disabled by default"
+grep -Fq -- '--project-directory "$repo_root"' tests/Acceptance/headless-platform-acceptance.sh \
+  || fail 'headless acceptance must resolve every Compose path from the repository root'
+grep -Fq 'bash tests/Acceptance/headless-platform-acceptance.sh' \
+  .github/workflows/headless-platform-acceptance.yml \
+  || fail 'the deployed headless acceptance workflow must run its canonical harness'
+for acceptance_route in \
+  '/api/v1/homes/${home_id}/billing' \
+  '/api/v1/operator/billing/plans' \
+  '/api/v1/catalog-contributions/${contribution_id}/proposal' \
+  '/api/v1/catalog-admin/proposals/${product_proposal_id}/decision' \
+  '/api/v1/catalog/products/${published_product_id}'; do
+  grep -Fq "$acceptance_route" tests/Acceptance/headless-platform-acceptance.sh \
+    || fail "headless acceptance is missing the business path: $acceptance_route"
+done
+grep -Fq "'billing.enforced' => false" src/Billing/Application/BillingService.php \
+  || fail 'free-phase household billing must remain explicitly non-enforcing'
+grep -Fq 'tool/materialize-openapi-contract.sh' tests/Acceptance/headless-platform-acceptance.sh \
+  || fail 'headless acceptance must materialize and verify the pinned API contract'
 dockerfile_copy_line="$(grep -n '^COPY \. \.$' Dockerfile | cut -d: -f1)"
 dockerfile_autoload_line="$(grep -nF 'composer dump-autoload --no-dev --classmap-authoritative --no-interaction' Dockerfile | cut -d: -f1)"
 [[ -n "$dockerfile_copy_line" && -n "$dockerfile_autoload_line" \
