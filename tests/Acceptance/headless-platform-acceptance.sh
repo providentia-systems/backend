@@ -1138,7 +1138,7 @@ assert_json 'Product-image consent was not independently revisioned.' '
 '
 
 catalog_image_file="${evidence_dir}/catalog-source.png"
-printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' \
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgAQAAAABbAUdZAAAADElEQVQI12NgGNwAAACgAAFhJX1HAAAAAElFTkSuQmCC' \
     | openssl base64 -d -A >"$catalog_image_file"
 catalog_source_digest="$(sha256sum "$catalog_image_file" | awk '{print $1}')"
 image_contribution_id="$(uuid)"
@@ -1374,7 +1374,7 @@ grep -Eiq "^etag:[[:space:]]*\"sha256-${image_asset_digest}\"[[:space:]]*$" "$re
 # is withdrawn. It cannot be previewed, published, or resolved as a public
 # content-addressed asset after that revision transition.
 withdrawn_image_file="${evidence_dir}/catalog-withdrawn-source.png"
-printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVQI12NoAAAAggCB3UNq9AAAAABJRU5ErkJggg==' \
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgAQAAAABbAUdZAAAAD0lEQVQI12P4DwQMg5cAANrpf4GXVFCUAAAAAElFTkSuQmCC' \
     | openssl base64 -d -A >"$withdrawn_image_file"
 withdrawn_source_digest="$(sha256sum "$withdrawn_image_file" | awk '{print $1}')"
 withdrawn_image_id="$(uuid)"
