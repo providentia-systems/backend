@@ -460,6 +460,8 @@ grep -Fq "'billing.enforced' => false" src/Billing/Application/BillingService.ph
   || fail 'free-phase household billing must remain explicitly non-enforcing'
 grep -Fq 'tool/materialize-openapi-contract.sh' tests/Acceptance/headless-platform-acceptance.sh \
   || fail 'headless acceptance must materialize and verify the pinned API contract'
+grep -Fq '$$socket = @fsockopen' tests/Acceptance/compose.headless-platform-acceptance.yaml \
+  || fail 'the fixture readiness probe must escape its PHP variable from Compose interpolation'
 dockerfile_copy_line="$(grep -n '^COPY \. \.$' Dockerfile | cut -d: -f1)"
 dockerfile_autoload_line="$(grep -nF 'composer dump-autoload --no-dev --classmap-authoritative --no-interaction' Dockerfile | cut -d: -f1)"
 [[ -n "$dockerfile_copy_line" && -n "$dockerfile_autoload_line" \
