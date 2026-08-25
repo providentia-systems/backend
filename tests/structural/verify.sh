@@ -452,6 +452,9 @@ for acceptance_route in \
   '/api/v1/operator/billing/plans' \
   '/api/v1/catalog-contributions/${contribution_id}/proposal' \
   '/api/v1/catalog-admin/proposals/${product_proposal_id}/decision' \
+  '/api/v1/homes/${home_id}/catalog-contributions/images' \
+  '/api/v1/catalog-contributions/${image_contribution_id}/image-publication' \
+  '/api/v1/catalog/assets/${image_asset_digest}' \
   '/api/v1/catalog/products/${published_product_id}'; do
   grep -Fq "$acceptance_route" tests/Acceptance/headless-platform-acceptance.sh \
     || fail "headless acceptance is missing the business path: $acceptance_route"
@@ -467,6 +470,9 @@ grep -Fq 'dockerfile: Dockerfile.ai-provider' tests/Acceptance/compose.headless-
 grep -Fxq '      AI_COMPATIBLE_ENDPOINT: http://ai-fixture:8090' \
   tests/Acceptance/compose.headless-platform-acceptance.yaml \
   || fail 'AI_COMPATIBLE_ENDPOINT must remain a base URL because runtime appends its provider path'
+grep -Fxq '      CATALOG_IMAGE_KEK: Y2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2M=' \
+  tests/Acceptance/compose.headless-platform-acceptance.yaml \
+  || fail 'headless product-image acceptance must use its isolated deterministic encryption key'
 grep -Fq 'HEALTHCHECK --interval=2s --timeout=2s --start-period=5s --retries=30' \
   tests/fixtures/Dockerfile.ai-provider \
   || fail 'the dedicated AI fixture image must define a container healthcheck'
