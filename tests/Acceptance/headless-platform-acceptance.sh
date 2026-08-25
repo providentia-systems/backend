@@ -163,6 +163,79 @@ wait_for_api() {
     fail 'The source-Compose API did not become ready.'
 }
 
+preflight_ai_fixture() {
+    local payload
+    payload="$(jq -cn '
+        {
+            model:"acceptance-vision",
+            stream:false,
+            response_format:{
+                type:"json_schema",
+                json_schema:{
+                    name:"providentia_stock_extraction_v2",
+                    strict:true,
+                    schema:{
+                        properties:{
+                            candidates:{items:{required:["quantityMinimum","quantityMaximum"]}}
+                        }
+                    }
+                }
+            },
+            messages:[{
+                role:"user",
+                content:[
+                    {type:"text",text:"mandatory human review"},
+                    {
+                        type:"image_url",
+                        image_url:{url:"data:image/png;base64,iVBORw0KGgo="}
+                    }
+                ]
+            }]
+        }
+    ')"
+    if ! printf '%s' "$payload" | "${compose[@]}" exec --no-TTY api-sqlite php -r '
+        $payload = stream_get_contents(STDIN);
+        $context = stream_context_create(["http" => [
+            "method" => "POST",
+            "header" => "Content-Type: application/json\r\n"
+                . "Accept: application/json\r\n"
+                . "Authorization: Bearer acceptance-ai-token-replacement-2222\r\n"
+                . "Connection: close",
+            "content" => $payload,
+            "timeout" => 10,
+            "ignore_errors" => true,
+        ]]);
+        $outer = @file_get_contents(
+            "http://ai-fixture:8090/v1/chat/completions",
+            false,
+            $context,
+        );
+        if (! is_string($outer) || $outer === "") {
+            exit(20);
+        }
+        try {
+            $response = json_decode($outer, true, 128, JSON_THROW_ON_ERROR);
+            $content = $response["choices"][0]["message"]["content"] ?? null;
+            if (! is_string($content)) {
+                exit(21);
+            }
+            $extraction = json_decode($content, true, 128, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            exit(22);
+        }
+        exit(
+            is_array($extraction)
+            && ($extraction["documentType"] ?? null) === "stock"
+            && ($extraction["candidates"][0]["quantityMinimum"] ?? null) === "6"
+            && ($extraction["candidates"][0]["quantityMaximum"] ?? null) === "8"
+                ? 0
+                : 23
+        );
+    '; then
+        fail 'The API network could not decode the deterministic provider outer and nested JSON response.'
+    fi
+}
+
 wait_for_login_message() {
     local email="$1"
     local request_id="$2"
@@ -353,6 +426,7 @@ docker compose version >/dev/null
 "${compose[@]}" up --detach --build --wait --wait-timeout 240 \
     api-sqlite notification-sqlite mailpit ai-fixture
 wait_for_api
+preflight_ai_fixture
 
 # The backend is JSON-only. Metrics are unavailable unless separately enabled
 # with their dedicated credential, and CORS admits only the homeowner origin.

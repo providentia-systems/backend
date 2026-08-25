@@ -13,10 +13,13 @@ declare(strict_types=1);
 /** @param array<string, mixed> $body */
 function respond(int $status, array $body): never
 {
+    $encoded = json_encode($body, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
-    echo json_encode($body, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+    header('Content-Length: ' . strlen($encoded));
+    header('Connection: close');
+    echo $encoded;
     exit;
 }
 
@@ -145,11 +148,16 @@ $extraction = [
     ]],
 ];
 
+$extractionJson = json_encode($extraction, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+// Fail inside the fixture instead of sending content that cannot be parsed by
+// the same strict JSON boundary exercised by the production adapter.
+json_decode($extractionJson, true, 128, JSON_THROW_ON_ERROR);
+
 respond(200, [
     'choices' => [[
         'finish_reason' => 'stop',
         'message' => [
-            'content' => json_encode($extraction, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            'content' => $extractionJson,
         ],
     ]],
     'usage' => [

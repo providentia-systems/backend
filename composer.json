@@ -57,7 +57,7 @@
       "infection/extension-installer": false
     },
     "platform": {
-      "php": "8.5.8"
+      "php": "8.5.9"
     },
     "preferred-install": {
       "*": "dist"
