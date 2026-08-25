@@ -121,7 +121,11 @@ if ($method === 'GET' && $path === '/self-test') {
     respond(200, deterministicProviderResponse());
 }
 if ($method !== 'POST' || $path !== '/v1/chat/completions') {
-    respond(404, ['error' => ['type' => 'not_found', 'message' => 'Fixture route not found.']]);
+    reject(
+        $method !== 'POST' ? 'route_method_mismatch' : 'route_path_mismatch',
+        'Fixture route not found.',
+        404,
+    );
 }
 
 $authorization = (string) ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
@@ -185,4 +189,5 @@ if (! $hasPrompt || ! $hasPng) {
     reject('missing_disclosure_or_png', 'The request must contain the review disclosure and one inline PNG.');
 }
 
+error_log('AI_FIXTURE_REQUEST result=accepted');
 respond(200, deterministicProviderResponse());
