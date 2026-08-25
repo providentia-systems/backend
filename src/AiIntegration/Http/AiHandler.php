@@ -248,11 +248,11 @@ final readonly class AiHandler implements RequestHandlerInterface
                     throw new HttpProblem(422, 'Invalid extraction', 'Every uploaded observation must succeed.');
                 }
                 $this->validateUpload($observation, 'Every uploaded observation must succeed.');
-                $position = count($additional);
-                $additional[$position] = [
+                $additional[] = [
                     'mimeType' => (string) ($observation->getClientMediaType() ?? ''),
                     'bytes' => $this->readUpload($observation),
                 ];
+                $position = count($additional) - 1;
                 $sensitive->track($additional[$position]['bytes']);
             }
 
