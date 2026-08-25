@@ -57,7 +57,7 @@ final readonly class OpenAiCompatibleProvider implements AiProvider
                 'response_format' => [
                     'type' => 'json_schema',
                     'json_schema' => [
-                        'name' => 'providentia_' . $request->kind . '_extraction_v1',
+                        'name' => 'providentia_' . $request->kind . '_extraction_v' . ExtractionSchema::VERSION,
                         'strict' => true,
                         'schema' => $this->schema->jsonSchema(),
                     ],

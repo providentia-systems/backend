@@ -1095,6 +1095,8 @@ final class AiService
         return hash('sha256', implode('|', [
             mb_strtolower(trim((string) ($candidate['description'] ?? ''))),
             trim((string) ($candidate['quantity'] ?? '')),
+            trim((string) ($candidate['quantityMinimum'] ?? '')),
+            trim((string) ($candidate['quantityMaximum'] ?? '')),
             mb_strtolower(trim((string) ($candidate['packText'] ?? ''))),
         ]));
     }

@@ -57,7 +57,7 @@ final readonly class OpenAiResponsesProvider implements AiProvider
                 'text' => [
                     'format' => [
                         'type' => 'json_schema',
-                        'name' => 'providentia_' . $request->kind . '_extraction_v1',
+                        'name' => 'providentia_' . $request->kind . '_extraction_v' . ExtractionSchema::VERSION,
                         'strict' => true,
                         'schema' => $this->schema->jsonSchema(),
                     ],

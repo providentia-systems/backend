@@ -13,11 +13,24 @@ interface AccountNotificationSender
         LoginApplicationKind $application,
     ): void;
 
-    public function sendStepUpLink(string $email, string $token, string $action): void;
+    public function sendStepUpLink(
+        string $email,
+        string $token,
+        string $action,
+        LoginApplicationKind $application,
+    ): void;
 
-    public function sendEmailVerification(string $email, string $token): void;
+    public function sendEmailVerification(
+        string $email,
+        string $token,
+        LoginApplicationKind $application,
+    ): void;
 
-    public function sendPasswordReset(string $email, string $token): void;
+    public function sendPasswordReset(
+        string $email,
+        string $token,
+        LoginApplicationKind $application,
+    ): void;
 
     public function sendPlatformAdministratorInvitation(string $email): void;
 

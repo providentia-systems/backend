@@ -6,13 +6,17 @@ namespace Providentia\AiIntegration\Application;
 
 final class ExtractionSchema
 {
-    public const VERSION = 1;
+    public const VERSION = 2;
 
     /** @return array<string, mixed> */
     public function jsonSchema(): array
     {
         $nullableString = ['anyOf' => [['type' => 'string'], ['type' => 'null']]];
         $nullableNumber = ['anyOf' => [['type' => 'number'], ['type' => 'null']]];
+        $nullableDecimal = ['anyOf' => [[
+            'type' => 'string',
+            'pattern' => '^(?:0|[1-9][0-9]{0,11})(?:\\.[0-9]{1,8})?$',
+        ], ['type' => 'null']]];
         $warnings = [
             'type' => 'array',
             'items' => ['type' => 'string'],
@@ -84,6 +88,8 @@ final class ExtractionSchema
                             'product',
                             'variant',
                             'quantity',
+                            'quantityMinimum',
+                            'quantityMaximum',
                             'packText',
                             'unitPrice',
                             'lineTotal',
@@ -105,7 +111,9 @@ final class ExtractionSchema
                             'brand' => $nullableString,
                             'product' => $nullableString,
                             'variant' => $nullableString,
-                            'quantity' => ['type' => 'string'],
+                            'quantity' => $nullableDecimal,
+                            'quantityMinimum' => $nullableDecimal,
+                            'quantityMaximum' => $nullableDecimal,
                             'packText' => $nullableString,
                             'unitPrice' => $nullableString,
                             'lineTotal' => $nullableString,
@@ -197,6 +205,8 @@ final class ExtractionSchema
                 'product',
                 'variant',
                 'quantity',
+                'quantityMinimum',
+                'quantityMaximum',
                 'packText',
                 'unitPrice',
                 'lineTotal',
@@ -220,7 +230,30 @@ final class ExtractionSchema
             foreach (['brand', 'product', 'variant', 'packText'] as $field) {
                 $this->nullableString($candidate[$field], 191);
             }
-            $this->decimal($candidate['quantity'], 8, false);
+            if ($candidateType === 'receipt_line') {
+                $this->decimal($candidate['quantity'], 8, false);
+                if ($candidate['quantityMinimum'] !== null || $candidate['quantityMaximum'] !== null) {
+                    throw new AiProviderException(
+                        'schema_mismatch',
+                        'A receipt candidate must not contain a stock quantity range.',
+                    );
+                }
+            } else {
+                if ($candidate['quantity'] !== null) {
+                    throw new AiProviderException(
+                        'schema_mismatch',
+                        'A stock candidate must preserve its count as a quantity range.',
+                    );
+                }
+                $quantityMinimum = $this->decimal($candidate['quantityMinimum'], 8, true);
+                $quantityMaximum = $this->decimal($candidate['quantityMaximum'], 8, true);
+                if ($this->compareDecimals($quantityMinimum, $quantityMaximum) > 0) {
+                    throw new AiProviderException(
+                        'schema_mismatch',
+                        'A stock candidate quantity range is inverted.',
+                    );
+                }
+            }
             $this->nullableDecimal($candidate['unitPrice'], 2);
             $this->nullableDecimal($candidate['lineTotal'], 2);
             $this->nullableDecimal($candidate['discountAmount'], 2);
@@ -320,7 +353,7 @@ final class ExtractionSchema
         }
     }
 
-    private function decimal(mixed $value, int $scale, bool $allowZero): void
+    private function decimal(mixed $value, int $scale, bool $allowZero): string
     {
         if (
             ! is_string($value)
@@ -329,5 +362,24 @@ final class ExtractionSchema
         ) {
             throw new AiProviderException('schema_mismatch', 'The provider returned an invalid decimal.');
         }
+
+        return $value;
+    }
+
+    private function compareDecimals(string $left, string $right): int
+    {
+        [$leftInteger, $leftFraction] = array_pad(explode('.', $left, 2), 2, '');
+        [$rightInteger, $rightFraction] = array_pad(explode('.', $right, 2), 2, '');
+        $leftInteger = ltrim($leftInteger, '0') ?: '0';
+        $rightInteger = ltrim($rightInteger, '0') ?: '0';
+        if (strlen($leftInteger) !== strlen($rightInteger)) {
+            return strlen($leftInteger) <=> strlen($rightInteger);
+        }
+        $integerComparison = strcmp($leftInteger, $rightInteger);
+        if ($integerComparison !== 0) {
+            return $integerComparison;
+        }
+
+        return strcmp(str_pad($leftFraction, 8, '0'), str_pad($rightFraction, 8, '0'));
     }
 }

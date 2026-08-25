@@ -2,14 +2,14 @@
 
 ## Outcome
 
-The repository is a modular Mezzio application with a server-rendered anonymous
-site, operational API, portable persistence proof, transactional outbox,
+The repository is a modular headless Mezzio application with an operational
+API, portable persistence proof, transactional outbox,
 Redis-protocol queue adapter, long-running CLI workers, Prometheus metrics,
 versioned contracts, and repeatable infrastructure profiles.
 
 ## Implemented scope
 
-- All twelve bounded modules have ConfigProviders and explicit layer
+- The bounded modules have ConfigProviders and explicit layer
   boundaries.
 - SharedKernel contains the operational foundation. This document records the
   Phase 1 release boundary; later Phase 2/4 work is documented separately.
@@ -17,7 +17,8 @@ versioned contracts, and repeatable infrastructure profiles.
   no Doctrine attribute or base class.
 - One migration uses Doctrine Schema APIs and is tested on SQLite, MySQL, and
   MariaDB.
-- The public site consumes the versioned Fresh Market foundation values.
+- The historical Phase 1 public-site proof was removed at API 1.16; no UI route
+  or rendering dependency remains in the backend.
 - At the Phase 1 boundary, the authoritative OpenAPI contract contained four
   operations. The current contract is additive and now includes Phase 2/4.
 - Enqueue is behind `AsyncMessageBus`; domain and application code do not import

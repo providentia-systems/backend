@@ -11,12 +11,11 @@ use RuntimeException;
 
 final class SmtpAccountNotificationSender implements AccountNotificationSender, NotificationTransport
 {
-    /** @param array{homeowner: string, admin: string} $loginApplicationLinks */
+    /** @param array{homeowner: string, admin: string} $applicationLinks */
     public function __construct(
         private readonly string $dsn,
         private readonly string $from,
-        private readonly string $publicBaseUrl,
-        private readonly array $loginApplicationLinks,
+        private readonly array $applicationLinks,
     ) {
     }
 
@@ -33,19 +32,39 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
         ]);
     }
 
-    public function sendStepUpLink(string $email, string $token, string $action): void
-    {
-        $this->deliver('step-up-link', $email, ['token' => $token, 'action' => $action]);
+    public function sendStepUpLink(
+        string $email,
+        string $token,
+        string $action,
+        LoginApplicationKind $application,
+    ): void {
+        $this->deliver('step-up-link', $email, [
+            'token' => $token,
+            'action' => $action,
+            'applicationKind' => $application->value,
+        ]);
     }
 
-    public function sendEmailVerification(string $email, string $token): void
-    {
-        $this->deliver('email-verification', $email, ['token' => $token]);
+    public function sendEmailVerification(
+        string $email,
+        string $token,
+        LoginApplicationKind $application,
+    ): void {
+        $this->deliver('email-verification', $email, [
+            'token' => $token,
+            'applicationKind' => $application->value,
+        ]);
     }
 
-    public function sendPasswordReset(string $email, string $token): void
-    {
-        $this->deliver('password-reset', $email, ['token' => $token]);
+    public function sendPasswordReset(
+        string $email,
+        string $token,
+        LoginApplicationKind $application,
+    ): void {
+        $this->deliver('password-reset', $email, [
+            'token' => $token,
+            'applicationKind' => $application->value,
+        ]);
     }
 
     public function sendPlatformAdministratorInvitation(string $email): void
@@ -70,52 +89,59 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
         $loginApplication = LoginApplicationKind::tryFrom(
             (string) ($context['applicationKind'] ?? ''),
         );
-        if ($template === 'login-link' && $loginApplication === null) {
-            throw new RuntimeException('Login notification has no valid application kind.');
+        if (
+            in_array($template, ['login-link', 'email-verification', 'step-up-link', 'password-reset'], true)
+            && $loginApplication === null
+        ) {
+            throw new RuntimeException('Application-link notification has no valid application kind.');
         }
-        $loginApplicationLink = $loginApplication === null
+        $applicationLink = $loginApplication === null
             ? ''
-            : $this->loginApplicationLinks[$loginApplication->value];
+            : $this->applicationLinks[$loginApplication->value];
+        $applicationName = $loginApplication === null ? '' : $loginApplication->value;
         [$subject, $body] = match ($template) {
             'login-link' => [
                 'Approve your Providentia login',
                 sprintf(
                     "Review this login request in the %s application:\n%s#requestId=%s&approval=%s\n\n"
                     . 'The credential is single-use and does not sign a browser or the backend in.',
-                    $loginApplication->value,
-                    $loginApplicationLink,
+                    $applicationName,
+                    $applicationLink,
                     rawurlencode((string) ($context['requestId'] ?? '')),
                     rawurlencode((string) ($context['approvalToken'] ?? '')),
                 ),
             ],
             'email-verification' => [
                 'Verify your Providentia account',
-                "Verify your account:\n" . $this->publicBaseUrl . '/verify-email?token=' . $token,
+                "Verify your account in Providentia:\n"
+                    . $applicationLink . '#action=verify-email&token=' . $token,
             ],
             'step-up-link' => [
                 'Confirm a sensitive Providentia action',
                 sprintf(
-                    "Confirm %s:\n%s/step-up?token=%s&action=%s",
+                    "Confirm %s in Providentia:\n%s#action=step-up&token=%s&operation=%s",
                     (string) ($context['action'] ?? 'sensitive action'),
-                    $this->publicBaseUrl,
+                    $applicationLink,
                     $token,
                     rawurlencode((string) ($context['action'] ?? '')),
                 ),
             ],
             'password-reset' => [
                 'Reset your Providentia password',
-                "Reset your password:\n" . $this->publicBaseUrl . '/password-reset?token=' . $token,
+                "Reset your password in Providentia:\n"
+                    . $applicationLink . '#action=password-reset&token=' . $token,
             ],
             'platform-administrator-invitation' => [
                 'You were invited to administer Providentia',
-                'Open Providentia and request a login link using this exact email address. '
+                'Open Providentia Admin and request a login link using this exact email address. '
                 . 'Your platform-administrator access will activate after verification.',
             ],
             'home-invitation' => [
                 'You were invited to a Providentia home',
                 sprintf(
                     "You were invited to %s as %s.\n"
-                    . 'Open Providentia and request a login link using this exact email address. '
+                    . 'Open the Providentia homeowner application and request a login link '
+                    . 'using this exact email address. '
                     . 'The pending home invitation will appear after you sign in.',
                     (string) ($context['homeName'] ?? 'a Providentia home'),
                     (string) ($context['role'] ?? 'member'),

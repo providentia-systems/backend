@@ -8,7 +8,11 @@
 
 ## 1. Scope and security objectives
 
-This model covers the planned Flutter clients, public Mezzio site, authenticated API, browser authentication hand-off, modular backend, database, Redis/Valkey queue, workers, optional object storage, AI provider adapters, deployment secrets, backup/restore, catalog administration, support access, imports, and synchronization.
+This model covers the separate homeowner and administrator Flutter clients,
+headless authenticated API, application-link authentication hand-off, modular
+backend, database, Redis/Valkey queue, workers, optional object storage, AI
+provider adapters, deployment secrets, backup/restore, catalog administration,
+support access, imports, and synchronization.
 
 Primary objectives:
 
@@ -43,7 +47,7 @@ This is a design-time model. Residual risk remains until Phase 1+ controls are i
 
 | Actor | Legitimate access | Adversarial or failure mode |
 |---|---|---|
-| Anonymous visitor | Public site and authentication entry | Enumeration, injection, denial of service |
+| Anonymous API caller | Health and bounded authentication operations | Enumeration, injection, denial of service |
 | Home Owner/Manager/Member/Viewer | Role-scoped home actions | Attempts cross-home/vertical privilege escalation |
 | Invited user | Accept one valid invitation | Token theft, replay, wrong-account acceptance |
 | Platform administrator | Platform/account operation | Assumes private data access not granted by role |
@@ -61,8 +65,7 @@ This is a design-time model. Residual risk remains until Phase 1+ controls are i
 ```mermaid
 flowchart TD
     C["Flutter clients"] -->|HTTPS + typed API| A["Mezzio API"]
-    W["Public browser"] -->|HTTPS| P["PublicSite / auth hand-off"]
-    P --> A
+    M["Mail provider"] -->|URI fragment| C
     A --> D["MySQL / MariaDB"]
     A --> O["Transactional outbox"]
     O --> Q["Redis / Valkey"]
@@ -76,7 +79,8 @@ flowchart TD
 Trust boundaries:
 
 1. **Client/device boundary:** Flutter databases, local media, and OS credential stores are outside server control and may be compromised.
-2. **Public/authenticated web boundary:** Public pages and authenticated app/API hosts have different caching, cookie, CSP, and CORS requirements.
+2. **Application/API boundary:** Application links are principal-bound; API
+   CORS, cookie, and bearer policies do not create a browser login surface.
 3. **API authorization boundary:** Every request, object, and command is untrusted until identity, membership, active home, role, and object scope are verified.
 4. **Module boundary:** Cross-module calls use published contracts; Infrastructure and tables are not shared informally.
 5. **Database boundary:** Application DB credentials do not leave backend infrastructure; remote connections require TLS/private networking.
@@ -245,7 +249,7 @@ Risk labels are qualitative Phase 0 priorities: **Critical**, **High**, **Medium
 ### TM-16: Unsafe product-icon uploads and stored content attacks
 
 - **Scenario:** An uploaded SVG contains scripts/external references, an image is a polyglot/bomb, or filename/content headers cause stored XSS or content sniffing.
-- **Assets:** Curator workbench, public site visitors, object storage.
+- **Assets:** Curator workbench, catalog consumers, object storage.
 - **Initial risk:** High.
 - **Controls:** Curator authorization; rasterize or sanitize supported formats; reject active SVG content unless a proven sanitizer policy exists; random server object names; fixed content type/disposition; separate asset origin; CSP and `nosniff`; dimension/size limits; moderation and audit.
 - **Verification:** Scripted SVG, external entity/reference, polyglot, filename injection, wrong MIME, decompression bomb, public-cache, and object ACL tests.

@@ -5,8 +5,8 @@ set -Eeuo pipefail
 readonly root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly archive="$root/contracts/source/providentia-v1.json.gz"
 readonly output="$root/contracts/openapi/providentia-v1.json"
-readonly archive_sha256='3943fd9c186b32ece7a14930a497d5dcca7dd826bab1262db072508135568815'
-readonly output_sha256='f01c320e1900f523661bbba24225583f1d61bc00f3949cb0e7b5b2f6fd5a524e'
+readonly archive_sha256='69134350890a8cfc0884df0959d28ac099cef051a06ec6f779a738bcc3d567c4'
+readonly output_sha256='aa207f0d9adbf2df36e1fd9c420d340da2bb2948a638c95f0610d40c1a0124fc'
 
 sha256_file() {
   sha256sum "$1" | cut -d' ' -f1
@@ -33,13 +33,22 @@ fi
 node -e '
   const fs = require("node:fs");
   const contract = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  if (contract.info?.version !== "1.16.0"
+  const operations = Object.values(contract.paths ?? {}).reduce(
+    (count, path) => count + ["get", "post", "put", "patch", "delete"]
+      .filter((method) => path?.[method]).length,
+    0,
+  );
+  if (contract.info?.version !== "1.17.0"
+      || Object.keys(contract.paths ?? {}).length !== 154
+      || operations !== 177
+      || Object.keys(contract.components?.schemas ?? {}).length !== 235
       || contract.paths?.["/api/v1/auth/login-links/{requestId}/decision"]?.post?.operationId
-          !== "decideLoginLinkApproval") {
-    throw new Error("The materialized OpenAPI document is not Providentia API 1.16.0.");
+          !== "decideLoginLinkApproval"
+      || contract.components?.schemas?.AiExtraction?.properties?.schemaVersion?.enum?.[0] !== 2) {
+    throw new Error("The materialized OpenAPI document is not complete Providentia API 1.17.0.");
   }
 ' "$temporary"
 
 mv "$temporary" "$output"
 trap - EXIT
-echo 'Materialized Providentia API 1.16.0 contract.'
+echo 'Materialized Providentia API 1.17.0 contract.'

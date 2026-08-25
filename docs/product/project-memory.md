@@ -31,10 +31,11 @@ data, workflow, privacy, or architectural evidence.
 
 - Email-only, single-use **login links** are the primary authentication
   workflow. The originating client owns the private poll token and PKCE
-  verifier; an emailed link may be reviewed and deliberately approved in a
-  browser on another device; the originating client then polls and exchanges
-  the approval for its own session. Opening a link is never itself approval,
-  and the browser never receives the client session.
+  verifier; an emailed fragment link is reviewed and deliberately approved in
+  the matching homeowner or administrator Flutter application, possibly on
+  another device; the originating client then polls and exchanges the approval
+  for its own session. Opening a link is never itself approval, and the
+  approving application never receives the originating client session.
 - Starting a login-link request does not create an account. Deliberate approval
   creates and verifies the account idempotently and creates one editable
   `My home` with that person as `owner`; the originating client's successful
@@ -149,9 +150,12 @@ by the 24 August three-repository contract below.
 
 ## Three-repository stabilization contract — 24 August 2026
 
-- Backend API `1.15.0` is the sole runtime and contract authority. The backend
-  exposes HTTPS API, login-link browser approval pages and narrow audited CLI
-  owner commands; it exposes no authenticated homeowner or operator GUI.
+- Backend API `1.17.0` is the sole runtime and contract authority. The backend
+  is headless: it exposes versioned JSON API, health checks, explicitly secured
+  metrics, and narrow audited CLI owner commands. It exposes no public site,
+  browser login, homeowner GUI, or operator GUI. All emailed login,
+  verification, reset, and step-up capabilities target the explicitly bound
+  homeowner or administrator application in URI fragments.
 - `providentia-systems/client` is the homeowner Flutter application across its
   supported mobile/desktop targets. `providentia-systems/admin` is a separate
   Flutter security principal, initially packaged only for Linux desktop. It

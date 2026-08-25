@@ -12,24 +12,11 @@ $environment = mb_strtolower($env('APP_ENV', 'development'));
 $tokenPepper = $env('AUTH_TOKEN_PEPPER', 'development-only-change-me');
 $cursorSecret = $env('SYNC_CURSOR_SECRET', 'development-sync-secret-change-me');
 $mailDsn = $env('MAIL_DSN', 'smtp://127.0.0.1:1025');
-$publicBaseUrl = rtrim($env('PUBLIC_BASE_URL', 'http://127.0.0.1:8080'), '/');
-$publicBaseParts = parse_url($publicBaseUrl);
-if (
-    $publicBaseParts === false
-    || ! isset($publicBaseParts['scheme'], $publicBaseParts['host'])
-    || ! in_array(mb_strtolower((string) $publicBaseParts['scheme']), ['http', 'https'], true)
-    || isset($publicBaseParts['user'])
-    || isset($publicBaseParts['pass'])
-    || isset($publicBaseParts['query'])
-    || isset($publicBaseParts['fragment'])
-) {
-    throw new RuntimeException('PUBLIC_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment.');
-}
-$loginLinkAllowedHosts = array_values(array_unique(array_filter(array_map(
+$applicationLinkAllowedHosts = array_values(array_unique(array_filter(array_map(
     static fn (string $host): string => mb_strtolower(trim($host)),
-    explode(',', $env('AUTH_LOGIN_LINK_ALLOWED_HOSTS', 'login-link,localhost,127.0.0.1')),
+    explode(',', $env('AUTH_APP_LINK_ALLOWED_HOSTS', 'login-link,localhost,127.0.0.1')),
 ))));
-$loginApplicationLink = static function (
+$applicationLink = static function (
     string $environmentName,
     string $value,
     string $name,
@@ -66,19 +53,19 @@ $loginApplicationLink = static function (
 
     return $value;
 };
-$homeownerAppLinkBase = $loginApplicationLink(
+$homeownerAppLinkBase = $applicationLink(
     $environment,
     $env('HOMEOWNER_APP_LINK_BASE', 'providentia://login-link/homeowner'),
     'HOMEOWNER_APP_LINK_BASE',
     'providentia',
-    $loginLinkAllowedHosts,
+    $applicationLinkAllowedHosts,
 );
-$adminAppLinkBase = $loginApplicationLink(
+$adminAppLinkBase = $applicationLink(
     $environment,
     $env('ADMIN_APP_LINK_BASE', 'providentia-admin://login-link/admin'),
     'ADMIN_APP_LINK_BASE',
     'providentia-admin',
-    $loginLinkAllowedHosts,
+    $applicationLinkAllowedHosts,
 );
 if (hash_equals($homeownerAppLinkBase, $adminAppLinkBase)) {
     throw new RuntimeException('Homeowner and administrator application-link bases must be distinct.');
@@ -257,9 +244,6 @@ if ($environment === 'production') {
             'Production MAIL_DSN must use smtps:// because this transport does not implement verified STARTTLS.',
         );
     }
-    if (! str_starts_with($publicBaseUrl, 'https://')) {
-        throw new RuntimeException('Production PUBLIC_BASE_URL must use HTTPS.');
-    }
     $decodedNotificationKey = base64_decode($notificationPayloadKek, true);
     if (! is_string($decodedNotificationKey) || strlen($decodedNotificationKey) !== 32) {
         throw new RuntimeException(
@@ -365,7 +349,7 @@ return [
             '2',
         ))),
         'bootstrap_administrator_emails' => $bootstrapAdministratorEmails,
-        'login_application_links' => [
+        'application_links' => [
             'homeowner' => $homeownerAppLinkBase,
             'admin' => $adminAppLinkBase,
         ],
@@ -383,7 +367,6 @@ return [
     'mail' => [
         'dsn' => $mailDsn,
         'from' => $env('MAIL_FROM', 'no-reply@providentia.local'),
-        'public_base_url' => $publicBaseUrl,
         'notification_payload_kek' => $notificationPayloadKek,
         'notification_key_version' => max(1, (int) $env('NOTIFICATION_KEY_VERSION', '1')),
         'batch_size' => max(1, min(500, (int) $env('NOTIFICATION_BATCH_SIZE', '100'))),

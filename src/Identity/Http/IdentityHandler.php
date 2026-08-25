@@ -48,9 +48,11 @@ final class IdentityHandler implements RequestHandlerInterface
     /** @param array<string, mixed> $body */
     private function stepUpRequest(ServerRequestInterface $request, array $body): ResponseInterface
     {
+        $this->requireExactKeys($body, ['action', 'applicationKind']);
         $token = $this->authentication->requestStepUp(
             $this->identity($request),
             (string) ($body['action'] ?? ''),
+            (string) ($body['applicationKind'] ?? ''),
         );
         $response = ['accepted' => true];
         if ($token !== null && $this->exposeDevelopmentTokens) {
@@ -84,7 +86,11 @@ final class IdentityHandler implements RequestHandlerInterface
     /** @param array<string, mixed> $body */
     private function verify(array $body): ResponseInterface
     {
-        $this->authentication->verifyEmail((string) ($body['token'] ?? ''));
+        $this->requireExactKeys($body, ['applicationKind', 'token']);
+        $this->authentication->verifyEmail(
+            (string) ($body['token'] ?? ''),
+            (string) ($body['applicationKind'] ?? ''),
+        );
 
         return new EmptyResponse(204);
     }
@@ -92,7 +98,11 @@ final class IdentityHandler implements RequestHandlerInterface
     /** @param array<string, mixed> $body */
     private function resendVerification(array $body): ResponseInterface
     {
-        $token = $this->authentication->resendVerification((string) ($body['email'] ?? ''));
+        $this->requireExactKeys($body, ['applicationKind', 'email']);
+        $token = $this->authentication->resendVerification(
+            (string) ($body['email'] ?? ''),
+            (string) ($body['applicationKind'] ?? ''),
+        );
         $response = ['accepted' => true];
         if ($token !== null && $this->exposeDevelopmentTokens) {
             $response['developmentVerificationToken'] = $token;
@@ -137,7 +147,11 @@ final class IdentityHandler implements RequestHandlerInterface
     /** @param array<string, mixed> $body */
     private function requestReset(array $body): ResponseInterface
     {
-        $token = $this->authentication->requestPasswordReset((string) ($body['email'] ?? ''));
+        $this->requireExactKeys($body, ['applicationKind', 'email']);
+        $token = $this->authentication->requestPasswordReset(
+            (string) ($body['email'] ?? ''),
+            (string) ($body['applicationKind'] ?? ''),
+        );
         $response = ['accepted' => true];
         if ($token !== null && $this->exposeDevelopmentTokens) {
             $response['developmentResetToken'] = $token;
@@ -149,9 +163,11 @@ final class IdentityHandler implements RequestHandlerInterface
     /** @param array<string, mixed> $body */
     private function reset(array $body): ResponseInterface
     {
+        $this->requireExactKeys($body, ['applicationKind', 'password', 'token']);
         $this->authentication->resetPassword(
             (string) ($body['token'] ?? ''),
             (string) ($body['password'] ?? ''),
+            (string) ($body['applicationKind'] ?? ''),
         );
 
         return new EmptyResponse(204);
@@ -221,6 +237,20 @@ final class IdentityHandler implements RequestHandlerInterface
         }
 
         return SessionResponseFactory::cleared(401, $this->cookieSecure);
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     * @param list<string> $expected
+     */
+    private function requireExactKeys(array $body, array $expected): void
+    {
+        $actual = array_keys($body);
+        sort($actual);
+        sort($expected);
+        if ($actual !== $expected) {
+            throw new Problem(422, 'Validation failed', 'The request body does not match the operation.');
+        }
     }
 
     private function identity(ServerRequestInterface $request): AuthenticatedIdentity

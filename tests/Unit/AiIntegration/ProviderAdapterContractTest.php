@@ -59,6 +59,19 @@ final class ProviderAdapterContractTest extends TestCase
         $jsonSchema = $responseFormat['json_schema'];
         self::assertFalse((bool) $http->payload['stream']);
         self::assertTrue((bool) $jsonSchema['strict']);
+        self::assertSame('providentia_receipt_extraction_v2', $jsonSchema['name']);
+        /** @var array<string, mixed> $schema */
+        $schema = $jsonSchema['schema'];
+        /** @var array<string, mixed> $properties */
+        $properties = $schema['properties'];
+        /** @var array<string, mixed> $candidates */
+        $candidates = $properties['candidates'];
+        /** @var array<string, mixed> $candidateSchema */
+        $candidateSchema = $candidates['items'];
+        /** @var list<string> $candidateRequired */
+        $candidateRequired = $candidateSchema['required'];
+        self::assertContains('quantityMinimum', $candidateRequired);
+        self::assertContains('quantityMaximum', $candidateRequired);
         self::assertSame(16, $outcome->usage['totalTokens']);
         self::assertSame('receipt', $outcome->data['documentType']);
     }

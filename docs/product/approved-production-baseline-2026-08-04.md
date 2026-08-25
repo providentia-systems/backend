@@ -9,10 +9,11 @@ Providentia is a commercial, proprietary SaaS product. The authenticated Flutter
 application must support Android, iOS, Windows, macOS, Linux, and modern web
 browsers. Platform packaging belongs to the Flutter repository; this backend
 must expose one versioned, platform-neutral API and synchronization contract.
-The backend has no authenticated operational GUI. It may render the public
-site and narrowly scoped login-link review/result pages, while every signed-in
-account, home, invitation, device-session, and platform-administration screen
-belongs to the Flutter client, including its web build.
+The backend is headless. It exposes versioned JSON API, health checks,
+explicitly secured metrics, and narrow owner CLI commands; it renders no public
+site, login page, or operational GUI. Every account, login approval, home,
+invitation, device-session, and platform-administration screen belongs to the
+appropriate Flutter application.
 
 There is no artificial household, product, inventory, or catalog-size product
 limit. Operational limits exist only to protect availability and must use
@@ -40,19 +41,20 @@ a private poll token and PKCE verifier and sends only their challenges, a state
 value, and device metadata when it starts the login-link request. The API gives
 the same generic response whether or not the account already exists.
 
-The emailed link may be opened in a browser on a different device. Opening it
-must show a review page and must not approve the request: approval or denial is
-a separate deliberate POST. The browser approves only the pending request; it
-does not receive the client session. The originating client polls with its
-private token and exchanges the approved request with the PKCE verifier. An app
-or universal link may make returning to the client more convenient, but polling
-is the authoritative cross-device handoff.
+The emailed fragment link opens the Flutter application named by the request's
+`applicationKind`, possibly on a different device. Opening it must show an
+application-owned review and must not approve the request: approval or denial
+is a separate deliberate JSON decision. The approving application receives no
+originating session. The originating client polls with its private token and
+exchanges the approved request with the PKCE verifier; polling is the
+authoritative cross-device handoff.
 
 Access, refresh, session, poll, and PKCE credentials must never appear in the
-email URL, browser address bar, referrer, page, or logs. The email carries only
-a short-lived, single-use browser approval credential; the initial browser
-request moves it into a narrowly scoped secure cookie and redirects to a clean
-review URL. Requests expire, are cancellable, and are single-exchange. Email
+email URL query, HTTP request target, analytics, or logs. The email carries
+only a short-lived, single-use approval credential in the URI fragment. The
+matching application removes it from navigation state and sends it only in
+proof/review/decision bodies. Requests expire, are cancellable, and are
+single-exchange. Email
 scanners, replay, a wrong state, a wrong poll token, or a wrong PKCE verifier
 must not create a session.
 
@@ -80,7 +82,7 @@ end or constrain sessions regardless of those maximums.
 
 The first platform administrator is configured by normalized email through the
 deployment bootstrap setting and receives that role only after successfully
-verifying the address through a login link. That grant creates no home access.
+verifying the address through an administrator-bound login link. That grant creates no home access.
 An administrator may list, add, and revoke other administrators through the
 authenticated, audited API, including a pending email grant for a person who
 has not signed in yet. Revisions prevent stale mutations, every change records

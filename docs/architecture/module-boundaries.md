@@ -17,7 +17,8 @@ library. Those details enter through owned application ports.
 
 Modules are `SharedKernel`, `Identity`, `Home`, `Catalog`, `Inventory`,
 `Purchasing`, `Shopping`, `Synchronization`, `AiIntegration`,
-`Administration`, `Reporting`, and `PublicSite`.
+`Administration`, and `Reporting`. Presentation belongs to the separate
+Flutter Client and Admin repositories; the backend has no UI module.
 
 Rules enforced by both Bash/Node and PHP architecture checks:
 

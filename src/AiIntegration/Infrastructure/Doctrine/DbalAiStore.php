@@ -10,6 +10,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Providentia\AiIntegration\Application\AiMaturityStore;
 use Providentia\AiIntegration\Application\AiStore;
+use Providentia\AiIntegration\Application\ExtractionSchema;
 use Providentia\AiIntegration\Application\Media\EncryptedMediaObject;
 
 final class DbalAiStore implements AiStore, AiMaturityStore
@@ -217,7 +218,7 @@ final class DbalAiStore implements AiStore, AiMaturityStore
             'input_mime_type' => $mimeType,
             'input_sha256' => $digest,
             'input_byte_count' => $byteCount,
-            'schema_version' => 1,
+            'schema_version' => ExtractionSchema::VERSION,
             'prompt_template_version' => $promptTemplateVersion,
             'processing_ms' => null,
             'usage_json' => null,

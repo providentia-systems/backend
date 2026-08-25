@@ -66,8 +66,19 @@ done
 
 grep -Fq '#requestId=%s&approval=%s' src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
   || fail "login-link email must keep the request and approval capability in an application fragment"
-assert_no_matches "login-link approval capability can leak through a query string" \
-  -n -F '?approval=' src docs config
+for application_fragment in \
+  '#action=verify-email&token=' \
+  '#action=password-reset&token=' \
+  '#action=step-up&token='; do
+  grep -Fq "$application_fragment" src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
+    || fail "account capability must use the configured application fragment: $application_fragment"
+done
+assert_no_matches "account capability can leak through a query string" \
+  -n '\?(approval|token)=' src docs config
+assert_no_matches "removed browser base URL remains configured" \
+  -n 'PUBLIC_BASE_URL|public_base_url|publicBaseUrl' \
+  --glob '!docs/product/phases/phase-00-evidence/**' \
+  --glob '!tests/structural/verify.sh' .
 for caddyfile in infrastructure/caddy/Caddyfile infrastructure/caddy/Caddyfile.production; do
   for header in X-Content-Type-Options Referrer-Policy Permissions-Policy Content-Security-Policy; do
     grep -Fq "?$header" "$caddyfile" \
@@ -84,6 +95,17 @@ grep -Fq '$this->requests->find($requestId) !== null' src/Identity/Http/LoginLin
   || fail "request-scoped login-link rate limits must be created only for existing requests"
 assert_no_matches "interactive backend UI files remain reachable or configured" \
   -n 'PublicSite|login-link-browser|TemplateRendererInterface|public-site::' src config
+node <<'NODE'
+const fs = require('node:fs');
+const root = JSON.parse(fs.readFileSync('composer.json', 'utf8'));
+const lock = JSON.parse(fs.readFileSync('composer.lock', 'utf8'));
+const locked = new Set([...(lock.packages ?? []), ...(lock['packages-dev'] ?? [])].map(({name}) => name));
+for (const packageName of ['laminas/laminas-view', 'mezzio/mezzio-laminasviewrenderer']) {
+  if (root.require?.[packageName] || locked.has(packageName)) {
+    throw new Error(`${packageName} must not ship in the headless backend`);
+  }
+}
+NODE
 
 for executable in bin/doctrine-migrations bin/providentia \
   infrastructure/compose/entrypoint.sh tool/generate-dart-client.sh \

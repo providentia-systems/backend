@@ -98,6 +98,9 @@ foreach (
         'LoginLinkStatus',
         'LoginLinkExchangeRequest',
         'StepUpLinkAccepted',
+        'ApplicationEmailRequest',
+        'ApplicationTokenRequest',
+        'PasswordResetCompleteRequest',
         'SessionTransport',
         'SessionCredentials',
         'DeviceSession',
@@ -185,6 +188,9 @@ foreach (
         ['LoginLinkExchangeRequest', 'pollToken'],
         ['LoginLinkExchangeRequest', 'codeVerifier'],
         ['LoginLinkExchangeRequest', 'state'],
+        ['ApplicationTokenRequest', 'token'],
+        ['PasswordResetCompleteRequest', 'token'],
+        ['PasswordResetCompleteRequest', 'password'],
     ] as [$schema, $requestCredential]
 ) {
     $property = $contract['components']['schemas'][$schema]['properties'][$requestCredential] ?? [];
@@ -292,7 +298,28 @@ foreach ($contract['paths'] as $pathTemplate => $pathItem) {
     }
 }
 if (count($contract['paths']) !== 154 || $operationCount !== 177) {
-    throw new RuntimeException('API 1.16 must expose exactly 154 paths and 177 operations.');
+    throw new RuntimeException('API 1.17 must expose exactly 154 paths and 177 operations.');
+}
+
+foreach (['StepUpRequest', 'ApplicationEmailRequest', 'ApplicationTokenRequest', 'PasswordResetCompleteRequest'] as $schema) {
+    if (! in_array('applicationKind', $contract['components']['schemas'][$schema]['required'] ?? [], true)) {
+        throw new RuntimeException($schema . ' must bind the capability to its originating application.');
+    }
+}
+
+$candidatePayload = $contract['components']['schemas']['AiExtractionCandidatePayload'] ?? [];
+foreach (['quantity', 'quantityMinimum', 'quantityMaximum'] as $quantityField) {
+    if (! in_array($quantityField, $candidatePayload['required'] ?? [], true)) {
+        throw new RuntimeException('AI extraction candidates must require ' . $quantityField . '.');
+    }
+}
+if (
+    ($contract['components']['schemas']['AiExtraction']['properties']['schemaVersion']['enum'] ?? null) !== [2]
+    || stripos((string) ($candidatePayload['properties']['quantity']['description'] ?? ''), 'receipt') === false
+    || stripos((string) ($candidatePayload['properties']['quantityMinimum']['description'] ?? ''), 'stock') === false
+    || stripos((string) ($candidatePayload['properties']['quantityMaximum']['description'] ?? ''), 'quantityMinimum') === false
+) {
+    throw new RuntimeException('AI extraction schema v2 must preserve receipt quantity and stock count ranges.');
 }
 
 $homeProducts = $contract['paths']['/api/v1/homes/{homeId}/products'] ?? [];
@@ -805,7 +832,7 @@ if (
         $contract['components']['schemas']['RegisterResponse']['required'] ?? [],
         true,
     )
-    || ($contract['info']['version'] ?? '') !== '1.16.0'
+    || ($contract['info']['version'] ?? '') !== '1.17.0'
     || stripos($source, 'magic' . '-link') !== false
     || stripos($source, 'magic' . 'link') !== false
     || isset($contract['paths']['/api/v1/auth/' . 'magic' . '-links'])

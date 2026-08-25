@@ -1,9 +1,9 @@
 {
   "lockVersion": 1,
-  "apiVersion": "1.16.0",
+  "apiVersion": "1.17.0",
   "artifacts": {
     "providentia-v1.json": {
-      "sha256": "f01c320e1900f523661bbba24225583f1d61bc00f3949cb0e7b5b2f6fd5a524e"
+      "sha256": "aa207f0d9adbf2df36e1fd9c420d340da2bb2948a638c95f0610d40c1a0124fc"
     },
     "../json-schema/problem-details-v1.json": {
       "sha256": "962fd4a9b8f4928e88925056a8343da69f04edf676a8866556d9e46dae96c8ee"

@@ -6,7 +6,7 @@ namespace Providentia\AiIntegration\Domain;
 
 final readonly class ExtractionRequest
 {
-    public const PROMPT_TEMPLATE_VERSION = 1;
+    public const PROMPT_TEMPLATE_VERSION = 2;
 
     public function __construct(
         public string $kind,

@@ -166,6 +166,7 @@ final class AiStoreTest extends TestCase
         self::assertSame('accepted', $candidates[0]['reviewStatus']);
         self::assertSame(2, (int) $candidates[0]['revision']);
         self::assertSame(42, (int) $extraction['processingMs']);
+        self::assertSame(2, (int) $extraction['schemaVersion']);
         self::assertSame(15, $usage['totalTokens']);
         self::assertSame(1, $this->tableRows('ai_extractions'));
         self::assertSame(1, $this->tableRows('ai_extraction_candidates'));
