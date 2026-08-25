@@ -26,7 +26,7 @@ final class InventoryCountCancellationTest extends TestCase
     private const SESSION_ID = '01912345-6789-7abc-bdef-0123456789ab';
     private const PRODUCT_ID = '01912345-6789-7abc-cdef-0123456789ab';
     private const LINE_ID = '01912345-6789-7abc-ddef-0123456789ab';
-    private const CREATED_SESSION_ID = '01912345-6789-7abc-edef-0123456789ab';
+    private const CREATED_SESSION_ID = '01912345-6789-7abc-9def-2123456789ab';
 
     private Connection $connection;
     private InventoryService $service;
