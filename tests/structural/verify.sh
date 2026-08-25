@@ -460,12 +460,16 @@ grep -Fq "'billing.enforced' => false" src/Billing/Application/BillingService.ph
   || fail 'free-phase household billing must remain explicitly non-enforcing'
 grep -Fq 'tool/materialize-openapi-contract.sh' tests/Acceptance/headless-platform-acceptance.sh \
   || fail 'headless acceptance must materialize and verify the pinned API contract'
-grep -Fq '$socket = @fsockopen' tests/Acceptance/compose.headless-platform-acceptance.yaml \
+grep -Fq '$$socket = @fsockopen' tests/Acceptance/compose.headless-platform-acceptance.yaml \
   || fail 'the fixture readiness probe must escape its PHP variable from Compose interpolation'
 grep -Fq 'test -r /app/var/providentia.sqlite' tests/Acceptance/compose.headless-platform-acceptance.yaml \
   || fail 'the notification worker must expose a database-readiness healthcheck to Compose'
 grep -Fq "header('Content-Length: ' . strlen(\$encoded));" tests/fixtures/ai-provider-router.php \
   || fail 'the deterministic AI fixture must frame its strict JSON response completely'
+grep -Fq "\$method === 'GET' && \$path === '/self-test'" tests/fixtures/ai-provider-router.php \
+  || fail 'the deterministic AI fixture must expose its network-local framing self-test'
+grep -Fq '"http://ai-fixture:8090/self-test"' tests/Acceptance/headless-platform-acceptance.sh \
+  || fail 'headless acceptance must preflight fixture framing independently of request validation'
 grep -Fq 'preflight_ai_fixture' tests/Acceptance/headless-platform-acceptance.sh \
   || fail 'headless acceptance must distinguish provider transport JSON from structured output'
 dockerfile_copy_line="$(grep -n '^COPY \. \.$' Dockerfile | cut -d: -f1)"

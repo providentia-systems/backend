@@ -164,76 +164,81 @@ wait_for_api() {
 }
 
 preflight_ai_fixture() {
-    local payload
-    payload="$(jq -cn '
+    local fixture_status=0
+    "${compose[@]}" exec --no-TTY api-sqlite php -r '
+        function diagnostic(string $stage, int $status, string $code, int $exitCode): never
         {
-            model:"acceptance-vision",
-            stream:false,
-            response_format:{
-                type:"json_schema",
-                json_schema:{
-                    name:"providentia_stock_extraction_v2",
-                    strict:true,
-                    schema:{
-                        properties:{
-                            candidates:{items:{required:["quantityMinimum","quantityMaximum"]}}
-                        }
-                    }
-                }
-            },
-            messages:[{
-                role:"user",
-                content:[
-                    {type:"text",text:"mandatory human review"},
-                    {
-                        type:"image_url",
-                        image_url:{url:"data:image/png;base64,iVBORw0KGgo="}
-                    }
-                ]
-            }]
+            $boundedCode = preg_match("/^[a-z0-9_]{1,64}$/D", $code) === 1
+                ? $code
+                : "unavailable";
+            fwrite(
+                STDERR,
+                sprintf(
+                    "AI_FIXTURE_PREFLIGHT stage=%s status=%d code=%s\n",
+                    $stage,
+                    $status,
+                    $boundedCode,
+                ),
+            );
+            exit($exitCode);
         }
-    ')"
-    if ! printf '%s' "$payload" | "${compose[@]}" exec --no-TTY api-sqlite php -r '
-        $payload = stream_get_contents(STDIN);
         $context = stream_context_create(["http" => [
-            "method" => "POST",
-            "header" => "Content-Type: application/json\r\n"
-                . "Accept: application/json\r\n"
-                . "Authorization: Bearer acceptance-ai-token-replacement-2222\r\n"
-                . "Connection: close",
-            "content" => $payload,
+            "method" => "GET",
+            "header" => "Accept: application/json\r\nConnection: close",
             "timeout" => 10,
             "ignore_errors" => true,
         ]]);
         $outer = @file_get_contents(
-            "http://ai-fixture:8090/v1/chat/completions",
+            "http://ai-fixture:8090/self-test",
             false,
             $context,
         );
         if (! is_string($outer) || $outer === "") {
-            exit(20);
+            diagnostic("transport", 0, "empty_response", 20);
+        }
+        $status = 0;
+        foreach (($http_response_header ?? []) as $header) {
+            if (preg_match("/^HTTP\\/\\S+\\s+(\\d{3})/", $header, $matches) === 1) {
+                $status = (int) $matches[1];
+            }
+        }
+        if ($status !== 200) {
+            $fixtureCode = "http_error";
+            try {
+                $problem = json_decode($outer, true, 32, JSON_THROW_ON_ERROR);
+                if (is_string($problem["error"]["type"] ?? null)) {
+                    $fixtureCode = $problem["error"]["type"];
+                }
+            } catch (Throwable) {
+                $fixtureCode = "invalid_error_envelope";
+            }
+            diagnostic("http", $status, $fixtureCode, 21);
         }
         try {
             $response = json_decode($outer, true, 128, JSON_THROW_ON_ERROR);
-            $content = $response["choices"][0]["message"]["content"] ?? null;
-            if (! is_string($content)) {
-                exit(21);
-            }
+        } catch (Throwable) {
+            diagnostic("outer_json", $status, "malformed_json", 22);
+        }
+        $content = $response["choices"][0]["message"]["content"] ?? null;
+        if (! is_string($content)) {
+            diagnostic("envelope", $status, "missing_content", 23);
+        }
+        try {
             $extraction = json_decode($content, true, 128, JSON_THROW_ON_ERROR);
         } catch (Throwable) {
-            exit(22);
+            diagnostic("nested_json", $status, "malformed_json", 24);
         }
-        exit(
-            is_array($extraction)
-            && ($extraction["documentType"] ?? null) === "stock"
-            && ($extraction["candidates"][0]["quantityMinimum"] ?? null) === "6"
-            && ($extraction["candidates"][0]["quantityMaximum"] ?? null) === "8"
-                ? 0
-                : 23
-        );
-    '; then
-        fail 'The API network could not decode the deterministic provider outer and nested JSON response.'
-    fi
+        if (
+            ! is_array($extraction)
+            || ($extraction["documentType"] ?? null) !== "stock"
+            || ($extraction["candidates"][0]["quantityMinimum"] ?? null) !== "6"
+            || ($extraction["candidates"][0]["quantityMaximum"] ?? null) !== "8"
+        ) {
+            diagnostic("semantics", $status, "unexpected_fixture_shape", 25);
+        }
+    ' || fixture_status=$?
+    [[ "$fixture_status" -eq 0 ]] \
+        || fail "The deterministic provider self-test failed at bounded stage ${fixture_status}."
 }
 
 wait_for_login_message() {
