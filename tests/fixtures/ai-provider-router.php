@@ -33,11 +33,84 @@ function reject(string $detail): never
     ]);
 }
 
+/** @return array<string, mixed> */
+function deterministicProviderResponse(): array
+{
+    $extraction = [
+        'documentType' => 'stock',
+        'merchant' => null,
+        'receiptNumber' => null,
+        'purchaseDate' => null,
+        'currency' => null,
+        'totalAmount' => null,
+        'taxAmount' => null,
+        'notes' => 'Deterministic acceptance fixture.',
+        'warnings' => [],
+        'candidates' => [[
+            'candidateType' => 'stock_item',
+            'rawText' => 'Visible baked-bean tins',
+            'description' => 'Acceptance baked beans',
+            'brand' => 'Providentia fixture',
+            'product' => 'Baked beans',
+            'variant' => null,
+            'quantity' => null,
+            'quantityMinimum' => '6',
+            'quantityMaximum' => '8',
+            'packText' => '400 g tin',
+            'unitPrice' => null,
+            'lineTotal' => null,
+            'discountAmount' => null,
+            'taxAmount' => null,
+            'boundingRegion' => [
+                'x' => 0.1,
+                'y' => 0.1,
+                'width' => 0.6,
+                'height' => 0.5,
+            ],
+            'confidence' => 0.93,
+            'fieldConfidence' => [
+                'description' => 0.98,
+                'quantity' => 0.93,
+                'packText' => 0.9,
+                'unitPrice' => null,
+                'lineTotal' => null,
+            ],
+            'warnings' => [],
+            'unresolvedValues' => [],
+        ]],
+    ];
+
+    $extractionJson = json_encode($extraction, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+    // Fail inside the fixture instead of sending content that cannot be parsed
+    // by the same strict JSON boundary exercised by the production adapter.
+    json_decode($extractionJson, true, 128, JSON_THROW_ON_ERROR);
+
+    return [
+        'choices' => [[
+            'finish_reason' => 'stop',
+            'message' => [
+                'content' => $extractionJson,
+            ],
+        ]],
+        'usage' => [
+            'prompt_tokens' => 40,
+            'completion_tokens' => 20,
+            'total_tokens' => 60,
+        ],
+    ];
+}
+
 $method = (string) ($_SERVER['REQUEST_METHOD'] ?? '');
 $path = (string) (parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?? '/');
 
 if ($method === 'GET' && $path === '/health') {
     respond(200, ['status' => 'ready']);
+}
+// This fixture has no published host port. The self-test route is reachable
+// only from the isolated acceptance network and deliberately bypasses request
+// validation so transport/framing can be proven independently.
+if ($method === 'GET' && $path === '/self-test') {
+    respond(200, deterministicProviderResponse());
 }
 if ($method !== 'POST' || $path !== '/v1/chat/completions') {
     respond(404, ['error' => ['type' => 'not_found', 'message' => 'Fixture route not found.']]);
@@ -104,65 +177,4 @@ if (! $hasPrompt || ! $hasPng) {
     reject('The request must contain the review disclosure and one inline PNG.');
 }
 
-$extraction = [
-    'documentType' => 'stock',
-    'merchant' => null,
-    'receiptNumber' => null,
-    'purchaseDate' => null,
-    'currency' => null,
-    'totalAmount' => null,
-    'taxAmount' => null,
-    'notes' => 'Deterministic acceptance fixture.',
-    'warnings' => [],
-    'candidates' => [[
-        'candidateType' => 'stock_item',
-        'rawText' => 'Visible baked-bean tins',
-        'description' => 'Acceptance baked beans',
-        'brand' => 'Providentia fixture',
-        'product' => 'Baked beans',
-        'variant' => null,
-        'quantity' => null,
-        'quantityMinimum' => '6',
-        'quantityMaximum' => '8',
-        'packText' => '400 g tin',
-        'unitPrice' => null,
-        'lineTotal' => null,
-        'discountAmount' => null,
-        'taxAmount' => null,
-        'boundingRegion' => [
-            'x' => 0.1,
-            'y' => 0.1,
-            'width' => 0.6,
-            'height' => 0.5,
-        ],
-        'confidence' => 0.93,
-        'fieldConfidence' => [
-            'description' => 0.98,
-            'quantity' => 0.93,
-            'packText' => 0.9,
-            'unitPrice' => null,
-            'lineTotal' => null,
-        ],
-        'warnings' => [],
-        'unresolvedValues' => [],
-    ]],
-];
-
-$extractionJson = json_encode($extraction, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-// Fail inside the fixture instead of sending content that cannot be parsed by
-// the same strict JSON boundary exercised by the production adapter.
-json_decode($extractionJson, true, 128, JSON_THROW_ON_ERROR);
-
-respond(200, [
-    'choices' => [[
-        'finish_reason' => 'stop',
-        'message' => [
-            'content' => $extractionJson,
-        ],
-    ]],
-    'usage' => [
-        'prompt_tokens' => 40,
-        'completion_tokens' => 20,
-        'total_tokens' => 60,
-    ],
-]);
+respond(200, deterministicProviderResponse());
