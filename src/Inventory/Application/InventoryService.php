@@ -604,7 +604,7 @@ final class InventoryService implements InventoryMovementGateway
         return $session;
     }
 
-    /** @return array{id: string} */
+    /** @return array<string, mixed> */
     public function recordCount(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -636,8 +636,12 @@ final class InventoryService implements InventoryMovementGateway
         if (mb_strlen($notes) > 2000) {
             throw new Problem(422, 'Invalid count line', 'Count-line notes exceed 2000 characters.');
         }
+        if ($expectedRevision < 0) {
+            throw new Problem(422, 'Invalid count line', 'Expected revision cannot be negative.');
+        }
         $lineId = $lineId === '' ? $this->ids->generate() : $lineId;
-        $this->transactions->transactional(function () use (
+
+        return $this->transactions->transactional(function () use (
             $lineId,
             $homeId,
             $sessionId,
@@ -649,7 +653,7 @@ final class InventoryService implements InventoryMovementGateway
             $identity,
             $expectedRevision,
             $session,
-        ): void {
+        ): array {
             if (
                 ! $this->inventory->saveCountLine(
                     $lineId,
@@ -699,9 +703,15 @@ final class InventoryService implements InventoryMovementGateway
                 ],
                 $this->clock->now(),
             );
-        });
 
-        return ['id' => $lineId];
+            $line = $this->inventory->countLine($homeId, $sessionId, $lineId);
+            if ($line === null) {
+                throw new \LogicException('Committed stock-count line is unavailable.');
+            }
+            $line['revision'] = (int) $line['revision'];
+
+            return $line;
+        });
     }
 
     /** @return array{sessionId: string, movements: int} */

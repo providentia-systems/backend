@@ -150,12 +150,15 @@ by the 24 August three-repository contract below.
 
 ## Three-repository stabilization contract — 24 August 2026
 
-- Backend API `1.17.0` is the sole runtime and contract authority. The backend
+- Backend API `1.18.0` is the sole runtime and contract authority. The backend
   is headless: it exposes versioned JSON API, health checks, explicitly secured
   metrics, and narrow audited CLI owner commands. It exposes no public site,
   browser login, homeowner GUI, or operator GUI. All emailed login,
   verification, reset, and step-up capabilities target the explicitly bound
   homeowner or administrator application in URI fragments.
+- A stock-count line is created with `expectedRevision: 0`; subsequent writes
+  compare against its current positive revision. Successful writes return the
+  complete persisted `StockCountLine`, while stale writes return HTTP 409.
 - `providentia-systems/client` is the homeowner Flutter application across its
   supported mobile/desktop targets. `providentia-systems/admin` is a separate
   Flutter security principal, initially packaged only for Linux desktop. It
