@@ -420,8 +420,7 @@ final class LoginLinkServiceTest extends TestCase
     private function approvalStore(
         bool $expectsCompletion = true,
         string $applicationKind = 'homeowner',
-    ): LoginLinkStore
-    {
+    ): LoginLinkStore {
         $row = $this->approvalRequest();
         $row['application_kind'] = $applicationKind;
         $requests = $this->createMock(LoginLinkStore::class);
