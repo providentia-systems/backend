@@ -482,6 +482,8 @@ grep -Fq "header('Content-Length: ' . strlen(\$encoded));" tests/fixtures/ai-pro
 grep -Fq "header('X-Acceptance-Body-Sha256: ' . hash('sha256', \$encoded));" \
   tests/fixtures/ai-provider-router.php \
   || fail 'the deterministic AI fixture must expose only bounded response-integrity evidence'
+grep -Fq "error_log('AI_FIXTURE_REJECTION code=' . \$code);" tests/fixtures/ai-provider-router.php \
+  || fail 'the AI fixture must emit only its bounded rejection code when request validation fails'
 grep -Fq "\$method === 'GET' && \$path === '/self-test'" tests/fixtures/ai-provider-router.php \
   || fail 'the deterministic AI fixture must expose its network-local framing self-test'
 grep -Fq '"http://ai-fixture:8090/self-test"' tests/Acceptance/headless-platform-acceptance.sh \
