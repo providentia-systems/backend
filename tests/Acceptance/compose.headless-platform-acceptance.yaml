@@ -29,6 +29,15 @@ services:
       HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/homeowner
       ADMIN_APP_LINK_BASE: providentia-admin://login-link/admin
       AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,login-link
+    healthcheck:
+      disable: false
+      test:
+        - CMD-SHELL
+        - test -r /app/var/providentia.sqlite
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
 
   ai-fixture:
     build:
