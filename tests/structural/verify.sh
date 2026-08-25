@@ -464,6 +464,9 @@ grep -Fq 'context: tests/fixtures' tests/Acceptance/compose.headless-platform-ac
   || fail 'the AI fixture must build from its isolated context instead of the test-excluding app context'
 grep -Fq 'dockerfile: Dockerfile.ai-provider' tests/Acceptance/compose.headless-platform-acceptance.yaml \
   || fail 'the AI fixture must use its dedicated minimal image'
+grep -Fxq '      AI_COMPATIBLE_ENDPOINT: http://ai-fixture:8090' \
+  tests/Acceptance/compose.headless-platform-acceptance.yaml \
+  || fail 'AI_COMPATIBLE_ENDPOINT must remain a base URL because runtime appends its provider path'
 grep -Fq 'HEALTHCHECK --interval=2s --timeout=2s --start-period=5s --retries=30' \
   tests/fixtures/Dockerfile.ai-provider \
   || fail 'the dedicated AI fixture image must define a container healthcheck'
