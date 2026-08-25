@@ -174,7 +174,7 @@ final class InventoryCountCancellationTest extends TestCase
             'id' => self::LINE_ID,
             'homeProductId' => self::PRODUCT_ID,
             'quantity' => '4',
-            'confidence' => '0.8750',
+            'confidence' => '0.875',
             'source' => 'photo-confirmed',
             'notes' => 'First pass',
             'status' => 'confirmed',

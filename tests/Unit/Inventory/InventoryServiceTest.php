@@ -373,8 +373,8 @@ final class InventoryServiceTest extends TestCase
         $storedLine = [
             'id' => self::LINE_ID,
             'homeProductId' => self::PRODUCT_ID,
-            'quantity' => '4',
-            'confidence' => '0.875',
+            'quantity' => 4,
+            'confidence' => 0.875,
             'source' => 'photo-confirmed',
             'notes' => '',
             'status' => 'confirmed',
@@ -408,7 +408,7 @@ final class InventoryServiceTest extends TestCase
             ->willReturn($storedLine);
 
         self::assertSame(
-            [...$storedLine, 'revision' => 1],
+            [...$storedLine, 'quantity' => '4', 'confidence' => '0.875', 'revision' => 1],
             $this->service($store)->recordCount(
                 $this->identity(),
                 self::HOME_ID,
@@ -570,8 +570,8 @@ final class InventoryServiceTest extends TestCase
         $line = [
             'id' => self::LINE_ID,
             'homeProductId' => self::PRODUCT_ID,
-            'quantity' => '4',
-            'confidence' => null,
+            'quantity' => 4,
+            'confidence' => 0.875,
             'source' => 'manual',
             'notes' => '',
             'status' => 'confirmed',
@@ -601,7 +601,12 @@ final class InventoryServiceTest extends TestCase
                 'revision' => 6,
                 'closedAt' => $closedAt,
                 'homeId' => self::HOME_ID,
-                'lines' => [[...$line, 'revision' => 1]],
+                'lines' => [[
+                    ...$line,
+                    'quantity' => '4',
+                    'confidence' => '0.875',
+                    'revision' => 1,
+                ]],
             ],
             $this->service($store)->closeCount($this->identity(), self::HOME_ID, self::SESSION_ID, 5),
         );

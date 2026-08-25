@@ -718,9 +718,8 @@ final class InventoryService implements InventoryMovementGateway
             if ($line === null) {
                 throw new \LogicException('Committed stock-count line is unavailable.');
             }
-            $line['revision'] = (int) $line['revision'];
 
-            return $line;
+            return $this->stockCountLine($line);
         });
     }
 
@@ -1001,18 +1000,33 @@ final class InventoryService implements InventoryMovementGateway
             $session['lineCount'] = (int) $session['lineCount'];
         }
         if ($lines !== null) {
-            $session['lines'] = array_map(static function (array $line): array {
-                $line['quantity'] = (string) ($line['quantity'] ?? '0');
-                $line['confidence'] = ($line['confidence'] ?? null) === null
-                    ? null
-                    : (string) $line['confidence'];
-                $line['revision'] = (int) ($line['revision'] ?? 0);
-
-                return $line;
-            }, $lines);
+            $session['lines'] = array_map(
+                fn (array $line): array => $this->stockCountLine($line),
+                $lines,
+            );
         }
 
         return $session;
+    }
+
+    /**
+     * SQLite's NUMERIC affinity hydrates whole and fractional DECIMAL values
+     * as integers/floats while MySQL and MariaDB hydrate the same columns as
+     * strings. Keep the public representation deterministic across every
+     * supported database instead of leaking driver-specific JSON types.
+     *
+     * @param array<string, mixed> $line
+     * @return array<string, mixed>
+     */
+    private function stockCountLine(array $line): array
+    {
+        $line['quantity'] = $this->quantity((string) ($line['quantity'] ?? '0'))->toString();
+        $line['confidence'] = ($line['confidence'] ?? null) === null
+            ? null
+            : DecimalQuantity::quantity((string) $line['confidence'])->toString();
+        $line['revision'] = (int) ($line['revision'] ?? 0);
+
+        return $line;
     }
 
     private function quantity(string|int $value): DecimalQuantity
