@@ -166,6 +166,8 @@ wait_for_api() {
 preflight_ai_fixture() {
     local fixture_status=0
     "${compose[@]}" exec --no-TTY api-sqlite php -r '
+        require "/app/vendor/autoload.php";
+
         function diagnostic(string $stage, int $status, string $code, int $exitCode): never
         {
             $boundedCode = preg_match("/^[a-z0-9_]{1,64}$/D", $code) === 1
@@ -182,22 +184,98 @@ preflight_ai_fixture() {
             );
             exit($exitCode);
         }
+
+        /** @param list<string> $headers */
+        function responseHeader(array $headers, string $name): ?string
+        {
+            $prefix = strtolower($name) . ":";
+            foreach ($headers as $header) {
+                if (str_starts_with(strtolower($header), $prefix)) {
+                    return trim(substr($header, strlen($prefix)));
+                }
+            }
+            return null;
+        }
+
+        /** @param list<string> $headers */
+        function jsonDiagnostic(
+            string $stage,
+            string $bytes,
+            int $status,
+            array $headers,
+            int $exitCode,
+        ): never {
+            json_decode($bytes, true, 128);
+            $jsonErrorCode = preg_replace(
+                "/[^a-z0-9]+/",
+                "_",
+                strtolower(json_last_error_msg()),
+            );
+            $jsonErrorCode = is_string($jsonErrorCode)
+                ? trim($jsonErrorCode, "_")
+                : "unavailable";
+            $expectedLength = responseHeader($headers, "X-Acceptance-Body-Length");
+            $expectedSha256 = responseHeader($headers, "X-Acceptance-Body-Sha256");
+            $expectedLength = is_string($expectedLength)
+                && preg_match("/^[0-9]{1,10}$/D", $expectedLength) === 1
+                    ? $expectedLength
+                    : "unavailable";
+            $expectedSha256 = is_string($expectedSha256)
+                && preg_match("/^[a-f0-9]{64}$/D", $expectedSha256) === 1
+                    ? $expectedSha256
+                    : "unavailable";
+            fwrite(
+                STDERR,
+                sprintf(
+                    "AI_FIXTURE_PREFLIGHT stage=%s status=%d length=%d sha256=%s first=%s last=%s"
+                        . " json_error=%d json_error_code=%s expected_length=%s expected_sha256=%s\n",
+                    $stage,
+                    $status,
+                    strlen($bytes),
+                    hash("sha256", $bytes),
+                    bin2hex(substr($bytes, 0, 1)),
+                    bin2hex(substr($bytes, -1)),
+                    json_last_error(),
+                    $jsonErrorCode,
+                    $expectedLength,
+                    $expectedSha256,
+                ),
+            );
+            exit($exitCode);
+        }
+
         $context = stream_context_create(["http" => [
             "method" => "GET",
             "header" => "Accept: application/json\r\nConnection: close",
             "timeout" => 10,
             "ignore_errors" => true,
+            "follow_location" => 0,
+            "max_redirects" => 0,
+            "protocol_version" => 1.1,
         ]]);
-        $outer = @file_get_contents(
+        $stream = @fopen(
             "http://ai-fixture:8090/self-test",
-            false,
+            "rb",
             $context,
         );
+        if ($stream === false) {
+            diagnostic("transport", 0, "unreachable", 20);
+        }
+        try {
+            $outer = stream_get_contents($stream, 1048577);
+            $metadata = stream_get_meta_data($stream);
+        } finally {
+            fclose($stream);
+        }
         if (! is_string($outer) || $outer === "") {
             diagnostic("transport", 0, "empty_response", 20);
         }
+        $headers = array_values(array_filter(
+            is_array($metadata["wrapper_data"] ?? null) ? $metadata["wrapper_data"] : [],
+            "is_string",
+        ));
         $status = 0;
-        foreach (($http_response_header ?? []) as $header) {
+        foreach ($headers as $header) {
             if (preg_match("/^HTTP\\/\\S+\\s+(\\d{3})/", $header, $matches) === 1) {
                 $status = (int) $matches[1];
             }
@@ -215,18 +293,20 @@ preflight_ai_fixture() {
             diagnostic("http", $status, $fixtureCode, 21);
         }
         try {
-            $response = json_decode($outer, true, 128, JSON_THROW_ON_ERROR);
+            $response = \Providentia\AiIntegration\Infrastructure\Http\ProviderJsonDecoder::httpResponse($outer);
         } catch (Throwable) {
-            diagnostic("outer_json", $status, "malformed_json", 22);
+            jsonDiagnostic("outer_json", $outer, $status, $headers, 22);
         }
         $content = $response["choices"][0]["message"]["content"] ?? null;
         if (! is_string($content)) {
             diagnostic("envelope", $status, "missing_content", 23);
         }
         try {
-            $extraction = json_decode($content, true, 128, JSON_THROW_ON_ERROR);
+            $extraction = \Providentia\AiIntegration\Infrastructure\Http\ProviderJsonDecoder::structuredOutput(
+                $content,
+            );
         } catch (Throwable) {
-            diagnostic("nested_json", $status, "malformed_json", 24);
+            jsonDiagnostic("nested_json", $content, $status, [], 24);
         }
         if (
             ! is_array($extraction)
