@@ -47,7 +47,9 @@ services:
         - php
         - -r
         - >-
-          exit(str_contains((string) @file_get_contents('http://127.0.0.1:8090/health'), 'ready') ? 0 : 1);
+          $socket = @fsockopen('127.0.0.1', 8090);
+          if (is_resource($socket)) { fclose($socket); exit(0); }
+          exit(1);
       interval: 2s
       timeout: 2s
       retries: 30

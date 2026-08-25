@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+// phpcs:disable PSR1.Files.SideEffects.FoundWithSymbols -- executable router fixture by design.
+
 /**
  * Deterministic, network-local OpenAI-compatible fixture used only by the
  * deployed headless acceptance lane. It validates the privacy-critical request
