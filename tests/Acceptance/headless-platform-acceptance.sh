@@ -484,9 +484,10 @@ http_json GET "/api/v1/homes/${home_id}/products?homeCategoryId=${home_category_
 assert_json 'The private product/category relationship was not queryable.' '
     .data
     | any(
-        .id == $productId
-        and .privateName == "Acceptance baked beans"
+        .homeProductId == $productId
+        and .canonicalName == "Acceptance baked beans"
         and .homeCategoryId == $categoryId
+        and .categorySource == "home"
     )
 ' --arg productId "$home_product_id" --arg categoryId "$home_category_id"
 
