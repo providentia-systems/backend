@@ -93,6 +93,39 @@ final class HttpMiddlewareTest extends TestCase
         self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
     }
 
+    public function testSecurityHeadersPreservePrivatePreviewCachePolicy(): void
+    {
+        $response = (new SecurityHeadersMiddleware())->process(
+            $this->request(),
+            new CallbackRequestHandler(
+                static fn (ServerRequestInterface $request): ResponseInterface =>
+                    (new JsonResponse(['method' => $request->getMethod()]))
+                    ->withHeader('Cache-Control', 'private, no-store'),
+            ),
+        );
+
+        self::assertSame('private, no-store', $response->getHeaderLine('Cache-Control'));
+        self::assertSame('nosniff', $response->getHeaderLine('X-Content-Type-Options'));
+    }
+
+    public function testSecurityHeadersPreserveImmutablePublicAssetCachePolicy(): void
+    {
+        $response = (new SecurityHeadersMiddleware())->process(
+            $this->request(),
+            new CallbackRequestHandler(
+                static fn (ServerRequestInterface $request): ResponseInterface =>
+                    (new JsonResponse(['method' => $request->getMethod()]))
+                    ->withHeader('Cache-Control', 'public, max-age=31536000, immutable'),
+            ),
+        );
+
+        self::assertSame(
+            'public, max-age=31536000, immutable',
+            $response->getHeaderLine('Cache-Control'),
+        );
+        self::assertSame('nosniff', $response->getHeaderLine('X-Content-Type-Options'));
+    }
+
     public function testCorsPreflightForAllowedOriginDoesNotInvokeApplication(): void
     {
         $handler = new CallbackRequestHandler(
