@@ -301,7 +301,9 @@ if (count($contract['paths']) !== 154 || $operationCount !== 177) {
     throw new RuntimeException('API 1.17 must expose exactly 154 paths and 177 operations.');
 }
 
-foreach (['StepUpRequest', 'ApplicationEmailRequest', 'ApplicationTokenRequest', 'PasswordResetCompleteRequest'] as $schema) {
+foreach (
+    ['StepUpRequest', 'ApplicationEmailRequest', 'ApplicationTokenRequest', 'PasswordResetCompleteRequest'] as $schema
+) {
     if (! in_array('applicationKind', $contract['components']['schemas'][$schema]['required'] ?? [], true)) {
         throw new RuntimeException($schema . ' must bind the capability to its originating application.');
     }
@@ -316,8 +318,14 @@ foreach (['quantity', 'quantityMinimum', 'quantityMaximum'] as $quantityField) {
 if (
     ($contract['components']['schemas']['AiExtraction']['properties']['schemaVersion']['enum'] ?? null) !== [2]
     || stripos((string) ($candidatePayload['properties']['quantity']['description'] ?? ''), 'receipt') === false
-    || stripos((string) ($candidatePayload['properties']['quantityMinimum']['description'] ?? ''), 'stock') === false
-    || stripos((string) ($candidatePayload['properties']['quantityMaximum']['description'] ?? ''), 'quantityMinimum') === false
+    || stripos(
+        (string) ($candidatePayload['properties']['quantityMinimum']['description'] ?? ''),
+        'stock',
+    ) === false
+    || stripos(
+        (string) ($candidatePayload['properties']['quantityMaximum']['description'] ?? ''),
+        'quantityMinimum',
+    ) === false
 ) {
     throw new RuntimeException('AI extraction schema v2 must preserve receipt quantity and stock count ranges.');
 }

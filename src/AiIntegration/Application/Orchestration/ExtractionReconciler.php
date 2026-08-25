@@ -38,8 +38,7 @@ final class ExtractionReconciler
                 continue;
             }
             foreach (
-                ['quantity', 'quantityMinimum', 'quantityMaximum', 'packText', 'unitPrice', 'lineTotal']
-                as $field
+                ['quantity', 'quantityMinimum', 'quantityMaximum', 'packText', 'unitPrice', 'lineTotal'] as $field
             ) {
                 if (($left[$field] ?? null) !== ($right[$field] ?? null)) {
                     $differences[] = [

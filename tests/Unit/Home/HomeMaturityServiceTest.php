@@ -240,7 +240,7 @@ final class HomeMaturityServiceTest extends TestCase
         $identities->expects(self::once())
             ->method('consumeOneTimeToken')
             ->with(
-                'step-up-ownership',
+                'step-up-ownership:homeowner',
                 'hashed-step-up-token',
                 self::isInstanceOf(DateTimeImmutable::class),
             )
