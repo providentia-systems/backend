@@ -57,6 +57,14 @@ storage. `explicit_encrypted_opt_in` identifies the separate private-media
 resource, which requires a `transient` or `retained` choice and stores
 authenticated ciphertext only.
 
+For direct extraction, request-owned upload streams are closed and the
+mutable upload, observation, provider-request, and decrypted-credential
+variables owned by the application are erased in `finally` paths after both
+successful and failed processing. This is a best-effort process-memory
+boundary: PHP, the HTTP/TLS stack, extensions, and the selected provider may
+create copies outside those variables, so Providentia does not claim that
+every engine-, transport-, or provider-owned copy can be zeroized.
+
 Only the credential's final four characters are returned after entry. Reads
 never return ciphertext, nonce, or plaintext. `DELETE` revokes the credential
 and overwrites the encrypted fields in the active row.

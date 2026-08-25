@@ -6,6 +6,7 @@ namespace Providentia\AiIntegration\Application\Orchestration;
 
 use Providentia\AiIntegration\Application\AiProviderException;
 use Providentia\AiIntegration\Application\ExtractionSchema;
+use Providentia\AiIntegration\Application\SensitiveBufferEraser;
 use Providentia\AiIntegration\Domain\ExtractionOutcome;
 use Providentia\AiIntegration\Domain\ExtractionRequest;
 use Throwable;
@@ -16,6 +17,7 @@ final readonly class AiOrchestrator
         private ExtractionSchema $schema,
         private ProviderFailureClassifier $failures,
         private ExtractionReconciler $reconciler,
+        private SensitiveBufferEraser $buffers,
         private int $maxAttempts = 4,
     ) {
     }
@@ -32,6 +34,35 @@ final readonly class AiOrchestrator
         int $maxEstimatedCostMicros = PHP_INT_MAX,
         int $maxTotalTokens = PHP_INT_MAX,
         ?callable $recordAttempt = null,
+    ): AiOrchestrationResult {
+        try {
+            return $this->executeTracked(
+                $kind,
+                $mimeType,
+                $bytes,
+                $extractionPlan,
+                $validator,
+                $maxEstimatedCostMicros,
+                $maxTotalTokens,
+                $recordAttempt,
+            );
+        } finally {
+            $this->buffers->erase($bytes);
+        }
+    }
+
+    /**
+     * @param non-empty-list<AiExecution> $extractionPlan
+     */
+    private function executeTracked(
+        string $kind,
+        string $mimeType,
+        string &$bytes,
+        array $extractionPlan,
+        ?AiExecution $validator,
+        int $maxEstimatedCostMicros,
+        int $maxTotalTokens,
+        ?callable $recordAttempt,
     ): AiOrchestrationResult {
         if (count($extractionPlan) + ($validator === null ? 0 : 1) > $this->maxAttempts) {
             throw new AiProviderException('orchestration_budget_exceeded', 'The AI attempt budget was exceeded.');
@@ -142,18 +173,31 @@ final readonly class AiOrchestrator
         AiExecution $execution,
         string $kind,
         string $mimeType,
-        string $bytes,
+        string &$bytes,
     ): ExtractionOutcome {
-        $outcome = $execution->provider->extract(new ExtractionRequest(
+        $requestBytes = $bytes;
+        $requestCredential = $execution->credential;
+        $request = new ExtractionRequest(
             $kind,
             $mimeType,
-            $bytes,
+            $requestBytes,
             $execution->model,
-            $execution->credential,
-        ));
-        $validated = $this->schema->validate($outcome->data, $kind);
+            $requestCredential,
+        );
+        try {
+            $outcome = $execution->provider->extract($request);
+            $validated = $this->schema->validate($outcome->data, $kind);
 
-        return new ExtractionOutcome($validated, $outcome->usage);
+            return new ExtractionOutcome($validated, $outcome->usage);
+        } finally {
+            // Providers execute synchronously and must not retain the request.
+            // Drop that reference before erasing our two mutable request copies.
+            unset($request);
+            $this->buffers->erase($requestBytes);
+            if ($requestCredential !== null) {
+                $this->buffers->erase($requestCredential);
+            }
+        }
     }
 
     /** @return array{purpose: string, profileId: string, provider: string, model: string,

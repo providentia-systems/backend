@@ -34,6 +34,7 @@ final class AiService
         private readonly TransactionManager $transactions,
         private readonly int $maxImageBytes,
         private readonly int $maxImages,
+        private readonly SensitiveBufferEraser $buffers,
     ) {
     }
 
@@ -508,6 +509,47 @@ final class AiService
         string $bytes,
         array $additionalImages = [],
     ): array {
+        $sensitive = new SensitiveBufferScope($this->buffers);
+        $sensitive->track($bytes);
+        foreach ($additionalImages as &$image) {
+            if (isset($image['bytes']) && is_string($image['bytes'])) {
+                $sensitive->track($image['bytes']);
+            }
+        }
+        unset($image);
+
+        try {
+            return $this->extractTracked(
+                $identity,
+                $homeId,
+                $kind,
+                $targetId,
+                $transmissionConsent,
+                $declaredMimeType,
+                $bytes,
+                $additionalImages,
+                $sensitive,
+            );
+        } finally {
+            $sensitive->eraseAll();
+        }
+    }
+
+    /**
+     * @param list<array{mimeType: string, bytes: string}> $additionalImages
+     * @return array{id: string, status: string, candidateCount: int, observationCount: int}
+     */
+    private function extractTracked(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $kind,
+        ?string $targetId,
+        bool $transmissionConsent,
+        string $declaredMimeType,
+        string &$bytes,
+        array &$additionalImages,
+        SensitiveBufferScope $sensitive,
+    ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_USE);
         if (! $transmissionConsent) {
             throw new Problem(
@@ -523,15 +565,19 @@ final class AiService
             throw new Problem(404, 'Not found', 'The requested extraction target is unavailable.');
         }
         $observations = [['mimeType' => $this->validateImage($declaredMimeType, $bytes), 'bytes' => $bytes]];
-        foreach ($additionalImages as $image) {
+        $sensitive->track($observations[0]['bytes']);
+        foreach ($additionalImages as &$image) {
             if (! isset($image['mimeType'], $image['bytes'])) {
                 throw new Problem(422, 'Invalid extraction', 'Every extraction observation must be an image.');
             }
-            $observations[] = [
+            $position = count($observations);
+            $observations[$position] = [
                 'mimeType' => $this->validateImage((string) $image['mimeType'], (string) $image['bytes']),
                 'bytes' => (string) $image['bytes'],
             ];
+            $sensitive->track($observations[$position]['bytes']);
         }
+        unset($image);
         if (count($observations) > $this->maxImages) {
             throw new Problem(413, 'Too many images', 'The configured multi-image observation limit was exceeded.');
         }
@@ -547,6 +593,10 @@ final class AiService
         [$plan, $validator, $credentials] = $policy === null
             ? $this->legacyPlan($homeId, $settings)
             : $this->policyPlan($homeId, $policy);
+        foreach ($credentials as &$credential) {
+            $sensitive->track($credential);
+        }
+        unset($credential);
         if ($policy !== null) {
             $plannedCost = array_sum(array_map(
                 static fn (AiExecution $execution): int => $execution->estimatedCostMicros,
@@ -559,12 +609,6 @@ final class AiService
                     $plannedCost,
                 )
             ) {
-                if (function_exists('sodium_memzero')) {
-                    foreach ($credentials as &$credential) {
-                        sodium_memzero($credential);
-                    }
-                    unset($credential);
-                }
                 throw new Problem(409, 'AI budget exceeded', 'The multi-image request exceeds the policy cost budget.');
             }
         }
@@ -592,7 +636,7 @@ final class AiService
             $results = [];
             $usage = ['inputTokens' => 0, 'outputTokens' => 0, 'totalTokens' => 0];
             $seenDigests = [];
-            foreach ($observations as $observationIndex => $observation) {
+            foreach ($observations as $observationIndex => &$observation) {
                 $digest = hash('sha256', $observation['bytes']);
                 if (isset($seenDigests[$digest])) {
                     $this->maturity->recordObservationDecision(
@@ -638,6 +682,7 @@ final class AiService
                 );
                 $discrepancyPosition += count($orchestration->discrepancies);
             }
+            unset($observation);
             if (
                 $policy !== null
                 && $usage['totalTokens'] !== null
@@ -675,13 +720,6 @@ final class AiService
             $detail = 'The provider request could not be completed safely.';
             $this->store->failExtraction($id, $homeId, 'provider_failure', $detail, $this->clock->now());
             throw new Problem(502, 'AI extraction failed', $detail);
-        } finally {
-            if (function_exists('sodium_memzero')) {
-                foreach ($credentials as &$credential) {
-                    sodium_memzero($credential);
-                }
-                unset($credential);
-            }
         }
 
         $candidateCount = is_array($result['candidates']) ? count($result['candidates']) : 0;

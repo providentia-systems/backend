@@ -12,6 +12,7 @@ use Laminas\Diactoros\Uri;
 use PHPUnit\Framework\TestCase;
 use Providentia\AiIntegration\Application\AiMaturityStore;
 use Providentia\AiIntegration\Application\AiProvider;
+use Providentia\AiIntegration\Application\AiProviderException;
 use Providentia\AiIntegration\Application\AiProviderRegistry;
 use Providentia\AiIntegration\Application\AiService;
 use Providentia\AiIntegration\Application\AiStore;
@@ -23,9 +24,11 @@ use Providentia\AiIntegration\Application\Media\VideoProcessor;
 use Providentia\AiIntegration\Application\Orchestration\AiOrchestrator;
 use Providentia\AiIntegration\Application\Orchestration\ExtractionReconciler;
 use Providentia\AiIntegration\Application\Orchestration\ProviderFailureClassifier;
+use Providentia\AiIntegration\Application\SensitiveBufferEraser;
 use Providentia\AiIntegration\Domain\ExtractionOutcome;
 use Providentia\AiIntegration\Domain\ExtractionRequest;
 use Providentia\AiIntegration\Http\AiHandler;
+use Providentia\AiIntegration\Infrastructure\Security\SodiumSensitiveBufferEraser;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AuthenticatedIdentity;
@@ -129,6 +132,7 @@ final class AiSettingsPrivacyTest extends TestCase
                 $schema,
                 new ProviderFailureClassifier(),
                 new ExtractionReconciler(),
+                new SodiumSensitiveBufferEraser(),
             ),
             $this->privateMedia($maturity, $storage),
             $this->authorization(),
@@ -137,6 +141,7 @@ final class AiSettingsPrivacyTest extends TestCase
             $transactions,
             8_388_608,
             8,
+            new SodiumSensitiveBufferEraser(),
         );
 
         $result = $service->extract(
@@ -155,6 +160,7 @@ final class AiSettingsPrivacyTest extends TestCase
 
     public function testHttpBoundaryAcceptsImageAndTwoRepeatedImagesArrayParts(): void
     {
+        $buffers = new RecordingSensitiveBufferEraser();
         $store = $this->createMock(AiStore::class);
         $store->method('targetExists')->with(self::HOME_ID, 'receipt', null)->willReturn(true);
         $store->method('settings')->with(self::HOME_ID)->willReturn([
@@ -208,6 +214,7 @@ final class AiSettingsPrivacyTest extends TestCase
                 $schema,
                 new ProviderFailureClassifier(),
                 new ExtractionReconciler(),
+                $buffers,
             ),
             $this->privateMedia($maturity, $this->createStub(MediaStorage::class)),
             $this->authorization(),
@@ -216,8 +223,9 @@ final class AiSettingsPrivacyTest extends TestCase
             $transactions,
             8_388_608,
             8,
+            $buffers,
         );
-        $request = (new ServerRequest(
+        $request = fn (): ServerRequest => (new ServerRequest(
             [],
             [],
             new Uri('https://app.example.test/api/v1/homes/' . self::HOME_ID . '/ai/extractions'),
@@ -237,18 +245,28 @@ final class AiSettingsPrivacyTest extends TestCase
                 'images' => [$this->pngUpload('b'), $this->pngUpload('c')],
             ]);
 
-        $handler = new AiHandler($service, 'extractions.create', 8_388_608);
-        /** @var array<string, mixed> $validBody */
-        $validBody = $request->getParsedBody();
+        $handler = new AiHandler(
+            $service,
+            'extractions.create',
+            8_388_608,
+            $buffers,
+        );
         foreach (
             [
-                $request->withParsedBody([...$validBody, 'unexpected' => 'ignored']),
-                $request->withParsedBody([...$validBody, 'transmissionConsent' => '1']),
-                $request->withUploadedFiles([
+                $request()->withParsedBody([
+                    'kind' => 'receipt',
+                    'transmissionConsent' => true,
+                    'unexpected' => 'ignored',
+                ]),
+                $request()->withParsedBody([
+                    'kind' => 'receipt',
+                    'transmissionConsent' => '1',
+                ]),
+                $request()->withUploadedFiles([
                     'image' => $this->pngUpload('a'),
                     'images' => array_fill(0, 8, $this->pngUpload('b')),
                 ]),
-                $request->withUploadedFiles([
+                $request()->withUploadedFiles([
                     'image' => $this->pngUpload('a'),
                     'images' => [$this->pngUpload('b')],
                     'unexpected' => $this->pngUpload('c'),
@@ -263,12 +281,127 @@ final class AiSettingsPrivacyTest extends TestCase
             }
         }
 
-        $response = $handler->handle($request);
+        $validRequest = $request();
+        $validUploads = $validRequest->getUploadedFiles();
+        $response = $handler->handle($validRequest);
         $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertSame(201, $response->getStatusCode());
         self::assertSame(3, $body['observationCount']);
         self::assertSame(3, $provider->calls);
+        foreach (['a', 'b', 'c'] as $marker) {
+            self::assertContains("\x89PNG\r\n\x1A\n" . str_repeat($marker, 20), $buffers->erased);
+        }
+        $validImage = $validUploads['image'] ?? null;
+        $validImages = $validUploads['images'] ?? null;
+        self::assertInstanceOf(UploadedFile::class, $validImage);
+        self::assertIsArray($validImages);
+        self::assertFalse($validImage->getStream()->isReadable());
+        foreach ($validImages as $upload) {
+            self::assertInstanceOf(UploadedFile::class, $upload);
+            self::assertFalse($upload->getStream()->isReadable());
+        }
+    }
+
+    public function testHttpBoundaryErasesReadBytesAndClosesEveryStreamWhenLaterValidationFails(): void
+    {
+        $buffers = new RecordingSensitiveBufferEraser();
+        $primary = $this->pngUpload('s');
+        $shortStream = new Stream('php://temp', 'wb+');
+        $shortStream->write('short');
+        $shortStream->rewind();
+        $short = new UploadedFile($shortStream, 5, UPLOAD_ERR_OK, 'short.png', 'image/png');
+        $request = (new ServerRequest(
+            [],
+            [],
+            new Uri('https://app.example.test/api/v1/homes/' . self::HOME_ID . '/ai/extractions'),
+            'POST',
+            'php://memory',
+        ))
+            ->withAttribute('homeId', self::HOME_ID)
+            ->withAttribute(BearerAuthenticationMiddleware::ATTRIBUTE, $this->identity())
+            ->withParsedBody(['kind' => 'stock', 'transmissionConsent' => true])
+            ->withUploadedFiles(['image' => $primary, 'images' => [$short]]);
+
+        try {
+            (new AiHandler(
+                $this->aiService(),
+                'extractions.create',
+                8_388_608,
+                $buffers,
+            ))->handle($request);
+            self::fail('An undersized additional observation was accepted.');
+        } catch (Problem $problem) {
+            self::assertSame(413, $problem->status);
+        }
+
+        self::assertContains("\x89PNG\r\n\x1A\n" . str_repeat('s', 20), $buffers->erased);
+        self::assertFalse($primary->getStream()->isReadable());
+        self::assertFalse($short->getStream()->isReadable());
+    }
+
+    public function testHttpBoundaryErasesAllBuffersAndClosesStreamsWhenTheProviderFails(): void
+    {
+        $buffers = new RecordingSensitiveBufferEraser();
+        $store = $this->createMock(AiStore::class);
+        $store->method('targetExists')->with(self::HOME_ID, 'stock', null)->willReturn(true);
+        $store->method('settings')->with(self::HOME_ID)->willReturn([
+            'mode' => 'server_proxy',
+            'provider' => 'failing',
+            'model' => 'synthetic-vision',
+            'revision' => 1,
+        ]);
+        $store->expects(self::once())->method('startExtraction');
+        $store->expects(self::once())->method('failExtraction');
+        $maturity = $this->createStub(AiMaturityStore::class);
+        $maturity->method('orchestrationPolicy')->willReturn(null);
+        $provider = new class implements AiProvider {
+            public function id(): string
+            {
+                return 'failing';
+            }
+
+            public function requiresCredential(): bool
+            {
+                return false;
+            }
+
+            public function extract(ExtractionRequest $request): never
+            {
+                throw new AiProviderException('provider_refusal', 'The material was refused.');
+            }
+        };
+        $primary = $this->pngUpload('p');
+        $additional = $this->pngUpload('q');
+        $request = (new ServerRequest(
+            [],
+            [],
+            new Uri('https://app.example.test/api/v1/homes/' . self::HOME_ID . '/ai/extractions'),
+            'POST',
+            'php://memory',
+        ))
+            ->withAttribute('homeId', self::HOME_ID)
+            ->withAttribute(BearerAuthenticationMiddleware::ATTRIBUTE, $this->identity())
+            ->withParsedBody(['kind' => 'stock', 'transmissionConsent' => true])
+            ->withUploadedFiles(['image' => $primary, 'images' => [$additional]]);
+
+        try {
+            (new AiHandler(
+                $this->directExtractionService($store, $maturity, $provider, $buffers),
+                'extractions.create',
+                8_388_608,
+                $buffers,
+            ))->handle($request);
+            self::fail('A failed provider request was reported as successful.');
+        } catch (Problem $problem) {
+            self::assertSame(502, $problem->status);
+        }
+
+        foreach (['p', 'q'] as $marker) {
+            self::assertContains("\x89PNG\r\n\x1A\n" . str_repeat($marker, 20), $buffers->erased);
+        }
+        self::assertFalse($primary->getStream()->isReadable());
+        self::assertFalse($additional->getStream()->isReadable());
     }
 
     public function testProfileCredentialRevocationIsPrivacySafeAndDoesNotConsultPolicy(): void
@@ -332,7 +465,12 @@ final class AiSettingsPrivacyTest extends TestCase
             ]);
 
         try {
-            (new AiHandler($this->aiService(), 'extractions.create-stored', 8_388_608))->handle($request);
+            (new AiHandler(
+                $this->aiService(),
+                'extractions.create-stored',
+                8_388_608,
+                new SodiumSensitiveBufferEraser(),
+            ))->handle($request);
             self::fail('A truthy JSON string was accepted as transmission consent.');
         } catch (Problem $problem) {
             self::assertSame(422, $problem->status);
@@ -420,6 +558,7 @@ final class AiSettingsPrivacyTest extends TestCase
                 $schema,
                 new ProviderFailureClassifier(),
                 new ExtractionReconciler(),
+                new SodiumSensitiveBufferEraser(),
             ),
             $this->privateMedia($maturity, $this->createStub(MediaStorage::class)),
             $this->authorization(),
@@ -428,6 +567,44 @@ final class AiSettingsPrivacyTest extends TestCase
             $transactions,
             8_388_608,
             8,
+            new SodiumSensitiveBufferEraser(),
+        );
+    }
+
+    private function directExtractionService(
+        AiStore $store,
+        AiMaturityStore $maturity,
+        AiProvider $provider,
+        SensitiveBufferEraser $buffers,
+    ): AiService {
+        $transactions = $this->createStub(TransactionManager::class);
+        $transactions->method('transactional')->willReturnCallback(
+            static fn (callable $operation): mixed => $operation(),
+        );
+        $ids = $this->createStub(UuidGenerator::class);
+        $ids->method('generate')->willReturn('01912345-6789-7abc-fdef-0123456789ab');
+        $schema = new ExtractionSchema();
+
+        return new AiService(
+            $store,
+            $maturity,
+            new AiProviderRegistry([$provider]),
+            $this->createStub(CredentialCipher::class),
+            $schema,
+            new AiOrchestrator(
+                $schema,
+                new ProviderFailureClassifier(),
+                new ExtractionReconciler(),
+                $buffers,
+            ),
+            $this->privateMedia($maturity, $this->createStub(MediaStorage::class)),
+            $this->authorization(),
+            $ids,
+            $this->clock(),
+            $transactions,
+            8_388_608,
+            8,
+            $buffers,
         );
     }
 

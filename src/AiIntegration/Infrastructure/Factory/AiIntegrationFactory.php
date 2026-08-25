@@ -19,6 +19,7 @@ use Providentia\AiIntegration\Application\Media\VideoProcessor;
 use Providentia\AiIntegration\Application\Orchestration\AiOrchestrator;
 use Providentia\AiIntegration\Application\Orchestration\ExtractionReconciler;
 use Providentia\AiIntegration\Application\Orchestration\ProviderFailureClassifier;
+use Providentia\AiIntegration\Application\SensitiveBufferEraser;
 use Providentia\AiIntegration\Http\AiHandler;
 use Providentia\AiIntegration\Http\PrivateMediaHandler;
 use Providentia\AiIntegration\Infrastructure\Cli\VideoProcessCommand;
@@ -34,6 +35,7 @@ use Providentia\AiIntegration\Infrastructure\Provider\OpenAiCompatibleProvider;
 use Providentia\AiIntegration\Infrastructure\Provider\OpenAiResponsesProvider;
 use Providentia\AiIntegration\Infrastructure\Provider\XaiChatCompletionsProvider;
 use Providentia\AiIntegration\Infrastructure\Security\NativeCredentialCipher;
+use Providentia\AiIntegration\Infrastructure\Security\SodiumSensitiveBufferEraser;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\TransactionManager;
@@ -58,12 +60,14 @@ final class AiIntegrationFactory
                 $container->get(ExtractionSchema::class),
                 $container->get(ProviderFailureClassifier::class),
                 $container->get(ExtractionReconciler::class),
+                $container->get(SensitiveBufferEraser::class),
                 (int) $ai['orchestration_max_attempts'],
             ),
             $requestedName === NativeCredentialCipher::class => new NativeCredentialCipher(
                 (string) $ai['credential_kek'],
                 (int) $ai['credential_key_version'],
             ),
+            $requestedName === SodiumSensitiveBufferEraser::class => new SodiumSensitiveBufferEraser(),
             $requestedName === EndpointPolicy::class => new EndpointPolicy(
                 $this->allowedHosts($ai),
                 (bool) $ai['allow_private_endpoints'],
@@ -149,6 +153,7 @@ final class AiIntegrationFactory
                 $container->get(TransactionManager::class),
                 (int) $ai['max_image_bytes'],
                 (int) $ai['max_images'],
+                $container->get(SensitiveBufferEraser::class),
             ),
             str_starts_with($requestedName, 'ai.media.') => new PrivateMediaHandler(
                 $container->get(PrivateMediaService::class),
@@ -159,6 +164,7 @@ final class AiIntegrationFactory
                 $container->get(AiService::class),
                 substr($requestedName, strlen('ai.')),
                 (int) $ai['max_image_bytes'],
+                $container->get(SensitiveBufferEraser::class),
             ),
             default => throw new \LogicException('Unsupported AI integration service: ' . $requestedName),
         };
