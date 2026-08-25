@@ -808,6 +808,256 @@ assert_json 'The promoted contribution did not resolve through the global item-m
     and .category == "Acceptance pantry"
 ' --arg productId "$published_product_id" --arg categoryId "$published_category_id"
 
+# A shared store price is accepted only for a currently published product/pack
+# attached to the homeowner's private inventory source. The stable submission
+# identifier makes retries idempotent; moderator and public projections never
+# expose the home, source entity, user, receipt, or reviewer.
+pack_proposal_body="$(jq -cn --arg productId "$published_product_id" '
+    {
+        type:"pack",
+        payload:{
+            productId:$productId,
+            originalPackText:"400 g tin",
+            unitId:null,
+            amount:null,
+            multiplicity:1
+        }
+    }
+')"
+http_json POST '/api/v1/catalog/proposals' \
+    201 "$admin_access_token" "$pack_proposal_body"
+assert_json 'The global pack proposal was not accepted for review.' '
+    .status == "pending" and .revision == 1
+'
+pack_proposal_id="$(jq -er '.id' "$response_body")"
+catalog_decision_body="$(jq -cn '
+    {decision:"approve",reason:"Acceptance pack fixture",expectedRevision:1}
+')"
+http_json POST "/api/v1/catalog-admin/proposals/${pack_proposal_id}/decision" \
+    200 "$admin_access_token" "$catalog_decision_body"
+assert_json 'Admin approval did not publish the store-price pack.' '
+    .status == "approved"
+    and .entityType == "pack"
+    and (.entityId | type == "string" and length > 0)
+'
+published_pack_id="$(jq -er '.entityId' "$response_body")"
+http_json GET "/api/v1/catalog/products/${published_product_id}" 200
+assert_json 'The approved pack was not visible on the canonical product.' '
+    .packs
+    | any(.id == $packId and .packText == "400 g tin" and .revision == 1)
+' --arg packId "$published_pack_id"
+
+store_price_source_body="$(jq -cn \
+    --arg productId "$published_product_id" \
+    --arg packId "$published_pack_id" '
+    {productId:$productId,packId:$packId}
+')"
+http_json POST "/api/v1/homes/${home_id}/products" \
+    201 "$homeowner_access_token" "$store_price_source_body"
+assert_json 'The published pack was not attached to a private inventory source.' '
+    .id | type == "string" and length > 0
+'
+store_price_source_id="$(jq -er '.id' "$response_body")"
+http_json GET "/api/v1/homes/${home_id}/products?q=Acceptance%20baked%20beans&limit=50&offset=0" \
+    200 "$homeowner_access_token"
+assert_json 'The global-bound store-price source was not queryable in the homeowner item master.' '
+    .data
+    | any(
+        .homeProductId == $sourceId
+        and .productId == $productId
+        and .packId == $packId
+        and .homeProductStatus == "active"
+    )
+' \
+    --arg sourceId "$store_price_source_id" \
+    --arg productId "$published_product_id" \
+    --arg packId "$published_pack_id"
+
+price_consent_body="$(jq -cn '
+    {
+        shareProductIdentity:true,
+        shareProductImages:false,
+        shareStorePrices:true,
+        noticeVersion:"catalog-sharing-v1",
+        expectedRevision:1
+    }
+')"
+http_json PUT "/api/v1/homes/${home_id}/catalog-contributions/consent" \
+    200 "$homeowner_access_token" "$price_consent_body"
+assert_json 'Store-price consent was not independently revisioned.' '
+    .revision == 2
+    and .shareProductIdentity == true
+    and .shareProductImages == false
+    and .shareStorePrices == true
+'
+
+store_price_submission_id="$(uuid)"
+observed_on="$(date -u +%F)"
+store_price_payload="$(jq -cn \
+    --arg productId "$published_product_id" \
+    --arg packId "$published_pack_id" \
+    --arg observedOn "$observed_on" '
+    {
+        productId:$productId,
+        packId:$packId,
+        storeName:"Acceptance Market",
+        storeLocation:"Windhoek",
+        price:"12.50",
+        currency:"NAD",
+        observedOn:$observedOn
+    }
+')"
+store_price_body="$(jq -cn \
+    --arg submissionId "$store_price_submission_id" \
+    --arg sourceEntityId "$store_price_source_id" \
+    --argjson payload "$store_price_payload" '
+    {
+        submissionId:$submissionId,
+        type:"store_price",
+        sourceEntityId:$sourceEntityId,
+        expectedConsentRevision:2,
+        payload:$payload
+    }
+')"
+http_json POST "/api/v1/homes/${home_id}/catalog-contributions" \
+    201 "$homeowner_access_token" "$store_price_body"
+assert_json 'The consent-bound store price was not created exactly once.' '
+    .id == $submissionId
+    and .contributionType == "store_price"
+    and .payload == $payload
+    and .status == "pending"
+    and .revision == 1
+' --arg submissionId "$store_price_submission_id" --argjson payload "$store_price_payload"
+http_json POST "/api/v1/homes/${home_id}/catalog-contributions" \
+    200 "$homeowner_access_token" "$store_price_body"
+assert_json 'An exact store-price replay was not idempotent.' '
+    .id == $submissionId
+    and .contributionType == "store_price"
+    and .payload == $payload
+    and .status == "pending"
+    and .revision == 1
+' --arg submissionId "$store_price_submission_id" --argjson payload "$store_price_payload"
+
+http_json GET '/api/v1/catalog-contributions/review?status=pending&limit=50&offset=0' \
+    200 "$admin_access_token"
+assert_json 'The store price was absent from the Admin moderation queue.' '
+    .data
+    | any(
+        .id == $submissionId
+        and .contributionType == "store_price"
+        and .payload == $payload
+        and .status == "pending"
+        and .revision == 1
+        and .consentNoticeVersion == "catalog-sharing-v1"
+        and .consentRevision == 2
+        and (.createdAt | type == "string" and length > 0)
+    )
+' --arg submissionId "$store_price_submission_id" --argjson payload "$store_price_payload"
+assert_json 'The store-price moderation projection leaked private attribution.' '
+    [.data[]? | .. | objects | keys[]]
+    | all(
+        . != "homeId"
+        and . != "sourceEntityId"
+        and . != "sourceFingerprint"
+        and . != "submittedByUserId"
+        and . != "reviewedByUserId"
+        and . != "recordedByUserId"
+        and . != "userId"
+        and . != "email"
+        and . != "consentReceiptId"
+        and . != "receiptId"
+        and . != "providerReference"
+    )
+'
+
+decision_body="$(jq -cn '
+    {decision:"approved",reason:"Acceptance store price is safe",expectedRevision:1}
+')"
+http_json PUT "/api/v1/catalog-contributions/${store_price_submission_id}/decision" \
+    204 "$admin_access_token" "$decision_body"
+http_json GET '/api/v1/catalog-contributions/review?status=approved&limit=50&offset=0' \
+    200 "$admin_access_token"
+assert_json 'The approved store price did not retain its safe projection and revision.' '
+    .data
+    | any(
+        .id == $submissionId
+        and .contributionType == "store_price"
+        and .payload == $payload
+        and .status == "approved"
+        and .revision == 2
+    )
+' --arg submissionId "$store_price_submission_id" --argjson payload "$store_price_payload"
+
+http_json GET '/api/v1/catalog-contributions?type=store_price&limit=50&offset=0' 200
+assert_json 'The approved store price did not enter the public contribution feed.' '
+    .data
+    | any(
+        .contributionType == "store_price"
+        and .payload == $payload
+        and (.publishedAt | type == "string" and length > 0)
+    )
+' --argjson payload "$store_price_payload"
+assert_json 'The public store-price projection leaked private attribution.' '
+    [.data[]? | .. | objects | keys[]]
+    | all(
+        . != "homeId"
+        and . != "sourceEntityId"
+        and . != "sourceFingerprint"
+        and . != "submittedByUserId"
+        and . != "reviewedByUserId"
+        and . != "recordedByUserId"
+        and . != "userId"
+        and . != "email"
+        and . != "consentReceiptId"
+        and . != "receiptId"
+        and . != "providerReference"
+    )
+'
+
+# The approved public fact and its moderation state must survive an API
+# restart; the lane deliberately restarts only the API against the same
+# persistent SQLite volume instead of relying on in-memory state.
+"${compose[@]}" restart api-sqlite >/dev/null
+wait_for_api
+http_json GET '/api/v1/catalog-contributions?type=store_price&limit=50&offset=0' 200
+assert_json 'The approved store price was not durable across an API restart.' '
+    .data | any(.contributionType == "store_price" and .payload == $payload)
+' --argjson payload "$store_price_payload"
+
+price_consent_body="$(jq -cn '
+    {
+        shareProductIdentity:true,
+        shareProductImages:false,
+        shareStorePrices:false,
+        noticeVersion:"catalog-sharing-v1",
+        expectedRevision:2
+    }
+')"
+http_json PUT "/api/v1/homes/${home_id}/catalog-contributions/consent" \
+    200 "$homeowner_access_token" "$price_consent_body"
+assert_json 'Store-price consent revocation did not advance independently.' '
+    .revision == 3
+    and .shareProductIdentity == true
+    and .shareProductImages == false
+    and .shareStorePrices == false
+'
+http_json GET '/api/v1/catalog-contributions/review?status=withdrawn&limit=50&offset=0' \
+    200 "$admin_access_token"
+assert_json 'Revoking price consent did not withdraw the approved observation.' '
+    .data
+    | any(
+        .id == $submissionId
+        and .contributionType == "store_price"
+        and .payload == $payload
+        and .status == "withdrawn"
+        and .revision == 3
+    )
+' --arg submissionId "$store_price_submission_id" --argjson payload "$store_price_payload"
+http_json GET '/api/v1/catalog-contributions?type=store_price&limit=50&offset=0' 200
+assert_json 'A withdrawn store price remained in the public contribution feed.' '
+    .data | all(.payload != $payload)
+' --argjson payload "$store_price_payload"
+
 # A stock photo produces only a proposal. The write-only credential can be
 # replaced, and no count or balance changes before an explicit human commit.
 count_body="$(jq -cn '
@@ -996,6 +1246,11 @@ jq -n \
         consentBoundContribution:true,
         attributionFreeModeration:true,
         contributionPromotedToGlobalCatalog:true,
+        storePriceIdempotent:true,
+        storePriceModerated:true,
+        storePricePersisted:true,
+        storePriceAttributionFree:true,
+        storePriceWithdrawnOnConsentRevocation:true,
         writeOnlyAiCredentialReplacement:true,
         quantityRangeProposal:true,
         noMutationBeforeHumanCommit:true,
