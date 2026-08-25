@@ -9,6 +9,7 @@ use Mezzio\Router\Middleware\RouteMiddleware;
 use Providentia\SharedKernel\Http\ProblemDetailsMiddleware;
 use Providentia\SharedKernel\Http\RequestIdMiddleware;
 use Providentia\SharedKernel\Http\CorsMiddleware;
+use Providentia\SharedKernel\Http\NotFoundHandler;
 use Providentia\SharedKernel\Http\SecurityHeadersMiddleware;
 
 return static function (Application $app): void {
@@ -21,4 +22,5 @@ return static function (Application $app): void {
     $app->pipe(BodyParamsMiddleware::class);
     $app->pipe(RouteMiddleware::class);
     $app->pipe(DispatchMiddleware::class);
+    $app->pipe(NotFoundHandler::class);
 };

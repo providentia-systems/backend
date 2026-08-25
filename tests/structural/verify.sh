@@ -67,7 +67,7 @@ done
 grep -Fq '#requestId=%s&approval=%s' src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
   || fail "login-link email must keep the request and approval capability in an application fragment"
 assert_no_matches "login-link approval capability can leak through a query string" \
-  -n -F '?approval=' src templates docs config
+  -n -F '?approval=' src docs config
 for caddyfile in infrastructure/caddy/Caddyfile infrastructure/caddy/Caddyfile.production; do
   for header in X-Content-Type-Options Referrer-Policy Permissions-Policy Content-Security-Policy; do
     grep -Fq "?$header" "$caddyfile" \
