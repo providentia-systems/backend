@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Providentia\AiIntegration\Infrastructure\Provider;
 
-use JsonException;
 use Providentia\AiIntegration\Application\AiProvider;
 use Providentia\AiIntegration\Application\AiProviderException;
 use Providentia\AiIntegration\Application\ExtractionSchema;
 use Providentia\AiIntegration\Application\JsonHttpClient;
 use Providentia\AiIntegration\Domain\ExtractionOutcome;
 use Providentia\AiIntegration\Domain\ExtractionRequest;
+use Providentia\AiIntegration\Infrastructure\Http\ProviderJsonDecoder;
 
 final readonly class OpenAiCompatibleProvider implements AiProvider
 {
@@ -81,14 +81,7 @@ final readonly class OpenAiCompatibleProvider implements AiProvider
         if (! is_string($content)) {
             throw new AiProviderException('provider_empty_output', 'The provider returned no structured output.');
         }
-        try {
-            $decoded = json_decode($content, true, 128, JSON_THROW_ON_ERROR);
-        } catch (JsonException) {
-            throw new AiProviderException('provider_invalid_json', 'The provider returned invalid JSON.');
-        }
-        if (! is_array($decoded) || array_is_list($decoded)) {
-            throw new AiProviderException('provider_invalid_json', 'The provider returned an invalid JSON object.');
-        }
+        $decoded = ProviderJsonDecoder::structuredOutput($content);
 
         $usage = is_array($response['usage'] ?? null) ? $response['usage'] : [];
 

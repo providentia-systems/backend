@@ -102,6 +102,13 @@ for (const pin of [
 ]) {
   if (!dockerfile.includes(pin)) throw new Error(`Agent Dockerfile is missing ${pin}.`);
 }
+const toolVersions = fs.readFileSync(path.join(root, '.tool-versions'), 'utf8');
+if (!/^php 8\.5\.9$/m.test(toolVersions)) {
+  throw new Error('The contributor PHP pin must match the 8.5.9 agent and production image.');
+}
+if (!/^nodejs 22\.14\.0$/m.test(toolVersions)) {
+  throw new Error('The contributor Node.js pin must match the 22.14.0 agent runtime.');
+}
 NODE
   bash -n "$script_directory/agent-setup.sh"
   echo 'Agent development environment contract verified.'

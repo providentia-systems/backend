@@ -464,6 +464,10 @@ grep -Fq '$socket = @fsockopen' tests/Acceptance/compose.headless-platform-accep
   || fail 'the fixture readiness probe must escape its PHP variable from Compose interpolation'
 grep -Fq 'test -r /app/var/providentia.sqlite' tests/Acceptance/compose.headless-platform-acceptance.yaml \
   || fail 'the notification worker must expose a database-readiness healthcheck to Compose'
+grep -Fq "header('Content-Length: ' . strlen(\$encoded));" tests/fixtures/ai-provider-router.php \
+  || fail 'the deterministic AI fixture must frame its strict JSON response completely'
+grep -Fq 'preflight_ai_fixture' tests/Acceptance/headless-platform-acceptance.sh \
+  || fail 'headless acceptance must distinguish provider transport JSON from structured output'
 dockerfile_copy_line="$(grep -n '^COPY \. \.$' Dockerfile | cut -d: -f1)"
 dockerfile_autoload_line="$(grep -nF 'composer dump-autoload --no-dev --classmap-authoritative --no-interaction' Dockerfile | cut -d: -f1)"
 [[ -n "$dockerfile_copy_line" && -n "$dockerfile_autoload_line" \

@@ -72,16 +72,7 @@ final readonly class StreamJsonHttpClient implements JsonHttpClient
             };
             throw new AiProviderException($code, 'The provider rejected or could not complete the request.');
         }
-        try {
-            $decoded = json_decode($body, true, 128, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            throw new AiProviderException('provider_invalid_json', 'The provider returned invalid JSON.');
-        }
-        if (! is_array($decoded) || array_is_list($decoded)) {
-            throw new AiProviderException('provider_invalid_json', 'The provider returned an invalid JSON object.');
-        }
-
-        return $decoded;
+        return ProviderJsonDecoder::httpResponse($body);
     }
 
     /** @param mixed $wrapperData */
