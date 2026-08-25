@@ -1,0 +1,9 @@
+FROM php:8.5.9-cli-alpine3.23
+
+WORKDIR /fixture
+COPY ai-provider-router.php /fixture/router.php
+
+USER www-data
+EXPOSE 8090
+
+ENTRYPOINT ["php", "-S", "0.0.0.0:8090", "/fixture/router.php"]

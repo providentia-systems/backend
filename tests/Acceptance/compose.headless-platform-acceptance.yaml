@@ -41,14 +41,8 @@ services:
 
   ai-fixture:
     build:
-      context: .
-      dockerfile: Dockerfile
-    entrypoint:
-      - php
-      - -S
-      - 0.0.0.0:8090
-      - tests/fixtures/ai-provider-router.php
-    command: []
+      context: tests/fixtures
+      dockerfile: Dockerfile.ai-provider
     restart: unless-stopped
     healthcheck:
       test:
@@ -56,9 +50,14 @@ services:
         - php
         - -r
         - >-
-          $$socket = @fsockopen('127.0.0.1', 8090);
-          if (is_resource($$socket)) { fclose($$socket); exit(0); }
-          exit(1);
+          try {
+            exit(json_decode(
+              (string) @file_get_contents('http://127.0.0.1:8090/health'),
+              true,
+              4,
+              JSON_THROW_ON_ERROR
+            ) === ['status' => 'ready'] ? 0 : 1);
+          } catch (Throwable) { exit(1); }
       interval: 2s
       timeout: 2s
       retries: 30
