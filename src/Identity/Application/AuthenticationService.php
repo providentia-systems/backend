@@ -124,7 +124,8 @@ final class AuthenticationService
             $action,
             $application,
             $purpose,
-        ): ?string {
+        ): ?string
+        {
             $user = $this->store->findUserById($identity->userId);
             if ($user === null || (string) $user['status'] !== 'active') {
                 return null;

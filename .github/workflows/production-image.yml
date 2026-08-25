@@ -64,7 +64,9 @@ jobs:
       SYNC_CURSOR_SECRET: ci-synchronization-secret-at-least-32-bytes
       MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
       MAIL_FROM: no-reply@example.invalid
-      PUBLIC_BASE_URL: https://app.example.invalid
+      HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/auth
+      ADMIN_APP_LINK_BASE: https://admin.example.invalid/auth
+      AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,admin.example.invalid
       CORS_ALLOWED_ORIGINS: https://app.example.invalid
       MYSQL_PASSWORD: test
       MYSQL_ROOT_PASSWORD: test-root
@@ -168,7 +170,9 @@ jobs:
           SYNC_CURSOR_SECRET: ci-synchronization-secret-at-least-32-bytes
           MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
           MAIL_FROM: no-reply@example.invalid
-          PUBLIC_BASE_URL: https://app.example.invalid
+          HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/auth
+          ADMIN_APP_LINK_BASE: https://admin.example.invalid/auth
+          AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,admin.example.invalid
           CORS_ALLOWED_ORIGINS: https://app.example.invalid
           EXPOSE_DEVELOPMENT_TOKENS: "0"
         run: |
@@ -187,7 +191,8 @@ jobs:
             -e APP_ENV -e APP_VERSION -e APP_DEBUG -e DATABASE_URL -e QUEUE_DSN
             -e QUEUE_NAME -e QUEUE_REQUIRED -e AUTH_TOKEN_PEPPER -e NOTIFICATION_PAYLOAD_KEK
             -e SYNC_CURSOR_SECRET -e AI_MEDIA_KEK -e CATALOG_IMAGE_KEK -e DATA_EXPORT_KEK
-            -e MAIL_DSN -e MAIL_FROM -e PUBLIC_BASE_URL -e CORS_ALLOWED_ORIGINS
+            -e MAIL_DSN -e MAIL_FROM -e HOMEOWNER_APP_LINK_BASE -e ADMIN_APP_LINK_BASE
+            -e AUTH_APP_LINK_ALLOWED_HOSTS -e CORS_ALLOWED_ORIGINS
             -e EXPOSE_DEVELOPMENT_TOKENS
           )
           docker run --rm --network providentia-smoke -v providentia-smoke-var:/app/var \
@@ -455,7 +460,9 @@ jobs:
           SYNC_CURSOR_SECRET: published-synchronization-secret-at-least-32-bytes
           MAIL_DSN: smtps://ci:test@smtp.example.invalid:465
           MAIL_FROM: no-reply@example.invalid
-          PUBLIC_BASE_URL: https://app.example.invalid
+          HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/auth
+          ADMIN_APP_LINK_BASE: https://admin.example.invalid/auth
+          AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,admin.example.invalid
           CORS_ALLOWED_ORIGINS: https://app.example.invalid
           EXPOSE_DEVELOPMENT_TOKENS: "0"
           RUNTIME_IMAGE: ${{ steps.tags.outputs.runtime_repository }}@${{ steps.runtime.outputs.digest }}
@@ -488,7 +495,8 @@ jobs:
             -e APP_ENV -e APP_VERSION -e APP_DEBUG -e DATABASE_URL -e QUEUE_DSN
             -e QUEUE_NAME -e QUEUE_REQUIRED -e AUTH_TOKEN_PEPPER -e NOTIFICATION_PAYLOAD_KEK
             -e SYNC_CURSOR_SECRET -e AI_MEDIA_KEK -e CATALOG_IMAGE_KEK -e DATA_EXPORT_KEK
-            -e MAIL_DSN -e MAIL_FROM -e PUBLIC_BASE_URL -e CORS_ALLOWED_ORIGINS
+            -e MAIL_DSN -e MAIL_FROM -e HOMEOWNER_APP_LINK_BASE -e ADMIN_APP_LINK_BASE
+            -e AUTH_APP_LINK_ALLOWED_HOSTS -e CORS_ALLOWED_ORIGINS
             -e EXPOSE_DEVELOPMENT_TOKENS
           )
           docker run --rm --network providentia-published -v providentia-published-var:/app/var \

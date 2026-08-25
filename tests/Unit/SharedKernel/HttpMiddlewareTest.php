@@ -128,7 +128,9 @@ final class HttpMiddlewareTest extends TestCase
         $response = (new CorsMiddleware([$origin]))->process(
             $request,
             new CallbackRequestHandler(
-                static fn (ServerRequestInterface $request): ResponseInterface => new JsonResponse(['accepted' => true]),
+                static fn (ServerRequestInterface $request): ResponseInterface => new JsonResponse(
+                    ['accepted' => true],
+                ),
             ),
         );
 

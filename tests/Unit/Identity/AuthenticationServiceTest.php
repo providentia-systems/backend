@@ -251,6 +251,29 @@ final class AuthenticationServiceTest extends TestCase
         }
     }
 
+    public function testAdminApplicationCannotRequestHomeownerOwnershipStepUp(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
+        $store->expects(self::never())->method('findUserById');
+        $store->expects(self::never())->method('issueOneTimeToken');
+        $hasher = $this->createStub(CredentialHasher::class);
+        $identity = new AuthenticatedIdentity(
+            self::USER_ID,
+            self::SESSION_ID,
+            self::DEVICE_ID,
+            null,
+            ['platform_admin'],
+        );
+
+        try {
+            $this->service($store, $hasher)->requestStepUp($identity, 'ownership-transfer', 'admin');
+            self::fail('The administrator application requested a homeowner ownership step-up.');
+        } catch (Problem $problem) {
+            self::assertSame(422, $problem->status);
+            self::assertSame('Validation failed', $problem->title);
+        }
+    }
+
     private function service(
         IdentityStore $store,
         CredentialHasher $hasher,
