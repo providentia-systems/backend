@@ -2,6 +2,7 @@
 
 ## Current phase
 
+- [License](../LICENSE) — proprietary terms and rights expressly reserved by Vast Development Method Trading Pty Ltd.
 - [Backend/client/Admin inventory integration roadmap — P0–P3](inventory-integration-roadmap.md)
 - [Historical API 1.13.2 phases 04–06 testing-readiness report](product/phases/phase-04-06-testing-readiness.md)
 - [Phase 0 verified evidence](product/phases/phase-00-evidence/README.md)
