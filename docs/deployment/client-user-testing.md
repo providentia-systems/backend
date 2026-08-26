@@ -5,11 +5,10 @@ the Flutter client. It tests the production-shaped email-only **login-link**
 workflow on web, Android, iOS, Windows, macOS, and Linux. It also covers session
 restoration, multiple homes, invitations, and platform-administrator safety.
 
-Password registration and login remain available only as explicitly enabled
-development or migration-compatibility surfaces. A password login is not
-evidence that the product onboarding flow works. Do not enable password login
-or exposed development tokens in staging or production to bypass a failed
-login-link test.
+The API has no password registration, login, or reset surface; the email
+login-link exchange is the only human authentication. Do not enable exposed
+development tokens in staging or production to bypass a failed login-link
+test.
 
 The backend is headless: it provides versioned JSON API and health responses,
 not a public site, browser login, or administration page. All signed-in
@@ -246,8 +245,8 @@ Use a mailbox address that has never appeared in this environment. Use a
 unique suffix for every clean run.
 
 1. Launch the client on device A and choose **Sign in with email**.
-2. Enter the new email address. Do not enter a display name or password in a
-   browser.
+2. Enter the new email address. The client must ask for nothing else; no
+   display-name or password entry exists anywhere.
 3. Confirm the client shows a pending-login screen, persists its protected
    pending state, and polls no faster than `pollIntervalSeconds`.
 4. Confirm Mailpit or the real mailbox receives one login-link message.
@@ -518,17 +517,20 @@ transport (`web` or `native`), originating device, email-opening device,
 expected/actual session expiry fields, home/role matrix, and result. Redact all
 credentials from screenshots and reports.
 
-## 11. Development-password compatibility boundary
+## 11. Development-token boundary
 
-The setup scripts may still print a development account/password or write them
-to the mode-`0600` `.providentia-development.json` handoff for older smoke
-scripts. `scripts/provision-development-user.sh` may also exercise password and
-exposed-token endpoints on loopback. Those are isolated tooling aids only.
+The setup scripts (`setup-development.sh`, `setup-prebuilt.sh`, and
+`scripts/provision-development-user.sh`) complete the login-link flow
+non-interactively on loopback: with `EXPOSE_DEVELOPMENT_TOKENS=1`, the start
+response includes `developmentApprovalToken`, which the script uses to approve
+and exchange its own request. The resulting session material lives in the
+mode-`0600` `.providentia-development.json` handoff. Those are isolated
+tooling aids only.
 
 They must not be used to sign off any item in Sections 4–9. Production keeps
-`AUTH_PASSWORD_LOGIN_ENABLED=0` and `EXPOSE_DEVELOPMENT_TOKENS=0`. If a product
-test cannot proceed without changing either value, record the login-link flow
-as failed and fix that flow.
+`EXPOSE_DEVELOPMENT_TOKENS=0` and its startup rejects exposed development
+tokens. If a product test cannot proceed without changing that value, record
+the login-link flow as failed and fix that flow.
 
 The OpenAPI document in `contracts/openapi/providentia-v1.json` is the backend
 contract. Publish its new version and regenerate/pin the Flutter client before

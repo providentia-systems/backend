@@ -8,8 +8,8 @@ compile PHP, Composer dependencies, Caddy, or FFmpeg on the workstation.
 The local profile runs those immutable application images with MySQL 8.4,
 Redis 8.2, Mailpit, migrations, the API, queue worker, outbox relay,
 notification worker, data-governance worker, synchronization compactor, and
-video worker. Development-only email tokens and password login are enabled
-only in this loopback profile.
+video worker. Development-only login-link approval tokens
+(`EXPOSE_DEVELOPMENT_TOKENS=1`) are enabled only in this loopback profile.
 
 ## Published packages and tags
 
@@ -137,9 +137,9 @@ tag is promoted.
 
 Use the development email address from `.providentia-development.json`, choose
 **Send login link** in Flutter, open the message in Mailpit, explicitly approve
-it, and return to the originating client. Ignore the handoff password; it is
-development compatibility data, not the production onboarding path. Do not
-use saved setup-session bearer tokens as Flutter launch arguments.
+it, and return to the originating client. The handoff stores setup session
+tokens, never a password; do not use those saved setup-session bearer tokens
+as Flutter launch arguments.
 
 | Flutter target | API base URL |
 |---|---|
@@ -155,8 +155,8 @@ development origin `http://localhost:8081` is allowed by default; a custom web
 port must be added to `CORS_ALLOWED_ORIGINS` explicitly. Credentialed CORS
 cannot use a wildcard.
 
-Plain HTTP, exposed development tokens, and password login in this profile are
-for loopback testing only. The current client rejects non-loopback plain HTTP,
+Plain HTTP and exposed development tokens in this profile are for loopback
+testing only. The current client rejects non-loopback plain HTTP,
 so a USB-debuggable physical device needs the same `adb reverse` tunnel; an
 untethered device needs a trusted HTTPS development endpoint. Never expose
 `compose.prebuilt.yaml` to the internet or reuse its secrets in staging or

@@ -30,14 +30,8 @@ final class IdentityHandler implements RequestHandlerInterface
         $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
 
         return match ($this->action) {
-            'register' => $this->register($body),
             'step-up-request' => $this->stepUpRequest($request, $body),
-            'verify' => $this->verify($body),
-            'resend-verification' => $this->resendVerification($body),
-            'login' => $this->login($body),
             'refresh' => $this->refresh($request, $body),
-            'request-reset' => $this->requestReset($body),
-            'reset' => $this->reset($body),
             'sessions' => new JsonResponse(['data' => $this->authentication->listSessions($this->identity($request))]),
             'revoke-session' => $this->revoke($request),
             'logout' => $this->logout($request),
@@ -63,75 +57,6 @@ final class IdentityHandler implements RequestHandlerInterface
     }
 
     /** @param array<string, mixed> $body */
-    private function register(array $body): ResponseInterface
-    {
-        $result = $this->authentication->register(
-            (string) ($body['email'] ?? ''),
-            (string) ($body['password'] ?? ''),
-            (string) ($body['displayName'] ?? ''),
-            (string) ($body['locale'] ?? 'en-NA'),
-            (string) ($body['timezone'] ?? 'Africa/Windhoek'),
-        );
-        $response = [
-            'accepted' => true,
-            'verificationRequired' => true,
-        ];
-        if ($this->exposeDevelopmentTokens && $result['verificationToken'] !== null) {
-            $response['developmentVerificationToken'] = $result['verificationToken'];
-        }
-
-        return new JsonResponse($response, 202);
-    }
-
-    /** @param array<string, mixed> $body */
-    private function verify(array $body): ResponseInterface
-    {
-        $this->requireExactKeys($body, ['applicationKind', 'token']);
-        $this->authentication->verifyEmail(
-            (string) ($body['token'] ?? ''),
-            (string) ($body['applicationKind'] ?? ''),
-        );
-
-        return new EmptyResponse(204);
-    }
-
-    /** @param array<string, mixed> $body */
-    private function resendVerification(array $body): ResponseInterface
-    {
-        $this->requireExactKeys($body, ['applicationKind', 'email']);
-        $token = $this->authentication->resendVerification(
-            (string) ($body['email'] ?? ''),
-            (string) ($body['applicationKind'] ?? ''),
-        );
-        $response = ['accepted' => true];
-        if ($token !== null && $this->exposeDevelopmentTokens) {
-            $response['developmentVerificationToken'] = $token;
-        }
-
-        return new JsonResponse($response, 202);
-    }
-
-    /** @param array<string, mixed> $body */
-    private function login(array $body): ResponseInterface
-    {
-        $tokens = $this->authentication->login(
-            (string) ($body['email'] ?? ''),
-            (string) ($body['password'] ?? ''),
-            (string) ($body['deviceId'] ?? ''),
-            (string) ($body['deviceName'] ?? ''),
-            (string) ($body['platform'] ?? ''),
-            (string) ($body['transport'] ?? 'native'),
-            array_key_exists('requestedSessionIdleSeconds', $body)
-                ? (int) $body['requestedSessionIdleSeconds']
-                : null,
-        );
-
-        return ($tokens['transport'] ?? 'native') === 'web'
-            ? SessionResponseFactory::web($tokens, $this->cookieSecure)
-            : new JsonResponse($tokens);
-    }
-
-    /** @param array<string, mixed> $body */
     private function refresh(ServerRequestInterface $request, array $body): ResponseInterface
     {
         $cookieToken = (string) ($request->getCookieParams()['providentia_refresh'] ?? '');
@@ -142,35 +67,6 @@ final class IdentityHandler implements RequestHandlerInterface
         return ($tokens['transport'] ?? 'native') === 'web'
             ? SessionResponseFactory::web($tokens, $this->cookieSecure)
             : new JsonResponse($tokens);
-    }
-
-    /** @param array<string, mixed> $body */
-    private function requestReset(array $body): ResponseInterface
-    {
-        $this->requireExactKeys($body, ['applicationKind', 'email']);
-        $token = $this->authentication->requestPasswordReset(
-            (string) ($body['email'] ?? ''),
-            (string) ($body['applicationKind'] ?? ''),
-        );
-        $response = ['accepted' => true];
-        if ($token !== null && $this->exposeDevelopmentTokens) {
-            $response['developmentResetToken'] = $token;
-        }
-
-        return new JsonResponse($response, 202);
-    }
-
-    /** @param array<string, mixed> $body */
-    private function reset(array $body): ResponseInterface
-    {
-        $this->requireExactKeys($body, ['applicationKind', 'password', 'token']);
-        $this->authentication->resetPassword(
-            (string) ($body['token'] ?? ''),
-            (string) ($body['password'] ?? ''),
-            (string) ($body['applicationKind'] ?? ''),
-        );
-
-        return new EmptyResponse(204);
     }
 
     private function revoke(ServerRequestInterface $request): ResponseInterface

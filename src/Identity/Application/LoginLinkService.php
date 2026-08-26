@@ -39,6 +39,7 @@ final class LoginLinkService
         private readonly int $nativeIdleTtlSeconds,
         private readonly array $bootstrapAdministratorEmails,
         private readonly array $defaultHome,
+        private readonly bool $exposeDevelopmentTokens = false,
     ) {
     }
 
@@ -173,7 +174,12 @@ final class LoginLinkService
                     $application,
                 );
 
-                return $this->started($requestId, $expiresAt);
+                $started = $this->started($requestId, $expiresAt);
+                if ($this->exposeDevelopmentTokens) {
+                    $started['developmentApprovalToken'] = $approvalToken;
+                }
+
+                return $started;
             });
         } catch (\Throwable $error) {
             $existing = $this->requests->find($requestId);
@@ -273,7 +279,6 @@ final class LoginLinkService
                     $this->identities->createUser(
                         $userId,
                         $email,
-                        $this->hasher->hashPassword($this->tokens->generate()),
                         is_string($name) && $name !== '' ? mb_substr($name, 0, 120) : 'Member',
                         $this->defaultHome['locale'],
                         $this->defaultHome['timezone'],

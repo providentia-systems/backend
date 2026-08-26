@@ -64,6 +64,30 @@ final class LoginLinkServiceTest extends TestCase
             'expiresAt',
             'pollIntervalSeconds',
         ], array_keys($first));
+        self::assertArrayNotHasKey('developmentApprovalToken', $first);
+    }
+
+    public function testStartExposesTheEmailedApprovalTokenOnlyForFreshDevelopmentRequests(): void
+    {
+        $saved = null;
+        $requests = $this->createMock(LoginLinkStore::class);
+        $requests->method('find')->willReturnCallback(
+            static function (string $requestId) use (&$saved): ?array {
+                return $saved;
+            },
+        );
+        $requests->expects(self::once())->method('create')->willReturnCallback(
+            static function (array $request) use (&$saved): void {
+                $saved = $request;
+            },
+        );
+
+        $service = $this->service($requests, exposeDevelopmentTokens: true);
+        $first = $service->start($this->startInput());
+        $retry = $service->start($this->startInput());
+
+        self::assertSame('approval-token', $first['developmentApprovalToken'] ?? null);
+        self::assertArrayNotHasKey('developmentApprovalToken', $retry);
     }
 
     public function testApplicationProofReturnsNoAccountIdentityOrCredential(): void
@@ -276,7 +300,6 @@ final class LoginLinkServiceTest extends TestCase
         $identities->expects(self::once())->method('createUser')->with(
             self::USER_ID,
             'person@example.test',
-            'password-hash',
             'person',
             'en-NA',
             'Africa/Windhoek',
@@ -457,12 +480,12 @@ final class LoginLinkServiceTest extends TestCase
         ?UuidGenerator $ids = null,
         ?AccountNotificationSender $notifications = null,
         array $bootstrapAdministratorEmails = [],
+        bool $exposeDevelopmentTokens = false,
     ): LoginLinkService {
         $hasher = $this->createStub(CredentialHasher::class);
         $hasher->method('hashToken')->willReturnCallback(
             static fn (string $token): string => 'hash:' . $token,
         );
-        $hasher->method('hashPassword')->willReturn('password-hash');
         $tokens = $this->createStub(SecureTokenGenerator::class);
         $tokens->method('generate')->willReturn('approval-token');
         $identityStore = $identities ?? $this->createStub(IdentityStore::class);
@@ -504,6 +527,7 @@ final class LoginLinkServiceTest extends TestCase
                 'currency' => 'NAD',
                 'timezone' => 'Africa/Windhoek',
             ],
+            $exposeDevelopmentTokens,
         );
     }
 

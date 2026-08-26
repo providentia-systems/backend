@@ -45,28 +45,6 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
         ]);
     }
 
-    public function sendEmailVerification(
-        string $email,
-        string $token,
-        LoginApplicationKind $application,
-    ): void {
-        $this->deliver('email-verification', $email, [
-            'token' => $token,
-            'applicationKind' => $application->value,
-        ]);
-    }
-
-    public function sendPasswordReset(
-        string $email,
-        string $token,
-        LoginApplicationKind $application,
-    ): void {
-        $this->deliver('password-reset', $email, [
-            'token' => $token,
-            'applicationKind' => $application->value,
-        ]);
-    }
-
     public function sendPlatformAdministratorInvitation(string $email): void
     {
         $this->deliver('platform-administrator-invitation', $email, []);
@@ -90,7 +68,7 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
             (string) ($context['applicationKind'] ?? ''),
         );
         if (
-            in_array($template, ['login-link', 'email-verification', 'step-up-link', 'password-reset'], true)
+            in_array($template, ['login-link', 'step-up-link'], true)
             && $loginApplication === null
         ) {
             throw new RuntimeException('Application-link notification has no valid application kind.');
@@ -111,11 +89,6 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
                     rawurlencode((string) ($context['approvalToken'] ?? '')),
                 ),
             ],
-            'email-verification' => [
-                'Verify your Providentia account',
-                "Verify your account in Providentia:\n"
-                    . $applicationLink . '#action=verify-email&token=' . $token,
-            ],
             'step-up-link' => [
                 'Confirm a sensitive Providentia action',
                 sprintf(
@@ -125,11 +98,6 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
                     $token,
                     rawurlencode((string) ($context['action'] ?? '')),
                 ),
-            ],
-            'password-reset' => [
-                'Reset your Providentia password',
-                "Reset your password in Providentia:\n"
-                    . $applicationLink . '#action=password-reset&token=' . $token,
             ],
             'platform-administrator-invitation' => [
                 'You were invited to administer Providentia',

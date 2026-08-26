@@ -273,9 +273,11 @@ jobs:
           jq -e '
             .apiBaseUrl == "http://127.0.0.1:18083"
             and .email == "prebuilt-ci@example.test"
-            and (.accessToken | type == "string" and length >= 40)
-            and (.refreshToken | type == "string" and length >= 40)
+            and (.session.accessToken | type == "string" and length >= 40)
+            and (.session.refreshToken | type == "string" and length >= 40)
+            and (.installationId | type == "string")
             and (.homeId | type == "string")
+            and (has("password") | not)
           ' .providentia-development.json >/dev/null
         timeout-minutes: 10
 

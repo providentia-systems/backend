@@ -16,16 +16,6 @@ final class NativeCredentialHasher implements CredentialHasher
         }
     }
 
-    public function hashPassword(string $password): string
-    {
-        return password_hash($password, PASSWORD_ARGON2ID);
-    }
-
-    public function verifyPassword(string $password, string $hash): bool
-    {
-        return password_verify($password, $hash);
-    }
-
     public function hashToken(string $token): string
     {
         return hash_hmac('sha256', $token, $this->pepper);

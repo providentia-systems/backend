@@ -10,7 +10,6 @@ version_override=""
 registry_override=""
 image_namespace_override=""
 email_override=""
-password_override=""
 http_port_override=""
 mailpit_port_override=""
 bind_address_override=""
@@ -76,13 +75,16 @@ Options:
   --registry HOST        Container registry (default: ghcr.io)
   --image-namespace PATH Image owner/repository (default: detected Git remote)
   --dev-email EMAIL     Development account email
-  --dev-password PASS   Development account password
   --http-port PORT      Host API port (default: 8080)
   --mailpit-port PORT   Host Mailpit port (default: 8025)
   --bind-address IP     Host bind address (default: 127.0.0.1)
   --skip-provision      Start and test the stack without creating an account/home
   --reset-data          Delete this prebuilt stack's containers and named volumes
   --help                Show this help
+
+The development account is provisioned through a passwordless login link that
+the script approves itself; the prebuilt Compose profile exposes the required
+development approval token (EXPOSE_DEVELOPMENT_TOKENS).
 EOF
 }
 
@@ -92,7 +94,6 @@ while (($#)); do
         --registry) registry_override="${2:?--registry requires a host}"; shift 2 ;;
         --image-namespace) image_namespace_override="${2:?--image-namespace requires owner/repository}"; shift 2 ;;
         --dev-email) email_override="${2:?--dev-email requires a value}"; shift 2 ;;
-        --dev-password) password_override="${2:?--dev-password requires a value}"; shift 2 ;;
         --http-port) http_port_override="${2:?--http-port requires a value}"; shift 2 ;;
         --mailpit-port) mailpit_port_override="${2:?--mailpit-port requires a value}"; shift 2 ;;
         --bind-address) bind_address_override="${2:?--bind-address requires a value}"; shift 2 ;;
@@ -109,9 +110,33 @@ for command_name in docker curl jq openssl; do
         exit 1
     }
 done
+command -v uuidgen >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1 || {
+    printf 'Required command is unavailable: uuidgen (or python3)\n' >&2
+    exit 1
+}
 docker compose version >/dev/null 2>&1 || {
     printf 'Docker Compose v2 is required (docker compose).\n' >&2
     exit 1
+}
+
+base64url_encode() {
+    tr -d '=\n' | tr '+/' '-_'
+}
+
+generate_uuid() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    else
+        python3 -c 'import uuid; print(uuid.uuid4())'
+    fi
+}
+
+generate_login_secret() {
+    openssl rand -base64 32 | base64url_encode
+}
+
+s256_challenge() {
+    printf '%s' "$1" | openssl dgst -sha256 -binary | openssl base64 | base64url_encode
 }
 
 existing_volume="$(docker volume ls --quiet \
@@ -143,7 +168,6 @@ fi
 
 if [[ ! -f "$env_file" ]]; then
     umask 077
-    generated_password="${password_override:-$(openssl rand -hex 16)}"
     generated_version="${version_override:-${version_environment:-${checkout_candidate_version:-edge}}}"
     generated_email="${email_override:-developer@providentia.local}"
     generated_http_port="${http_port_override:-8080}"
@@ -168,8 +192,7 @@ if [[ ! -f "$env_file" ]]; then
         printf 'CATALOG_IMAGE_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')"
         printf 'DATA_EXPORT_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')"
         printf 'PROVIDENTIA_DEV_EMAIL=%s\n' "$generated_email"
-        printf 'PROVIDENTIA_DEV_PASSWORD=%s\n' "$generated_password"
-        printf 'PROVIDENTIA_DEV_DEVICE_ID=%s\n' "$(cat /proc/sys/kernel/random/uuid)"
+        printf 'PROVIDENTIA_DEV_INSTALLATION_ID=%s\n' "$(generate_uuid)"
     } >"$env_file"
     chmod 0600 "$env_file"
 fi
@@ -177,6 +200,12 @@ fi
 if ! grep -q '^CATALOG_IMAGE_KEK=' "$env_file"; then
     umask 077
     printf 'CATALOG_IMAGE_KEK=%s\n' "$(openssl rand -base64 32 | tr -d '\n')" >>"$env_file"
+    chmod 0600 "$env_file"
+fi
+
+if ! grep -q '^PROVIDENTIA_DEV_INSTALLATION_ID=' "$env_file"; then
+    umask 077
+    printf 'PROVIDENTIA_DEV_INSTALLATION_ID=%s\n' "$(generate_uuid)" >>"$env_file"
     chmod 0600 "$env_file"
 fi
 
@@ -226,7 +255,7 @@ export PROVIDENTIA_IMAGE="${PROVIDENTIA_IMAGE:-${PROVIDENTIA_IMAGE_REPOSITORY}:$
 export PROVIDENTIA_WEB_IMAGE="${PROVIDENTIA_WEB_IMAGE:-${PROVIDENTIA_WEB_IMAGE_REPOSITORY}:${PROVIDENTIA_VERSION}}"
 export PROVIDENTIA_MEDIA_IMAGE="${PROVIDENTIA_MEDIA_IMAGE:-${PROVIDENTIA_MEDIA_IMAGE_REPOSITORY}:${PROVIDENTIA_VERSION}}"
 export PROVIDENTIA_DEV_EMAIL="${email_override:-${PROVIDENTIA_DEV_EMAIL:?PROVIDENTIA_DEV_EMAIL is required}}"
-export PROVIDENTIA_DEV_PASSWORD="${password_override:-${PROVIDENTIA_DEV_PASSWORD:?PROVIDENTIA_DEV_PASSWORD is required}}"
+export PROVIDENTIA_DEV_INSTALLATION_ID="${PROVIDENTIA_DEV_INSTALLATION_ID:?PROVIDENTIA_DEV_INSTALLATION_ID is required}"
 export PROVIDENTIA_HTTP_PORT="${http_port_override:-${PROVIDENTIA_HTTP_PORT:?PROVIDENTIA_HTTP_PORT is required}}"
 export PROVIDENTIA_MAILPIT_PORT="${mailpit_port_override:-${PROVIDENTIA_MAILPIT_PORT:?PROVIDENTIA_MAILPIT_PORT is required}}"
 export PROVIDENTIA_BIND_ADDRESS="${bind_address_override:-${PROVIDENTIA_BIND_ADDRESS:?PROVIDENTIA_BIND_ADDRESS is required}}"
@@ -317,93 +346,65 @@ if ((skip_provision == 0)); then
             || printf 'The response was not valid problem JSON.'
     }
 
-    verify_token() {
-        local token="$1"
-        local exchange status response
-        exchange="$(post_json_exchange \
-            "${api_base}/api/v1/auth/verify-email" \
-            "$(jq -n --arg token "$token" '{applicationKind:"homeowner",token:$token}')")"
-        status="${exchange##*$'\n'}"
-        response="${exchange%$'\n'*}"
-        if [[ "$status" != '204' ]]; then
-            printf 'Email verification failed (HTTP %s): %s\n' \
-                "$status" "$(problem_summary "$response")" >&2
-            exit 1
-        fi
-    }
-
-    resend_token() {
-        local exchange status response
-        exchange="$(post_json_exchange \
-            "${api_base}/api/v1/auth/verify-email/resend" \
-            "$(jq -n --arg email "$PROVIDENTIA_DEV_EMAIL" \
-                '{applicationKind:"homeowner",email:$email}')")"
-        status="${exchange##*$'\n'}"
-        response="${exchange%$'\n'*}"
-        if [[ "$status" != '202' ]]; then
-            printf 'Verification resend failed (HTTP %s): %s\n' \
-                "$status" "$(problem_summary "$response")" >&2
-            exit 1
-        fi
-        jq -r '.developmentVerificationToken // empty' <<<"$response"
-    }
-
-    login_payload="$(jq -n \
+    login_request_id="$(generate_uuid)"
+    login_poll_token="$(generate_login_secret)"
+    login_code_verifier="$(generate_login_secret)"
+    login_state="$(generate_login_secret)"
+    start_payload="$(jq -n \
+        --arg requestId "$login_request_id" \
         --arg email "$PROVIDENTIA_DEV_EMAIL" \
-        --arg password "$PROVIDENTIA_DEV_PASSWORD" \
-        --arg deviceId "$PROVIDENTIA_DEV_DEVICE_ID" \
-        '{email:$email,password:$password,deviceId:$deviceId,deviceName:"Providentia prebuilt",platform:"linux",transport:"native"}')"
-    login_exchange="$(post_json_exchange "${api_base}/api/v1/auth/login" "$login_payload")"
-    login_status="${login_exchange##*$'\n'}"
-    login_response="${login_exchange%$'\n'*}"
-
-    if [[ "$login_status" == '403' ]]; then
-        verification_token="$(resend_token)"
-        [[ -n "$verification_token" ]] || {
-            printf 'The existing account is unverified but no development token was returned.\n' >&2
-            exit 1
-        }
-        verify_token "$verification_token"
-    elif [[ "$login_status" == '401' ]]; then
-        registration_exchange="$(post_json_exchange \
-            "${api_base}/api/v1/auth/register" \
-            "$(jq -n \
-                --arg email "$PROVIDENTIA_DEV_EMAIL" \
-                --arg password "$PROVIDENTIA_DEV_PASSWORD" \
-                '{email:$email,password:$password,displayName:"Providentia Developer"}')")"
-        registration_status="${registration_exchange##*$'\n'}"
-        registration_response="${registration_exchange%$'\n'*}"
-        if [[ "$registration_status" != '202' ]]; then
-            printf 'Account registration failed (HTTP %s): %s\n' \
-                "$registration_status" "$(problem_summary "$registration_response")" >&2
-            exit 1
-        fi
-        verification_token="$(jq -r '.developmentVerificationToken // empty' <<<"$registration_response")"
-        [[ -n "$verification_token" ]] || verification_token="$(resend_token)"
-        [[ -n "$verification_token" ]] || {
-            printf 'No development verification token was returned.\n' >&2
-            exit 1
-        }
-        verify_token "$verification_token"
-    elif [[ "$login_status" != '200' ]]; then
-        printf 'Development login failed (HTTP %s): %s\n' \
-            "$login_status" "$(problem_summary "$login_response")" >&2
+        --arg pollChallenge "$(s256_challenge "$login_poll_token")" \
+        --arg codeChallenge "$(s256_challenge "$login_code_verifier")" \
+        --arg state "$login_state" \
+        --arg installationId "$PROVIDENTIA_DEV_INSTALLATION_ID" \
+        '{requestId:$requestId,email:$email,applicationKind:"homeowner",pollChallenge:$pollChallenge,codeChallenge:$codeChallenge,codeChallengeMethod:"S256",state:$state,installationId:$installationId,deviceName:"Providentia prebuilt",platform:"linux",transport:"native"}')"
+    start_exchange="$(post_json_exchange "${api_base}/api/v1/auth/login-links" "$start_payload")"
+    start_status="${start_exchange##*$'\n'}"
+    start_response="${start_exchange%$'\n'*}"
+    if [[ "$start_status" == '429' ]]; then
+        printf 'Development login-link requests are rate-limited: %s\n' \
+            "$(problem_summary "$start_response")" >&2
+        printf 'Wait for the stated window or choose a different --dev-email.\n' >&2
+        exit 1
+    elif [[ "$start_status" != '202' ]]; then
+        printf 'Development login-link request failed (HTTP %s): %s\n' \
+            "$start_status" "$(problem_summary "$start_response")" >&2
+        exit 1
+    fi
+    approval_token="$(jq -r '.developmentApprovalToken // empty' <<<"$start_response")"
+    [[ -n "$approval_token" ]] || {
+        printf 'The API did not expose a development approval token for the login link.\n' >&2
+        printf 'The prebuilt Compose profile must keep EXPOSE_DEVELOPMENT_TOKENS enabled.\n' >&2
+        exit 1
+    }
+    decision_exchange="$(post_json_exchange \
+        "${api_base}/api/v1/auth/login-links/${login_request_id}/decision" \
+        "$(jq -n --arg approvalToken "$approval_token" \
+            '{applicationKind:"homeowner",approvalToken:$approvalToken,decision:"approve"}')")"
+    decision_status="${decision_exchange##*$'\n'}"
+    decision_response="${decision_exchange%$'\n'*}"
+    if [[ "$decision_status" != '202' ]]; then
+        printf 'Development login-link approval failed (HTTP %s): %s\n' \
+            "$decision_status" "$(problem_summary "$decision_response")" >&2
+        exit 1
+    fi
+    session_exchange="$(post_json_exchange \
+        "${api_base}/api/v1/auth/login-links/${login_request_id}/exchange" \
+        "$(jq -n \
+            --arg pollToken "$login_poll_token" \
+            --arg codeVerifier "$login_code_verifier" \
+            --arg state "$login_state" \
+            '{pollToken:$pollToken,codeVerifier:$codeVerifier,state:$state}')")"
+    session_status="${session_exchange##*$'\n'}"
+    session_response="${session_exchange%$'\n'*}"
+    if [[ "$session_status" != '200' ]]; then
+        printf 'Development login-link exchange failed (HTTP %s): %s\n' \
+            "$session_status" "$(problem_summary "$session_response")" >&2
         exit 1
     fi
 
-    if [[ "$login_status" != '200' ]]; then
-        login_exchange="$(post_json_exchange "${api_base}/api/v1/auth/login" "$login_payload")"
-        login_status="${login_exchange##*$'\n'}"
-        login_response="${login_exchange%$'\n'*}"
-    fi
-    if [[ "$login_status" != '200' ]]; then
-        printf 'Development login still failed after verification (HTTP %s): %s\n' \
-            "$login_status" "$(problem_summary "$login_response")" >&2
-        exit 1
-    fi
-
-    access_token="$(jq -er '.accessToken' <<<"$login_response")"
-    actor_user_id="$(jq -er '.userId' <<<"$login_response")"
+    access_token="$(jq -er '.accessToken' <<<"$session_response")"
+    actor_user_id="$(jq -er '.userId' <<<"$session_response")"
     homes="$(curl --fail-with-body --silent --show-error \
         -H "Authorization: Bearer ${access_token}" \
         "${api_base}/api/v1/homes")"
@@ -426,11 +427,12 @@ if ((skip_provision == 0)); then
         --arg homeId "$home_id" \
         --arg userId "$actor_user_id" \
         --arg email "$PROVIDENTIA_DEV_EMAIL" \
-        --arg password "$PROVIDENTIA_DEV_PASSWORD" \
-        --arg deviceId "$PROVIDENTIA_DEV_DEVICE_ID" \
+        --arg installationId "$PROVIDENTIA_DEV_INSTALLATION_ID" \
+        --arg deviceId "$(jq -er '.deviceId' <<<"$session_response")" \
         --arg accessToken "$access_token" \
-        --arg refreshToken "$(jq -er '.refreshToken' <<<"$login_response")" \
-        '{apiBaseUrl:$apiBaseUrl,homeId:$homeId,userId:$userId,email:$email,password:$password,deviceId:$deviceId,accessToken:$accessToken,refreshToken:$refreshToken}' \
+        --arg refreshToken "$(jq -er '.refreshToken' <<<"$session_response")" \
+        --arg sessionId "$(jq -er '.sessionId' <<<"$session_response")" \
+        '{apiBaseUrl:$apiBaseUrl,homeId:$homeId,userId:$userId,email:$email,installationId:$installationId,deviceId:$deviceId,session:{accessToken:$accessToken,refreshToken:$refreshToken,sessionId:$sessionId}}' \
         >"$handoff_file"
     chmod 0600 "$handoff_file"
 fi
@@ -444,7 +446,7 @@ printf 'Readiness:         %s/health/ready\n' "$api_base"
 printf 'Mailpit:           http://127.0.0.1:%s\n' "$PROVIDENTIA_MAILPIT_PORT"
 if ((skip_provision == 0)); then
     printf 'Developer email:   %s\n' "$PROVIDENTIA_DEV_EMAIL"
-    printf 'Developer pass:    %s\n' "$PROVIDENTIA_DEV_PASSWORD"
+    printf 'Developer login:   passwordless login link (session tokens in the handoff)\n'
     printf 'Flutter handoff:   %s (mode 0600; local development only)\n' "$handoff_file"
 fi
 printf 'Local secrets:     %s (mode 0600; never commit)\n' "$env_file"

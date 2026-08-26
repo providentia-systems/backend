@@ -22,18 +22,21 @@ final class IdentityHandlerTest extends TestCase
     private const SESSION_ID = '01912345-6789-7abc-9def-0123456789ab';
     private const DEVICE_ID = '01912345-6789-7abc-adef-0123456789ab';
 
-    public function testWebLoginReturnsCsrfButKeepsBearerCredentialsOutOfJson(): void
+    public function testWebRefreshReturnsCsrfButKeepsBearerCredentialsOutOfJson(): void
     {
         $store = $this->createStub(IdentityStore::class);
-        $store->method('findUserByEmail')->willReturn([
-            'id' => self::USER_ID,
-            'password_hash' => 'stored-password-hash',
-            'locked_until' => null,
-            'email_verified_at' => '2026-07-30 10:00:00',
-            'status' => 'active',
+        $store->method('findSessionByRefreshHash')->willReturn([
+            'id' => self::SESSION_ID,
+            'user_id' => self::USER_ID,
+            'device_id' => self::DEVICE_ID,
+            'installation_id' => self::DEVICE_ID,
+            'refresh_token_hash' => 'hash:current-refresh',
+            'transport' => 'web',
+            'refresh_idle_ttl_seconds' => 2592000,
+            'active_home_id' => null,
         ]);
+        $store->method('rotateSession')->willReturn(true);
         $hasher = $this->createStub(CredentialHasher::class);
-        $hasher->method('verifyPassword')->willReturn(true);
         $hasher->method('hashToken')->willReturnCallback(
             static fn (string $token): string => 'hash:' . $token,
         );
@@ -43,13 +46,11 @@ final class IdentityHandlerTest extends TestCase
             'refresh-token-secret',
             'csrf-token-value',
         );
-        $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturn(self::SESSION_ID);
         $authentication = new AuthenticationService(
             $store,
             $hasher,
             $this->createStub(AccountNotificationSender::class),
-            $ids,
+            $this->createStub(UuidGenerator::class),
             new IdentityFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
             new IdentityTransactionManager(),
             $tokens,
@@ -59,19 +60,12 @@ final class IdentityHandlerTest extends TestCase
         $request = (new ServerRequest(
             [],
             [],
-            new Uri('https://app.example.test/api/v1/auth/login'),
+            new Uri('https://app.example.test/api/v1/auth/refresh'),
             'POST',
             'php://memory',
-        ))->withParsedBody([
-            'email' => 'user@example.test',
-            'password' => 'Valid-password-123',
-            'deviceId' => self::DEVICE_ID,
-            'deviceName' => 'Web browser',
-            'platform' => 'web',
-            'transport' => 'web',
-        ]);
+        ))->withCookieParams(['providentia_refresh' => 'current-refresh']);
 
-        $response = (new IdentityHandler($authentication, 'login', false))->handle($request);
+        $response = (new IdentityHandler($authentication, 'refresh', false))->handle($request);
         /** @var array<string, mixed> $body */
         $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
 

@@ -7,10 +7,11 @@
 - Access and refresh credentials are stored only as keyed hashes. Refresh
   credentials rotate with compare-and-swap semantics; reuse of a retired
   credential revokes the affected device-session family.
-- Passwords use PHP's Argon2id implementation. Verification, reset, and
-  invitation credentials are random, hashed at rest, expiring, and single-use.
-- Authentication attempts use persistent IP and normalized email/IP buckets,
-  and repeated account failures create a temporary lock.
+- There is no password surface: no password field, hash, route, or
+  configuration toggle exists. Login-link approval, step-up, and invitation
+  credentials are random, hashed at rest, expiring, and single-use.
+- Authentication attempts are throttled through persistent hashed IP and
+  normalized email/IP buckets.
 - Every protected home use case resolves current membership server-side.
   Unauthorized and cross-home object requests return the same `404` posture.
 - Platform-administrator, catalog-reviewer, and catalog-curator roles are
@@ -75,8 +76,8 @@ private Compose network and must never be used as a production profile.
 - Passkeys and MFA are not active. Login-link approval, PKCE exchange, session
   rotation/replay detection, and explicit step-up operations are the current
   production authentication boundary.
-- Generic registration and login-link start responses resist direct account
-  discovery, and mail delivery is asynchronous. This is not a claim that
+- Generic login-link start responses resist direct account discovery, and mail
+  delivery is asynchronous. This is not a claim that
   provider-side observations or all timing channels are indistinguishable.
 - Bootstrap is paged through a signed, home-bound snapshot cursor and lost
   writes can be queried through the device-bound operation-status endpoint.

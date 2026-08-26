@@ -42,28 +42,6 @@ final class QueuedAccountNotificationSender implements AccountNotificationSender
         ]);
     }
 
-    public function sendEmailVerification(
-        string $email,
-        string $token,
-        LoginApplicationKind $application,
-    ): void {
-        $this->enqueue('email-verification', $email, [
-            'token' => $token,
-            'applicationKind' => $application->value,
-        ]);
-    }
-
-    public function sendPasswordReset(
-        string $email,
-        string $token,
-        LoginApplicationKind $application,
-    ): void {
-        $this->enqueue('password-reset', $email, [
-            'token' => $token,
-            'applicationKind' => $application->value,
-        ]);
-    }
-
     public function sendPlatformAdministratorInvitation(string $email): void
     {
         $this->enqueue('platform-administrator-invitation', $email, []);

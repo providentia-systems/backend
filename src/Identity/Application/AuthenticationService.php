@@ -23,91 +23,9 @@ final class AuthenticationService
         private readonly SecureTokenGenerator $tokens,
         private readonly int $accessTtlSeconds,
         private readonly int $refreshTtlSeconds,
-        private readonly bool $passwordLoginEnabled = true,
         private readonly int $webIdleTtlSeconds = 2592000,
         private readonly int $nativeIdleTtlSeconds = 5184000,
     ) {
-    }
-
-    /** @return array{verificationToken: string|null} */
-    public function register(
-        string $email,
-        string $password,
-        string $displayName,
-        string $locale = 'en-NA',
-        string $timezone = 'Africa/Windhoek',
-    ): array {
-        $this->requirePasswordLogin();
-        $normalizedEmail = $this->normalizeEmail($email);
-        $this->assertPassword($password);
-        $displayName = trim($displayName);
-        if ($displayName === '' || mb_strlen($displayName) > 120) {
-            throw new Problem(422, 'Validation failed', 'Display name must contain 1 to 120 characters.');
-        }
-        // Always perform the expensive hash so account-existence timing is less distinct.
-        $passwordHash = $this->hasher->hashPassword($password);
-
-        $result = $this->transactions->transactional(function () use (
-            $normalizedEmail,
-            $passwordHash,
-            $displayName,
-            $locale,
-            $timezone,
-        ): array {
-            $existing = $this->store->findUserByEmail($normalizedEmail);
-            if ($existing !== null && $existing['email_verified_at'] !== null) {
-                return ['verificationToken' => null];
-            }
-
-            $now = $this->clock->now();
-            $userId = $existing === null ? $this->ids->generate() : (string) $existing['id'];
-            $token = $this->tokens->generate();
-            if ($existing === null) {
-                $this->store->createUser(
-                    $userId,
-                    $normalizedEmail,
-                    $passwordHash,
-                    $displayName,
-                    $locale,
-                    $timezone,
-                    $now,
-                );
-            }
-            $this->store->issueOneTimeToken(
-                $this->ids->generate(),
-                $userId,
-                $this->oneTimePurpose('verify-email', LoginApplicationKind::HOMEOWNER),
-                $this->hasher->hashToken($token),
-                $now->add(new DateInterval('P1D')),
-                $now,
-            );
-            $this->notifications->sendEmailVerification(
-                $normalizedEmail,
-                $token,
-                LoginApplicationKind::HOMEOWNER,
-            );
-
-            return ['verificationToken' => $token];
-        });
-
-        return $result;
-    }
-
-    public function verifyEmail(string $token, string $applicationKind): void
-    {
-        $application = LoginApplicationKind::fromInput($applicationKind);
-        $this->transactions->transactional(function () use ($token, $application): void {
-            $now = $this->clock->now();
-            $userId = $this->store->consumeOneTimeToken(
-                $this->oneTimePurpose('verify-email', $application),
-                $this->hasher->hashToken($token),
-                $now,
-            );
-            if ($userId === null) {
-                throw new Problem(422, 'Invalid token', 'The verification token is invalid or expired.');
-            }
-            $this->store->markEmailVerified($userId, $now);
-        });
     }
 
     public function requestStepUp(
@@ -159,78 +77,6 @@ final class AuthenticationService
         if ($userId === null || ! hash_equals($identity->userId, $userId)) {
             throw new Problem(422, 'Invalid step-up proof', 'The confirmation link is invalid or expired.');
         }
-    }
-
-    /**
-     * @return array{
-     *     accessToken: string,
-     *     refreshToken: string,
-     *     csrfToken: string,
-     *     accessExpiresAt: string,
-     *     refreshExpiresAt: string,
-     *     idleExpiresAt: string,
-     *     refreshIdleTtlSeconds: int,
-     *     transport: string,
-     *     activeHomeId: string|null,
-     *     sessionId: string,
-     *     deviceId: string,
-     *     installationId: string,
-     *     userId: string
-     * }
-     */
-    public function login(
-        string $email,
-        string $password,
-        string $deviceId,
-        string $deviceName,
-        string $platform,
-        string $transport = 'native',
-        ?int $requestedSessionIdleSeconds = null,
-    ): array {
-        $this->requirePasswordLogin();
-        $user = $this->store->findUserByEmail($this->normalizeEmail($email));
-        if (
-            $user !== null
-            && $user['locked_until'] !== null
-            && new \DateTimeImmutable((string) $user['locked_until']) > $this->clock->now()
-        ) {
-            throw new Problem(
-                429,
-                'Account temporarily locked',
-                'Too many failed sign-in attempts. Try again later.',
-            );
-        }
-        if (
-            $user === null
-            || ! $this->hasher->verifyPassword($password, (string) $user['password_hash'])
-        ) {
-            if ($user !== null) {
-                $this->store->recordFailedLogin((string) $user['id'], $this->clock->now());
-            }
-            throw new Problem(401, 'Authentication failed', 'Invalid email or password.');
-        }
-        if ($user['email_verified_at'] === null) {
-            throw new Problem(403, 'Email verification required', 'Verify the email address before signing in.');
-        }
-        if ((string) $user['status'] !== 'active') {
-            throw new Problem(403, 'Account unavailable', 'This account is not active.');
-        }
-
-        $this->store->clearFailedLogin((string) $user['id']);
-
-        $transport = $this->normalizeTransport($transport);
-
-        $deviceId = $this->assertUuid($deviceId, 'deviceId');
-
-        return $this->issueSession(
-            (string) $user['id'],
-            $deviceId,
-            trim($deviceName),
-            trim($platform),
-            $transport,
-            $this->requestedIdleTtl($transport, $requestedSessionIdleSeconds),
-            $deviceId,
-        );
     }
 
     /**
@@ -410,80 +256,6 @@ final class AuthenticationService
             && $this->store->verifyCsrf($identity->sessionId, $this->hasher->hashToken($token));
     }
 
-    public function requestPasswordReset(string $email, string $applicationKind): ?string
-    {
-        $this->requirePasswordLogin();
-        $normalizedEmail = $this->normalizeEmail($email);
-        $application = LoginApplicationKind::fromInput($applicationKind);
-
-        return $this->transactions->transactional(function () use ($normalizedEmail, $application): ?string {
-            $user = $this->store->findUserByEmail($normalizedEmail);
-            if ($user === null) {
-                return null;
-            }
-            $token = $this->tokens->generate();
-            $now = $this->clock->now();
-            $this->store->issueOneTimeToken(
-                $this->ids->generate(),
-                (string) $user['id'],
-                $this->oneTimePurpose('password-reset', $application),
-                $this->hasher->hashToken($token),
-                $now->add(new DateInterval('PT1H')),
-                $now,
-            );
-            $this->notifications->sendPasswordReset((string) $user['email'], $token, $application);
-
-            return $token;
-        });
-    }
-
-    public function resendVerification(string $email, string $applicationKind): ?string
-    {
-        $this->requirePasswordLogin();
-        $normalizedEmail = $this->normalizeEmail($email);
-        $application = LoginApplicationKind::fromInput($applicationKind);
-
-        return $this->transactions->transactional(function () use ($normalizedEmail, $application): ?string {
-            $user = $this->store->findUserByEmail($normalizedEmail);
-            if ($user === null || $user['email_verified_at'] !== null) {
-                return null;
-            }
-            $token = $this->tokens->generate();
-            $now = $this->clock->now();
-            $this->store->issueOneTimeToken(
-                $this->ids->generate(),
-                (string) $user['id'],
-                $this->oneTimePurpose('verify-email', $application),
-                $this->hasher->hashToken($token),
-                $now->add(new DateInterval('P1D')),
-                $now,
-            );
-            $this->notifications->sendEmailVerification((string) $user['email'], $token, $application);
-
-            return $token;
-        });
-    }
-
-    public function resetPassword(string $token, string $password, string $applicationKind): void
-    {
-        $this->requirePasswordLogin();
-        $this->assertPassword($password);
-        $application = LoginApplicationKind::fromInput($applicationKind);
-        $this->transactions->transactional(function () use ($token, $password, $application): void {
-            $now = $this->clock->now();
-            $userId = $this->store->consumeOneTimeToken(
-                $this->oneTimePurpose('password-reset', $application),
-                $this->hasher->hashToken($token),
-                $now,
-            );
-            if ($userId === null) {
-                throw new Problem(422, 'Invalid token', 'The reset token is invalid or expired.');
-            }
-            $this->store->changePassword($userId, $this->hasher->hashPassword($password), $now);
-            $this->store->revokeAllSessions($userId, $now);
-        });
-    }
-
     /**
      * @return array{
      *     accessToken: string,
@@ -560,16 +332,6 @@ final class AuthenticationService
         ];
     }
 
-    private function normalizeEmail(string $email): string
-    {
-        $email = mb_strtolower(trim($email));
-        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false || mb_strlen($email) > 254) {
-            throw new Problem(422, 'Validation failed', 'A valid email address is required.');
-        }
-
-        return $email;
-    }
-
     private function accountScopedDeviceId(string $userId, string $installationId): string
     {
         $hex = hash('sha256', $userId . "\0" . $installationId);
@@ -613,33 +375,6 @@ final class AuthenticationService
         return min($requested, $maximum);
     }
 
-    private function assertPassword(string $password): void
-    {
-        if (
-            strlen($password) < 12
-            || strlen($password) > 1024
-            || preg_match('/[A-Za-z]/', $password) !== 1
-            || preg_match('/[^A-Za-z]/', $password) !== 1
-        ) {
-            throw new Problem(
-                422,
-                'Validation failed',
-                'Password must be 12 to 1024 characters and contain letters and non-letters.',
-            );
-        }
-    }
-
-    private function requirePasswordLogin(): void
-    {
-        if (! $this->passwordLoginEnabled) {
-            throw new Problem(
-                410,
-                'Password authentication disabled',
-                'Request an email login link instead.',
-            );
-        }
-    }
-
     private function stepUpPurpose(string $action, LoginApplicationKind $application): string
     {
         if ($action !== 'ownership-transfer') {
@@ -655,14 +390,5 @@ final class AuthenticationService
     private function oneTimePurpose(string $purpose, LoginApplicationKind $application): string
     {
         return $purpose . ':' . $application->value;
-    }
-
-    private function assertUuid(string $id, string $field): string
-    {
-        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $id) !== 1) {
-            throw new Problem(422, 'Validation failed', $field . ' must be a UUID.');
-        }
-
-        return strtolower($id);
     }
 }

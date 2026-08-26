@@ -43,7 +43,7 @@ final class QueuedAccountNotificationSenderTest extends TestCase
         );
     }
 
-    public function testEveryAccountCapabilityIsBoundToItsApplication(): void
+    public function testEveryQueuedNotificationCarriesOnlyItsBoundedContext(): void
     {
         $now = new DateTimeImmutable('2026-08-25T12:00:00+00:00');
         $queued = [];
@@ -66,38 +66,16 @@ final class QueuedAccountNotificationSenderTest extends TestCase
         $clock->method('now')->willReturn($now);
         $sender = new QueuedAccountNotificationSender($outbox, $ids, $clock);
 
-        $sender->sendEmailVerification(
-            'member@example.test',
-            'verify-capability',
-            LoginApplicationKind::HOMEOWNER,
-        );
-        $sender->sendPasswordReset(
-            'operator@example.test',
-            'reset-capability',
-            LoginApplicationKind::ADMIN,
-        );
         $sender->sendStepUpLink(
             'owner@example.test',
             'step-up-capability',
             'ownership-transfer',
             LoginApplicationKind::HOMEOWNER,
         );
+        $sender->sendPlatformAdministratorInvitation('operator@example.test');
+        $sender->sendHomeInvitation('member@example.test', 'My home', 'manager');
 
         self::assertSame([
-            [
-                '01989f53-a000-7000-8000-000000000003',
-                'email-verification',
-                'member@example.test',
-                ['token' => 'verify-capability', 'applicationKind' => 'homeowner'],
-                $now,
-            ],
-            [
-                '01989f53-a000-7000-8000-000000000003',
-                'password-reset',
-                'operator@example.test',
-                ['token' => 'reset-capability', 'applicationKind' => 'admin'],
-                $now,
-            ],
             [
                 '01989f53-a000-7000-8000-000000000003',
                 'step-up-link',
@@ -107,6 +85,20 @@ final class QueuedAccountNotificationSenderTest extends TestCase
                     'action' => 'ownership-transfer',
                     'applicationKind' => 'homeowner',
                 ],
+                $now,
+            ],
+            [
+                '01989f53-a000-7000-8000-000000000003',
+                'platform-administrator-invitation',
+                'operator@example.test',
+                [],
+                $now,
+            ],
+            [
+                '01989f53-a000-7000-8000-000000000003',
+                'home-invitation',
+                'member@example.test',
+                ['homeName' => 'My home', 'role' => 'manager'],
                 $now,
             ],
         ], $queued);

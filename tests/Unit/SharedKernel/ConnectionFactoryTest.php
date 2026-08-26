@@ -24,7 +24,7 @@ final class ConnectionFactoryTest extends TestCase
             'package' => 'php8.5-sqlite3',
         ];
         yield 'MySQL' => [
-            'url' => 'mysql://user:password@database:3306/providentia',
+            'url' => 'mysql://user:secret@database:3306/providentia',
             'extension' => 'pdo_mysql',
             'package' => 'php8.5-mysql',
         ];
@@ -53,7 +53,7 @@ final class ConnectionFactoryTest extends TestCase
     {
         yield 'SQLite' => ['url' => 'sqlite:///:memory:', 'availableDriver' => 'sqlite'];
         yield 'MySQL' => [
-            'url' => 'mysql://user:password@database:3306/providentia',
+            'url' => 'mysql://user:secret@database:3306/providentia',
             'availableDriver' => 'mysql',
         ];
     }

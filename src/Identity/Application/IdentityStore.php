@@ -17,7 +17,6 @@ interface IdentityStore
     public function createUser(
         string $id,
         string $email,
-        string $passwordHash,
         string $displayName,
         string $locale,
         string $timezone,
@@ -42,8 +41,6 @@ interface IdentityStore
     public function markEmailVerified(string $userId, DateTimeImmutable $at): void;
 
     public function claimEmailVerification(string $userId, DateTimeImmutable $at): bool;
-
-    public function changePassword(string $userId, string $passwordHash, DateTimeImmutable $at): void;
 
     public function createSession(
         string $sessionId,
@@ -149,7 +146,4 @@ interface IdentityStore
         DateTimeImmutable $at,
     ): string;
 
-    public function recordFailedLogin(string $userId, DateTimeImmutable $at): void;
-
-    public function clearFailedLogin(string $userId): void;
 }

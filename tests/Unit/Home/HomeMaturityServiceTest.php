@@ -258,7 +258,6 @@ final class HomeMaturityServiceTest extends TestCase
             $this->createStub(SecureTokenGenerator::class),
             900,
             2592000,
-            false,
         );
     }
 

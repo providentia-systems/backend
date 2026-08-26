@@ -183,3 +183,18 @@ by the 24 August three-repository contract below.
 - Backend contract bytes and lock ship first. Both Flutter repositories copy
   those exact bytes, verify the same SHA-256 and regenerate before compatible
   client releases. Neither client owns handwritten divergent API shapes.
+
+## Zero-password unification — 26 August 2026
+
+- Backend API `1.19.0` supersedes `1.18.0` as the sole runtime and contract
+  authority. It removes every human password surface: the registration,
+  password login, email-verification, resend-verification, and password-reset
+  operations, their schemas, the `AUTH_PASSWORD_LOGIN_ENABLED` toggle, and the
+  stored password/lockout columns no longer exist.
+- The email login-link exchange is the only human authentication for both
+  Flutter applications. Development and acceptance environments set
+  `EXPOSE_DEVELOPMENT_TOKENS=1`, which adds `developmentApprovalToken` to the
+  login-link start response so tooling completes the email loop
+  non-interactively; production startup rejects that setting.
+- The controlling decision is recorded in
+  [`docs/unification-decision-record.md`](../unification-decision-record.md).

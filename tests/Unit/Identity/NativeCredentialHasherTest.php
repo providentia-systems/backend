@@ -10,16 +10,6 @@ use RuntimeException;
 
 final class NativeCredentialHasherTest extends TestCase
 {
-    public function testPasswordHashRoundTripUsesNativeVerification(): void
-    {
-        $hasher = new NativeCredentialHasher(str_repeat('p', 32));
-        $hash = $hasher->hashPassword('Correct horse battery staple 42');
-
-        self::assertTrue($hasher->verifyPassword('Correct horse battery staple 42', $hash));
-        self::assertFalse($hasher->verifyPassword('incorrect', $hash));
-        self::assertStringStartsWith('$argon2id$', $hash);
-    }
-
     public function testTokenHashIsDeterministicKeyedDigest(): void
     {
         $pepper = str_repeat('p', 32);

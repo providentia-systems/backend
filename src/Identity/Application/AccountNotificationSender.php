@@ -20,18 +20,6 @@ interface AccountNotificationSender
         LoginApplicationKind $application,
     ): void;
 
-    public function sendEmailVerification(
-        string $email,
-        string $token,
-        LoginApplicationKind $application,
-    ): void;
-
-    public function sendPasswordReset(
-        string $email,
-        string $token,
-        LoginApplicationKind $application,
-    ): void;
-
     public function sendPlatformAdministratorInvitation(string $email): void;
 
     public function sendHomeInvitation(
