@@ -183,6 +183,7 @@ final readonly class AiOrchestrator
             $requestBytes,
             $execution->model,
             $requestCredential,
+            $execution->endpoint,
         );
         try {
             $outcome = $execution->provider->extract($request);

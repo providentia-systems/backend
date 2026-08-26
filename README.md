@@ -196,7 +196,11 @@ queue message is never represented as equivalent to the database commit.
   lists, dashboard projections, and checksum-gated baseline migration.
 - Privacy-gated structured AI extraction with explicit human approval;
   original media is either short-lived or explicitly retained, encrypted,
-  quota-controlled private media.
+  quota-controlled private media. BYOK provider profiles are private
+  per-person by default (home-sharing is a deliberate owner choice), and
+  OpenAI-compatible/Ollama profiles own their endpoints under an HTTPS/SSRF
+  policy with a separate `AI_ALLOW_PRIVATE_NETWORK_ENDPOINTS` LAN opt-in for
+  Ollama.
 - Sanitized catalog proposals, reviewer/curator workbenches, content-addressed
   icons, reversible audited product merges, and separately consented
   product-identity, product-image, and store-price contributions.

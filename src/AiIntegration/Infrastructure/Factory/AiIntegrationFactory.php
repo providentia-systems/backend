@@ -19,6 +19,7 @@ use Providentia\AiIntegration\Application\Media\VideoProcessor;
 use Providentia\AiIntegration\Application\Orchestration\AiOrchestrator;
 use Providentia\AiIntegration\Application\Orchestration\ExtractionReconciler;
 use Providentia\AiIntegration\Application\Orchestration\ProviderFailureClassifier;
+use Providentia\AiIntegration\Application\ProfileEndpointPolicy;
 use Providentia\AiIntegration\Application\SensitiveBufferEraser;
 use Providentia\AiIntegration\Http\AiHandler;
 use Providentia\AiIntegration\Http\PrivateMediaHandler;
@@ -71,6 +72,7 @@ final class AiIntegrationFactory
             $requestedName === EndpointPolicy::class => new EndpointPolicy(
                 $this->allowedHosts($ai),
                 (bool) $ai['allow_private_endpoints'],
+                (bool) $ai['allow_private_network_endpoints'],
             ),
             $requestedName === StreamJsonHttpClient::class => new StreamJsonHttpClient(
                 $container->get(EndpointPolicy::class),
@@ -154,6 +156,7 @@ final class AiIntegrationFactory
                 (int) $ai['max_image_bytes'],
                 (int) $ai['max_images'],
                 $container->get(SensitiveBufferEraser::class),
+                new ProfileEndpointPolicy((bool) $ai['allow_private_network_endpoints']),
             ),
             str_starts_with($requestedName, 'ai.media.') => new PrivateMediaHandler(
                 $container->get(PrivateMediaService::class),
@@ -187,19 +190,15 @@ final class AiIntegrationFactory
         $gemini = $container->get(GeminiGenerateContentProvider::class);
         /** @var XaiChatCompletionsProvider $xai */
         $xai = $container->get(XaiChatCompletionsProvider::class);
-        $providers = [$openAi, $anthropic, $gemini, $xai];
-        if ($ai['compatible_endpoint'] !== '') {
-            /** @var OpenAiCompatibleProvider $compatible */
-            $compatible = $container->get(OpenAiCompatibleProvider::class);
-            $providers[] = $compatible;
-        }
-        if ($ai['ollama_endpoint'] !== '') {
-            /** @var OllamaProvider $ollama */
-            $ollama = $container->get(OllamaProvider::class);
-            $providers[] = $ollama;
-        }
+        // The endpoint-owning adapters register even without a deployment
+        // endpoint: profile-owned endpoints supply one per request, and the
+        // deployment endpoint remains only an optional legacy fallback.
+        /** @var OpenAiCompatibleProvider $compatible */
+        $compatible = $container->get(OpenAiCompatibleProvider::class);
+        /** @var OllamaProvider $ollama */
+        $ollama = $container->get(OllamaProvider::class);
 
-        return $providers;
+        return [$openAi, $anthropic, $gemini, $xai, $compatible, $ollama];
     }
 
     /**

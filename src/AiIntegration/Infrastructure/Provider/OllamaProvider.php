@@ -33,8 +33,15 @@ final readonly class OllamaProvider implements AiProvider
 
     public function extract(ExtractionRequest $request): ExtractionOutcome
     {
+        $endpoint = $request->endpoint ?? $this->endpoint;
+        if ($endpoint === '') {
+            throw new AiProviderException(
+                'provider_endpoint_missing',
+                'This provider needs a profile endpoint or a deployment endpoint.',
+            );
+        }
         $response = $this->http->post(
-            $this->endpoint,
+            $endpoint,
             [],
             [
                 'model' => $request->model,

@@ -104,6 +104,13 @@ $aiAllowPrivateEndpoints = filter_var(
     $env('AI_ALLOW_PRIVATE_ENDPOINTS', '0'),
     FILTER_VALIDATE_BOOL,
 );
+// Deliberately separate LAN policy for user-owned profile endpoints: it only
+// widens what an Ollama profile endpoint may point at (plain HTTP and
+// private/loopback hosts); every other profile endpoint stays HTTPS + public.
+$aiAllowPrivateNetworkEndpoints = filter_var(
+    $env('AI_ALLOW_PRIVATE_NETWORK_ENDPOINTS', '0'),
+    FILTER_VALIDATE_BOOL,
+);
 $cookieSecure = filter_var(
     $env('AUTH_COOKIE_SECURE', $environment === 'production' ? '1' : '0'),
     FILTER_VALIDATE_BOOL,
@@ -396,6 +403,7 @@ return [
             : $aiCompatibleEndpoint . '/v1/chat/completions',
         'ollama_endpoint' => $aiOllamaEndpoint === '' ? '' : $aiOllamaEndpoint . '/api/chat',
         'allow_private_endpoints' => $aiAllowPrivateEndpoints,
+        'allow_private_network_endpoints' => $aiAllowPrivateNetworkEndpoints,
         'max_image_bytes' => max(
             1048576,
             min(16777216, (int) $env('AI_MAX_IMAGE_BYTES', '8388608')),

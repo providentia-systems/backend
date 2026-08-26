@@ -404,22 +404,29 @@ final class DbalAiStore implements AiStore, AiMaturityStore
         ) === 1;
     }
 
-    public function providerProfiles(string $homeId): array
+    public function providerProfiles(string $homeId, ?string $visibleToUserId = null): array
     {
-        return $this->connection->fetchAllAssociative(
-            'SELECT id, label, provider, model, ciphertext, nonce, key_version AS keyVersion,
-                    last_four AS lastFour, estimated_cost_micros AS estimatedCostMicros,
-                    status, revision, created_at AS createdAt, updated_at AS updatedAt
-             FROM ai_provider_profiles WHERE home_id = :home AND status = :status
-             ORDER BY label, id',
-            ['home' => $homeId, 'status' => 'active'],
-        );
+        $sql = 'SELECT id, label, provider, model, owner_user_id AS ownerUserId, endpoint,
+                       ciphertext, nonce, key_version AS keyVersion,
+                       last_four AS lastFour, estimated_cost_micros AS estimatedCostMicros,
+                       status, revision, created_at AS createdAt, updated_at AS updatedAt
+                FROM ai_provider_profiles WHERE home_id = :home AND status = :status';
+        $parameters = ['home' => $homeId, 'status' => 'active'];
+        if ($visibleToUserId === null) {
+            $sql .= ' AND owner_user_id IS NULL';
+        } else {
+            $sql .= ' AND (owner_user_id IS NULL OR owner_user_id = :viewer)';
+            $parameters['viewer'] = $visibleToUserId;
+        }
+
+        return $this->connection->fetchAllAssociative($sql . ' ORDER BY label, id', $parameters);
     }
 
     public function providerProfile(string $homeId, string $profileId): ?array
     {
         return $this->one(
-            'SELECT id, label, provider, model, ciphertext, nonce, key_version AS keyVersion,
+            'SELECT id, label, provider, model, owner_user_id AS ownerUserId, endpoint,
+                    ciphertext, nonce, key_version AS keyVersion,
                     last_four AS lastFour, estimated_cost_micros AS estimatedCostMicros,
                     status, revision, created_at AS createdAt, updated_at AS updatedAt
              FROM ai_provider_profiles WHERE home_id = :home AND id = :id',
@@ -434,6 +441,8 @@ final class DbalAiStore implements AiStore, AiMaturityStore
             'label' => $profile['label'],
             'provider' => $profile['provider'],
             'model' => $profile['model'],
+            'owner_user_id' => $profile['ownerUserId'] ?? null,
+            'endpoint' => $profile['endpoint'] ?? null,
             'ciphertext' => $profile['ciphertext'],
             'nonce' => $profile['nonce'],
             'key_version' => $profile['keyVersion'],

@@ -22,14 +22,44 @@ support bundle, or committed `.env` file.
 | Provider ID | Environment | Notes |
 |---|---|---|
 | `openai` | fixed endpoint, no base URL setting | Uses the Responses API and `store: false` |
-| `openai-compatible` | `AI_COMPATIBLE_ENDPOINT=https://host/base` | The server appends `/v1/chat/completions` |
-| `ollama` | `AI_OLLAMA_ENDPOINT=http://host:11434` | The server appends `/api/chat`; private HTTP also requires `AI_ALLOW_PRIVATE_ENDPOINTS=1` |
+| `openai-compatible` | optional `AI_COMPATIBLE_ENDPOINT=https://host/base` | The server appends `/v1/chat/completions`; the deployment endpoint is only a legacy fallback — provider profiles own their endpoints |
+| `ollama` | optional `AI_OLLAMA_ENDPOINT=http://host:11434` | The server appends `/api/chat`; a private deployment endpoint also requires `AI_ALLOW_PRIVATE_ENDPOINTS=1` |
 
 Set `AI_SERVER_PROXY_ENABLED=1`, `AI_CREDENTIAL_KEY_VERSION=1`, and an
 appropriate `AI_MAX_IMAGE_BYTES` between 1 MiB and 16 MiB. Public provider
 endpoints must use HTTPS. Keep private Ollama endpoints on a segmented network
 with no route to instance metadata, control planes, databases, or other tenant
 services.
+
+## Person-scoped provider profiles and owned endpoints
+
+Provider profiles are person-scoped by default. Every profile carries an
+`ownerScope`:
+
+- `private` (the default) stores the profile for the requesting person only.
+  Any member the `ai.manage` permission admits creates, updates, and deletes
+  their own private profiles; nobody else — not even the home owner — can see
+  or address them (listings omit them and direct access answers 404).
+- `home` deliberately shares the profile with the home. Creating, updating, or
+  deleting a home-shared profile requires the home-owner role: sharing is an
+  explicit owner choice, never inferred from storage scope.
+
+Scans prefer the requesting person's own active private profile over a
+home-shared one for the same provider, so each person's images run on their
+own key by default. Each encrypted profile credential is bound to
+`providentia-ai-profile:v2:{homeId}:{ownerUserId|home}:{profileId}` associated
+data; changing a profile's provider or owner scope therefore requires
+re-entering the credential.
+
+Profiles for the `openai-compatible` and `ollama` providers may own a custom
+`endpoint` (at the same scope as the credential; every other provider rejects
+the field). Write-time validation requires an absolute HTTPS URL without
+userinfo, query, or fragment, and always rejects literal private, loopback,
+and link-local hosts; the same rule is re-asserted before every request. The
+deliberately separate LAN policy `AI_ALLOW_PRIVATE_NETWORK_ENDPOINTS=1`
+(default `0`) additionally lets **Ollama** profile endpoints use plain HTTP
+and private or loopback hosts — keep such endpoints on a segmented network as
+described above.
 
 The adapters follow the current official provider contracts for
 [OpenAI image input](https://developers.openai.com/api/docs/guides/images-vision),

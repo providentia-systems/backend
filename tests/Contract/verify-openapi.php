@@ -573,6 +573,27 @@ if (
     throw new RuntimeException('Profile credential revocation must expose only the revision-bound privacy projection.');
 }
 
+$putProfileRequest = $contract['components']['schemas']['PutAiProviderProfileRequest'] ?? [];
+if (
+    ($profileSchema['properties']['ownerScope']['enum'] ?? null) !== ['private', 'home']
+    || ! in_array('ownerScope', $profileSchema['required'] ?? [], true)
+    || ! in_array('endpoint', $profileSchema['required'] ?? [], true)
+    || ! in_array('null', $profileSchema['properties']['endpoint']['type'] ?? [], true)
+    || ($profileSchema['properties']['endpoint']['maxLength'] ?? null) !== 300
+    || array_intersect(['ownerUserId', 'updatedByUserId'], array_keys($profileSchema['properties'] ?? [])) !== []
+    || ($putProfileRequest['properties']['ownerScope']['enum'] ?? null) !== ['private', 'home']
+    || ($putProfileRequest['properties']['ownerScope']['default'] ?? null) !== 'private'
+    || in_array('ownerScope', $putProfileRequest['required'] ?? [], true)
+    || ! in_array('null', $putProfileRequest['properties']['endpoint']['type'] ?? [], true)
+    || ($putProfileRequest['properties']['endpoint']['maxLength'] ?? null) !== 300
+    || stripos(
+        (string) ($putProfileRequest['properties']['endpoint']['description'] ?? ''),
+        'AI_ALLOW_PRIVATE_NETWORK_ENDPOINTS',
+    ) === false
+) {
+    throw new RuntimeException('Person-scoped provider-profile owner scope and endpoint contracts are incomplete.');
+}
+
 $publishedCategoryOperation = $contract['paths']['/api/v1/catalog/categories']['get'] ?? [];
 $publishedCategoryPage = $contract['components']['schemas']['PublishedCatalogCategoryPage'] ?? [];
 $publishedCategory = $contract['components']['schemas']['PublishedCatalogCategory'] ?? [];

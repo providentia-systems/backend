@@ -20,6 +20,8 @@ use Throwable;
 
 final class AiService
 {
+    private readonly ProfileEndpointPolicy $profileEndpoints;
+
     public function __construct(
         private readonly AiStore $store,
         private readonly AiMaturityStore $maturity,
@@ -35,7 +37,9 @@ final class AiService
         private readonly int $maxImageBytes,
         private readonly int $maxImages,
         private readonly SensitiveBufferEraser $buffers,
+        ?ProfileEndpointPolicy $profileEndpoints = null,
     ) {
+        $this->profileEndpoints = $profileEndpoints ?? new ProfileEndpointPolicy(false);
     }
 
     /** @return array<string, mixed> */
@@ -64,7 +68,9 @@ final class AiService
         ];
         $settings['humanReviewRequired'] = true;
         $settings['credentialEncryptionAvailable'] = $this->cipher->available();
-        $settings['providerProfiles'] = $this->publicProfiles($this->maturity->providerProfiles($homeId));
+        $settings['providerProfiles'] = $this->publicProfiles(
+            $this->maturity->providerProfiles($homeId, $identity->userId),
+        );
         $settings['orchestrationPolicy'] = $this->maturity->orchestrationPolicy($homeId);
 
         return $settings;
@@ -196,7 +202,7 @@ final class AiService
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_READ);
 
-        return $this->publicProfiles($this->maturity->providerProfiles($homeId));
+        return $this->publicProfiles($this->maturity->providerProfiles($homeId, $identity->userId));
     }
 
     /** @return array<string, mixed> */
@@ -210,8 +216,10 @@ final class AiService
         ?string $credential,
         int $estimatedCostMicros,
         int $expectedRevision,
+        string $ownerScope = 'private',
+        ?string $endpoint = null,
     ): array {
-        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
+        $membership = $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
         $label = trim($label);
         $model = trim($model);
         $provider = $this->providers->get($providerId);
@@ -226,14 +234,48 @@ final class AiService
             || $estimatedCostMicros < 0
             || $estimatedCostMicros > 1000000000
             || $expectedRevision < 0
+            || ! in_array($ownerScope, ['private', 'home'], true)
         ) {
             throw new Problem(422, 'Invalid AI provider profile', 'Provider profile fields are invalid.');
+        }
+        $endpoint = $endpoint === null ? null : trim($endpoint);
+        $endpoint = $endpoint === '' ? null : $endpoint;
+        if ($endpoint !== null) {
+            if (! $this->profileEndpoints->providerOwnsEndpoint($providerId)) {
+                throw new Problem(
+                    422,
+                    'Invalid AI endpoint',
+                    'Only openai-compatible and ollama profiles may own a custom endpoint.',
+                );
+            }
+            if (! $this->profileEndpoints->permitsWrite($endpoint, $providerId)) {
+                throw new Problem(
+                    422,
+                    'Invalid AI endpoint',
+                    'The profile endpoint violates the HTTPS and private-network endpoint policy.',
+                );
+            }
         }
         $id = $profileId === null || $profileId === '' ? $this->ids->generate() : $profileId;
         if (preg_match('/^[A-Za-z0-9-]{1,36}$/', $id) !== 1) {
             throw new Problem(422, 'Invalid AI provider profile', 'Provider profile identity is invalid.');
         }
         $existing = $this->maturity->providerProfile($homeId, $id);
+        if ($existing !== null && $this->foreignPrivateProfile($existing, $identity)) {
+            // Another member's private profile is unaddressable, exactly like a
+            // profile that does not exist.
+            throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+        }
+        $ownerUserId = $ownerScope === 'private' ? $identity->userId : null;
+        $existingOwner = $existing === null ? null : ($existing['ownerUserId'] ?? null);
+        if (
+            ($ownerScope === 'home' || ($existing !== null && $existingOwner === null))
+            && (string) $membership['role'] !== HomeAuthorization::OWNER
+        ) {
+            // Sharing is a deliberate owner decision; it is never inferred from
+            // storage scope or granted through the manage permission alone.
+            throw new Problem(403, 'Forbidden', 'Only the home owner can manage home-shared AI provider profiles.');
+        }
         if (($expectedRevision === 0) !== ($existing === null)) {
             throw new Problem(409, 'Revision conflict', 'The provider profile changed on another device.');
         }
@@ -243,9 +285,11 @@ final class AiService
         $lastFour = $existing['lastFour'] ?? null;
         if (
             $existing !== null
-            && $existing['provider'] !== $providerId
+            && ($existing['provider'] !== $providerId || $existingOwner !== $ownerUserId)
             && ($credential === null || trim($credential) === '')
         ) {
+            // A provider or owner-scope change re-binds the credential's
+            // associated data, so the stored ciphertext cannot be carried over.
             $ciphertext = $nonce = $keyVersion = $lastFour = null;
         }
         if ($credential !== null && trim($credential) !== '') {
@@ -261,7 +305,10 @@ final class AiService
                 );
             }
             try {
-                $encrypted = $this->cipher->encrypt($credential, $this->profileAssociatedData($homeId, $id));
+                $encrypted = $this->cipher->encrypt(
+                    $credential,
+                    $this->profileAssociatedData($homeId, $ownerUserId, $id),
+                );
             } catch (AiProviderException $error) {
                 throw new Problem(503, 'AI credential encryption unavailable', $error->safeDetail);
             }
@@ -285,6 +332,8 @@ final class AiService
             'label' => $label,
             'provider' => $providerId,
             'model' => $model,
+            'ownerUserId' => $ownerUserId,
+            'endpoint' => $endpoint,
             'ciphertext' => $ciphertext,
             'nonce' => $nonce,
             'keyVersion' => $keyVersion,
@@ -301,6 +350,8 @@ final class AiService
             'label' => $label,
             'provider' => $providerId,
             'model' => $model,
+            'ownerScope' => $ownerScope,
+            'endpoint' => $endpoint,
             'credentialConfigured' => is_string($ciphertext),
             'lastFour' => $lastFour,
             'estimatedCostMicros' => $estimatedCostMicros,
@@ -314,7 +365,17 @@ final class AiService
         string $profileId,
         int $expectedRevision,
     ): void {
-        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
+        $membership = $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
+        $profile = $this->maturity->providerProfile($homeId, $profileId);
+        if ($profile === null || $this->foreignPrivateProfile($profile, $identity)) {
+            throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+        }
+        if (
+            ($profile['ownerUserId'] ?? null) === null
+            && (string) $membership['role'] !== HomeAuthorization::OWNER
+        ) {
+            throw new Problem(403, 'Forbidden', 'Only the home owner can manage home-shared AI provider profiles.');
+        }
         $policy = $this->maturity->orchestrationPolicy($homeId);
         if (
             $policy !== null
@@ -349,7 +410,7 @@ final class AiService
         string $profileId,
         int $expectedRevision,
     ): array {
-        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
+        $membership = $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
         if (preg_match('/^[A-Za-z0-9-]{1,36}$/', $profileId) !== 1 || $expectedRevision < 1) {
             throw new Problem(
                 422,
@@ -358,8 +419,18 @@ final class AiService
             );
         }
         $profile = $this->maturity->providerProfile($homeId, $profileId);
-        if ($profile === null || (string) ($profile['status'] ?? '') !== 'active') {
+        if (
+            $profile === null
+            || (string) ($profile['status'] ?? '') !== 'active'
+            || $this->foreignPrivateProfile($profile, $identity)
+        ) {
             throw new Problem(404, 'Not found', 'The provider profile is unavailable.');
+        }
+        if (
+            ($profile['ownerUserId'] ?? null) === null
+            && (string) $membership['role'] !== HomeAuthorization::OWNER
+        ) {
+            throw new Problem(403, 'Forbidden', 'Only the home owner can manage home-shared AI provider profiles.');
         }
         if ((int) ($profile['revision'] ?? 0) !== $expectedRevision) {
             throw new Problem(409, 'Revision conflict', 'The provider profile changed on another device.');
@@ -443,10 +514,10 @@ final class AiService
         }
         $profiles = [];
         foreach ($extractionProfileIds as $profileId) {
-            $profiles[$profileId] = $this->activeProfile($homeId, $profileId);
+            $profiles[$profileId] = $this->activeProfile($identity, $homeId, $profileId);
         }
         if ($validationProfileId !== null) {
-            $validator = $this->activeProfile($homeId, $validationProfileId);
+            $validator = $this->activeProfile($identity, $homeId, $validationProfileId);
             foreach ($profiles as $profile) {
                 if ($profile['provider'] === $validator['provider']) {
                     throw new Problem(
@@ -592,7 +663,7 @@ final class AiService
         $policy = $this->maturity->orchestrationPolicy($homeId);
         [$plan, $validator, $credentials] = $policy === null
             ? $this->legacyPlan($homeId, $settings)
-            : $this->policyPlan($homeId, $policy);
+            : $this->policyPlan($homeId, $policy, $identity->userId);
         foreach ($credentials as &$credential) {
             $sensitive->track($credential);
         }
@@ -929,50 +1000,124 @@ final class AiService
      * @param array<string, mixed> $policy
      * @return array{0: non-empty-list<AiExecution>, 1: AiExecution|null, 2: list<string>}
      */
-    private function policyPlan(string $homeId, array $policy): array
+    private function policyPlan(string $homeId, array $policy, string $userId): array
     {
         $profileIds = $policy['extractionProfileIds'] ?? null;
         if (! is_array($profileIds) || $profileIds === [] || count($profileIds) > (int) $policy['maxAttempts']) {
             throw new Problem(409, 'AI policy unavailable', 'The active AI orchestration policy is invalid.');
         }
+        $visible = $this->visibleProfiles($homeId, $userId);
         $credentials = [];
         $plan = [];
         foreach ($profileIds as $profileId) {
-            $plan[] = $this->executionForProfile($homeId, (string) $profileId, $credentials);
+            $plan[] = $this->executionForProfile(
+                $homeId,
+                $this->resolveProfile($visible, (string) $profileId),
+                $credentials,
+            );
         }
         $validator = null;
         if (is_string($policy['validationProfileId'] ?? null) && $policy['validationProfileId'] !== '') {
-            $validator = $this->executionForProfile($homeId, $policy['validationProfileId'], $credentials);
+            $validator = $this->executionForProfile(
+                $homeId,
+                $this->resolveProfile($visible, $policy['validationProfileId']),
+                $credentials,
+            );
         }
 
         return [$plan, $validator, $credentials];
     }
 
-    /** @param list<string> $credentials */
-    private function executionForProfile(string $homeId, string $profileId, array &$credentials): AiExecution
+    /**
+     * The profiles the requesting person may use: every home-shared profile
+     * plus their own private profiles, indexed for policy resolution.
+     *
+     * @return array{
+     *     byId: array<string, array<string, mixed>>,
+     *     privateByProvider: array<string, array<string, mixed>>
+     * }
+     */
+    private function visibleProfiles(string $homeId, string $userId): array
     {
-        $profile = $this->activeProfile($homeId, $profileId);
+        $byId = [];
+        $privateByProvider = [];
+        foreach ($this->maturity->providerProfiles($homeId, $userId) as $profile) {
+            $byId[(string) $profile['id']] = $profile;
+            if (($profile['ownerUserId'] ?? null) === null) {
+                continue;
+            }
+            $provider = $this->providers->get((string) $profile['provider']);
+            if (
+                $provider === null
+                || ($provider->requiresCredential() && ! is_string($profile['ciphertext'] ?? null))
+            ) {
+                continue;
+            }
+            $privateByProvider[(string) $profile['provider']] ??= $profile;
+        }
+
+        return ['byId' => $byId, 'privateByProvider' => $privateByProvider];
+    }
+
+    /**
+     * Resolves one configured profile id for the requesting person. Their own
+     * usable private profile for the same provider is preferred over a
+     * home-shared profile, so a person's scans run on their own key by default.
+     *
+     * @param array{
+     *     byId: array<string, array<string, mixed>>,
+     *     privateByProvider: array<string, array<string, mixed>>
+     * } $visible
+     * @return array<string, mixed>
+     */
+    private function resolveProfile(array $visible, string $profileId): array
+    {
+        $profile = $visible['byId'][$profileId] ?? null;
+        if ($profile === null) {
+            throw new Problem(422, 'Invalid AI provider profile', 'An active provider profile is required.');
+        }
+        if (($profile['ownerUserId'] ?? null) !== null) {
+            return $profile;
+        }
+
+        return $visible['privateByProvider'][(string) $profile['provider']] ?? $profile;
+    }
+
+    /**
+     * @param array<string, mixed> $profile
+     * @param list<string> $credentials
+     */
+    private function executionForProfile(string $homeId, array $profile, array &$credentials): AiExecution
+    {
+        $profileId = (string) $profile['id'];
         $provider = $this->providers->get((string) $profile['provider']);
         if ($provider === null) {
             throw new Problem(409, 'AI provider unavailable', 'A policy provider is disabled on this server.');
         }
         $credential = null;
         if ($provider->requiresCredential()) {
-            if (! is_string($profile['ciphertext']) || ! is_string($profile['nonce'])) {
+            if (! is_string($profile['ciphertext'] ?? null) || ! is_string($profile['nonce'] ?? null)) {
                 throw new Problem(409, 'AI credential missing', 'A policy provider credential is unavailable.');
             }
             try {
                 $credential = $this->cipher->decrypt(
-                    $profile['ciphertext'],
-                    $profile['nonce'],
+                    (string) $profile['ciphertext'],
+                    (string) $profile['nonce'],
                     (int) $profile['keyVersion'],
-                    $this->profileAssociatedData($homeId, $profileId),
+                    $this->profileAssociatedData(
+                        $homeId,
+                        isset($profile['ownerUserId']) ? (string) $profile['ownerUserId'] : null,
+                        $profileId,
+                    ),
                 );
             } catch (AiProviderException $error) {
                 throw new Problem(409, 'AI credential unavailable', $error->safeDetail);
             }
             $credentials[] = $credential;
         }
+        $endpoint = isset($profile['endpoint']) && is_string($profile['endpoint']) && $profile['endpoint'] !== ''
+            ? $profile['endpoint']
+            : null;
 
         return new AiExecution(
             $provider,
@@ -980,18 +1125,31 @@ final class AiService
             $credential,
             $profileId,
             (int) $profile['estimatedCostMicros'],
+            $endpoint,
         );
     }
 
     /** @return array<string, mixed> */
-    private function activeProfile(string $homeId, string $profileId): array
+    private function activeProfile(AuthenticatedIdentity $identity, string $homeId, string $profileId): array
     {
         $profile = $this->maturity->providerProfile($homeId, $profileId);
-        if ($profile === null || $profile['status'] !== 'active') {
+        if (
+            $profile === null
+            || $profile['status'] !== 'active'
+            || $this->foreignPrivateProfile($profile, $identity)
+        ) {
             throw new Problem(422, 'Invalid AI provider profile', 'An active provider profile is required.');
         }
 
         return $profile;
+    }
+
+    /** @param array<string, mixed> $profile */
+    private function foreignPrivateProfile(array $profile, AuthenticatedIdentity $identity): bool
+    {
+        $owner = $profile['ownerUserId'] ?? null;
+
+        return $owner !== null && (string) $owner !== $identity->userId;
     }
 
     /**
@@ -1010,6 +1168,8 @@ final class AiService
      *     label: string,
      *     provider: string,
      *     model: string,
+     *     ownerScope: string,
+     *     endpoint: string|null,
      *     credentialConfigured: bool,
      *     lastFour: string|null,
      *     estimatedCostMicros: int,
@@ -1023,6 +1183,12 @@ final class AiService
             'label' => (string) $profile['label'],
             'provider' => (string) $profile['provider'],
             'model' => (string) $profile['model'],
+            // The projection never carries an owner user id: foreign private
+            // profiles are invisible, so the scope alone is sufficient.
+            'ownerScope' => ($profile['ownerUserId'] ?? null) === null ? 'home' : 'private',
+            'endpoint' => isset($profile['endpoint']) && (string) $profile['endpoint'] !== ''
+                ? (string) $profile['endpoint']
+                : null,
             'credentialConfigured' => is_string($profile['ciphertext'] ?? null),
             'lastFour' => isset($profile['lastFour']) ? (string) $profile['lastFour'] : null,
             'estimatedCostMicros' => (int) $profile['estimatedCostMicros'],
@@ -1155,8 +1321,14 @@ final class AiService
         return 'providentia-ai-credential:v1:' . $homeId . ':' . $provider;
     }
 
-    private function profileAssociatedData(string $homeId, string $profileId): string
+    /**
+     * v2 binds each profile credential to its owner scope: a private profile
+     * ciphertext authenticates only for that person, a home-shared one only for
+     * the literal "home" scope. The v1 form is gone; the owner-scope migration
+     * cleared every v1 ciphertext.
+     */
+    private function profileAssociatedData(string $homeId, ?string $ownerUserId, string $profileId): string
     {
-        return 'providentia-ai-profile:v1:' . $homeId . ':' . $profileId;
+        return 'providentia-ai-profile:v2:' . $homeId . ':' . ($ownerUserId ?? 'home') . ':' . $profileId;
     }
 }

@@ -24,6 +24,7 @@ use Providentia\AiIntegration\Application\Media\VideoProcessor;
 use Providentia\AiIntegration\Application\Orchestration\AiOrchestrator;
 use Providentia\AiIntegration\Application\Orchestration\ExtractionReconciler;
 use Providentia\AiIntegration\Application\Orchestration\ProviderFailureClassifier;
+use Providentia\AiIntegration\Application\ProfileEndpointPolicy;
 use Providentia\AiIntegration\Application\SensitiveBufferEraser;
 use Providentia\AiIntegration\Domain\ExtractionOutcome;
 use Providentia\AiIntegration\Domain\ExtractionRequest;
@@ -42,8 +43,10 @@ final class AiSettingsPrivacyTest extends TestCase
 {
     private const HOME_ID = '01912345-6789-7abc-8def-0123456789ab';
     private const USER_ID = '01912345-6789-7abc-9def-0123456789ab';
+    private const OTHER_USER_ID = '01912345-6789-7abc-9def-9876543210ab';
     private const RECEIPT_ID = '01912345-6789-7abc-adef-0123456789ab';
     private const PROFILE_ID = '01912345-6789-7abc-bdef-0123456789ab';
+    private const COMPATIBLE_ENDPOINT = 'https://vision.example.test/v1/chat/completions';
 
     public function testSettingsDistinguishDirectTransitFromExplicitEncryptedStorage(): void
     {
@@ -437,11 +440,16 @@ final class AiSettingsPrivacyTest extends TestCase
             'label' => 'Primary',
             'provider' => 'openai',
             'model' => 'gpt-vision',
+            'ownerScope' => 'home',
+            'endpoint' => null,
             'credentialConfigured' => false,
             'lastFour' => null,
             'estimatedCostMicros' => 250,
             'revision' => 4,
         ], $profile);
+        foreach (['ownerUserId', 'owner_user_id', 'updatedByUserId'] as $ownerField) {
+            self::assertArrayNotHasKey($ownerField, $profile);
+        }
         foreach (['ciphertext', 'nonce', 'keyVersion', 'credential'] as $secret) {
             self::assertArrayNotHasKey($secret, $profile);
         }
@@ -533,6 +541,578 @@ final class AiSettingsPrivacyTest extends TestCase
         } catch (Problem $problem) {
             self::assertSame(404, $problem->status);
         }
+    }
+
+    public function testPrivateProfileCreationBindsOwnerScopedAssociatedDataAndHidesOwnerIds(): void
+    {
+        $maturity = $this->createStub(AiMaturityStore::class);
+        $maturity->method('providerProfile')->willReturn(null);
+        $saved = null;
+        $maturity->method('saveProviderProfile')->willReturnCallback(
+            static function (array $profile) use (&$saved): bool {
+                $saved = $profile;
+
+                return true;
+            },
+        );
+        $cipher = $this->createMock(CredentialCipher::class);
+        $cipher->method('available')->willReturn(true);
+        $cipher->expects(self::once())->method('encrypt')
+            ->with(
+                'compatible-secret-0001',
+                'providentia-ai-profile:v2:' . self::HOME_ID . ':' . self::USER_ID . ':' . self::PROFILE_ID,
+            )
+            ->willReturn(['ciphertext' => 'cipher', 'nonce' => 'nonce', 'keyVersion' => 1]);
+
+        $result = $this->profileService($maturity, $cipher, HomeAuthorization::MANAGER)->putProviderProfile(
+            $this->identity(),
+            self::HOME_ID,
+            self::PROFILE_ID,
+            'My compatible key',
+            'openai-compatible',
+            'vision',
+            'compatible-secret-0001',
+            250,
+            0,
+            'private',
+            self::COMPATIBLE_ENDPOINT,
+        );
+
+        self::assertSame('private', $result['ownerScope']);
+        self::assertSame(self::COMPATIBLE_ENDPOINT, $result['endpoint']);
+        self::assertArrayNotHasKey('ownerUserId', $result);
+        self::assertIsArray($saved);
+        self::assertSame(self::USER_ID, $saved['ownerUserId']);
+        self::assertSame(self::COMPATIBLE_ENDPOINT, $saved['endpoint']);
+    }
+
+    public function testHomeSharedProfileWritesAreADeliberateHomeOwnerChoice(): void
+    {
+        $maturity = $this->createMock(AiMaturityStore::class);
+        $maturity->method('providerProfile')->willReturn(null);
+        $maturity->expects(self::never())->method('saveProviderProfile');
+
+        try {
+            $this->profileService($maturity, null, HomeAuthorization::MANAGER)->putProviderProfile(
+                $this->identity(),
+                self::HOME_ID,
+                self::PROFILE_ID,
+                'Household key',
+                'ollama',
+                'llava',
+                null,
+                0,
+                0,
+                'home',
+            );
+            self::fail('A non-owner created a home-shared provider profile.');
+        } catch (Problem $problem) {
+            self::assertSame(403, $problem->status);
+        }
+
+        $owning = $this->createStub(AiMaturityStore::class);
+        $owning->method('providerProfile')->willReturn(null);
+        $saved = null;
+        $owning->method('saveProviderProfile')->willReturnCallback(
+            static function (array $profile) use (&$saved): bool {
+                $saved = $profile;
+
+                return true;
+            },
+        );
+        $result = $this->profileService($owning, null, HomeAuthorization::OWNER)->putProviderProfile(
+            $this->identity(),
+            self::HOME_ID,
+            self::PROFILE_ID,
+            'Household key',
+            'ollama',
+            'llava',
+            null,
+            0,
+            0,
+            'home',
+        );
+
+        self::assertSame('home', $result['ownerScope']);
+        self::assertIsArray($saved);
+        self::assertNull($saved['ownerUserId']);
+    }
+
+    public function testAnotherMembersPrivateProfileIsUnaddressableByEveryProfileWrite(): void
+    {
+        $foreign = $this->providerProfile();
+        $foreign['ownerUserId'] = self::OTHER_USER_ID;
+        $maturity = $this->createMock(AiMaturityStore::class);
+        $maturity->method('providerProfile')->willReturn($foreign);
+        $maturity->expects(self::never())->method('saveProviderProfile');
+        $maturity->expects(self::never())->method('revokeProviderProfile');
+        $maturity->expects(self::never())->method('revokeProviderProfileCredential');
+        $service = $this->profileService($maturity, null, HomeAuthorization::OWNER);
+
+        $writes = [
+            fn (): array => $service->putProviderProfile(
+                $this->identity(),
+                self::HOME_ID,
+                self::PROFILE_ID,
+                'Takeover',
+                'openai-compatible',
+                'vision',
+                'compatible-secret-0001',
+                250,
+                3,
+                'private',
+            ),
+            function () use ($service): void {
+                $service->removeProviderProfile($this->identity(), self::HOME_ID, self::PROFILE_ID, 3);
+            },
+            fn (): array => $service->revokeProviderProfileCredential(
+                $this->identity(),
+                self::HOME_ID,
+                self::PROFILE_ID,
+                3,
+            ),
+        ];
+        foreach ($writes as $write) {
+            try {
+                $write();
+                self::fail('Another member\'s private provider profile was addressable.');
+            } catch (Problem $problem) {
+                self::assertSame(404, $problem->status);
+            }
+        }
+    }
+
+    public function testHomeSharedProfileDeletionRequiresTheOwnerWhilePrivateOnesStayManageable(): void
+    {
+        $shared = $this->providerProfile();
+        $shared['ownerUserId'] = null;
+        $maturity = $this->createMock(AiMaturityStore::class);
+        $maturity->method('providerProfile')->willReturn($shared);
+        $maturity->expects(self::never())->method('revokeProviderProfile');
+
+        try {
+            $this->profileService($maturity, null, HomeAuthorization::MANAGER)->removeProviderProfile(
+                $this->identity(),
+                self::HOME_ID,
+                self::PROFILE_ID,
+                3,
+            );
+            self::fail('A non-owner deleted a home-shared provider profile.');
+        } catch (Problem $problem) {
+            self::assertSame(403, $problem->status);
+        }
+
+        $own = $this->providerProfile();
+        $own['ownerUserId'] = self::USER_ID;
+        $owned = $this->createMock(AiMaturityStore::class);
+        $owned->method('providerProfile')->willReturn($own);
+        $owned->method('orchestrationPolicy')->willReturn(null);
+        $owned->expects(self::once())->method('revokeProviderProfile')
+            ->with(self::HOME_ID, self::PROFILE_ID, 3, self::USER_ID)
+            ->willReturn(true);
+
+        $this->profileService($owned, null, HomeAuthorization::MANAGER)->removeProviderProfile(
+            $this->identity(),
+            self::HOME_ID,
+            self::PROFILE_ID,
+            3,
+        );
+    }
+
+    public function testProfileListingsAreScopedToTheRequestingPerson(): void
+    {
+        $own = $this->providerProfile();
+        $own['ownerUserId'] = self::USER_ID;
+        $own['endpoint'] = self::COMPATIBLE_ENDPOINT;
+        $maturity = $this->createMock(AiMaturityStore::class);
+        $maturity->expects(self::once())->method('providerProfiles')
+            ->with(self::HOME_ID, self::USER_ID)
+            ->willReturn([$own]);
+
+        $profiles = $this->profileService($maturity, null, HomeAuthorization::MEMBER)
+            ->providerProfiles($this->identity(), self::HOME_ID);
+
+        self::assertCount(1, $profiles);
+        self::assertSame('private', $profiles[0]['ownerScope']);
+        self::assertSame(self::COMPATIBLE_ENDPOINT, $profiles[0]['endpoint']);
+        self::assertArrayNotHasKey('ownerUserId', $profiles[0]);
+    }
+
+    public function testOwnerScopeConversionCannotCarryTheOldCredentialCiphertext(): void
+    {
+        $own = $this->providerProfile();
+        $own['ownerUserId'] = self::USER_ID;
+        $own['provider'] = 'openai-compatible';
+        $maturity = $this->createMock(AiMaturityStore::class);
+        $maturity->method('providerProfile')->willReturn($own);
+        $maturity->expects(self::never())->method('saveProviderProfile');
+
+        try {
+            $this->profileService($maturity, null, HomeAuthorization::OWNER)->putProviderProfile(
+                $this->identity(),
+                self::HOME_ID,
+                self::PROFILE_ID,
+                'Primary',
+                'openai-compatible',
+                'gpt-vision',
+                null,
+                250,
+                3,
+                'home',
+            );
+            self::fail('An owner-scope change silently reused a differently bound ciphertext.');
+        } catch (Problem $problem) {
+            self::assertSame(422, $problem->status);
+            self::assertSame('AI credential missing', $problem->title);
+        }
+    }
+
+    public function testProfileEndpointWritePolicyMatrix(): void
+    {
+        $rejected = [
+            // Only the endpoint-owning adapters accept an endpoint at all.
+            [false, 'openai', 'secret-credential-0001', 'https://api.example.test/v1'],
+            // HTTPS is required for openai-compatible even under the LAN policy.
+            [true, 'openai-compatible', 'compatible-secret-0001', 'http://vision.example.test/v1/chat/completions'],
+            // Userinfo, query, and fragment parts can never be smuggled in.
+            [true, 'openai-compatible', 'compatible-secret-0001', 'https://user:pw@vision.example.test/v1'],
+            [true, 'openai-compatible', 'compatible-secret-0001', self::COMPATIBLE_ENDPOINT . '?redirect=x'],
+            [true, 'openai-compatible', 'compatible-secret-0001', self::COMPATIBLE_ENDPOINT . '#fragment'],
+            // Literal private, loopback, or link-local hosts are always
+            // rejected for HTTPS endpoints, for every provider and policy.
+            [true, 'openai-compatible', 'compatible-secret-0001', 'https://192.168.1.10/v1/chat/completions'],
+            [true, 'ollama', null, 'https://127.0.0.1:11434/api/chat'],
+            [false, 'ollama', null, 'https://[::1]:11434/api/chat'],
+            // Plain HTTP and private hosts need the explicit Ollama LAN opt-in.
+            [false, 'ollama', null, 'http://192.168.1.10:11434/api/chat'],
+            [false, 'ollama', null, 'http://ollama.lan:11434/api/chat'],
+        ];
+        foreach ($rejected as [$lanPolicy, $provider, $credential, $endpoint]) {
+            $maturity = $this->createMock(AiMaturityStore::class);
+            $maturity->method('providerProfile')->willReturn(null);
+            $maturity->expects(self::never())->method('saveProviderProfile');
+            try {
+                $this->profileService($maturity, null, HomeAuthorization::OWNER, $lanPolicy)->putProviderProfile(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::PROFILE_ID,
+                    'Endpoint under test',
+                    $provider,
+                    'vision',
+                    $credential,
+                    0,
+                    0,
+                    'private',
+                    $endpoint,
+                );
+                self::fail('An endpoint outside the write policy was accepted: ' . $endpoint);
+            } catch (Problem $problem) {
+                self::assertSame(422, $problem->status, $endpoint);
+                self::assertSame('Invalid AI endpoint', $problem->title, $endpoint);
+            }
+        }
+
+        $accepted = [
+            [false, 'openai-compatible', 'compatible-secret-0001', self::COMPATIBLE_ENDPOINT],
+            [false, 'ollama', null, 'https://ollama.example.test/api/chat'],
+            [true, 'ollama', null, 'http://192.168.1.10:11434/api/chat'],
+            [true, 'ollama', null, 'http://127.0.0.1:11434/api/chat'],
+        ];
+        foreach ($accepted as [$lanPolicy, $provider, $credential, $endpoint]) {
+            $maturity = $this->createStub(AiMaturityStore::class);
+            $maturity->method('providerProfile')->willReturn(null);
+            $saved = null;
+            $maturity->method('saveProviderProfile')->willReturnCallback(
+                static function (array $profile) use (&$saved): bool {
+                    $saved = $profile;
+
+                    return true;
+                },
+            );
+            $result = $this->profileService($maturity, null, HomeAuthorization::OWNER, $lanPolicy)
+                ->putProviderProfile(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::PROFILE_ID,
+                    'Endpoint under test',
+                    $provider,
+                    'vision',
+                    $credential,
+                    0,
+                    0,
+                    'private',
+                    $endpoint,
+                );
+            self::assertSame($endpoint, $result['endpoint']);
+            self::assertIsArray($saved);
+            self::assertSame($endpoint, $saved['endpoint']);
+        }
+    }
+
+    public function testScansPreferTheRequestingPersonsPrivateProfileOverTheHomeSharedOne(): void
+    {
+        $provider = new class implements AiProvider {
+            /** @var list<string> */
+            public array $models = [];
+
+            /** @var list<string|null> */
+            public array $endpoints = [];
+
+            public function id(): string
+            {
+                return 'synthetic';
+            }
+
+            public function requiresCredential(): bool
+            {
+                return false;
+            }
+
+            public function extract(ExtractionRequest $request): ExtractionOutcome
+            {
+                $this->models[] = $request->model;
+                $this->endpoints[] = $request->endpoint;
+
+                return new ExtractionOutcome(AiSettingsPrivacyTest::emptyDocument(), [
+                    'inputTokens' => 1,
+                    'outputTokens' => 1,
+                    'totalTokens' => 2,
+                ]);
+            }
+        };
+        $shared = [
+            'id' => 'shared-profile',
+            'label' => 'Household synthetic',
+            'provider' => 'synthetic',
+            'model' => 'shared-model',
+            'ownerUserId' => null,
+            'endpoint' => null,
+            'ciphertext' => null,
+            'nonce' => null,
+            'keyVersion' => null,
+            'lastFour' => null,
+            'estimatedCostMicros' => 10,
+            'status' => 'active',
+            'revision' => 1,
+        ];
+        $private = array_merge($shared, [
+            'id' => 'private-profile',
+            'label' => 'My synthetic',
+            'model' => 'private-model',
+            'ownerUserId' => self::USER_ID,
+            'endpoint' => 'https://private.example.test/v1/chat/completions',
+        ]);
+        $store = $this->createMock(AiStore::class);
+        $store->method('targetExists')->willReturn(true);
+        $store->method('settings')->willReturn([
+            'mode' => 'server_proxy',
+            'provider' => null,
+            'model' => null,
+            'revision' => 2,
+        ]);
+        $store->expects(self::once())->method('startExtraction');
+        $store->expects(self::once())->method('completeExtraction');
+        $maturity = $this->createMock(AiMaturityStore::class);
+        $maturity->method('orchestrationPolicy')->willReturn([
+            'extractionProfileIds' => ['shared-profile'],
+            'validationProfileId' => null,
+            'maxAttempts' => 4,
+            'maxTotalTokens' => 50000,
+            'maxEstimatedCostMicros' => 1000000,
+            'revision' => 1,
+        ]);
+        $maturity->method('providerProfiles')
+            ->with(self::HOME_ID, self::USER_ID)
+            ->willReturn([$shared, $private]);
+        $attempts = [];
+        $maturity->method('appendExtractionAttempt')->willReturnCallback(
+            static function (string $extractionId, int $position, int $index, array $attempt) use (&$attempts): void {
+                $attempts[] = $attempt;
+            },
+        );
+        $transactions = $this->createStub(TransactionManager::class);
+        $transactions->method('transactional')->willReturnCallback(
+            static fn (callable $operation): mixed => $operation(),
+        );
+        $ids = $this->createStub(UuidGenerator::class);
+        $ids->method('generate')->willReturn('01912345-6789-7abc-edef-0123456789ab');
+        $schema = new ExtractionSchema();
+        $service = new AiService(
+            $store,
+            $maturity,
+            new AiProviderRegistry([$provider]),
+            $this->createStub(CredentialCipher::class),
+            $schema,
+            new AiOrchestrator(
+                $schema,
+                new ProviderFailureClassifier(),
+                new ExtractionReconciler(),
+                new SodiumSensitiveBufferEraser(),
+            ),
+            $this->privateMedia($maturity, $this->createStub(MediaStorage::class)),
+            $this->authorization(),
+            $ids,
+            $this->clock(),
+            $transactions,
+            8_388_608,
+            8,
+            new SodiumSensitiveBufferEraser(),
+        );
+
+        $result = $service->extract(
+            $this->identity(),
+            self::HOME_ID,
+            'receipt',
+            null,
+            true,
+            'image/png',
+            "\x89PNG\r\n\x1A\n" . str_repeat('x', 20),
+        );
+
+        self::assertSame('review_required', $result['status']);
+        self::assertSame(['private-model'], $provider->models);
+        self::assertSame(['https://private.example.test/v1/chat/completions'], $provider->endpoints);
+        self::assertSame('private-profile', $attempts[0]['profileId'] ?? null);
+    }
+
+    public function testProfilePutHttpBoundaryForwardsOwnerScopeAndEndpoint(): void
+    {
+        $maturity = $this->createStub(AiMaturityStore::class);
+        $maturity->method('providerProfile')->willReturn(null);
+        $saved = null;
+        $maturity->method('saveProviderProfile')->willReturnCallback(
+            static function (array $profile) use (&$saved): bool {
+                $saved = $profile;
+
+                return true;
+            },
+        );
+        $request = (new ServerRequest(
+            [],
+            [],
+            new Uri('https://app.example.test/api/v1/homes/' . self::HOME_ID . '/ai/profiles/' . self::PROFILE_ID),
+            'PUT',
+            'php://memory',
+        ))
+            ->withAttribute('homeId', self::HOME_ID)
+            ->withAttribute('profileId', self::PROFILE_ID)
+            ->withAttribute(BearerAuthenticationMiddleware::ATTRIBUTE, $this->identity())
+            ->withParsedBody([
+                'label' => 'Household Ollama',
+                'provider' => 'ollama',
+                'model' => 'llava',
+                'estimatedCostMicros' => 0,
+                'expectedRevision' => 0,
+                'ownerScope' => 'home',
+                'endpoint' => 'https://ollama.example.test/api/chat',
+            ]);
+
+        $response = (new AiHandler(
+            $this->profileService($maturity),
+            'profiles.put',
+            8_388_608,
+            new SodiumSensitiveBufferEraser(),
+        ))->handle($request);
+        $body = json_decode((string) $response->getBody(), true, 16, JSON_THROW_ON_ERROR);
+
+        self::assertSame(201, $response->getStatusCode());
+        self::assertSame('home', $body['ownerScope']);
+        self::assertSame('https://ollama.example.test/api/chat', $body['endpoint']);
+        self::assertIsArray($saved);
+        self::assertNull($saved['ownerUserId']);
+        self::assertSame('https://ollama.example.test/api/chat', $saved['endpoint']);
+    }
+
+    private function profileService(
+        AiMaturityStore $maturity,
+        ?CredentialCipher $cipher = null,
+        string $role = HomeAuthorization::OWNER,
+        bool $allowPrivateNetworkEndpoints = false,
+    ): AiService {
+        if ($cipher === null) {
+            $available = $this->createStub(CredentialCipher::class);
+            $available->method('available')->willReturn(true);
+            $available->method('encrypt')->willReturn([
+                'ciphertext' => 'cipher',
+                'nonce' => 'nonce',
+                'keyVersion' => 1,
+            ]);
+            $cipher = $available;
+        }
+        $transactions = $this->createStub(TransactionManager::class);
+        $transactions->method('transactional')->willReturnCallback(
+            static fn (callable $operation): mixed => $operation(),
+        );
+        $schema = new ExtractionSchema();
+        $registry = new AiProviderRegistry([
+            $this->syntheticProvider('openai', true),
+            $this->syntheticProvider('openai-compatible', true),
+            $this->syntheticProvider('ollama', false),
+        ]);
+
+        return new AiService(
+            $this->createStub(AiStore::class),
+            $maturity,
+            $registry,
+            $cipher,
+            $schema,
+            new AiOrchestrator(
+                $schema,
+                new ProviderFailureClassifier(),
+                new ExtractionReconciler(),
+                new SodiumSensitiveBufferEraser(),
+            ),
+            $this->privateMedia($maturity, $this->createStub(MediaStorage::class)),
+            $this->roleAuthorization($role),
+            $this->createStub(UuidGenerator::class),
+            $this->clock(),
+            $transactions,
+            8_388_608,
+            8,
+            new SodiumSensitiveBufferEraser(),
+            new ProfileEndpointPolicy($allowPrivateNetworkEndpoints),
+        );
+    }
+
+    private function syntheticProvider(string $id, bool $requiresCredential): AiProvider
+    {
+        return new class ($id, $requiresCredential) implements AiProvider {
+            public function __construct(
+                private readonly string $providerId,
+                private readonly bool $requiresCredential,
+            ) {
+            }
+
+            public function id(): string
+            {
+                return $this->providerId;
+            }
+
+            public function requiresCredential(): bool
+            {
+                return $this->requiresCredential;
+            }
+
+            public function extract(ExtractionRequest $request): ExtractionOutcome
+            {
+                return new ExtractionOutcome(AiSettingsPrivacyTest::emptyDocument(), [
+                    'inputTokens' => 1,
+                    'outputTokens' => 1,
+                    'totalTokens' => 2,
+                ]);
+            }
+        };
+    }
+
+    private function roleAuthorization(string $role): HomeAuthorization
+    {
+        $homes = $this->createStub(HomeStore::class);
+        $homes->method('membership')->willReturn([
+            'status' => 'active',
+            'role' => $role,
+        ]);
+
+        return new HomeAuthorization($homes);
     }
 
     private function aiService(

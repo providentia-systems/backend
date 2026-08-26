@@ -14,6 +14,7 @@ final readonly class ExtractionRequest
         public string $bytes,
         public string $model,
         public ?string $credential,
+        public ?string $endpoint = null,
     ) {
     }
 }
