@@ -92,6 +92,9 @@ Password registration, verification, reset, and login may remain temporarily
 as explicitly enabled development or migration-compatibility surfaces. They
 are not a production onboarding fallback and must not appear as the default in
 marketing, generated clients, tester instructions, or release acceptance.
+*Superseded 26 August 2026: the zero-password unification
+([decision record](../unification-decision-record.md)) removed every password
+surface from API 1.19.0; no password compatibility remains.*
 
 ## AI and media
 

@@ -58,15 +58,15 @@ The script:
    directory;
 2. verifies their two fixed Phase 0 SHA-256 digests;
 3. creates `.env.development.local` with mode `0600`, independent random
-   secrets, random MySQL passwords, a stable local device ID, and password
-   login enabled only for this development profile;
+   secrets, random MySQL passwords, a stable local device ID, and
+   `EXPOSE_DEVELOPMENT_TOKENS=1` only for this development profile;
 4. starts MySQL 8.4, Redis 8.2, Mailpit, the HTTP API, worker, and outbox relay;
 5. applies all pending Doctrine migrations through the container entrypoint;
 6. runs the catalog reconciliation dry run, committed import, and a second
    zero-delta import proof;
-7. provisions and verifies a developer account, safely recovers a prior
-   unverified account through the throttled resend flow, and creates or reuses
-   a home;
+7. provisions the developer account through the passwordless login-link flow —
+   start, development-token approval, and PKCE exchange — and creates or
+   reuses a home;
 8. writes `.providentia-development.json` with mode `0600` for the local client.
 
 The handoff contains loopback development credentials and must never be
@@ -74,10 +74,10 @@ committed, shared, or reused outside the local workstation. The setup is
 repeatable: subsequent runs reuse the local device/account and do not duplicate
 catalog identities.
 
-Setup never overwrites an existing verified account. A wrong password or
-locked/rate-limited account stops with an actionable message; it does not
-blindly retry registration or delete local data. Development verification
-tokens are returned only because the isolated Compose profile explicitly sets
+Setup never overwrites an existing account. A rate-limited login-link request
+stops with an actionable message; it does not blindly retry or delete local
+data. The `developmentApprovalToken` is included in the login-link start
+response only because the isolated development profile explicitly sets
 `EXPOSE_DEVELOPMENT_TOKENS=1`; production startup forbids that setting.
 
 To create additional verified accounts and exercise `manager`, `member`, or
@@ -160,9 +160,10 @@ client configuration.
 The bundled database passwords are known local-development defaults. Override
 all password variables before using a shared host.
 
-Source Compose explicitly defaults `AUTH_PASSWORD_LOGIN_ENABLED=1` because
-these profiles are development-only. `.env.example` records the same setting.
-Production Compose and `.env.production.example` default it to `0`.
+Human sign-in is the email login-link exchange only. The generated
+`.env.development.local` sets `EXPOSE_DEVELOPMENT_TOKENS=1` so setup tooling
+can approve its own login link; `.env.example`, production Compose, and
+`.env.production.example` keep it `0`, and production startup rejects it.
 
 ## Production configuration fail-closed rules
 

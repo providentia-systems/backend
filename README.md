@@ -14,11 +14,13 @@ identity/home/catalog increment, Phase 4 home-scoped synchronization protocol,
 Phase 5 ledger-backed household operations, Phase 6 privacy-controlled AI,
 Phase 7 governed catalog administration, and Phase 8 deterministic shopping
 intelligence and reporting. The generic protocol-v1 synchronization allowlist
-remains limited to `home-preference` and `private-note`; API 1.18.0 publishes
+remains limited to `home-preference` and `private-note`; API 1.19.0 publishes
 typed protocol-v2 pantry commands, home-private taxonomy, privacy-safe operator
 account controls, app-bound account links, reviewed AI quantity ranges,
 compare-and-swap stock-count lines, and an attribution-free projection of
-moderator-approved catalog contributions.
+moderator-approved catalog contributions. API 1.19.0 also removes every human
+password surface: the email login-link exchange is the only human
+authentication.
 
 ## Automated contributor environment
 
@@ -124,7 +126,7 @@ composer install
 export DATABASE_URL=sqlite:///var/providentia.sqlite
 export APP_ENV=development
 export AUTH_TOKEN_PEPPER="$(openssl rand -hex 32)"
-export AUTH_PASSWORD_LOGIN_ENABLED=1
+export EXPOSE_DEVELOPMENT_TOKENS=1
 export SYNC_CURSOR_SECRET="$(openssl rand -hex 32)"
 php bin/doctrine-migrations migrations:migrate --no-interaction
 composer serve
@@ -135,6 +137,11 @@ Then open:
 - liveness: `http://127.0.0.1:8080/health/live`
 - readiness: `http://127.0.0.1:8080/health/ready`
 - system information: `http://127.0.0.1:8080/api/v1/system/info`
+
+`EXPOSE_DEVELOPMENT_TOKENS=1` makes the login-link start response include
+`developmentApprovalToken`, so local tooling can approve and exchange its own
+login link without a mailbox. Never enable it outside isolated development;
+production startup rejects it.
 
 The root deliberately returns JSON `404`; the backend has no interactive web
 surface. `/metrics` also returns `404` unless `METRICS_ENABLED=1` and a
@@ -174,8 +181,10 @@ queue message is never represented as equivalent to the database commit.
   origin-client polling and PKCE exchange, automatic first-home ownership,
   refresh rotation, logout, device sessions, and secure-cookie/bearer
   transports. The approving application never receives the originating application session.
-- Development-opt-in email/password compatibility for isolated loopback
-  diagnostics only; production clients and acceptance jobs use login links.
+- No password surface anywhere. Development and acceptance environments set
+  `EXPOSE_DEVELOPMENT_TOKENS=1` so the login-link start response returns the
+  emailed approval token and scripts complete the flow non-interactively;
+  production never exposes it.
 - Home creation/switching, roles, invitations, membership lifecycle, explicit
   ownership transfer, tenant authorization, and audit records.
 - Reconciled global catalog seed and public product search.

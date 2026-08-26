@@ -41,7 +41,6 @@ final class DbalIdentityStore implements
     public function createUser(
         string $id,
         string $email,
-        string $passwordHash,
         string $displayName,
         string $locale,
         string $timezone,
@@ -51,16 +50,12 @@ final class DbalIdentityStore implements
             'id' => $id,
             'email' => $email,
             'normalized_email' => $email,
-            'password_hash' => $passwordHash,
             'status' => 'active',
             'revision' => 1,
             'status_changed_at' => null,
             'suspended_at' => null,
             'closed_at' => null,
             'email_verified_at' => null,
-            'failed_login_count' => 0,
-            'locked_until' => null,
-            'password_changed_at' => $this->date($createdAt),
             'created_at' => $this->date($createdAt),
             'updated_at' => $this->date($createdAt),
         ]);
@@ -136,15 +131,6 @@ final class DbalIdentityStore implements
              WHERE id = :id AND email_verified_at IS NULL',
             ['at' => $this->date($at), 'id' => $userId],
         ) === 1;
-    }
-
-    public function changePassword(string $userId, string $passwordHash, DateTimeImmutable $at): void
-    {
-        $this->connection->update('users', [
-            'password_hash' => $passwordHash,
-            'password_changed_at' => $this->date($at),
-            'updated_at' => $this->date($at),
-        ], ['id' => $userId]);
     }
 
     public function createSession(
@@ -1225,30 +1211,6 @@ final class DbalIdentityStore implements
         ]);
 
         return 'updated';
-    }
-
-    public function recordFailedLogin(string $userId, DateTimeImmutable $at): void
-    {
-        $this->connection->executeStatement(
-            'UPDATE users SET
-               failed_login_count = failed_login_count + 1,
-               locked_until = CASE WHEN failed_login_count >= 4 THEN :locked ELSE locked_until END,
-               updated_at = :now
-             WHERE id = :id',
-            [
-                'locked' => $this->date($at->modify('+15 minutes')),
-                'now' => $this->date($at),
-                'id' => $userId,
-            ],
-        );
-    }
-
-    public function clearFailedLogin(string $userId): void
-    {
-        $this->connection->update('users', [
-            'failed_login_count' => 0,
-            'locked_until' => null,
-        ], ['id' => $userId]);
     }
 
     /**

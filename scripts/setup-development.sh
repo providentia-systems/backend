@@ -5,7 +5,6 @@ set -Eeuo pipefail
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 handover_zip="${PROVIDENTIA_HANDOVER_ZIP:-}"
 dev_email="${PROVIDENTIA_DEV_EMAIL:-developer@providentia.local}"
-dev_password="${PROVIDENTIA_DEV_PASSWORD:-}"
 env_file="${root_dir}/.env.development.local"
 handoff_file="${root_dir}/.providentia-development.json"
 http_port="${PROVIDENTIA_HTTP_PORT:-8080}"
@@ -21,9 +20,12 @@ Build and run Providentia from the current source checkout.
 Options:
   --handover ZIP       Verified full or minimal development handover archive
   --dev-email EMAIL    Development account email
-  --dev-password PASS  Development account password
   --reset-data         Delete this source stack's containers and named volumes
   --help               Show this help
+
+The development account is provisioned through a passwordless login link. The
+script approves the link itself using the development approval token that the
+loopback API exposes when EXPOSE_DEVELOPMENT_TOKENS=1 is set.
 
 See docs/deployment/local-development.md for where to obtain the protected
 handover or how to construct a checksum-verified minimal setup archive.
@@ -34,7 +36,6 @@ while (($#)); do
     case "$1" in
         --handover) handover_zip="${2:?--handover requires a ZIP path}"; shift 2 ;;
         --dev-email) dev_email="${2:?--dev-email requires a value}"; shift 2 ;;
-        --dev-password) dev_password="${2:?--dev-password requires a value}"; shift 2 ;;
         --reset-data) reset_data=1; shift ;;
         --help|-h) usage; exit 0 ;;
         *) printf 'Unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -47,9 +48,33 @@ for command_name in docker unzip sha256sum curl jq openssl; do
         exit 1
     }
 done
+command -v uuidgen >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1 || {
+    printf 'Required command is unavailable: uuidgen (or python3)\n' >&2
+    exit 1
+}
 docker compose version >/dev/null 2>&1 || {
     printf 'Docker Compose v2 is required (docker compose).\n' >&2
     exit 1
+}
+
+base64url_encode() {
+    tr -d '=\n' | tr '+/' '-_'
+}
+
+generate_uuid() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    else
+        python3 -c 'import uuid; print(uuid.uuid4())'
+    fi
+}
+
+generate_login_secret() {
+    openssl rand -base64 32 | base64url_encode
+}
+
+s256_challenge() {
+    printf '%s' "$1" | openssl dgst -sha256 -binary | openssl base64 | base64url_encode
 }
 
 existing_volume="$(docker volume ls --quiet \
@@ -104,31 +129,34 @@ fi
 
 if [[ ! -f "$env_file" ]]; then
     umask 077
-    if [[ -z "$dev_password" ]]; then
-        dev_password="$(openssl rand -hex 16)"
-    fi
     {
         printf 'AUTH_TOKEN_PEPPER=%s\n' "$(openssl rand -hex 32)"
-        printf 'AUTH_PASSWORD_LOGIN_ENABLED=1\n'
         printf 'SYNC_CURSOR_SECRET=%s\n' "$(openssl rand -hex 32)"
         printf 'MYSQL_PASSWORD=%s\n' "$(openssl rand -hex 18)"
         printf 'MYSQL_ROOT_PASSWORD=%s\n' "$(openssl rand -hex 18)"
         printf 'PROVIDENTIA_HTTP_PORT=%s\n' "$http_port"
         printf 'PROVIDENTIA_MAILPIT_PORT=%s\n' "$mailpit_port"
         printf 'EXPOSE_DEVELOPMENT_TOKENS=1\n'
-        printf 'PROVIDENTIA_DEV_PASSWORD=%s\n' "$dev_password"
-        printf 'PROVIDENTIA_DEV_DEVICE_ID=%s\n' "$(cat /proc/sys/kernel/random/uuid)"
+        printf 'PROVIDENTIA_DEV_INSTALLATION_ID=%s\n' "$(generate_uuid)"
     } >"$env_file"
+fi
+
+# Older generated secrets files predate passwordless provisioning; extend them
+# in place so the login-link flow works without discarding local data.
+if ! grep -q '^EXPOSE_DEVELOPMENT_TOKENS=' "$env_file"; then
+    umask 077
+    printf 'EXPOSE_DEVELOPMENT_TOKENS=1\n' >>"$env_file"
+fi
+if ! grep -q '^PROVIDENTIA_DEV_INSTALLATION_ID=' "$env_file"; then
+    umask 077
+    printf 'PROVIDENTIA_DEV_INSTALLATION_ID=%s\n' "$(generate_uuid)" >>"$env_file"
 fi
 
 set -a
 # Generated locally with fixed KEY=VALUE lines and mode 0600.
 source "$env_file"
 set +a
-if [[ -z "$dev_password" ]]; then
-    dev_password="${PROVIDENTIA_DEV_PASSWORD:?Development password is missing from the local secrets file.}"
-fi
-dev_device_id="${PROVIDENTIA_DEV_DEVICE_ID:?Development device ID is missing from the local secrets file.}"
+dev_installation_id="${PROVIDENTIA_DEV_INSTALLATION_ID:?Development installation ID is missing from the local secrets file.}"
 
 cd "$root_dir"
 if ((reset_data == 1)); then
@@ -194,11 +222,6 @@ jq -e '
 ' <<<"$baseline_dry_run" >/dev/null
 
 api_base="http://127.0.0.1:${http_port}"
-login_payload="$(jq -n \
-    --arg email "$dev_email" \
-    --arg password "$dev_password" \
-    --arg deviceId "$dev_device_id" \
-    '{email:$email,password:$password,deviceId:$deviceId,deviceName:"Providentia development",platform:"linux",transport:"native"}')"
 
 post_json_exchange() {
     local url="$1"
@@ -215,114 +238,70 @@ problem_summary() {
         || printf 'The response was not valid problem JSON.'
 }
 
-verify_development_token() {
-    local token="$1"
-    local verification_exchange
-    local verification_status
-    local verification_response
-    verification_exchange="$(
-        post_json_exchange \
-            "${api_base}/api/v1/auth/verify-email" \
-            "$(jq -n --arg token "$token" '{applicationKind:"homeowner",token:$token}')"
-    )"
-    verification_status="${verification_exchange##*$'\n'}"
-    verification_response="${verification_exchange%$'\n'*}"
-    if [[ "$verification_status" != '204' ]]; then
-        printf 'Email verification failed (HTTP %s): %s\n' \
-            "$verification_status" \
-            "$(problem_summary "$verification_response")" >&2
-        exit 1
-    fi
-}
+login_request_id="$(generate_uuid)"
+login_poll_token="$(generate_login_secret)"
+login_code_verifier="$(generate_login_secret)"
+login_state="$(generate_login_secret)"
+start_payload="$(jq -n \
+    --arg requestId "$login_request_id" \
+    --arg email "$dev_email" \
+    --arg pollChallenge "$(s256_challenge "$login_poll_token")" \
+    --arg codeChallenge "$(s256_challenge "$login_code_verifier")" \
+    --arg state "$login_state" \
+    --arg installationId "$dev_installation_id" \
+    '{requestId:$requestId,email:$email,applicationKind:"homeowner",pollChallenge:$pollChallenge,codeChallenge:$codeChallenge,codeChallengeMethod:"S256",state:$state,installationId:$installationId,deviceName:"Providentia development",platform:"linux",transport:"native"}')"
 
-resend_development_verification() {
-    local resend_exchange
-    local resend_status
-    local resend_response
-    resend_exchange="$(
-        post_json_exchange \
-            "${api_base}/api/v1/auth/verify-email/resend" \
-            "$(jq -n --arg email "$dev_email" '{applicationKind:"homeowner",email:$email}')"
-    )"
-    resend_status="${resend_exchange##*$'\n'}"
-    resend_response="${resend_exchange%$'\n'*}"
-    if [[ "$resend_status" != '202' ]]; then
-        printf 'Verification resend failed (HTTP %s): %s\n' \
-            "$resend_status" \
-            "$(problem_summary "$resend_response")" >&2
-        exit 1
-    fi
-    jq -r '.developmentVerificationToken // empty' <<<"$resend_response"
-}
-
-login_exchange="$(post_json_exchange "${api_base}/api/v1/auth/login" "$login_payload")"
-login_status="${login_exchange##*$'\n'}"
-login_response="${login_exchange%$'\n'*}"
-if [[ "$login_status" == '429' ]]; then
-    printf 'Development login is locked or rate-limited: %s\n' \
-        "$(problem_summary "$login_response")" >&2
+start_exchange="$(post_json_exchange "${api_base}/api/v1/auth/login-links" "$start_payload")"
+start_status="${start_exchange##*$'\n'}"
+start_response="${start_exchange%$'\n'*}"
+if [[ "$start_status" == '429' ]]; then
+    printf 'Development login-link requests are rate-limited: %s\n' \
+        "$(problem_summary "$start_response")" >&2
     printf 'Wait for the stated window or choose a different --dev-email; do not delete data to bypass the control.\n' >&2
     exit 1
 fi
-if [[ "$login_status" == '403' ]]; then
-    verification_token="$(resend_development_verification)"
-    if [[ -z "$verification_token" ]]; then
-        printf 'The account cannot sign in and no development verification token was issued: %s\n' \
-            "$(problem_summary "$login_response")" >&2
-        printf 'Inspect the account status or use a different --dev-email; the setup will not overwrite it.\n' >&2
-        exit 1
-    fi
-    verify_development_token "$verification_token"
-    login_exchange="$(post_json_exchange "${api_base}/api/v1/auth/login" "$login_payload")"
-    login_status="${login_exchange##*$'\n'}"
-    login_response="${login_exchange%$'\n'*}"
-elif [[ "$login_status" == '401' ]]; then
-    registration_exchange="$(
-        post_json_exchange \
-            "${api_base}/api/v1/auth/register" \
-            "$(jq -n \
-                --arg email "$dev_email" \
-                --arg password "$dev_password" \
-                '{email:$email,password:$password,displayName:"Providentia Developer"}')"
-    )"
-    registration_status="${registration_exchange##*$'\n'}"
-    registration_response="${registration_exchange%$'\n'*}"
-    if [[ "$registration_status" != '202' ]]; then
-        # Registration commits before synchronous development mail delivery.
-        # A failed response may therefore have left a valid unverified account.
-        verification_token="$(resend_development_verification)"
-        if [[ -z "$verification_token" ]]; then
-            printf 'Generic account registration failed (HTTP %s): %s\n' \
-                "$registration_status" \
-                "$(problem_summary "$registration_response")" >&2
-            exit 1
-        fi
-    else
-        verification_token="$(jq -r '.developmentVerificationToken // empty' <<<"$registration_response")"
-    fi
-    if [[ -z "$verification_token" ]]; then
-        printf 'The account already exists and is verified, but the supplied development password is incorrect.\n' >&2
-        printf 'Use the original password, choose a different --dev-email, or complete the normal password-reset flow.\n' >&2
-        exit 1
-    fi
-    verify_development_token "$verification_token"
-    login_exchange="$(post_json_exchange "${api_base}/api/v1/auth/login" "$login_payload")"
-    login_status="${login_exchange##*$'\n'}"
-    login_response="${login_exchange%$'\n'*}"
-elif [[ "$login_status" != '200' ]]; then
-    printf 'Development login failed (HTTP %s): %s\n' \
-        "$login_status" \
-        "$(problem_summary "$login_response")" >&2
+if [[ "$start_status" != '202' ]]; then
+    printf 'Development login-link request failed (HTTP %s): %s\n' \
+        "$start_status" \
+        "$(problem_summary "$start_response")" >&2
     exit 1
 fi
-if [[ "$login_status" != '200' ]]; then
-    printf 'Development login still failed after safe account recovery (HTTP %s): %s\n' \
-        "$login_status" \
-        "$(problem_summary "$login_response")" >&2
+approval_token="$(jq -r '.developmentApprovalToken // empty' <<<"$start_response")"
+if [[ -z "$approval_token" ]]; then
+    printf 'The API did not expose a development approval token for the login link.\n' >&2
+    printf 'Ensure the development stack runs with EXPOSE_DEVELOPMENT_TOKENS=1 (set in %s).\n' "$env_file" >&2
     exit 1
 fi
-access_token="$(jq -r '.accessToken' <<<"$login_response")"
-actor_user_id="$(jq -r '.userId' <<<"$login_response")"
+decision_exchange="$(post_json_exchange \
+    "${api_base}/api/v1/auth/login-links/${login_request_id}/decision" \
+    "$(jq -n --arg approvalToken "$approval_token" \
+        '{applicationKind:"homeowner",approvalToken:$approvalToken,decision:"approve"}')")"
+decision_status="${decision_exchange##*$'\n'}"
+decision_response="${decision_exchange%$'\n'*}"
+if [[ "$decision_status" != '202' ]]; then
+    printf 'Development login-link approval failed (HTTP %s): %s\n' \
+        "$decision_status" \
+        "$(problem_summary "$decision_response")" >&2
+    exit 1
+fi
+session_exchange="$(post_json_exchange \
+    "${api_base}/api/v1/auth/login-links/${login_request_id}/exchange" \
+    "$(jq -n \
+        --arg pollToken "$login_poll_token" \
+        --arg codeVerifier "$login_code_verifier" \
+        --arg state "$login_state" \
+        '{pollToken:$pollToken,codeVerifier:$codeVerifier,state:$state}')")"
+session_status="${session_exchange##*$'\n'}"
+session_response="${session_exchange%$'\n'*}"
+if [[ "$session_status" != '200' ]]; then
+    printf 'Development login-link exchange failed (HTTP %s): %s\n' \
+        "$session_status" \
+        "$(problem_summary "$session_response")" >&2
+    printf 'The account may be unavailable; inspect it or use a different --dev-email. The setup will not overwrite it.\n' >&2
+    exit 1
+fi
+access_token="$(jq -r '.accessToken' <<<"$session_response")"
+actor_user_id="$(jq -r '.userId' <<<"$session_response")"
 homes="$(
     curl --fail-with-body --silent --show-error \
         -H "Authorization: Bearer ${access_token}" \
@@ -378,11 +357,12 @@ jq -n \
     --arg homeId "$home_id" \
     --arg userId "$actor_user_id" \
     --arg email "$dev_email" \
-    --arg password "$dev_password" \
-    --arg deviceId "$dev_device_id" \
+    --arg installationId "$dev_installation_id" \
+    --arg deviceId "$(jq -r '.deviceId' <<<"$session_response")" \
     --arg accessToken "$access_token" \
-    --arg refreshToken "$(jq -r '.refreshToken' <<<"$login_response")" \
-    '{apiBaseUrl:$apiBaseUrl,homeId:$homeId,userId:$userId,email:$email,password:$password,deviceId:$deviceId,accessToken:$accessToken,refreshToken:$refreshToken}' \
+    --arg refreshToken "$(jq -r '.refreshToken' <<<"$session_response")" \
+    --arg sessionId "$(jq -r '.sessionId' <<<"$session_response")" \
+    '{apiBaseUrl:$apiBaseUrl,homeId:$homeId,userId:$userId,email:$email,installationId:$installationId,deviceId:$deviceId,session:{accessToken:$accessToken,refreshToken:$refreshToken,sessionId:$sessionId}}' \
     >"$handoff_file"
 chmod 0600 "$handoff_file"
 
@@ -393,7 +373,7 @@ printf 'Mailpit:          http://127.0.0.1:%s\n' "$mailpit_port"
 printf 'MySQL (internal): mysql:3306 / database providentia / user providentia\n'
 printf 'Redis (internal): redis:6379\n'
 printf 'Developer email:  %s\n' "$dev_email"
-printf 'Developer pass:   %s\n' "$dev_password"
+printf 'Developer login:  passwordless login link (session tokens in the handoff)\n'
 printf 'Active home ID:   %s\n' "$home_id"
 printf 'Flutter handoff:  %s (mode 0600; loopback development only)\n' "$handoff_file"
 printf 'Secrets file:     %s (mode 0600; never commit)\n' "$env_file"

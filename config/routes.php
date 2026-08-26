@@ -23,11 +23,6 @@ return static function (Application $app): void {
     $app->get('/metrics', MetricsHandler::class, 'metrics');
 
     $app->post(
-        '/api/v1/auth/register',
-        [AuthenticationRateLimitMiddleware::class, 'identity.register'],
-        'api.auth.register',
-    );
-    $app->post(
         '/api/v1/auth/login-links',
         [AuthenticationRateLimitMiddleware::class, 'identity.login-link-start'],
         'api.auth.login-links.start',
@@ -67,24 +62,7 @@ return static function (Application $app): void {
         [BearerAuthenticationMiddleware::class, 'identity.step-up-request'],
         'api.auth.step-up-links.request',
     );
-    $app->post('/api/v1/auth/verify-email', 'identity.verify', 'api.auth.verify-email');
-    $app->post(
-        '/api/v1/auth/verify-email/resend',
-        [AuthenticationRateLimitMiddleware::class, 'identity.resend-verification'],
-        'api.auth.verify-email.resend',
-    );
-    $app->post(
-        '/api/v1/auth/login',
-        [AuthenticationRateLimitMiddleware::class, 'identity.login'],
-        'api.auth.login',
-    );
     $app->post('/api/v1/auth/refresh', 'identity.refresh', 'api.auth.refresh');
-    $app->post(
-        '/api/v1/auth/password-reset/request',
-        [AuthenticationRateLimitMiddleware::class, 'identity.request-reset'],
-        'api.auth.password-reset.request',
-    );
-    $app->post('/api/v1/auth/password-reset/complete', 'identity.reset', 'api.auth.password-reset.complete');
     $app->get(
         '/api/v1/auth/sessions',
         [BearerAuthenticationMiddleware::class, 'identity.sessions'],

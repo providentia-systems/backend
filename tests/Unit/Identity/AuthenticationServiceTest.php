@@ -11,6 +11,7 @@ use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\IdentityStore;
+use Providentia\Identity\Application\LoginApplicationKind;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Providentia\SharedKernel\Application\UuidGenerator;
@@ -20,24 +21,18 @@ final class AuthenticationServiceTest extends TestCase
     private const USER_ID = '01912345-6789-7abc-8def-0123456789ab';
     private const SESSION_ID = '01912345-6789-7abc-9def-0123456789ab';
     private const DEVICE_ID = '01912345-6789-7abc-adef-0123456789ab';
+    private const INSTALLATION_ID = '01912345-6789-7abc-adef-0123456789ab';
+    private const ACCOUNT_SCOPED_DEVICE_ID = 'fccd73a3-5252-8327-8069-735fdf4674cc';
 
-    public function testSuccessfulLoginCreatesBoundedDeviceSession(): void
+    public function testLoginLinkSessionIssuanceCreatesBoundedDeviceSession(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->method('findUserByEmail')->with('user@example.test')->willReturn([
-            'id' => self::USER_ID,
-            'password_hash' => 'stored-password-hash',
-            'locked_until' => null,
-            'email_verified_at' => '2026-07-30 10:00:00',
-            'status' => 'active',
-        ]);
-        $store->expects(self::once())->method('clearFailedLogin')->with(self::USER_ID);
         $store->expects(self::once())
             ->method('createSession')
             ->with(
                 self::SESSION_ID,
                 self::USER_ID,
-                self::DEVICE_ID,
+                self::ACCOUNT_SCOPED_DEVICE_ID,
                 'Kitchen tablet',
                 'android',
                 'hash:access-token',
@@ -54,63 +49,95 @@ final class AuthenticationServiceTest extends TestCase
                 self::isInstanceOf(DateTimeImmutable::class),
                 'native',
                 5184000,
-                self::DEVICE_ID,
+                self::INSTALLATION_ID,
                 null,
             );
-        $hasher = $this->createMock(CredentialHasher::class);
-        $hasher->method('verifyPassword')
-            ->with('Valid-password-123', 'stored-password-hash')
-            ->willReturn(true);
-        $hasher->method('hashToken')
-            ->willReturnCallback(static fn (string $token): string => 'hash:' . $token);
+        $hasher = $this->hasher();
         $tokens = $this->tokenGenerator('access-token', 'refresh-token', 'csrf-token');
         $ids = $this->createStub(UuidGenerator::class);
         $ids->method('generate')->willReturn(self::SESSION_ID);
 
-        $result = $this->service($store, $hasher, $tokens, $ids)->login(
-            '  USER@Example.Test ',
-            'Valid-password-123',
-            strtoupper(self::DEVICE_ID),
-            ' Kitchen tablet ',
-            ' android ',
+        $result = $this->service($store, $hasher, $tokens, $ids)->issueLoginLinkSession(
+            self::USER_ID,
+            self::INSTALLATION_ID,
+            'Kitchen tablet',
+            'android',
+            'native',
+            5184000,
+            null,
         );
 
         self::assertSame('access-token', $result['accessToken']);
         self::assertSame('refresh-token', $result['refreshToken']);
         self::assertSame('csrf-token', $result['csrfToken']);
-        self::assertSame(self::DEVICE_ID, $result['deviceId']);
-        self::assertSame(self::DEVICE_ID, $result['installationId']);
+        self::assertSame(self::ACCOUNT_SCOPED_DEVICE_ID, $result['deviceId']);
+        self::assertSame(self::INSTALLATION_ID, $result['installationId']);
+        self::assertNotSame($result['deviceId'], $result['installationId']);
+        self::assertSame(self::USER_ID, $result['userId']);
         self::assertSame(5184000, $result['refreshIdleTtlSeconds']);
+        self::assertSame('native', $result['transport']);
     }
 
-    public function testInvalidPasswordRecordsFailureWithoutCreatingSession(): void
+    public function testWebSessionIdleTimeIsClampedToTheWebTransportMaximum(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->method('findUserByEmail')->willReturn([
-            'id' => self::USER_ID,
-            'password_hash' => 'stored-password-hash',
-            'locked_until' => null,
-            'email_verified_at' => '2026-07-30 10:00:00',
-            'status' => 'active',
-        ]);
-        $store->expects(self::once())
-            ->method('recordFailedLogin')
-            ->with(self::USER_ID, self::isInstanceOf(DateTimeImmutable::class));
+        $store->expects(self::once())->method('createSession');
+        $ids = $this->createStub(UuidGenerator::class);
+        $ids->method('generate')->willReturn(self::SESSION_ID);
+
+        $result = $this->service($store, $this->hasher(), null, $ids)->issueLoginLinkSession(
+            self::USER_ID,
+            self::INSTALLATION_ID,
+            'Web browser',
+            'web',
+            'web',
+            5184000,
+            null,
+        );
+
+        self::assertSame('web', $result['transport']);
+        self::assertSame(2592000, $result['refreshIdleTtlSeconds']);
+    }
+
+    public function testSessionIssuanceRejectsAnUnknownTransport(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
         $store->expects(self::never())->method('createSession');
-        $hasher = $this->createStub(CredentialHasher::class);
-        $hasher->method('verifyPassword')->willReturn(false);
 
         try {
-            $this->service($store, $hasher)->login(
-                'user@example.test',
-                'wrong',
-                self::DEVICE_ID,
-                'device',
-                'linux',
+            $this->service($store, $this->hasher())->issueLoginLinkSession(
+                self::USER_ID,
+                self::INSTALLATION_ID,
+                'Kitchen tablet',
+                'android',
+                'carrier-pigeon',
+                5184000,
+                null,
             );
-            self::fail('An invalid password was accepted.');
+            self::fail('An unknown session transport was accepted.');
         } catch (Problem $problem) {
-            self::assertSame(401, $problem->status);
+            self::assertSame(422, $problem->status);
+        }
+    }
+
+    public function testSessionIssuanceRejectsAnOutOfRangeIdleTime(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
+        $store->expects(self::never())->method('createSession');
+
+        try {
+            $this->service($store, $this->hasher())->issueLoginLinkSession(
+                self::USER_ID,
+                self::INSTALLATION_ID,
+                'Kitchen tablet',
+                'android',
+                'native',
+                899,
+                null,
+            );
+            self::fail('An out-of-range session idle time was accepted.');
+        } catch (Problem $problem) {
+            self::assertSame(422, $problem->status);
         }
     }
 
@@ -122,15 +149,27 @@ final class AuthenticationServiceTest extends TestCase
             ->method('revokeRefreshReplay')
             ->with('hash:old-refresh', self::isInstanceOf(DateTimeImmutable::class))
             ->willReturn(true);
-        $hasher = $this->createStub(CredentialHasher::class);
-        $hasher->method('hashToken')
-            ->willReturnCallback(static fn (string $token): string => 'hash:' . $token);
 
         try {
-            $this->service($store, $hasher)->refresh('old-refresh');
+            $this->service($store, $this->hasher())->refresh('old-refresh');
             self::fail('A replayed refresh credential was accepted.');
         } catch (Problem $problem) {
             self::assertSame('Credential replay detected', $problem->title);
+        }
+    }
+
+    public function testUnknownRefreshCredentialFailsWithoutRevealingReplayState(): void
+    {
+        $store = $this->createStub(IdentityStore::class);
+        $store->method('findSessionByRefreshHash')->willReturn(null);
+        $store->method('revokeRefreshReplay')->willReturn(false);
+
+        try {
+            $this->service($store, $this->hasher())->refresh('unknown-refresh');
+            self::fail('An unknown refresh credential was accepted.');
+        } catch (Problem $problem) {
+            self::assertSame(401, $problem->status);
+            self::assertSame('Authentication failed', $problem->title);
         }
     }
 
@@ -157,21 +196,40 @@ final class AuthenticationServiceTest extends TestCase
                 self::isInstanceOf(DateTimeImmutable::class),
             )
             ->willReturn(true);
-        $hasher = $this->createStub(CredentialHasher::class);
-        $hasher->method('hashToken')
-            ->willReturnCallback(static fn (string $token): string => 'hash:' . $token);
         $tokens = $this->tokenGenerator('next-access', 'next-refresh', 'next-csrf');
 
-        $result = $this->service($store, $hasher, $tokens)->refresh('current-refresh');
+        $result = $this->service($store, $this->hasher(), $tokens)->refresh('current-refresh');
 
         self::assertSame(self::USER_ID, $result['userId']);
         self::assertSame('next-access', $result['accessToken']);
         self::assertSame('next-refresh', $result['refreshToken']);
         self::assertSame('next-csrf', $result['csrfToken']);
+        self::assertSame('native', $result['transport']);
+        self::assertSame(2592000, $result['refreshIdleTtlSeconds']);
         self::assertSame(
             '01912345-6789-7abc-bdef-0123456789ab',
             $result['installationId'],
         );
+    }
+
+    public function testConcurrentRefreshRotationIsReportedAsReplay(): void
+    {
+        $store = $this->createStub(IdentityStore::class);
+        $store->method('findSessionByRefreshHash')->willReturn([
+            'id' => self::SESSION_ID,
+            'user_id' => self::USER_ID,
+            'device_id' => self::DEVICE_ID,
+            'refresh_token_hash' => 'stored-refresh-hash',
+        ]);
+        $store->method('rotateSession')->willReturn(false);
+
+        try {
+            $this->service($store, $this->hasher())->refresh('current-refresh');
+            self::fail('A concurrently rotated refresh credential was accepted.');
+        } catch (Problem $problem) {
+            self::assertSame(401, $problem->status);
+            self::assertSame('Credential replay detected', $problem->title);
+        }
     }
 
     public function testAuthenticateBuildsIdentityFromSessionAndRoles(): void
@@ -195,59 +253,72 @@ final class AuthenticationServiceTest extends TestCase
         self::assertSame(['billing_operator'], $identity->platformRoles);
     }
 
-    public function testPasswordResetChangesPasswordAndRevokesSessionsAtomically(): void
+    public function testListSessionsMarksOnlyTheCallingDeviceSessionAsCurrent(): void
     {
-        $transactions = new IdentityTransactionManager();
-        $store = $this->createMock(IdentityStore::class);
-        $store->method('consumeOneTimeToken')->with(
-            'password-reset:homeowner',
-            'reset-token-hash',
-            self::isInstanceOf(DateTimeImmutable::class),
-        )->willReturn(self::USER_ID);
-        $store->expects(self::once())
-            ->method('changePassword')
-            ->with(
-                self::USER_ID,
-                'next-password-hash',
-                self::isInstanceOf(DateTimeImmutable::class),
-            );
-        $store->expects(self::once())
-            ->method('revokeAllSessions')
-            ->with(self::USER_ID, self::isInstanceOf(DateTimeImmutable::class));
-        $hasher = $this->createStub(CredentialHasher::class);
-        $hasher->method('hashToken')->willReturn('reset-token-hash');
-        $hasher->method('hashPassword')->willReturn('next-password-hash');
-        $service = $this->service(
-            $store,
-            $hasher,
-            null,
-            null,
-            $transactions,
-        );
+        $store = $this->createStub(IdentityStore::class);
+        $store->method('listSessions')->willReturn([
+            ['id' => self::SESSION_ID],
+            ['id' => '01912345-6789-7abc-bdef-0123456789ab'],
+        ]);
 
-        $service->resetPassword('reset-token', 'A-valid-next-password-123', 'homeowner');
+        $sessions = $this->service($store, $this->hasher())->listSessions($this->identity());
 
-        self::assertSame(1, $transactions->invocations);
+        self::assertTrue($sessions[0]['current']);
+        self::assertFalse($sessions[1]['current']);
     }
 
-    public function testOneTimeCapabilityCannotCrossApplicationBoundary(): void
+    public function testStepUpRequestIssuesOneEmailedCapabilityBoundToTheAccount(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
+        $store->method('findUserById')->with(self::USER_ID)->willReturn([
+            'id' => self::USER_ID,
+            'email' => 'user@example.test',
+            'status' => 'active',
+        ]);
+        $store->expects(self::once())->method('issueOneTimeToken')->with(
+            self::SESSION_ID,
+            self::USER_ID,
+            'step-up-ownership:homeowner',
+            'hash:step-up-token',
+            self::isInstanceOf(DateTimeImmutable::class),
+            self::isInstanceOf(DateTimeImmutable::class),
+        );
+        $notifications = $this->createMock(AccountNotificationSender::class);
+        $notifications->expects(self::once())->method('sendStepUpLink')->with(
+            'user@example.test',
+            'step-up-token',
+            'ownership-transfer',
+            LoginApplicationKind::HOMEOWNER,
+        );
+        $tokens = $this->tokenGenerator('step-up-token');
+        $ids = $this->createStub(UuidGenerator::class);
+        $ids->method('generate')->willReturn(self::SESSION_ID);
+
+        $token = $this->service($store, $this->hasher(), $tokens, $ids, null, $notifications)
+            ->requestStepUp($this->identity(), 'ownership-transfer', 'homeowner');
+
+        self::assertSame('step-up-token', $token);
+    }
+
+    public function testStepUpProofCannotBeConsumedByAnotherAccount(): void
     {
         $store = $this->createMock(IdentityStore::class);
         $store->expects(self::once())->method('consumeOneTimeToken')->with(
-            'verify-email:admin',
-            'capability-hash',
+            'step-up-ownership:homeowner',
+            'hash:step-up-token',
             self::isInstanceOf(DateTimeImmutable::class),
-        )->willReturn(null);
-        $store->expects(self::never())->method('markEmailVerified');
-        $hasher = $this->createStub(CredentialHasher::class);
-        $hasher->method('hashToken')->willReturn('capability-hash');
+        )->willReturn('01912345-6789-7abc-bdef-0123456789ab');
 
         try {
-            $this->service($store, $hasher)->verifyEmail('homeowner-capability', 'admin');
-            self::fail('A homeowner capability crossed into the administrator application.');
+            $this->service($store, $this->hasher())->consumeStepUp(
+                $this->identity(),
+                'step-up-token',
+                'ownership-transfer',
+            );
+            self::fail('A step-up proof crossed between accounts.');
         } catch (Problem $problem) {
             self::assertSame(422, $problem->status);
-            self::assertSame('Invalid token', $problem->title);
+            self::assertSame('Invalid step-up proof', $problem->title);
         }
     }
 
@@ -274,17 +345,66 @@ final class AuthenticationServiceTest extends TestCase
         }
     }
 
+    public function testRevokingAnUnknownSessionIsReportedAsNotFound(): void
+    {
+        $store = $this->createStub(IdentityStore::class);
+        $store->method('revokeSession')->willReturn(false);
+
+        try {
+            $this->service($store, $this->hasher())->revokeSession(
+                $this->identity(),
+                '01912345-6789-7abc-bdef-0123456789ab',
+            );
+            self::fail('An unknown session revocation was reported as successful.');
+        } catch (Problem $problem) {
+            self::assertSame(404, $problem->status);
+        }
+    }
+
+    public function testEmptyLogoutProofsNeverReachTheSessionStore(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
+        $store->expects(self::never())->method('revokeSessionByRefreshProof');
+        $store->expects(self::never())->method('revokeSessionByRefreshHash');
+        $service = $this->service($store, $this->hasher());
+
+        self::assertFalse($service->revokeSessionByRefreshProof('', 'csrf'));
+        self::assertFalse($service->revokeSessionByRefreshProof('refresh', ''));
+        self::assertFalse($service->revokeSessionByRefreshToken(''));
+    }
+
+    private function identity(): AuthenticatedIdentity
+    {
+        return new AuthenticatedIdentity(
+            self::USER_ID,
+            self::SESSION_ID,
+            self::DEVICE_ID,
+            null,
+            [],
+        );
+    }
+
+    private function hasher(): CredentialHasher
+    {
+        $hasher = $this->createStub(CredentialHasher::class);
+        $hasher->method('hashToken')
+            ->willReturnCallback(static fn (string $token): string => 'hash:' . $token);
+
+        return $hasher;
+    }
+
     private function service(
         IdentityStore $store,
         CredentialHasher $hasher,
         ?SecureTokenGenerator $tokens = null,
         ?UuidGenerator $ids = null,
         ?IdentityTransactionManager $transactions = null,
+        ?AccountNotificationSender $notifications = null,
     ): AuthenticationService {
         return new AuthenticationService(
             $store,
             $hasher,
-            $this->createStub(AccountNotificationSender::class),
+            $notifications ?? $this->createStub(AccountNotificationSender::class),
             $ids ?? $this->createStub(UuidGenerator::class),
             new IdentityFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
             $transactions ?? new IdentityTransactionManager(),

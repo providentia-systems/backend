@@ -134,7 +134,6 @@ final readonly class DbalDataErasureExecutor implements DataErasureExecutor
         $this->connection->update('users', [
             'email' => $pseudonymEmail,
             'normalized_email' => $pseudonymEmail,
-            'password_hash' => 'erased',
             'status' => 'erased',
             'email_verified_at' => null,
         ], ['id' => $userId]);

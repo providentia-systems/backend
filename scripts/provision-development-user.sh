@@ -5,7 +5,6 @@ set -Eeuo pipefail
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 handoff_file="${PROVIDENTIA_DEVELOPMENT_HANDOFF:-${root_dir}/.providentia-development.json}"
 test_email="${PROVIDENTIA_TEST_EMAIL:-test-user@providentia.local}"
-test_password="${PROVIDENTIA_TEST_PASSWORD:-}"
 display_name="${PROVIDENTIA_TEST_DISPLAY_NAME:-Providentia Test User}"
 requested_role="${PROVIDENTIA_TEST_HOME_ROLE:-member}"
 
@@ -13,16 +12,19 @@ usage() {
     cat <<'EOF'
 Usage: bash scripts/provision-development-user.sh [options]
 
-Create or reuse a verified password account on the loopback development API.
-By default the account is invited into the bootstrap home as a member.
+Create or reuse a verified passwordless account on the loopback development
+API. By default the account is invited into the bootstrap home as a member.
 
 Options:
   --handoff FILE       Development handoff (default: .providentia-development.json)
   --email EMAIL        Test account email (default: test-user@providentia.local)
-  --password PASSWORD  Test password (generated and saved when omitted)
   --display-name NAME  Test account display name
   --role ROLE          manager, member, viewer, or none (default: member)
   --help               Show this help
+
+Accounts are provisioned through development login links that the script
+approves itself, so the API must expose development tokens
+(EXPOSE_DEVELOPMENT_TOKENS=1; the loopback development profiles enable this).
 
 The "none" role provisions the account without creating or changing a home
 membership. It does not remove a membership created by an earlier run.
@@ -33,7 +35,6 @@ while (($#)); do
     case "$1" in
         --handoff) handoff_file="${2:?--handoff requires a file path}"; shift 2 ;;
         --email) test_email="${2:?--email requires a value}"; shift 2 ;;
-        --password) test_password="${2:?--password requires a value}"; shift 2 ;;
         --display-name) display_name="${2:?--display-name requires a value}"; shift 2 ;;
         --role) requested_role="${2:?--role requires a value}"; shift 2 ;;
         --help|-h) usage; exit 0 ;;
@@ -50,6 +51,28 @@ for command_name in curl jq openssl; do
     command -v "$command_name" >/dev/null 2>&1 \
         || fail "required command is unavailable: ${command_name}"
 done
+command -v uuidgen >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1 \
+    || fail 'required command is unavailable: uuidgen (or python3)'
+
+base64url_encode() {
+    tr -d '=\n' | tr '+/' '-_'
+}
+
+generate_uuid() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    else
+        python3 -c 'import uuid; print(uuid.uuid4())'
+    fi
+}
+
+generate_login_secret() {
+    openssl rand -base64 32 | base64url_encode
+}
+
+s256_challenge() {
+    printf '%s' "$1" | openssl dgst -sha256 -binary | openssl base64 | base64url_encode
+}
 
 [[ -f "$handoff_file" ]] \
     || fail "handoff not found: ${handoff_file}. Run setup-development.sh or setup-prebuilt.sh first."
@@ -62,10 +85,8 @@ bootstrap_home_id="$(jq -er '.homeId | select(type == "string" and length > 0)' 
     || fail 'handoff is missing homeId.'
 bootstrap_email="$(jq -er '.email | select(type == "string" and length > 0)' "$handoff_file")" \
     || fail 'handoff is missing the bootstrap email.'
-bootstrap_password="$(jq -er '.password | select(type == "string" and length > 0)' "$handoff_file")" \
-    || fail 'handoff is missing the bootstrap password.'
-bootstrap_device_id="$(jq -er '.deviceId | select(type == "string" and length > 0)' "$handoff_file")" \
-    || fail 'handoff is missing the bootstrap deviceId.'
+bootstrap_installation_id="$(jq -er '.installationId | select(type == "string" and length > 0)' "$handoff_file")" \
+    || fail 'handoff is missing the bootstrap installationId. Re-run setup-development.sh or setup-prebuilt.sh to refresh it.'
 
 if [[ ! "$api_base" =~ ^https?://(127\.0\.0\.1|localhost|\[::1\])(:([0-9]{1,5}))?$ ]]; then
     fail "refusing non-loopback API URL: ${api_base}"
@@ -76,7 +97,7 @@ if [[ -n "${BASH_REMATCH[3]:-}" ]] \
 fi
 uuid_pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
 [[ "$bootstrap_home_id" =~ $uuid_pattern ]] || fail 'handoff homeId is not a UUID.'
-[[ "$bootstrap_device_id" =~ $uuid_pattern ]] || fail 'handoff deviceId is not a UUID.'
+[[ "$bootstrap_installation_id" =~ $uuid_pattern ]] || fail 'handoff installationId is not a UUID.'
 
 test_email="$(printf '%s' "$test_email" | tr '[:upper:]' '[:lower:]')"
 requested_role="$(printf '%s' "$requested_role" | tr '[:upper:]' '[:lower:]')"
@@ -91,18 +112,11 @@ stored_user="$(jq -c --arg email "$test_email" '
     | map(select((.email | ascii_downcase) == ($email | ascii_downcase)))
     | first // {}
 ' "$handoff_file")"
-if [[ -z "$test_password" ]]; then
-    test_password="$(jq -r '.password // empty' <<<"$stored_user")"
+test_installation_id="$(jq -r '.installationId // empty' <<<"$stored_user")"
+if [[ -z "$test_installation_id" ]]; then
+    test_installation_id="$(generate_uuid)"
 fi
-if [[ -z "$test_password" ]]; then
-    test_password="Test-$(openssl rand -hex 16)!"
-fi
-test_device_id="$(jq -r '.deviceId // empty' <<<"$stored_user")"
-if [[ -z "$test_device_id" ]]; then
-    uuid_hex="$(openssl rand -hex 16)"
-    test_device_id="${uuid_hex:0:8}-${uuid_hex:8:4}-4${uuid_hex:13:3}-8${uuid_hex:17:3}-${uuid_hex:20:12}"
-fi
-[[ "$test_device_id" =~ $uuid_pattern ]] || fail 'stored test-user deviceId is not a UUID.'
+[[ "$test_installation_id" =~ $uuid_pattern ]] || fail 'stored test-user installationId is not a UUID.'
 
 post_json_exchange() {
     local url="$1"
@@ -138,139 +152,79 @@ problem_summary() {
         || printf 'The response was not valid problem JSON.'
 }
 
-login_exchange() {
-    local email="$1"
-    local password="$2"
-    local device_id="$3"
+login_link_session() {
+    local label="$1"
+    local email="$2"
+    local installation_id="$3"
     local device_name="$4"
-    post_json_exchange \
-        "${api_base}/api/v1/auth/login" \
+    local request_id poll_token code_verifier state_value
+    local exchange status response approval_token
+    request_id="$(generate_uuid)"
+    poll_token="$(generate_login_secret)"
+    code_verifier="$(generate_login_secret)"
+    state_value="$(generate_login_secret)"
+    exchange="$(post_json_exchange \
+        "${api_base}/api/v1/auth/login-links" \
         "$(jq -n \
+            --arg requestId "$request_id" \
             --arg email "$email" \
-            --arg password "$password" \
-            --arg deviceId "$device_id" \
+            --arg pollChallenge "$(s256_challenge "$poll_token")" \
+            --arg codeChallenge "$(s256_challenge "$code_verifier")" \
+            --arg state "$state_value" \
+            --arg installationId "$installation_id" \
             --arg deviceName "$device_name" \
             '{
+                requestId:$requestId,
                 email:$email,
-                password:$password,
-                deviceId:$deviceId,
+                applicationKind:"homeowner",
+                pollChallenge:$pollChallenge,
+                codeChallenge:$codeChallenge,
+                codeChallengeMethod:"S256",
+                state:$state,
+                installationId:$installationId,
                 deviceName:$deviceName,
                 platform:"linux",
                 transport:"native"
-            }')"
-}
-
-fresh_existing_login() {
-    local label="$1"
-    local email="$2"
-    local password="$3"
-    local device_id="$4"
-    local exchange status response
-    exchange="$(login_exchange "$email" "$password" "$device_id" "${label} provisioning")"
+            }')")"
     status="${exchange##*$'\n'}"
     response="${exchange%$'\n'*}"
-    if [[ "$status" != '200' ]]; then
-        if [[ "$status" == '410' ]]; then
-            fail "password login is disabled on the API. Use a development profile with AUTH_PASSWORD_LOGIN_ENABLED=1."
-        fi
-        fail "${label} login failed (HTTP ${status}): $(problem_summary "$response")"
+    if [[ "$status" == '429' ]]; then
+        fail "${label} login-link request is rate-limited: $(problem_summary "$response")"
     fi
-    jq -e '.accessToken and .userId' <<<"$response" >/dev/null \
-        || fail "${label} login returned an invalid native-session response."
-    printf '%s' "$response"
-}
-
-verify_development_token() {
-    local token="$1"
-    local exchange status response
+    [[ "$status" == '202' ]] \
+        || fail "${label} login-link request failed (HTTP ${status}): $(problem_summary "$response")"
+    approval_token="$(jq -r '.developmentApprovalToken // empty' <<<"$response")"
+    [[ -n "$approval_token" ]] \
+        || fail 'the API did not expose a development approval token; use the loopback development profile with EXPOSE_DEVELOPMENT_TOKENS=1.'
     exchange="$(post_json_exchange \
-        "${api_base}/api/v1/auth/verify-email" \
-        "$(jq -n --arg token "$token" '{applicationKind:"homeowner",token:$token}')")"
-    status="${exchange##*$'\n'}"
-    response="${exchange%$'\n'*}"
-    [[ "$status" == '204' ]] \
-        || fail "email verification failed (HTTP ${status}): $(problem_summary "$response")"
-}
-
-resend_development_token() {
-    local email="$1"
-    local exchange status response token
-    exchange="$(post_json_exchange \
-        "${api_base}/api/v1/auth/verify-email/resend" \
-        "$(jq -n --arg email "$email" '{applicationKind:"homeowner",email:$email}')")"
+        "${api_base}/api/v1/auth/login-links/${request_id}/decision" \
+        "$(jq -n --arg approvalToken "$approval_token" \
+            '{applicationKind:"homeowner",approvalToken:$approvalToken,decision:"approve"}')")"
     status="${exchange##*$'\n'}"
     response="${exchange%$'\n'*}"
     [[ "$status" == '202' ]] \
-        || fail "verification resend failed (HTTP ${status}): $(problem_summary "$response")"
-    token="$(jq -r '.developmentVerificationToken // empty' <<<"$response")"
-    [[ -n "$token" ]] \
-        || fail 'the API did not expose a development verification token; use the loopback development profile.'
-    printf '%s' "$token"
-}
-
-provision_user_login() {
-    local exchange status response verification_token registration_exchange
-    local registration_status registration_response
-    exchange="$(login_exchange "$test_email" "$test_password" "$test_device_id" "$display_name")"
-    status="${exchange##*$'\n'}"
-    response="${exchange%$'\n'*}"
-
-    if [[ "$status" == '200' ]]; then
-        printf '%s' "$response"
-        return
-    fi
-    if [[ "$status" == '410' ]]; then
-        fail 'password login is disabled; use a development profile with AUTH_PASSWORD_LOGIN_ENABLED=1.'
-    fi
-    if [[ "$status" == '429' ]]; then
-        fail "test-user login is rate-limited: $(problem_summary "$response")"
-    fi
-    if [[ "$status" == '403' ]]; then
-        [[ "$(jq -r '.title // empty' <<<"$response")" == 'Email verification required' ]] \
-            || fail "test-user login was forbidden: $(problem_summary "$response")"
-        verification_token="$(resend_development_token "$test_email")"
-        verify_development_token "$verification_token"
-    elif [[ "$status" == '401' ]]; then
-        registration_exchange="$(post_json_exchange \
-            "${api_base}/api/v1/auth/register" \
-            "$(jq -n \
-                --arg email "$test_email" \
-                --arg password "$test_password" \
-                --arg displayName "$display_name" \
-                '{email:$email,password:$password,displayName:$displayName}')")"
-        registration_status="${registration_exchange##*$'\n'}"
-        registration_response="${registration_exchange%$'\n'*}"
-        if [[ "$registration_status" == '410' ]]; then
-            fail 'password registration is disabled; use the loopback development profile.'
-        fi
-        if [[ "$registration_status" == '202' ]]; then
-            verification_token="$(jq -r '.developmentVerificationToken // empty' <<<"$registration_response")"
-        elif [[ "$registration_status" =~ ^5[0-9][0-9]$ ]]; then
-            # Registration may have committed before a development notification failed.
-            verification_token="$(resend_development_token "$test_email")"
-        else
-            fail "test-user registration failed (HTTP ${registration_status}): $(problem_summary "$registration_response")"
-        fi
-        [[ -n "$verification_token" ]] || fail \
-            'the account already exists and is verified, but its password does not match. Supply the original --password.'
-        verify_development_token "$verification_token"
-    else
-        fail "test-user login failed (HTTP ${status}): $(problem_summary "$response")"
-    fi
-
-    exchange="$(login_exchange "$test_email" "$test_password" "$test_device_id" "$display_name")"
+        || fail "${label} login-link approval failed (HTTP ${status}): $(problem_summary "$response")"
+    exchange="$(post_json_exchange \
+        "${api_base}/api/v1/auth/login-links/${request_id}/exchange" \
+        "$(jq -n \
+            --arg pollToken "$poll_token" \
+            --arg codeVerifier "$code_verifier" \
+            --arg state "$state_value" \
+            '{pollToken:$pollToken,codeVerifier:$codeVerifier,state:$state}')")"
     status="${exchange##*$'\n'}"
     response="${exchange%$'\n'*}"
     [[ "$status" == '200' ]] || fail \
-        "test-user login failed after verification (HTTP ${status}): $(problem_summary "$response"). The account may already have a different password."
+        "${label} login-link exchange failed (HTTP ${status}): $(problem_summary "$response"). The account may be deactivated."
+    jq -e '.accessToken and .userId' <<<"$response" >/dev/null \
+        || fail "${label} login-link exchange returned an invalid native-session response."
     printf '%s' "$response"
 }
 
-bootstrap_login="$(fresh_existing_login \
+bootstrap_login="$(login_link_session \
     'bootstrap owner' \
     "$bootstrap_email" \
-    "$bootstrap_password" \
-    "$bootstrap_device_id")"
+    "$bootstrap_installation_id" \
+    'Bootstrap owner provisioning')"
 bootstrap_access_token="$(jq -er '.accessToken' <<<"$bootstrap_login")"
 bootstrap_user_id="$(jq -er '.userId' <<<"$bootstrap_login")"
 
@@ -286,8 +240,15 @@ bootstrap_home_role="$(jq -r --arg home "$bootstrap_home_id" \
 [[ "$bootstrap_home_role" == 'owner' ]] \
     || fail "the handoff account is ${bootstrap_home_role}, not the bootstrap home owner."
 
-test_login="$(provision_user_login)"
+test_login="$(login_link_session \
+    'test user' \
+    "$test_email" \
+    "$test_installation_id" \
+    "$display_name")"
 test_access_token="$(jq -er '.accessToken' <<<"$test_login")"
+test_refresh_token="$(jq -er '.refreshToken' <<<"$test_login")"
+test_session_id="$(jq -er '.sessionId' <<<"$test_login")"
+test_device_id="$(jq -er '.deviceId' <<<"$test_login")"
 test_user_id="$(jq -er '.userId' <<<"$test_login")"
 [[ "$test_user_id" != "$bootstrap_user_id" ]] \
     || fail 'the test account must be different from the bootstrap owner account.'
@@ -374,23 +335,31 @@ trap cleanup EXIT
 umask 077
 jq \
     --arg email "$test_email" \
-    --arg password "$test_password" \
     --arg displayName "$display_name" \
+    --arg installationId "$test_installation_id" \
     --arg deviceId "$test_device_id" \
     --arg userId "$test_user_id" \
     --arg homeId "$bootstrap_home_id" \
-    --arg role "$effective_role" '
+    --arg role "$effective_role" \
+    --arg accessToken "$test_access_token" \
+    --arg refreshToken "$test_refresh_token" \
+    --arg sessionId "$test_session_id" '
     .testUsers = (
         ((.testUsers // [])
             | map(select((.email | ascii_downcase) != ($email | ascii_downcase))))
         + [{
             email: $email,
-            password: $password,
             displayName: $displayName,
+            installationId: $installationId,
             deviceId: $deviceId,
             userId: $userId,
             homeId: (if $role == "none" then null else $homeId end),
-            role: $role
+            role: $role,
+            session: {
+                accessToken: $accessToken,
+                refreshToken: $refreshToken,
+                sessionId: $sessionId
+            }
         }]
     )
 ' "$handoff_file" >"$handoff_tmp"
@@ -404,8 +373,9 @@ printf 'Bootstrap owner email:  %s\n' "$bootstrap_email"
 printf 'Bootstrap owner ID:     %s\n' "$bootstrap_user_id"
 printf 'Bootstrap home ID:      %s\n' "$bootstrap_home_id"
 printf 'Test user email:        %s\n' "$test_email"
-printf 'Test user password:     %s\n' "$test_password"
 printf 'Test user ID:           %s\n' "$test_user_id"
+printf 'Test installation ID:   %s\n' "$test_installation_id"
 printf 'Test device ID:         %s\n' "$test_device_id"
 printf 'Household role:         %s\n' "$effective_role"
+printf 'Session tokens:         stored in the protected handoff (no passwords)\n'
 printf 'Protected handoff:      %s (mode 0600; never commit)\n' "$handoff_file"

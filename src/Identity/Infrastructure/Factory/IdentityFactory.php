@@ -67,7 +67,6 @@ final class IdentityFactory
          *     onboarding_home: array{name: string, locale: string, currency: string, timezone: string},
          *     token_pepper: string,
          *     expose_development_tokens: bool,
-         *     password_login_enabled: bool,
          *     cookie_secure: bool
          *   },
          *   mail: array{
@@ -155,7 +154,6 @@ final class IdentityFactory
                 $container->get(SecureTokenGenerator::class),
                 $config['identity']['access_ttl_seconds'],
                 $config['identity']['refresh_ttl_seconds'],
-                $config['identity']['password_login_enabled'],
                 $config['identity']['web_idle_ttl_seconds'],
                 $config['identity']['native_idle_ttl_seconds'],
             );
@@ -186,6 +184,7 @@ final class IdentityFactory
                 $config['identity']['native_idle_ttl_seconds'],
                 $config['identity']['bootstrap_administrator_emails'],
                 $config['identity']['onboarding_home'],
+                $config['identity']['expose_development_tokens'],
             );
         }
         if ($requestedName === PlatformAdministratorService::class) {

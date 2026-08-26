@@ -1,7 +1,6 @@
 services:
   api-sqlite:
     environment:
-      AUTH_PASSWORD_LOGIN_ENABLED: "0"
       AUTH_TOKEN_PEPPER: acceptance-authentication-pepper-at-least-32-bytes
       PLATFORM_BOOTSTRAP_ADMIN_EMAILS: acceptance-admin@example.test
       NOTIFICATION_PAYLOAD_KEK: bm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm4=
@@ -24,7 +23,6 @@ services:
 
   notification-sqlite:
     environment:
-      AUTH_PASSWORD_LOGIN_ENABLED: "0"
       AUTH_TOKEN_PEPPER: acceptance-authentication-pepper-at-least-32-bytes
       NOTIFICATION_PAYLOAD_KEK: bm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm4=
       HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/homeowner

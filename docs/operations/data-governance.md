@@ -32,6 +32,6 @@ Login requests are security metadata, not permanent identity records. Schedule
 expires stale pending requests and deletes terminal requests once
 `AUTH_LOGIN_LINK_RETENTION_DAYS` (30 by default) has elapsed. Account export
 includes safe request/device and administrator-grant history but excludes poll,
-approval, state, PKCE, access, refresh, and password credential hashes.
+approval, state, PKCE, access, and refresh credential hashes.
 The same bounded command removes inactive, already-hashed authentication
 throttling buckets after `AUTH_RATE_LIMIT_RETENTION_DAYS` (2 by default).

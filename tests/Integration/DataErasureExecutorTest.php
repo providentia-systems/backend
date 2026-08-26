@@ -156,7 +156,6 @@ final class DataErasureExecutorTest extends TestCase
             'id' => $id,
             'email' => $email,
             'normalized_email' => $email,
-            'password_hash' => 'hash',
             'status' => 'active',
             'email_verified_at' => '2026-08-09 12:00:00',
         ]);
@@ -177,7 +176,7 @@ final class DataErasureExecutorTest extends TestCase
     {
         return [
             'CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT, normalized_email TEXT,
-                password_hash TEXT, status TEXT, email_verified_at TEXT)',
+                status TEXT, email_verified_at TEXT)',
             'CREATE TABLE user_profiles (user_id TEXT PRIMARY KEY, display_name TEXT)',
             'CREATE TABLE user_platform_roles (user_id TEXT, role TEXT, revoked_at TEXT,
                 updated_at TEXT, PRIMARY KEY (user_id, role))',

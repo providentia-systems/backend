@@ -16,7 +16,7 @@ final class DataGovernanceExportTest extends TestCase
         foreach (
             [
                 'CREATE TABLE users (id TEXT, email TEXT, normalized_email TEXT,
-                    password_hash TEXT, status TEXT,
+                    status TEXT,
                     email_verified_at TEXT, created_at TEXT, updated_at TEXT)',
                 'CREATE TABLE user_profiles (user_id TEXT, display_name TEXT, locale TEXT,
                     timezone TEXT, created_at TEXT, updated_at TEXT)',
@@ -42,7 +42,7 @@ final class DataGovernanceExportTest extends TestCase
         }
         $connection->insert('users', [
             'id' => 'user-1', 'email' => 'person@example.test',
-            'normalized_email' => 'person@example.test', 'password_hash' => 'never-export',
+            'normalized_email' => 'person@example.test',
             'status' => 'active', 'email_verified_at' => null, 'created_at' => '2026-08-04',
             'updated_at' => '2026-08-04',
         ]);

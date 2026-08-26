@@ -71,12 +71,17 @@ done
 grep -Fq '#requestId=%s&approval=%s' src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
   || fail "login-link email must keep the request and approval capability in an application fragment"
 for application_fragment in \
-  '#action=verify-email&token=' \
-  '#action=password-reset&token=' \
   '#action=step-up&token='; do
   grep -Fq "$application_fragment" src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
     || fail "account capability must use the configured application fragment: $application_fragment"
 done
+assert_no_matches "human-account password authentication must not return" \
+  -in 'AUTH_PASSWORD_LOGIN_ENABLED|password_login_enabled|hashPassword|verifyPassword|password_hash|passwordHash' \
+  --glob '!tests/structural/verify.sh' \
+  --glob '!docs/unification-decision-record.md' \
+  --glob '!docs/product/phases/**' \
+  --glob '!migrations/Version20260826000100.php' \
+  src config scripts compose.yaml compose.prebuilt.yaml compose.production.yaml .env.example .env.production.example
 assert_no_matches "account capability can leak through a query string" \
   -n '\?(approval|token)=' src docs config
 assert_no_matches "removed browser base URL remains configured" \
@@ -104,10 +109,8 @@ for provisioning_script in \
   scripts/setup-prebuilt.sh \
   scripts/setup-development.sh \
   scripts/provision-development-user.sh; do
-  grep -Fq '{applicationKind:"homeowner",token:$token}' "$provisioning_script" \
-    || fail "$provisioning_script must bind email verification to the homeowner application"
-  grep -Fq '{applicationKind:"homeowner",email:$email}' "$provisioning_script" \
-    || fail "$provisioning_script must bind verification resend to the homeowner application"
+  grep -Fq '{applicationKind:"homeowner",approvalToken:$approvalToken,decision:"approve"}' "$provisioning_script" \
+    || fail "$provisioning_script must bind login-link approval to the homeowner application"
 done
 for caddyfile in infrastructure/caddy/Caddyfile infrastructure/caddy/Caddyfile.production; do
   for header in X-Content-Type-Options Referrer-Policy Permissions-Policy Content-Security-Policy; do
@@ -248,8 +251,6 @@ const expected = {
   '/health/ready': {get: 'getReadiness'},
   '/api/v1/system/info': {get: 'getSystemInfo'},
   '/metrics': {get: 'getMetrics'},
-  '/api/v1/auth/register': {post: 'registerAccount'},
-  '/api/v1/auth/login': {post: 'login'},
   '/api/v1/auth/login-links': {post: 'startLoginLink'},
   '/api/v1/auth/login-links/{requestId}/proof': {post: 'proveLoginLinkApproval'},
   '/api/v1/auth/login-links/{requestId}/review': {post: 'reviewLoginLinkApproval'},
@@ -292,7 +293,7 @@ for (const [path, methods] of Object.entries(expected)) {
 }
 for (const schema of [
   'HealthStatus', 'ReadinessStatus', 'SystemInfo', 'ProblemDetails',
-  'RegisterRequest', 'LoginLinkStartRequest', 'LoginLinkStarted',
+  'LoginLinkStartRequest', 'LoginLinkStarted',
   'LoginApplicationKind', 'LoginLinkApprovalProof', 'LoginLinkApprovalValidity',
   'LoginLinkApprovalReview', 'LoginLinkDecisionRequest', 'LoginLinkDecisionReceived',
   'LoginLinkRequestProof', 'LoginLinkStatus', 'LoginLinkExchangeRequest',
@@ -315,7 +316,7 @@ for (const credential of ['accessToken', 'refreshToken', 'csrfToken']) {
   }
 }
 for (const [schema, credential] of [
-  ['RegisterResponse', 'developmentVerificationToken'],
+  ['LoginLinkStarted', 'developmentApprovalToken'],
   ['StepUpLinkAccepted', 'developmentStepUpToken'],
   ['InvitationCreated', 'developmentInvitationToken'],
 ]) {
@@ -359,10 +360,6 @@ const refreshRequestToken = contract.paths?.['/api/v1/auth/refresh']?.post?.requ
   ?.content?.['application/json']?.schema?.properties?.refreshToken ?? {};
 if (refreshRequestToken.writeOnly !== true || 'readOnly' in refreshRequestToken) {
   throw new Error('The refresh request credential must remain request-only');
-}
-const registrationResponses = contract.paths?.['/api/v1/auth/register']?.post?.responses ?? {};
-if (!registrationResponses['202'] || registrationResponses['409']) {
-  throw new Error('Registration must return one generic 202 shape without an account-conflict response');
 }
 const stockCountSessionRef = '#/components/schemas/StockCountSession';
 for (const [path, method] of [
@@ -440,8 +437,6 @@ NODE
 
 grep -Fq "APP_ENV', 'development'" config/autoload/global.php \
   || fail "application environment must default to a non-production profile"
-grep -Fq 'AUTH_PASSWORD_LOGIN_ENABLED: ${AUTH_PASSWORD_LOGIN_ENABLED:-0}' compose.production.yaml \
-  || fail "production password login must remain disabled by default"
 grep -Fq -- '--project-directory "$repo_root"' tests/Acceptance/headless-platform-acceptance.sh \
   || fail 'headless acceptance must resolve every Compose path from the repository root'
 grep -Fq 'bash tests/Acceptance/headless-platform-acceptance.sh' \

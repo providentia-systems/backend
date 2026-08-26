@@ -10,8 +10,6 @@ $expected = [
     '/health/ready' => ['get' => 'getReadiness'],
     '/api/v1/system/info' => ['get' => 'getSystemInfo'],
     '/metrics' => ['get' => 'getMetrics'],
-    '/api/v1/auth/register' => ['post' => 'registerAccount'],
-    '/api/v1/auth/login' => ['post' => 'login'],
     '/api/v1/auth/login-links' => ['post' => 'startLoginLink'],
     '/api/v1/auth/login-links/{requestId}/proof' => ['post' => 'proveLoginLinkApproval'],
     '/api/v1/auth/login-links/{requestId}/review' => ['post' => 'reviewLoginLinkApproval'],
@@ -95,7 +93,6 @@ foreach (
         'ReadinessStatus',
         'SystemInfo',
         'ProblemDetails',
-        'RegisterRequest',
         'LoginLinkStartRequest',
         'LoginLinkStarted',
         'LoginApplicationKind',
@@ -108,9 +105,6 @@ foreach (
         'LoginLinkStatus',
         'LoginLinkExchangeRequest',
         'StepUpLinkAccepted',
-        'ApplicationEmailRequest',
-        'ApplicationTokenRequest',
-        'PasswordResetCompleteRequest',
         'SessionTransport',
         'SessionCredentials',
         'DeviceSession',
@@ -178,7 +172,7 @@ foreach (['accessToken', 'refreshToken', 'csrfToken'] as $responseCredential) {
 
 foreach (
     [
-        ['RegisterResponse', 'developmentVerificationToken'],
+        ['LoginLinkStarted', 'developmentApprovalToken'],
         ['StepUpLinkAccepted', 'developmentStepUpToken'],
         ['InvitationCreated', 'developmentInvitationToken'],
     ] as [$schema, $developmentToken]
@@ -200,9 +194,6 @@ foreach (
         ['LoginLinkExchangeRequest', 'pollToken'],
         ['LoginLinkExchangeRequest', 'codeVerifier'],
         ['LoginLinkExchangeRequest', 'state'],
-        ['ApplicationTokenRequest', 'token'],
-        ['PasswordResetCompleteRequest', 'token'],
-        ['PasswordResetCompleteRequest', 'password'],
     ] as [$schema, $requestCredential]
 ) {
     $property = $contract['components']['schemas'][$schema]['properties'][$requestCredential] ?? [];
@@ -309,12 +300,57 @@ foreach ($contract['paths'] as $pathTemplate => $pathItem) {
         }
     }
 }
-if (count($contract['paths']) !== 154 || $operationCount !== 177) {
-    throw new RuntimeException('API 1.18 must expose exactly 154 paths and 177 operations.');
+if (count($contract['paths']) !== 148 || $operationCount !== 171) {
+    throw new RuntimeException('API 1.19 must expose exactly 148 paths and 171 operations.');
+}
+
+// Zero-password guarantee: no human-account password, registration, or
+// standalone verification operation may exist anywhere in the contract.
+foreach (array_keys($contract['paths']) as $contractPath) {
+    $contractPath = (string) $contractPath;
+    if (
+        stripos($contractPath, 'password') !== false
+        || stripos($contractPath, 'register') !== false
+        || stripos($contractPath, 'verify-email') !== false
+    ) {
+        throw new RuntimeException('Password-era path leaked into the contract: ' . $contractPath);
+    }
+}
+foreach (
+    [
+        'RegisterRequest',
+        'RegisterResponse',
+        'LoginRequest',
+        'PasswordResetCompleteRequest',
+        'ApplicationEmailRequest',
+        'ApplicationTokenRequest',
+    ] as $forbiddenSchema
+) {
+    if (isset($contract['components']['schemas'][$forbiddenSchema])) {
+        throw new RuntimeException('Password-era schema leaked into the contract: ' . $forbiddenSchema);
+    }
+}
+foreach ($contract['components']['schemas'] as $schemaName => $schemaDefinition) {
+    foreach (array_keys($schemaDefinition['properties'] ?? []) as $propertyName) {
+        if (stripos((string) $propertyName, 'password') !== false) {
+            throw new RuntimeException(
+                sprintf('Password-era property leaked into the contract: %s.%s', $schemaName, $propertyName),
+            );
+        }
+    }
+}
+if (
+    in_array(
+        'developmentApprovalToken',
+        $contract['components']['schemas']['LoginLinkStarted']['required'] ?? [],
+        true,
+    )
+) {
+    throw new RuntimeException('The development approval token must remain optional.');
 }
 
 foreach (
-    ['StepUpRequest', 'ApplicationEmailRequest', 'ApplicationTokenRequest', 'PasswordResetCompleteRequest'] as $schema
+    ['StepUpRequest'] as $schema
 ) {
     if (! in_array('applicationKind', $contract['components']['schemas'][$schema]['required'] ?? [], true)) {
         throw new RuntimeException($schema . ' must bind the capability to its originating application.');
@@ -896,14 +932,7 @@ if (
     || ($contract['openapi'] ?? '') !== '3.1.0'
     || ($contract['components']['schemas']['SyncPushRequestV1']['properties']['protocolVersion']['const'] ?? null) !== 1
     || ($contract['components']['schemas']['SyncPushRequestV2']['properties']['protocolVersion']['const'] ?? null) !== 2
-    || ! isset($contract['paths']['/api/v1/auth/register']['post']['responses']['202'])
-    || isset($contract['paths']['/api/v1/auth/register']['post']['responses']['409'])
-    || ! in_array(
-        'accepted',
-        $contract['components']['schemas']['RegisterResponse']['required'] ?? [],
-        true,
-    )
-    || ($contract['info']['version'] ?? '') !== '1.18.0'
+    || ($contract['info']['version'] ?? '') !== '1.19.0'
     || stripos($source, 'magic' . '-link') !== false
     || stripos($source, 'magic' . 'link') !== false
     || isset($contract['paths']['/api/v1/auth/' . 'magic' . '-links'])

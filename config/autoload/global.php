@@ -104,7 +104,6 @@ $aiAllowPrivateEndpoints = filter_var(
     $env('AI_ALLOW_PRIVATE_ENDPOINTS', '0'),
     FILTER_VALIDATE_BOOL,
 );
-$passwordLoginEnabled = filter_var($env('AUTH_PASSWORD_LOGIN_ENABLED', '0'), FILTER_VALIDATE_BOOL);
 $cookieSecure = filter_var(
     $env('AUTH_COOKIE_SECURE', $environment === 'production' ? '1' : '0'),
     FILTER_VALIDATE_BOOL,
@@ -361,7 +360,6 @@ return [
         ],
         'token_pepper' => $tokenPepper,
         'expose_development_tokens' => $exposeDevelopmentTokens,
-        'password_login_enabled' => $passwordLoginEnabled,
         'cookie_secure' => $cookieSecure,
     ],
     'mail' => [
