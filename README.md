@@ -1,5 +1,8 @@
 # Providentia backend
 
+> **Proprietary software.** Copyright (c) 2026 Vast Development Method Trading
+> Pty Ltd. All rights reserved. No licence is granted; see [LICENSE](LICENSE).
+
 Providentia is a headless JSON API for household stock control. It serves no
 browser login, homeowner application, or administrative user interface. Homeowners
 use the separate [Flutter Client](https://github.com/providentia-systems/client),
@@ -252,4 +255,12 @@ Start at [docs/index.md](docs/index.md) and the
 The owner-authorized product and repository naming decision is recorded in
 [docs/product/project-memory.md](docs/product/project-memory.md).
 
-Providentia is proprietary. No distribution licence is granted or selected.
+## License
+
+Copyright (c) 2026 Vast Development Method Trading Pty Ltd. All rights reserved.
+
+This repository is proprietary software. No licence is granted to use, copy,
+modify, merge, publish, distribute, sublicense, or sell the software except as
+expressly authorised in writing by Vast Development Method Trading Pty Ltd.
+Viewing or forking this repository on GitHub does not grant a licence. See the
+[LICENSE](LICENSE) file for the complete terms.
