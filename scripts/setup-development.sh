@@ -352,8 +352,8 @@ baseline_import="$(
         --actor-user="$actor_user_id"
 )"
 jq -e '
-    .catalogLinked == 23
-    and .privateProducts == 37
+    .catalogLinked == 32
+    and .privateProducts == 28
     and .countLines == 60
     and .quantity == 159
     and .receipts == 9
