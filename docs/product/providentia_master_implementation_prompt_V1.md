@@ -27,6 +27,14 @@ Owner implementation amendment approved on 30 July 2026:
 - Redis Open Source is the preferred production queue broker. Valkey remains a
   tested Redis-protocol-compatible profile.
 
+Owner licensing amendment approved on 26 August 2026:
+
+- The licensing deferral above is superseded. Providentia is proprietary
+  software under `LicenseRef-Proprietary`. The root
+  [LICENSE](../../LICENSE) grants no licence except as expressly authorised in
+  writing by Vast Development Method Trading Pty Ltd; viewing or forking the
+  public GitHub repository grants no licence.
+
 This document is intended to be given directly to an AI engineering agent. It
 defines the complete product direction, the evidence that must be preserved,
 the target architecture, the non-negotiable privacy and security boundaries,
@@ -1891,9 +1899,10 @@ explicit answer when it is:
 - **Resolved 30 July 2026:** Redis Open Source is the preferred production
   broker; Valkey remains a tested compatible profile. The project-owned queue
   port and Enqueue adapter remain decided.
-- **Partially resolved 30 July 2026:** the project is proprietary and grants no
-  distribution licence yet. Pricing, free-tier, operator responsibilities, and
-  any future licensing terms remain required before public commercial claims.
+- **Resolved 26 August 2026:** the project is proprietary under
+  `LicenseRef-Proprietary`. The root [LICENSE](../../LICENSE) grants no licence
+  except as expressly authorised in writing. Pricing, free-tier, and operator
+  responsibilities remain required before public commercial claims.
 
 ---
 
