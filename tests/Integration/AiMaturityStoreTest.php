@@ -68,6 +68,44 @@ final class AiMaturityStoreTest extends TestCase
         self::assertFalse($this->store->hasBlockingExtractionDiscrepancies('home-1', 'extraction-1'));
     }
 
+    public function testProfileVisibilityIsOwnerScopedAndPersistsEndpointOwnership(): void
+    {
+        self::assertTrue($this->store->saveProviderProfile([
+            'id' => 'shared-1', 'homeId' => 'home-1', 'label' => 'Household Ollama',
+            'provider' => 'ollama', 'model' => 'llava', 'ownerUserId' => null,
+            'endpoint' => null, 'ciphertext' => null, 'nonce' => null, 'keyVersion' => null,
+            'lastFour' => null, 'estimatedCostMicros' => 0, 'actorUserId' => 'user-1',
+        ], 0, $this->at));
+        self::assertTrue($this->store->saveProviderProfile([
+            'id' => 'private-1', 'homeId' => 'home-1', 'label' => 'My compatible',
+            'provider' => 'openai-compatible', 'model' => 'vision', 'ownerUserId' => 'user-1',
+            'endpoint' => 'https://vision.example.test/v1/chat/completions',
+            'ciphertext' => 'cipher', 'nonce' => 'nonce', 'keyVersion' => 1,
+            'lastFour' => '1234', 'estimatedCostMicros' => 250, 'actorUserId' => 'user-1',
+        ], 0, $this->at));
+
+        $ownerView = $this->store->providerProfiles('home-1', 'user-1');
+        self::assertSame(['shared-1', 'private-1'], array_column($ownerView, 'id'));
+        $private = $ownerView[1];
+        self::assertSame('user-1', $private['ownerUserId']);
+        self::assertSame('https://vision.example.test/v1/chat/completions', $private['endpoint']);
+
+        self::assertSame(
+            ['shared-1'],
+            array_column($this->store->providerProfiles('home-1', 'user-2'), 'id'),
+            'Another member must never see a foreign private profile.',
+        );
+        self::assertSame(
+            ['shared-1'],
+            array_column($this->store->providerProfiles('home-1'), 'id'),
+            'A viewerless read must stay narrowed to home-shared profiles.',
+        );
+        $stored = $this->store->providerProfile('home-1', 'private-1');
+        self::assertNotNull($stored);
+        self::assertSame('user-1', $stored['ownerUserId']);
+        self::assertSame('https://vision.example.test/v1/chat/completions', $stored['endpoint']);
+    }
+
     public function testProfileCredentialRevocationClearsAllSecretsWithCasAndSanitizedAudit(): void
     {
         self::assertTrue($this->store->saveProviderProfile([
@@ -199,7 +237,8 @@ final class AiMaturityStoreTest extends TestCase
         return [
             'CREATE TABLE ai_extractions (id TEXT PRIMARY KEY, home_id TEXT)',
             'CREATE TABLE ai_provider_profiles (id TEXT PRIMARY KEY, home_id TEXT, label TEXT, provider TEXT,
-                model TEXT, ciphertext TEXT NULL, nonce TEXT NULL, key_version INTEGER NULL, last_four TEXT NULL,
+                model TEXT, owner_user_id TEXT NULL, endpoint TEXT NULL,
+                ciphertext TEXT NULL, nonce TEXT NULL, key_version INTEGER NULL, last_four TEXT NULL,
                 estimated_cost_micros INTEGER, status TEXT, revision INTEGER, updated_by_user_id TEXT,
                 created_at TEXT, updated_at TEXT, UNIQUE(home_id, label))',
             'CREATE TABLE ai_orchestration_policies (home_id TEXT PRIMARY KEY, extraction_profile_ids_json TEXT,

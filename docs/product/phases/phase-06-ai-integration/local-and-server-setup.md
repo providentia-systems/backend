@@ -30,12 +30,22 @@ Provider credentials are entered through the authenticated home credential
 endpoint, not environment variables. Configure a vision-capable model through
 the home settings endpoint.
 
-For a local Ollama server, additionally set:
+For a deployment-wide local Ollama server, additionally set:
 
 ```dotenv
 AI_OLLAMA_ENDPOINT=http://ollama:11434
 AI_ALLOW_PRIVATE_ENDPOINTS=1
 ```
+
+When people bring their own LAN Ollama endpoints through provider profiles
+instead, enable the deliberately separate profile-endpoint policy:
+
+```dotenv
+AI_ALLOW_PRIVATE_NETWORK_ENDPOINTS=1
+```
+
+It permits plain HTTP and private or loopback hosts for Ollama profile
+endpoints only; every other profile endpoint stays HTTPS with a public host.
 
 Pull and smoke-test the chosen vision model directly in Ollama before enabling
 the home. The ordinary CI suite uses fakes and synthetic fixtures; live

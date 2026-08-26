@@ -9,8 +9,14 @@ use Providentia\AiIntegration\Application\Media\EncryptedMediaObject;
 
 interface AiMaturityStore
 {
-    /** @return list<array<string, mixed>> */
-    public function providerProfiles(string $homeId): array;
+    /**
+     * Active profiles visible to one person: every home-shared profile plus
+     * only that person's own private profiles. A null viewer returns only the
+     * home-shared profiles so a caller can never widen visibility by accident.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function providerProfiles(string $homeId, ?string $visibleToUserId = null): array;
 
     /** @return array<string, mixed>|null */
     public function providerProfile(string $homeId, string $profileId): ?array;

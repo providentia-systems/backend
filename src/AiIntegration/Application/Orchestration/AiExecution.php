@@ -14,6 +14,7 @@ final readonly class AiExecution
         public ?string $credential,
         public string $profileId = '',
         public int $estimatedCostMicros = 0,
+        public ?string $endpoint = null,
     ) {
         if ($estimatedCostMicros < 0) {
             throw new \InvalidArgumentException('Estimated AI cost cannot be negative.');

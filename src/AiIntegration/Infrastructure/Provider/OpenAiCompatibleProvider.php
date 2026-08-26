@@ -36,8 +36,15 @@ final readonly class OpenAiCompatibleProvider implements AiProvider
         if ($request->credential === null) {
             throw new AiProviderException('provider_credential_missing', 'The provider credential is missing.');
         }
+        $endpoint = $request->endpoint ?? $this->endpoint;
+        if ($endpoint === '') {
+            throw new AiProviderException(
+                'provider_endpoint_missing',
+                'This provider needs a profile endpoint or a deployment endpoint.',
+            );
+        }
         $response = $this->http->post(
-            $this->endpoint,
+            $endpoint,
             ['Authorization' => 'Bearer ' . $request->credential],
             [
                 'model' => $request->model,

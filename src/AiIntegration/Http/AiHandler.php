@@ -65,6 +65,8 @@ final readonly class AiHandler implements RequestHandlerInterface
                 isset($body['credential']) ? (string) $body['credential'] : null,
                 (int) ($body['estimatedCostMicros'] ?? 0),
                 (int) ($body['expectedRevision'] ?? 0),
+                (string) ($body['ownerScope'] ?? 'private'),
+                isset($body['endpoint']) ? (string) $body['endpoint'] : null,
             ), 201),
             'profiles.delete' => $this->removeProfile($identity, $homeId, $request, $body),
             'profiles.credential.delete' => new JsonResponse($this->ai->revokeProviderProfileCredential(
