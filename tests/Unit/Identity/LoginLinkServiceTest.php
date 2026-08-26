@@ -332,6 +332,33 @@ final class LoginLinkServiceTest extends TestCase
         self::assertSame(['status' => 'approved'], $result);
     }
 
+    public function testInvitedFirstTimeAccountIsNotGivenAnUnwantedDefaultHome(): void
+    {
+        $requests = $this->approvalStore();
+        $identities = $this->createMock(IdentityStore::class);
+        $identities->method('findUserByEmail')->willReturn(null);
+        $identities->expects(self::once())->method('createUser');
+        $identities->expects(self::once())->method('markEmailVerified');
+        $homes = $this->createMock(HomeStore::class);
+        $homes->method('listForUser')->with(self::USER_ID)->willReturn([]);
+        $homes->method('pendingInvitationsForEmail')->with(
+            'person@example.test',
+            self::isInstanceOf(DateTimeImmutable::class),
+        )->willReturn([
+            ['id' => 'invitation-1', 'homeName' => 'Shared home', 'role' => 'member'],
+        ]);
+        $homes->expects(self::never())->method('createHome');
+
+        $result = $this->service(
+            $requests,
+            $identities,
+            $homes,
+            $this->ids(self::USER_ID, 'audit-id', 'admin-audit-id'),
+        )->approve(self::REQUEST_ID, 'approval-token', 'homeowner');
+
+        self::assertSame(['status' => 'approved'], $result);
+    }
+
     public function testFirstAdministratorAccountNeverReceivesAnOnboardingHome(): void
     {
         $requests = $this->approvalStore(applicationKind: 'admin');

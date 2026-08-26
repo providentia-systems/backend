@@ -201,6 +201,11 @@ return static function (Application $app): void {
         [BearerAuthenticationMiddleware::class, 'home.leave'],
         'api.home-memberships.leave',
     );
+    $app->delete(
+        '/api/v1/homes/{homeId}/memberships/{userId}',
+        [BearerAuthenticationMiddleware::class, 'home.remove-member'],
+        'api.home-memberships.remove',
+    );
     $app->get(
         '/api/v1/homes/{homeId}/ownership-transfers',
         [BearerAuthenticationMiddleware::class, 'home.ownership-transfers'],

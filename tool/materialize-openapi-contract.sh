@@ -5,8 +5,8 @@ set -Eeuo pipefail
 readonly root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly archive="$root/contracts/source/providentia-v1.json.gz"
 readonly output="$root/contracts/openapi/providentia-v1.json"
-readonly archive_sha256='92cbe5e2566cb7c8d111083f6169a6e7a061c5976050dd7b12287ac86e3f2ecd'
-readonly output_sha256='1a9ea966748a50339c3a7b611bf9bf368c3eec49a283a1c58953dd21644dbf44'
+readonly archive_sha256='aa97612afcb0559016ad2f7d2e5d95a1f2a60f245a071daf8657f6c4dd8f7bdb'
+readonly output_sha256='be34563c280fdf46a935be144f75ea1808899feced108caf5551e980c0037bc8'
 
 sha256_file() {
   sha256sum "$1" | cut -d' ' -f1
@@ -40,7 +40,7 @@ node -e '
   );
   if (contract.info?.version !== "1.19.0"
       || Object.keys(contract.paths ?? {}).length !== 148
-      || operations !== 171
+      || operations !== 172
       || Object.keys(contract.components?.schemas ?? {}).length !== 229
       || contract.paths?.["/api/v1/auth/login-links/{requestId}/decision"]?.post?.operationId
           !== "decideLoginLinkApproval"

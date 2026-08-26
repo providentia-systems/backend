@@ -575,6 +575,28 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         ) === 1;
     }
 
+    public function removeMembershipAtRevision(
+        string $homeId,
+        string $userId,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool {
+        return $this->connection->executeStatement(
+            'UPDATE home_memberships SET status = :removed, left_at = :at,
+                    revision = revision + 1, updated_at = :at
+             WHERE home_id = :home AND user_id = :user AND status = :active
+               AND revision = :revision',
+            [
+                'removed' => 'removed',
+                'at' => $this->date($at),
+                'home' => $homeId,
+                'user' => $userId,
+                'active' => 'active',
+                'revision' => $expectedRevision,
+            ],
+        ) === 1;
+    }
+
     public function removeMembership(string $homeId, string $userId, DateTimeImmutable $at): bool
     {
         return $this->connection->executeStatement(

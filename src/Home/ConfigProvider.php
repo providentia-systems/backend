@@ -51,6 +51,7 @@ final class ConfigProvider
                     'home.accept-invitation-by-id' => HomeFactory::class,
                     'home.switch' => HomeFactory::class,
                     'home.change-role' => HomeFactory::class,
+                    'home.remove-member' => HomeFactory::class,
                     'home.transfer-ownership' => HomeFactory::class,
                     'home.ownership-transfers' => HomeFactory::class,
                     'home.propose-ownership-transfer' => HomeFactory::class,
