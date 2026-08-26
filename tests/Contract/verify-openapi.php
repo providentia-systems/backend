@@ -356,9 +356,12 @@ if (
 // Durable trusted-device sessions: the idle deadline must remain nullable so
 // a session can live until explicit revocation rather than a finite ceiling.
 foreach (['idleExpiresAt', 'refreshExpiresAt', 'refreshIdleTtlSeconds'] as $durableField) {
-    $type = $contract['components']['schemas']['SessionCredentials']['properties'][$durableField]['type'] ?? null;
+    $properties = $contract['components']['schemas']['SessionCredentials']['properties'] ?? [];
+    $type = $properties[$durableField]['type'] ?? null;
     if (! is_array($type) || ! in_array('null', $type, true)) {
-        throw new RuntimeException(sprintf('SessionCredentials.%s must be nullable for durable sessions.', $durableField));
+        throw new RuntimeException(
+            sprintf('SessionCredentials.%s must be nullable for durable sessions.', $durableField),
+        );
     }
 }
 foreach (['idleExpiresAt', 'refreshExpiresAt'] as $durableField) {

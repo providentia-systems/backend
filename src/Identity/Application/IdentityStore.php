@@ -145,5 +145,4 @@ interface IdentityStore
         int $expectedRevision,
         DateTimeImmutable $at,
     ): string;
-
 }
