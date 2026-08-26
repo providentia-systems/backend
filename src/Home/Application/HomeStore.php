@@ -114,6 +114,13 @@ interface HomeStore extends HomeAuditRecorder
 
     public function removeMembership(string $homeId, string $userId, DateTimeImmutable $at): bool;
 
+    public function removeMembershipAtRevision(
+        string $homeId,
+        string $userId,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool;
+
     public function ownerCount(string $homeId): int;
 
     public function createOwnershipTransfer(

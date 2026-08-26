@@ -299,6 +299,7 @@ final class LoginLinkService
                     $application === LoginApplicationKind::HOMEOWNER
                     && $firstVerification
                     && $this->homes->listForUser($userId) === []
+                    && $this->homes->pendingInvitationsForEmail($email, $now) === []
                 ) {
                     $onboardingHomeId = $this->ids->generate();
                     $this->homes->createHome(

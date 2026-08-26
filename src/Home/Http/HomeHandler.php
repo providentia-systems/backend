@@ -67,6 +67,7 @@ final class HomeHandler implements RequestHandlerInterface
             )),
             'switch' => new JsonResponse($this->homes->switch($identity, $homeId)),
             'change-role' => $this->changeRole($identity, $homeId, $request, $body),
+            'remove-member' => $this->removeMember($identity, $homeId, $request),
             'transfer-ownership' => $this->transferOwnership($identity, $homeId, $body),
             'ownership-transfers' => new JsonResponse([
                 'data' => $this->homes->ownershipTransfers($identity, $homeId),
@@ -194,6 +195,29 @@ final class HomeHandler implements RequestHandlerInterface
             $homeId,
             (string) $request->getAttribute('invitationId', ''),
             (int) ($body['expectedRevision'] ?? 0),
+        );
+
+        return new EmptyResponse(204);
+    }
+
+    private function removeMember(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        ServerRequestInterface $request,
+    ): ResponseInterface {
+        $query = $request->getQueryParams();
+        if (! isset($query['expectedRevision']) || ! ctype_digit((string) $query['expectedRevision'])) {
+            throw new Problem(
+                422,
+                'Validation failed',
+                'expectedRevision is required to remove a membership.',
+            );
+        }
+        $this->homes->removeMember(
+            $identity,
+            $homeId,
+            (string) $request->getAttribute('userId', ''),
+            (int) $query['expectedRevision'],
         );
 
         return new EmptyResponse(204);

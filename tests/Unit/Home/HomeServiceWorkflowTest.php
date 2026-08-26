@@ -24,6 +24,7 @@ final class HomeServiceWorkflowTest extends TestCase
     private const SESSION_ID = '01912345-6789-7abc-adef-0123456789ab';
     private const DEVICE_ID = '01912345-6789-7abc-bdef-0123456789ab';
     private const AUDIT_ID = '01912345-6789-7abc-8def-1123456789ab';
+    private const TARGET_ID = '01912345-6789-7abc-8def-2123456789ab';
 
     public function testCreatePersistsHomeAndAuditInOneTransaction(): void
     {
@@ -195,6 +196,125 @@ final class HomeServiceWorkflowTest extends TestCase
             self::USER_ID,
             1,
         );
+    }
+
+
+    public function testOwnerRemovesAMemberAndRevokesTheirHomeAccess(): void
+    {
+        $homes = $this->createMock(HomeStore::class);
+        $homes->method('membership')->willReturnCallback(
+            static fn (string $homeId, string $userId): array => $userId === self::USER_ID
+                ? ['status' => 'active', 'role' => HomeAuthorization::OWNER]
+                : ['status' => 'active', 'role' => HomeAuthorization::MEMBER, 'revision' => 4],
+        );
+        $homes->expects(self::once())
+            ->method('removeMembershipAtRevision')
+            ->with(self::HOME_ID, self::TARGET_ID, 4, self::isInstanceOf(DateTimeImmutable::class))
+            ->willReturn(true);
+        $homes->expects(self::once())
+            ->method('recordAudit')
+            ->with(
+                self::anything(),
+                self::USER_ID,
+                'home.membership.removed',
+                'home_membership',
+                self::TARGET_ID,
+                self::HOME_ID,
+                self::stringContains('member'),
+                self::isInstanceOf(DateTimeImmutable::class),
+            );
+        $identities = $this->createMock(IdentityStore::class);
+        $identities->expects(self::once())
+            ->method('clearActiveHome')
+            ->with(self::TARGET_ID, self::HOME_ID, self::isInstanceOf(DateTimeImmutable::class));
+
+        $this->service($homes, null, $identities)->removeMember(
+            $this->identity(),
+            self::HOME_ID,
+            self::TARGET_ID,
+            4,
+        );
+    }
+
+    public function testManagerCannotRemoveAPeerManager(): void
+    {
+        $homes = $this->createMock(HomeStore::class);
+        $homes->method('membership')->willReturnCallback(
+            static fn (string $homeId, string $userId): array => $userId === self::USER_ID
+                ? ['status' => 'active', 'role' => HomeAuthorization::MANAGER]
+                : ['status' => 'active', 'role' => HomeAuthorization::MANAGER, 'revision' => 2],
+        );
+        $homes->method('permissionDecision')->willReturn(true);
+        $homes->expects(self::never())->method('removeMembershipAtRevision');
+
+        try {
+            $this->service($homes)->removeMember($this->identity(), self::HOME_ID, self::TARGET_ID, 2);
+            self::fail('A manager removed a peer manager.');
+        } catch (Problem $problem) {
+            self::assertSame(403, $problem->status);
+        }
+    }
+
+    public function testTheOwnerMembershipCannotBeRemoved(): void
+    {
+        $homes = $this->createMock(HomeStore::class);
+        $homes->method('membership')->willReturn([
+            'status' => 'active',
+            'role' => HomeAuthorization::OWNER,
+        ]);
+        $homes->expects(self::never())->method('removeMembershipAtRevision');
+
+        try {
+            $this->service($homes)->removeMember($this->identity(), self::HOME_ID, self::TARGET_ID, 1);
+            self::fail('The owner membership was removed.');
+        } catch (Problem $problem) {
+            self::assertSame(409, $problem->status);
+            self::assertStringContainsString('ownership-transfer', $problem->getMessage());
+        }
+    }
+
+    public function testSelfRemovalIsRedirectedToTheLeaveOperation(): void
+    {
+        $homes = $this->createMock(HomeStore::class);
+        $homes->method('membership')->willReturn([
+            'status' => 'active',
+            'role' => HomeAuthorization::OWNER,
+        ]);
+        $homes->expects(self::never())->method('removeMembershipAtRevision');
+
+        try {
+            $this->service($homes)->removeMember($this->identity(), self::HOME_ID, self::USER_ID, 1);
+            self::fail('A member removed their own membership through the administrative removal.');
+        } catch (Problem $problem) {
+            self::assertSame(409, $problem->status);
+            self::assertStringContainsString('Leave the home', $problem->getMessage());
+        }
+    }
+
+    public function testMemberRemovalDetectsARevisionConflict(): void
+    {
+        $homes = $this->createStub(HomeStore::class);
+        $homes->method('membership')->willReturnCallback(
+            static fn (string $homeId, string $userId): array => $userId === self::USER_ID
+                ? ['status' => 'active', 'role' => HomeAuthorization::OWNER]
+                : ['status' => 'active', 'role' => HomeAuthorization::VIEWER, 'revision' => 9],
+        );
+        $homes->method('removeMembershipAtRevision')->willReturn(false);
+        $identities = $this->createMock(IdentityStore::class);
+        $identities->expects(self::never())->method('clearActiveHome');
+
+        try {
+            $this->service($homes, null, $identities)->removeMember(
+                $this->identity(),
+                self::HOME_ID,
+                self::TARGET_ID,
+                8,
+            );
+            self::fail('A stale membership revision was removed.');
+        } catch (Problem $problem) {
+            self::assertSame(409, $problem->status);
+            self::assertStringContainsString('Revision conflict', $problem->title);
+        }
     }
 
     private function service(

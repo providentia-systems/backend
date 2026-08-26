@@ -632,6 +632,71 @@ final class HomeService
         });
     }
 
+    public function removeMember(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $userId,
+        int $expectedRevision,
+    ): void {
+        $this->transactions->transactional(function () use (
+            $homeId,
+            $userId,
+            $expectedRevision,
+            $identity,
+        ): void {
+            $actor = $this->authorization->requirePermission(
+                $identity,
+                $homeId,
+                HomePermission::MEMBERS_MANAGE,
+            );
+            if ($userId === $identity->userId) {
+                throw new Problem(
+                    409,
+                    'Membership conflict',
+                    'Leave the home instead of removing your own membership.',
+                );
+            }
+            $membership = $this->homes->membership($homeId, $userId);
+            if ($membership === null) {
+                throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+            }
+            if ((string) $membership['role'] === HomeAuthorization::OWNER) {
+                throw new Problem(
+                    409,
+                    'Ownership safeguard',
+                    'Use the explicit ownership-transfer command to change the owner.',
+                );
+            }
+            if (
+                (string) $membership['role'] === HomeAuthorization::MANAGER
+                && (string) $actor['role'] !== HomeAuthorization::OWNER
+            ) {
+                throw new Problem(403, 'Forbidden', 'Only an owner can remove a manager.');
+            }
+            $now = $this->clock->now();
+            if (
+                ! $this->homes->removeMembershipAtRevision(
+                    $homeId,
+                    $userId,
+                    $expectedRevision,
+                    $now,
+                )
+            ) {
+                throw new Problem(409, 'Revision conflict', 'The membership changed since it was read.');
+            }
+            $this->identities->clearActiveHome($userId, $homeId, $now);
+            $this->audit(
+                $identity,
+                'home.membership.removed',
+                'home_membership',
+                $userId,
+                $homeId,
+                ['role' => (string) $membership['role']],
+                $now,
+            );
+        });
+    }
+
     public function leave(AuthenticatedIdentity $identity, string $homeId): void
     {
         $this->transactions->transactional(function () use ($homeId, $identity): void {

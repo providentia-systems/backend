@@ -38,6 +38,10 @@ $expected = [
     '/api/v1/homes' => ['get' => 'listHomes'],
     '/api/v1/homes/{homeId}' => ['get' => 'getHome', 'patch' => 'updateHome'],
     '/api/v1/homes/{homeId}/ownership-transfer' => ['post' => 'transferHomeOwnership'],
+    '/api/v1/homes/{homeId}/memberships/{userId}' => [
+        'patch' => 'changeHomeMembershipRole',
+        'delete' => 'removeHomeMembership',
+    ],
     '/api/v1/catalog/products' => ['get' => 'searchCatalogProducts'],
     '/api/v1/catalog/categories' => ['get' => 'listPublishedCatalogCategories'],
     '/api/v1/catalog-contributions/{contributionId}/proposal' => [
@@ -300,8 +304,8 @@ foreach ($contract['paths'] as $pathTemplate => $pathItem) {
         }
     }
 }
-if (count($contract['paths']) !== 148 || $operationCount !== 171) {
-    throw new RuntimeException('API 1.19 must expose exactly 148 paths and 171 operations.');
+if (count($contract['paths']) !== 148 || $operationCount !== 172) {
+    throw new RuntimeException('API 1.19 must expose exactly 148 paths and 172 operations.');
 }
 
 // Zero-password guarantee: no human-account password, registration, or
