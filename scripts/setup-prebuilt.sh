@@ -15,6 +15,7 @@ mailpit_port_override=""
 bind_address_override=""
 skip_provision=0
 reset_data=0
+handover_zip="${PROVIDENTIA_HANDOVER_ZIP:-}"
 
 registry_environment="${PROVIDENTIA_REGISTRY:-}"
 image_namespace_environment="${PROVIDENTIA_IMAGE_NAMESPACE:-}"
@@ -78,9 +79,16 @@ Options:
   --http-port PORT      Host API port (default: 8080)
   --mailpit-port PORT   Host Mailpit port (default: 8025)
   --bind-address IP     Host bind address (default: 127.0.0.1)
+  --handover ZIP        Verified handover archive; seeds the starter catalog
   --skip-provision      Start and test the stack without creating an account/home
   --reset-data          Delete this prebuilt stack's containers and named volumes
   --help                Show this help
+
+When the verified handover archive is available (via --handover, the
+PROVIDENTIA_HANDOVER_ZIP environment variable, or the known local paths), the
+approved starter catalog is seeded automatically and idempotently right after
+the database migrations. Without it the stack still starts, with an explicit
+warning that the starter catalog is empty.
 
 The development account is provisioned through a passwordless login link that
 the script approves itself; the prebuilt Compose profile exposes the required
@@ -97,6 +105,7 @@ while (($#)); do
         --http-port) http_port_override="${2:?--http-port requires a value}"; shift 2 ;;
         --mailpit-port) mailpit_port_override="${2:?--mailpit-port requires a value}"; shift 2 ;;
         --bind-address) bind_address_override="${2:?--bind-address requires a value}"; shift 2 ;;
+        --handover) handover_zip="${2:?--handover requires a ZIP path}"; shift 2 ;;
         --skip-provision) skip_provision=1; shift ;;
         --reset-data) reset_data=1; shift ;;
         --help|-h) usage; exit 0 ;;
@@ -322,6 +331,73 @@ fi
 "${compose[@]}" --profile tools run --rm volume-init
 "${compose[@]}" up -d --wait mysql redis mailpit
 "${compose[@]}" --profile tools run --rm migrate
+
+if [[ -z "$handover_zip" ]]; then
+    for candidate in \
+        "${root_dir}/../../project_sources/01-Pantry_Stock_Project_Handover_2026-07-29.zip" \
+        "${root_dir}/Pantry_Stock_Project_Handover_2026-07-29.zip"; do
+        if [[ -f "$candidate" ]]; then
+            handover_zip="$candidate"
+            break
+        fi
+    done
+fi
+if [[ -n "$handover_zip" && -f "$handover_zip" ]]; then
+    command -v unzip >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1 || {
+        printf 'unzip and sha256sum are required to seed the starter catalog.\n' >&2
+        exit 1
+    }
+    seed_dir="$(mktemp -d)"
+    seed_archive_root='Pantry_Stock_Project_Handover_2026-07-29/03_data_exports'
+    if ! unzip -p "$handover_zip" "${seed_archive_root}/pantry-data.json" \
+        >"${seed_dir}/pantry-data.json" \
+        || ! unzip -p "$handover_zip" "${seed_archive_root}/product-rules.json" \
+            >"${seed_dir}/product-rules.json"; then
+        printf 'The handover does not contain the two required files under %s.\n' \
+            "$seed_archive_root" >&2
+        exit 1
+    fi
+    if ! printf '%s  %s\n' \
+        'ac2a74f267d7a48a460c8fae24515887f97632cddfb4a17f5f45dd07c9e90116' \
+        "${seed_dir}/pantry-data.json" \
+        '8131bd3bf41c9b70f0e4cfe86c9e7de699ca0df827c6287fc9f2927e35827899' \
+        "${seed_dir}/product-rules.json" | sha256sum --check --status; then
+        printf 'The handover exports do not match the verified Phase 0 checksums.\n' >&2
+        exit 1
+    fi
+    catalog_seed="$(
+        "${compose[@]}" --profile tools run --rm \
+            --volume "${seed_dir}:/seed:ro" seed
+    )"
+    jq -e '
+        .mappedSourceRows == 292
+        and .approvedAliases == 19
+        and .approvedRules == 19
+        and .unresolvedRows == 8
+    ' <<<"$catalog_seed" >/dev/null
+    catalog_replay="$(
+        "${compose[@]}" --profile tools run --rm \
+            --volume "${seed_dir}:/seed:ro" seed
+    )"
+    jq -e '
+        .productsInserted == 0
+        and .packsInserted == 0
+        and .aliasesInserted == 0
+        and .rulesInserted == 0
+        and .quarantineInserted == 0
+        and .seedRunsInserted == 0
+        and .mappedSourceRows == 292
+    ' <<<"$catalog_replay" >/dev/null
+    printf 'Starter catalog seeded and replay-verified (292 mapped rows, 8 quarantined).\n'
+    rm -rf -- "$seed_dir"
+else
+    cat >&2 <<'SEEDWARN'
+WARNING: no verified handover archive was supplied, so the approved starter
+catalog was NOT seeded. New homes will start without the shared catalog.
+Re-run with --handover /absolute/path/Pantry_Stock_Project_Handover_2026-07-29.zip
+(or set PROVIDENTIA_HANDOVER_ZIP) to bootstrap it; the import is idempotent.
+SEEDWARN
+fi
 "${compose[@]}" up -d --wait \
     api web worker outbox notification data-governance sync-compactor ai-video-worker
 

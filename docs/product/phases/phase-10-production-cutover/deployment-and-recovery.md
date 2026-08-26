@@ -87,6 +87,8 @@ and `QUEUE_DSN` and start only the application services:
 ```bash
 docker compose --env-file .env.production -f compose.production.yaml pull
 docker compose --env-file .env.production -f compose.production.yaml --profile tools run --rm migrate
+docker compose --env-file .env.production -f compose.production.yaml --profile tools run --rm \
+  -v /srv/providentia/seed:/seed:ro seed
 docker compose --env-file .env.production -f compose.production.yaml up -d \
   api web worker outbox notification data-governance sync-compactor ai-video-worker
 ```
@@ -102,6 +104,8 @@ QUEUE_DSN=redis+phpredis://:URL_ENCODED_PASSWORD@redis:6379
 ```bash
 docker compose --env-file .env.production -f compose.production.yaml --profile mysql --profile redis up -d mysql redis
 docker compose --env-file .env.production -f compose.production.yaml --profile tools run --rm migrate
+docker compose --env-file .env.production -f compose.production.yaml --profile tools run --rm \
+  -v /srv/providentia/seed:/seed:ro seed
 docker compose --env-file .env.production -f compose.production.yaml up -d \
   api web worker outbox notification data-governance sync-compactor ai-video-worker
 ```

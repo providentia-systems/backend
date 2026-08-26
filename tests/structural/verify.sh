@@ -437,6 +437,12 @@ NODE
 
 grep -Fq "APP_ENV', 'development'" config/autoload/global.php \
   || fail "application environment must default to a non-production profile"
+for seed_compose in compose.prebuilt.yaml compose.production.yaml; do
+  grep -Fq 'catalog:seed' "$seed_compose" \
+    || fail "$seed_compose must keep the starter-catalog seed one-shot"
+done
+grep -Fq '/seed:ro' scripts/setup-prebuilt.sh \
+  || fail 'prebuilt setup must bootstrap the starter catalog when the dataset is supplied'
 grep -Fq -- '--project-directory "$repo_root"' tests/Acceptance/headless-platform-acceptance.sh \
   || fail 'headless acceptance must resolve every Compose path from the repository root'
 grep -Fq 'bash tests/Acceptance/headless-platform-acceptance.sh' \

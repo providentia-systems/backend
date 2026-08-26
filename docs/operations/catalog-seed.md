@@ -35,6 +35,14 @@ php bin/providentia catalog:seed \
   --rules=/protected/product-rules.json
 ```
 
+Deployed environments run the same import through the `seed` one-shot Compose
+service (prebuilt and production profiles): mount the verified dataset and run
+`docker compose --profile tools run --rm -v <dir>:/seed:ro seed` immediately
+after `migrate`. `scripts/setup-prebuilt.sh` does this automatically when the
+verified handover archive is supplied via `--handover` or
+`PROVIDENTIA_HANDOVER_ZIP`, including the zero-delta replay verification, and
+warns explicitly when no dataset is available.
+
 Import is transactional and source-key idempotent. The seed-run evidence row is
 also unique by seed version and both verified source digests, so repeating the
 same committed import has zero catalog or seed-evidence delta. It creates sanitized
