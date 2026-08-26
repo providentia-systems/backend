@@ -15,8 +15,9 @@
   a project-owned asynchronous bus with an Enqueue Redis adapter.
 - The verified Flutter Linux support range records Ubuntu 20.04 through 24.04
   LTS. Ubuntu 26.04 is not claimed.
-- The project is proprietary. No distribution licence is granted or selected
-  yet; licensing will be decided before public distribution.
+- The project is proprietary. At this date no distribution licence had been
+  selected; the 26 August 2026 licensing decision below supersedes that
+  deferral.
 - The permanent application/distribution identifier is
   `com.vastdevelopmentmethod.providentia`.
 - MySQL is the preferred production database. MariaDB remains a tested
@@ -198,3 +199,12 @@ by the 24 August three-repository contract below.
   non-interactively; production startup rejects that setting.
 - The controlling decision is recorded in
   [`docs/unification-decision-record.md`](../unification-decision-record.md).
+
+## Proprietary licensing decision — 26 August 2026
+
+- The earlier licensing deferral is superseded. Providentia is proprietary
+  software under `LicenseRef-Proprietary`, as stated in the root
+  [LICENSE](../../LICENSE) file.
+- Copyright (c) 2026 Vast Development Method Trading Pty Ltd. All rights
+  reserved. No licence is granted except as expressly authorised in writing.
+  Viewing or forking the GitHub repository does not grant a licence.
