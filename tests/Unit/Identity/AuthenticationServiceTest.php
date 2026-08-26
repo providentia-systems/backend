@@ -85,7 +85,13 @@ final class AuthenticationServiceTest extends TestCase
         $ids = $this->createStub(UuidGenerator::class);
         $ids->method('generate')->willReturn(self::SESSION_ID);
 
-        $result = $this->service($store, $this->hasher(), null, $ids)->issueLoginLinkSession(
+        $result = $this->service(
+            $store,
+            $this->hasher(),
+            null,
+            $ids,
+            webIdleTtlSeconds: 2592000,
+        )->issueLoginLinkSession(
             self::USER_ID,
             self::INSTALLATION_ID,
             'Web browser',
@@ -97,6 +103,111 @@ final class AuthenticationServiceTest extends TestCase
 
         self::assertSame('web', $result['transport']);
         self::assertSame(2592000, $result['refreshIdleTtlSeconds']);
+    }
+
+    public function testDurableSessionHasNoIdleExpiryUntilExplicitRevocation(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
+        $store->expects(self::once())
+            ->method('createSession')
+            ->with(
+                self::anything(),
+                self::USER_ID,
+                self::anything(),
+                self::anything(),
+                self::anything(),
+                self::anything(),
+                self::anything(),
+                self::anything(),
+                self::isInstanceOf(DateTimeImmutable::class),
+                self::isNull(),
+                self::isInstanceOf(DateTimeImmutable::class),
+                'native',
+                0,
+                self::INSTALLATION_ID,
+                null,
+            );
+        $ids = $this->createStub(UuidGenerator::class);
+        $ids->method('generate')->willReturn(self::SESSION_ID);
+
+        $result = $this->service($store, $this->hasher(), null, $ids)->issueLoginLinkSession(
+            self::USER_ID,
+            self::INSTALLATION_ID,
+            'Kitchen tablet',
+            'android',
+            'native',
+            0,
+            null,
+        );
+
+        self::assertNull($result['idleExpiresAt']);
+        self::assertNull($result['refreshExpiresAt']);
+        self::assertNull($result['refreshIdleTtlSeconds']);
+        self::assertNotNull($result['accessExpiresAt']);
+    }
+
+    public function testRefreshKeepsADurableSessionUnlimited(): void
+    {
+        $store = $this->createMock(IdentityStore::class);
+        $store->method('findSessionByRefreshHash')->willReturn([
+            'id' => self::SESSION_ID,
+            'user_id' => self::USER_ID,
+            'device_id' => self::ACCOUNT_SCOPED_DEVICE_ID,
+            'installation_id' => self::INSTALLATION_ID,
+            'refresh_token_hash' => 'hash:old-refresh',
+            'transport' => 'native',
+            'refresh_idle_ttl_seconds' => 0,
+            'active_home_id' => null,
+        ]);
+        $store->expects(self::once())
+            ->method('rotateSession')
+            ->with(
+                self::SESSION_ID,
+                'hash:old-refresh',
+                self::anything(),
+                self::anything(),
+                self::anything(),
+                self::isInstanceOf(DateTimeImmutable::class),
+                self::isNull(),
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(true);
+
+        $result = $this->service(
+            $store,
+            $this->hasher(),
+            $this->tokenGenerator('next-access', 'next-refresh', 'next-csrf'),
+        )->refresh('old-refresh');
+
+        self::assertNull($result['idleExpiresAt']);
+        self::assertNull($result['refreshExpiresAt']);
+        self::assertNull($result['refreshIdleTtlSeconds']);
+    }
+
+    public function testRefreshClampsALegacyUnlimitedSessionToAFiniteCeiling(): void
+    {
+        $store = $this->createStub(IdentityStore::class);
+        $store->method('findSessionByRefreshHash')->willReturn([
+            'id' => self::SESSION_ID,
+            'user_id' => self::USER_ID,
+            'device_id' => self::ACCOUNT_SCOPED_DEVICE_ID,
+            'installation_id' => self::INSTALLATION_ID,
+            'refresh_token_hash' => 'hash:old-refresh',
+            'transport' => 'native',
+            'refresh_idle_ttl_seconds' => 0,
+            'active_home_id' => null,
+        ]);
+        $store->method('rotateSession')->willReturn(true);
+
+        $result = $this->service(
+            $store,
+            $this->hasher(),
+            $this->tokenGenerator('next-access', 'next-refresh', 'next-csrf'),
+            nativeIdleTtlSeconds: 5184000,
+        )->refresh('old-refresh');
+
+        self::assertSame(5184000, $result['refreshIdleTtlSeconds']);
+        self::assertSame('2026-09-28T12:00:00+00:00', $result['idleExpiresAt']);
     }
 
     public function testSessionIssuanceRejectsAnUnknownTransport(): void
@@ -400,6 +511,8 @@ final class AuthenticationServiceTest extends TestCase
         ?UuidGenerator $ids = null,
         ?IdentityTransactionManager $transactions = null,
         ?AccountNotificationSender $notifications = null,
+        int $webIdleTtlSeconds = 0,
+        int $nativeIdleTtlSeconds = 0,
     ): AuthenticationService {
         return new AuthenticationService(
             $store,
@@ -411,6 +524,8 @@ final class AuthenticationServiceTest extends TestCase
             $tokens ?? $this->createStub(SecureTokenGenerator::class),
             900,
             2592000,
+            $webIdleTtlSeconds,
+            $nativeIdleTtlSeconds,
         );
     }
 

@@ -97,8 +97,8 @@ defaults unless the specific test is verifying a shorter deployment policy:
 | `AUTH_LOGIN_LINK_POLL_INTERVAL_SECONDS` | `3` |
 | `AUTH_LOGIN_LINK_RETENTION_DAYS` | `30` (terminal request metadata; no usable capabilities) |
 | `AUTH_RATE_LIMIT_RETENTION_DAYS` | `2` (inactive hashed throttling buckets) |
-| `AUTH_WEB_IDLE_TTL_SECONDS` | `2592000` (30 days) |
-| `AUTH_NATIVE_IDLE_TTL_SECONDS` | `5184000` (60 days) |
+| `AUTH_WEB_IDLE_TTL_SECONDS` | `0` (no idle ceiling; signed in until explicit revocation) |
+| `AUTH_NATIVE_IDLE_TTL_SECONDS` | `0` (no idle ceiling; signed in until explicit revocation) |
 | `ONBOARDING_HOME_NAME` | `My home` |
 | `ONBOARDING_HOME_LOCALE` | `en-NA` |
 | `ONBOARDING_HOME_CURRENCY` | `NAD` |
@@ -294,15 +294,20 @@ The backend, not the client, enforces the maximum session policy:
 | Credential/session | Backend policy | Client acceptance |
 |---|---|---|
 | Access credential | Approximately 15 minutes | Refresh before/after expiry without exposing the refresh credential |
-| Web | Sliding 30-day inactivity | Secure persistent cookies survive normal browser restart; active use moves `idleExpiresAt`, never beyond policy |
-| Android/iOS native | Sliding 60-day inactivity | Refresh credential stays in OS secure storage and survives normal app restart |
-| Windows/macOS/Linux native | Sliding 60-day inactivity | Refresh credential stays in platform-protected storage and survives normal app restart |
+| Web | Until explicit invalidation | Secure persistent cookies survive normal browser restart; the browser's 400-day cookie cap only bounds the cookie, which every rotation re-issues |
+| Android/iOS native | Until explicit invalidation | Refresh credential stays in OS secure storage and survives normal app restart |
+| Windows/macOS/Linux native | Until explicit invalidation | Refresh credential stays in platform-protected storage and survives normal app restart |
 
-A client may request a shorter idle period with
-`requestedSessionIdleSeconds`; the server caps or rejects a longer request.
-Successful use/refresh extends the sliding inactivity deadline. Logout,
-explicit revocation, refresh replay, account/security action, or reaching the
-inactivity deadline ends the session regardless of the nominal maximum.
+By default a trusted installation stays signed in until sign-out, device or
+session revocation, account disablement, credential-rotation failure, or a
+named security invalidation — there is no inactivity deadline. A client may
+still request a finite idle period with `requestedSessionIdleSeconds`
+(900 to 5184000 seconds), and a deployment may impose a deliberate finite
+ceiling through the environment settings above; when either applies,
+successful use/refresh extends the sliding deadline and `idleExpiresAt`
+reports it. When no ceiling applies, `idleExpiresAt` and
+`refreshIdleTtlSeconds` are null. Logout, explicit revocation, refresh
+replay, or an account/security action ends the session in every mode.
 
 Web cookies are host-only and `SameSite=Strict`. A deployed Flutter web client
 and API must therefore use HTTPS origins on the same site, normally sibling

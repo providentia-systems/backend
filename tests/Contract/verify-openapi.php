@@ -349,6 +349,21 @@ if (
     throw new RuntimeException('The development approval token must remain optional.');
 }
 
+// Durable trusted-device sessions: the idle deadline must remain nullable so
+// a session can live until explicit revocation rather than a finite ceiling.
+foreach (['idleExpiresAt', 'refreshExpiresAt', 'refreshIdleTtlSeconds'] as $durableField) {
+    $type = $contract['components']['schemas']['SessionCredentials']['properties'][$durableField]['type'] ?? null;
+    if (! is_array($type) || ! in_array('null', $type, true)) {
+        throw new RuntimeException(sprintf('SessionCredentials.%s must be nullable for durable sessions.', $durableField));
+    }
+}
+foreach (['idleExpiresAt', 'refreshExpiresAt'] as $durableField) {
+    $type = $contract['components']['schemas']['DeviceSession']['properties'][$durableField]['type'] ?? null;
+    if (! is_array($type) || ! in_array('null', $type, true)) {
+        throw new RuntimeException(sprintf('DeviceSession.%s must be nullable for durable sessions.', $durableField));
+    }
+}
+
 foreach (
     ['StepUpRequest'] as $schema
 ) {

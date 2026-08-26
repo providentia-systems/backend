@@ -23,8 +23,8 @@ final class AuthenticationService
         private readonly SecureTokenGenerator $tokens,
         private readonly int $accessTtlSeconds,
         private readonly int $refreshTtlSeconds,
-        private readonly int $webIdleTtlSeconds = 2592000,
-        private readonly int $nativeIdleTtlSeconds = 5184000,
+        private readonly int $webIdleTtlSeconds = 0,
+        private readonly int $nativeIdleTtlSeconds = 0,
     ) {
     }
 
@@ -85,9 +85,9 @@ final class AuthenticationService
      *     refreshToken: string,
      *     csrfToken: string,
      *     accessExpiresAt: string,
-     *     refreshExpiresAt: string,
-     *     idleExpiresAt: string,
-     *     refreshIdleTtlSeconds: int,
+     *     refreshExpiresAt: string|null,
+     *     idleExpiresAt: string|null,
+     *     refreshIdleTtlSeconds: int|null,
      *     transport: string,
      *     activeHomeId: string|null,
      *     sessionId: string,
@@ -122,11 +122,17 @@ final class AuthenticationService
         $transportMaximum = $transport === 'web'
             ? $this->webIdleTtlSeconds
             : $this->nativeIdleTtlSeconds;
-        $refreshIdleTtl = max(900, min(
-            $transportMaximum,
-            (int) ($session['refresh_idle_ttl_seconds'] ?? $this->refreshTtlSeconds),
-        ));
-        $refreshExpiry = $now->add(new DateInterval('PT' . $refreshIdleTtl . 'S'));
+        $storedIdleTtl = (int) ($session['refresh_idle_ttl_seconds'] ?? $this->refreshTtlSeconds);
+        if ($transportMaximum === 0) {
+            $refreshIdleTtl = $storedIdleTtl === 0 ? 0 : max(900, $storedIdleTtl);
+        } elseif ($storedIdleTtl === 0) {
+            $refreshIdleTtl = $transportMaximum;
+        } else {
+            $refreshIdleTtl = max(900, min($transportMaximum, $storedIdleTtl));
+        }
+        $refreshExpiry = $refreshIdleTtl === 0
+            ? null
+            : $now->add(new DateInterval('PT' . $refreshIdleTtl . 'S'));
         $rotated = $this->store->rotateSession(
             (string) $session['id'],
             (string) $session['refresh_token_hash'],
@@ -150,9 +156,9 @@ final class AuthenticationService
             'refreshToken' => $nextRefreshToken,
             'csrfToken' => $csrfToken,
             'accessExpiresAt' => $accessExpiry->format(DATE_ATOM),
-            'refreshExpiresAt' => $refreshExpiry->format(DATE_ATOM),
-            'idleExpiresAt' => $refreshExpiry->format(DATE_ATOM),
-            'refreshIdleTtlSeconds' => $refreshIdleTtl,
+            'refreshExpiresAt' => $refreshExpiry?->format(DATE_ATOM),
+            'idleExpiresAt' => $refreshExpiry?->format(DATE_ATOM),
+            'refreshIdleTtlSeconds' => $refreshIdleTtl === 0 ? null : $refreshIdleTtl,
             'transport' => $transport === 'web' ? 'web' : 'native',
             'activeHomeId' => ($session['active_home_id'] ?? null) === null
                 ? null
@@ -262,9 +268,9 @@ final class AuthenticationService
      *     refreshToken: string,
      *     csrfToken: string,
      *     accessExpiresAt: string,
-     *     refreshExpiresAt: string,
-     *     idleExpiresAt: string,
-     *     refreshIdleTtlSeconds: int,
+     *     refreshExpiresAt: string|null,
+     *     idleExpiresAt: string|null,
+     *     refreshIdleTtlSeconds: int|null,
      *     transport: string,
      *     activeHomeId: string|null,
      *     sessionId: string,
@@ -289,7 +295,9 @@ final class AuthenticationService
         $refreshToken = $this->tokens->generate();
         $accessExpiry = $now->add(new DateInterval('PT' . $this->accessTtlSeconds . 'S'));
         $refreshIdleTtlSeconds = $this->requestedIdleTtl($transport, $refreshIdleTtlSeconds);
-        $refreshExpiry = $now->add(new DateInterval('PT' . $refreshIdleTtlSeconds . 'S'));
+        $refreshExpiry = $refreshIdleTtlSeconds === 0
+            ? null
+            : $now->add(new DateInterval('PT' . $refreshIdleTtlSeconds . 'S'));
         $sessionId = $this->ids->generate();
         $csrfToken = $this->tokens->generate();
         $storedDeviceName = $deviceName === '' ? 'Unnamed device' : mb_substr($deviceName, 0, 120);
@@ -320,9 +328,9 @@ final class AuthenticationService
             'refreshToken' => $refreshToken,
             'csrfToken' => $csrfToken,
             'accessExpiresAt' => $accessExpiry->format(DATE_ATOM),
-            'refreshExpiresAt' => $refreshExpiry->format(DATE_ATOM),
-            'idleExpiresAt' => $refreshExpiry->format(DATE_ATOM),
-            'refreshIdleTtlSeconds' => $refreshIdleTtlSeconds,
+            'refreshExpiresAt' => $refreshExpiry?->format(DATE_ATOM),
+            'idleExpiresAt' => $refreshExpiry?->format(DATE_ATOM),
+            'refreshIdleTtlSeconds' => $refreshIdleTtlSeconds === 0 ? null : $refreshIdleTtlSeconds,
             'transport' => $transport,
             'activeHomeId' => $activeHomeId,
             'sessionId' => $sessionId,
@@ -361,7 +369,7 @@ final class AuthenticationService
     private function requestedIdleTtl(string $transport, ?int $requested): int
     {
         $maximum = $transport === 'web' ? $this->webIdleTtlSeconds : $this->nativeIdleTtlSeconds;
-        if ($requested === null) {
+        if ($requested === null || $requested === 0) {
             return $maximum;
         }
         if ($requested < 900 || $requested > 5184000) {
@@ -372,7 +380,7 @@ final class AuthenticationService
             );
         }
 
-        return min($requested, $maximum);
+        return $maximum === 0 ? $requested : min($requested, $maximum);
     }
 
     private function stepUpPurpose(string $action, LoginApplicationKind $application): string
