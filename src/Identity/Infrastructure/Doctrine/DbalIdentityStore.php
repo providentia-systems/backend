@@ -143,10 +143,10 @@ final class DbalIdentityStore implements
         string $refreshHash,
         string $csrfHash,
         DateTimeImmutable $accessExpiresAt,
-        DateTimeImmutable $refreshExpiresAt,
+        ?DateTimeImmutable $refreshExpiresAt,
         DateTimeImmutable $createdAt,
         string $transport = 'native',
-        int $refreshIdleTtlSeconds = 2592000,
+        int $refreshIdleTtlSeconds = 0,
         ?string $installationId = null,
         ?string $activeHomeId = null,
     ): void {
@@ -188,7 +188,7 @@ final class DbalIdentityStore implements
             'transport' => $transport,
             'refresh_idle_ttl_seconds' => $refreshIdleTtlSeconds,
             'access_expires_at' => $this->date($accessExpiresAt),
-            'refresh_expires_at' => $this->date($refreshExpiresAt),
+            'refresh_expires_at' => $refreshExpiresAt === null ? null : $this->date($refreshExpiresAt),
             'last_seen_at' => $this->date($createdAt),
             'revoked_at' => null,
             'created_at' => $this->date($createdAt),
@@ -204,7 +204,8 @@ final class DbalIdentityStore implements
              INNER JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
              WHERE s.access_token_hash = :hash AND s.revoked_at IS NULL
                AND d.revoked_at IS NULL AND u.status = :status
-               AND s.access_expires_at > :now AND s.refresh_expires_at > :now',
+               AND s.access_expires_at > :now
+               AND (s.refresh_expires_at IS NULL OR s.refresh_expires_at > :now)',
             ['hash' => $accessHash, 'status' => 'active', 'now' => $this->date($now)],
         );
     }
@@ -218,7 +219,7 @@ final class DbalIdentityStore implements
              INNER JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
              WHERE s.refresh_token_hash = :hash AND s.revoked_at IS NULL
                AND d.revoked_at IS NULL AND u.status = :status
-               AND s.refresh_expires_at > :now',
+               AND (s.refresh_expires_at IS NULL OR s.refresh_expires_at > :now)',
             ['hash' => $refreshHash, 'status' => 'active', 'now' => $this->date($now)],
         );
     }
@@ -248,7 +249,7 @@ final class DbalIdentityStore implements
         string $refreshHash,
         string $csrfHash,
         DateTimeImmutable $accessExpiresAt,
-        DateTimeImmutable $refreshExpiresAt,
+        ?DateTimeImmutable $refreshExpiresAt,
         DateTimeImmutable $at,
     ): bool {
         return $this->connection->transactional(function () use (
@@ -275,7 +276,7 @@ final class DbalIdentityStore implements
                     'refresh' => $refreshHash,
                     'csrf' => $csrfHash,
                     'access_expiry' => $this->date($accessExpiresAt),
-                    'refresh_expiry' => $this->date($refreshExpiresAt),
+                    'refresh_expiry' => $refreshExpiresAt === null ? null : $this->date($refreshExpiresAt),
                     'seen' => $this->date($at),
                     'id' => $sessionId,
                     'expected' => $expectedRefreshHash,
@@ -321,7 +322,9 @@ final class DbalIdentityStore implements
             foreach (
                 ['createdAt', 'lastSeenAt', 'accessExpiresAt', 'refreshExpiresAt', 'idleExpiresAt'] as $field
             ) {
-                $session[$field] = $this->atom((string) $session[$field]);
+                $session[$field] = $session[$field] === null
+                    ? null
+                    : $this->atom((string) $session[$field]);
             }
             $session['revokedAt'] = $session['revokedAt'] === null
                 ? null
@@ -353,7 +356,7 @@ final class DbalIdentityStore implements
                     AND m.status = :active
              WHERE s.user_id = :user AND s.active_home_id IS NOT NULL
                AND s.revoked_at IS NULL AND d.revoked_at IS NULL
-               AND s.refresh_expires_at > :now
+               AND (s.refresh_expires_at IS NULL OR s.refresh_expires_at > :now)
              ORDER BY s.last_seen_at DESC, s.created_at DESC',
             ['user' => $userId, 'active' => 'active', 'now' => $this->date($now)],
         );
@@ -961,7 +964,8 @@ final class DbalIdentityStore implements
                     (SELECT COUNT(*) FROM auth_sessions s
                      INNER JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
                      WHERE s.user_id = u.id AND s.revoked_at IS NULL
-                       AND d.revoked_at IS NULL AND s.refresh_expires_at > :now) AS activeSessionCount
+                       AND d.revoked_at IS NULL
+                       AND (s.refresh_expires_at IS NULL OR s.refresh_expires_at > :now)) AS activeSessionCount
              FROM users u INNER JOIN user_profiles p ON p.user_id = u.id
              WHERE ' . $where . '
              ORDER BY u.created_at DESC, u.id
@@ -997,7 +1001,8 @@ final class DbalIdentityStore implements
                     (SELECT COUNT(*) FROM auth_sessions s
                      INNER JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
                      WHERE s.user_id = u.id AND s.revoked_at IS NULL
-                       AND d.revoked_at IS NULL AND s.refresh_expires_at > :now) AS activeSessionCount
+                       AND d.revoked_at IS NULL
+                       AND (s.refresh_expires_at IS NULL OR s.refresh_expires_at > :now)) AS activeSessionCount
              FROM users u INNER JOIN user_profiles p ON p.user_id = u.id
              WHERE u.id = :user',
             ['user' => $userId, 'now' => $this->date($now)],

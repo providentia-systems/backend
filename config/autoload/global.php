@@ -319,14 +319,16 @@ return [
     'identity' => [
         'access_ttl_seconds' => max(300, (int) $env('AUTH_ACCESS_TTL_SECONDS', '900')),
         'refresh_ttl_seconds' => max(3600, (int) $env('AUTH_REFRESH_TTL_SECONDS', '2592000')),
-        'web_idle_ttl_seconds' => min(2592000, max(900, (int) $env(
-            'AUTH_WEB_IDLE_TTL_SECONDS',
-            '2592000',
-        ))),
-        'native_idle_ttl_seconds' => min(5184000, max(900, (int) $env(
-            'AUTH_NATIVE_IDLE_TTL_SECONDS',
-            '5184000',
-        ))),
+        // 0 means no idle ceiling: a trusted installation stays signed in until
+        // sign-out, device/session revocation, account disablement, rotation
+        // failure, or a named security invalidation. A positive value is a
+        // deliberate finite ceiling with a 15-minute floor.
+        'web_idle_ttl_seconds' => (static fn (int $seconds): int => $seconds <= 0
+            ? 0
+            : max(900, $seconds))((int) $env('AUTH_WEB_IDLE_TTL_SECONDS', '0')),
+        'native_idle_ttl_seconds' => (static fn (int $seconds): int => $seconds <= 0
+            ? 0
+            : max(900, $seconds))((int) $env('AUTH_NATIVE_IDLE_TTL_SECONDS', '0')),
         'login_link_ttl_seconds' => min(3600, max(300, (int) $env(
             'AUTH_LOGIN_LINK_TTL_SECONDS',
             '900',

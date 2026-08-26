@@ -52,10 +52,10 @@ interface IdentityStore
         string $refreshHash,
         string $csrfHash,
         DateTimeImmutable $accessExpiresAt,
-        DateTimeImmutable $refreshExpiresAt,
+        ?DateTimeImmutable $refreshExpiresAt,
         DateTimeImmutable $createdAt,
         string $transport = 'native',
-        int $refreshIdleTtlSeconds = 2592000,
+        int $refreshIdleTtlSeconds = 0,
         ?string $installationId = null,
         ?string $activeHomeId = null,
     ): void;
@@ -75,7 +75,7 @@ interface IdentityStore
         string $refreshHash,
         string $csrfHash,
         DateTimeImmutable $accessExpiresAt,
-        DateTimeImmutable $refreshExpiresAt,
+        ?DateTimeImmutable $refreshExpiresAt,
         DateTimeImmutable $at,
     ): bool;
 

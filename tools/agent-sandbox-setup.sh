@@ -66,6 +66,14 @@ else
   composer install --no-interaction --no-progress --prefer-source --ignore-platform-req=php
   restore_lock
   trap - EXIT
+
+  # Source installs embed each package's full git history; strip it so the
+  # vendor tree matches a dist install and the session disk allowance
+  # survives (the phpstan history alone is multiple gigabytes). The mirror
+  # cache serves the same install only once, so drop it too.
+  find vendor -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
+  rm -rf "${COMPOSER_HOME:-$HOME/.config/composer}/../.cache/composer/vcs" \
+    "$HOME/.cache/composer/vcs" 2>/dev/null || true
 fi
 
 echo 'agent-sandbox-setup: running the local no-Docker verification lane.'

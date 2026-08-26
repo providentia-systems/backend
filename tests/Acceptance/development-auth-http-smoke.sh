@@ -201,7 +201,8 @@ jq -e '
     and (.accessToken | type == "string" and length >= 40)
     and (.refreshToken | type == "string" and length >= 40)
     and (.csrfToken | type == "string" and length >= 40)
-    and (.idleExpiresAt | type == "string")
+    and .idleExpiresAt == null
+    and .refreshIdleTtlSeconds == null
     and (.sessionId | type == "string")
     and (.userId | type == "string")
 ' <<<"$reply_body" >/dev/null

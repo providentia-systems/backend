@@ -16,9 +16,16 @@ final class SessionResponseFactory
     public static function web(array $tokens, bool $cookieSecure = true): ResponseInterface
     {
         $accessExpiry = new DateTimeImmutable((string) $tokens['accessExpiresAt']);
-        $refreshExpiry = new DateTimeImmutable((string) $tokens['refreshExpiresAt']);
+        // A durable session has no idle expiry; browsers cap cookie lifetime
+        // at 400 days, so the cookie is re-issued on every rotation while the
+        // server-side session lives until it is explicitly revoked.
+        $refreshExpiry = isset($tokens['refreshExpiresAt'])
+            ? new DateTimeImmutable((string) $tokens['refreshExpiresAt'])
+            : $accessExpiry->modify('+400 days');
         $accessMaxAge = max(0, $accessExpiry->getTimestamp() - time());
-        $refreshMaxAge = max(0, (int) ($tokens['refreshIdleTtlSeconds'] ?? 0));
+        $refreshMaxAge = ($tokens['refreshIdleTtlSeconds'] ?? null) === null
+            ? 34560000
+            : max(0, (int) $tokens['refreshIdleTtlSeconds']);
         $secure = '; Path=/' . ($cookieSecure ? '; Secure' : '') . '; SameSite=Strict';
         $response = new JsonResponse([
             'sessionId' => $tokens['sessionId'],

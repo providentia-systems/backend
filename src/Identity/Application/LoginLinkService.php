@@ -75,17 +75,21 @@ final class LoginLinkService
             throw new Problem(422, 'Validation failed', 'Transport must be web or native.');
         }
         $maximumIdle = $transport === 'web' ? $this->webIdleTtlSeconds : $this->nativeIdleTtlSeconds;
-        $requestedIdle = array_key_exists('requestedSessionIdleSeconds', $input)
-            ? (int) $input['requestedSessionIdleSeconds']
-            : $maximumIdle;
-        if ($requestedIdle < 900 || $requestedIdle > 5184000) {
-            throw new Problem(
-                422,
-                'Validation failed',
-                'Requested session idle time must be between 900 and 5184000 seconds.',
-            );
+        if (array_key_exists('requestedSessionIdleSeconds', $input)) {
+            $requestedIdle = (int) $input['requestedSessionIdleSeconds'];
+            if ($requestedIdle < 900 || $requestedIdle > 5184000) {
+                throw new Problem(
+                    422,
+                    'Validation failed',
+                    'Requested session idle time must be between 900 and 5184000 seconds.',
+                );
+            }
+            $idleTtl = $maximumIdle === 0 ? $requestedIdle : min($requestedIdle, $maximumIdle);
+        } else {
+            // 0 keeps the trusted installation signed in until explicit
+            // sign-out, revocation, or account-level invalidation.
+            $idleTtl = $maximumIdle;
         }
-        $idleTtl = min($requestedIdle, $maximumIdle);
         $stateHash = $this->hasher->hashToken($state);
         $canonical = [
             'requestId' => $requestId,
