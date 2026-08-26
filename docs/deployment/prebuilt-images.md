@@ -71,10 +71,15 @@ The script:
 2. pulls the published production images;
 3. starts and health-checks MySQL, Redis, and Mailpit;
 4. applies Doctrine migrations exactly once;
-5. starts every long-running application process and waits for readiness;
-6. proves liveness, readiness, and system information over HTTP;
-7. creates or reuses a verified developer account and active home; and
-8. writes `.providentia-development.json` with the API URL, home, device, and
+5. seeds the approved starter catalog automatically and idempotently when the
+   verified handover archive is supplied (`--handover` or
+   `PROVIDENTIA_HANDOVER_ZIP`), verifying the source checksums, the expected
+   reconciliation counts, and a zero-delta replay — and warns explicitly when
+   no dataset is available;
+6. starts every long-running application process and waits for readiness;
+7. proves liveness, readiness, and system information over HTTP;
+8. creates or reuses a verified developer account and active home; and
+9. writes `.providentia-development.json` with the API URL, home, device, and
    protected development credentials.
 
 Useful overrides are explicit and do not require editing YAML:

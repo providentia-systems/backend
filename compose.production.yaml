@@ -101,6 +101,19 @@ services:
     restart: "no"
     command: ["php", "bin/doctrine-migrations", "migrations:migrate", "--no-interaction"]
 
+  # One-shot starter-catalog bootstrap. Mount the verified seed dataset at
+  # /seed (docker compose run --rm -v <dir>:/seed:ro seed); the import is
+  # hash-verified, transactional, and idempotent, so replays are zero-delta.
+  seed:
+    <<: *cli
+    profiles: [tools]
+    restart: "no"
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        if [ -f /seed/pantry-data.json ] && [ -f /seed/product-rules.json ]; then php bin/providentia catalog:seed --data=/seed/pantry-data.json --rules=/seed/product-rules.json; else echo 'No verified starter dataset mounted at /seed; the starter catalog was NOT seeded.' >&2; exit 78; fi
+
   api:
     <<: *cli
     command: ["php-fpm", "-F"]
