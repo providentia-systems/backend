@@ -27,6 +27,7 @@ use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\CurrentUserHandler;
 use Providentia\Identity\Http\IdentityHandler;
+use Providentia\Identity\Http\LoginLinkApprovalHandler;
 use Providentia\Identity\Http\LoginLinkHandler;
 use Providentia\Identity\Http\LoginLinkProofRateLimitMiddleware;
 use Providentia\Identity\Http\PlatformAdministratorHandler;
@@ -72,6 +73,8 @@ final class IdentityFactory
          *   mail: array{
          *     dsn: string,
          *     from: string,
+         *     public_base_url: string,
+         *     public_origin: string,
          *     notification_payload_kek: string,
          *     notification_key_version: int,
          *     batch_size: int,
@@ -97,6 +100,7 @@ final class IdentityFactory
             return new SmtpAccountNotificationSender(
                 $config['mail']['dsn'],
                 $config['mail']['from'],
+                $config['mail']['public_base_url'],
                 $config['identity']['application_links'],
             );
         }
@@ -226,6 +230,16 @@ final class IdentityFactory
             return new LoginLinkProofRateLimitMiddleware(
                 $container->get(AuthenticationRateLimiter::class),
                 $container->get(LoginLinkStore::class),
+            );
+        }
+        if (str_starts_with($requestedName, 'identity.login-link-browser-')) {
+            return new LoginLinkApprovalHandler(
+                $container->get(LoginLinkService::class),
+                $container->get(SecureTokenGenerator::class),
+                substr($requestedName, strlen('identity.login-link-browser-')),
+                $config['mail']['public_origin'],
+                $config['identity']['cookie_secure'],
+                $config['identity']['login_link_ttl_seconds'],
             );
         }
         if (str_starts_with($requestedName, 'identity.login-link-')) {

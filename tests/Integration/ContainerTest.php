@@ -16,6 +16,7 @@ use Providentia\AiIntegration\Application\Media\PrivateMediaService;
 use Providentia\Catalog\Application\CatalogSeedService;
 use Providentia\Home\Application\HomeService;
 use Providentia\Identity\Application\AuthenticationService;
+use Providentia\Identity\Http\LoginLinkApprovalHandler;
 use Providentia\SharedKernel\Application\Async\AsyncMessageBus;
 use Providentia\SharedKernel\Application\Async\OutboxStore;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
@@ -49,6 +50,12 @@ final class ContainerTest extends TestCase
         self::assertInstanceOf(MetricsHandler::class, $this->container->get(MetricsHandler::class));
         self::assertInstanceOf(NotFoundHandler::class, $this->container->get(NotFoundHandler::class));
         self::assertInstanceOf(AuthenticationService::class, $this->container->get(AuthenticationService::class));
+        foreach (['launch', 'capture', 'review', 'approve', 'deny'] as $action) {
+            self::assertInstanceOf(
+                LoginLinkApprovalHandler::class,
+                $this->container->get('identity.login-link-browser-' . $action),
+            );
+        }
         self::assertInstanceOf(HomeService::class, $this->container->get(HomeService::class));
         self::assertInstanceOf(CatalogSeedService::class, $this->container->get(CatalogSeedService::class));
         self::assertInstanceOf(AiService::class, $this->container->get(AiService::class));

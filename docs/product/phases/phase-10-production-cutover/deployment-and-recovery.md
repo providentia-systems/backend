@@ -73,9 +73,9 @@ verified account/home, and writes `.providentia-development.json`. See
 `compose.production.yaml` publishes Caddy on
 `${PROVIDENTIA_BIND_ADDRESS:-127.0.0.1}:${PROVIDENTIA_HTTP_PORT:-8080}`.
 No domain is embedded. HAProxy/OPNsense or another trusted operator edge may
-terminate TLS and forward to this address. The configured homeowner and administrator
-application-link bases and
-`CORS_ALLOWED_ORIGINS` remain deployment configuration.
+terminate TLS and forward to this address. The public HTTPS backend origin in
+`PUBLIC_BASE_URL`, the configured homeowner and administrator application-link
+bases, and `CORS_ALLOWED_ORIGINS` remain deployment configuration.
 
 The database and Redis are not published to the host.
 

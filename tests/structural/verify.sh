@@ -61,6 +61,8 @@ for file in composer.json compose.yaml contracts/openapi/providentia-v1.json \
   tools/agent-requirements.json infrastructure/agent/Dockerfile \
   infrastructure/agent/Dockerfile.dockerignore \
   docs/deployment/agent-development.md AGENTS.md \
+  src/Identity/Http/LoginLinkApprovalHandler.php \
+  tests/Unit/Identity/LoginLinkApprovalHandlerTest.php \
   tests/Acceptance/compose.headless-platform-acceptance.yaml \
   tests/Acceptance/headless-platform-acceptance.sh \
   tests/fixtures/ai-provider-router.php \
@@ -68,8 +70,9 @@ for file in composer.json compose.yaml contracts/openapi/providentia-v1.json \
   test -s "$file" || fail "$file is missing or empty"
 done
 
-grep -Fq '#requestId=%s&approval=%s' src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
-  || fail "login-link email must keep the request and approval capability in an application fragment"
+grep -Fq '/login-links/%s/%s#approval=%s' \
+  src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
+  || fail "login-link email must target the browser ceremony with only the approval capability in its fragment"
 for application_fragment in \
   '#action=step-up&token='; do
   grep -Fq "$application_fragment" src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
@@ -84,10 +87,16 @@ assert_no_matches "human-account password authentication must not return" \
   src config scripts compose.yaml compose.prebuilt.yaml compose.production.yaml .env.example .env.production.example
 assert_no_matches "account capability can leak through a query string" \
   -n '\?(approval|token)=' src docs config
-assert_no_matches "removed browser base URL remains configured" \
-  -n 'PUBLIC_BASE_URL|public_base_url|publicBaseUrl' \
-  --glob '!docs/product/phases/phase-00-evidence/**' \
-  --glob '!tests/structural/verify.sh' .
+grep -Fxq 'PUBLIC_BASE_URL=https://api.example.net' .env.production.example \
+  || fail 'production example must target the HTTPS backend approval origin'
+for development_compose in compose.yaml compose.prebuilt.yaml; do
+  grep -Fq 'PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:${PROVIDENTIA_HTTP_PORT:-8080}}' \
+    "$development_compose" \
+    || fail "$development_compose must allow an externally reachable browser approval origin"
+done
+[[ "$(grep -Fc 'PUBLIC_BASE_URL: https://api.example.invalid' \
+    .github/workflows/production-image.yml)" -eq 3 ]] \
+  || fail 'production image validation must configure the browser approval origin in every lane'
 grep -Fxq 'HOMEOWNER_APP_LINK_BASE=https://client.example.net/homeowner' .env.production.example \
   || fail 'production example must target the homeowner application route'
 grep -Fxq 'ADMIN_APP_LINK_BASE=providentia-admin://login-link/admin' .env.production.example \
@@ -126,8 +135,24 @@ assert_no_matches "legacy raw-token email login route remains reachable" \
   -n -F "/api/v1/auth/${legacy_login_segment}" config/routes.php
 grep -Fq '$this->requests->find($requestId) !== null' src/Identity/Http/LoginLinkProofRateLimitMiddleware.php \
   || fail "request-scoped login-link rate limits must be created only for existing requests"
-assert_no_matches "interactive backend UI files remain reachable or configured" \
-  -n 'PublicSite|login-link-browser|TemplateRendererInterface|public-site::' src config
+assert_no_matches "general-purpose backend UI files remain reachable or configured" \
+  -n 'PublicSite|TemplateRendererInterface|public-site::' src config
+for browser_action in launch capture review approve deny; do
+  grep -Fq "identity.login-link-browser-${browser_action}" src/Identity/ConfigProvider.php \
+    || fail "the ${browser_action} browser approval handler is not registered"
+done
+for browser_security_control in \
+  'window.history.replaceState' \
+  'HttpOnly; SameSite=Strict' \
+  'hash_equals($cookieCsrf, $submittedCsrf)' \
+  "frame-ancestors 'none'" \
+  "->withHeader('Cache-Control', 'no-store')"; do
+  grep -Fq -- "$browser_security_control" src/Identity/Http/LoginLinkApprovalHandler.php \
+    || fail "browser approval is missing its ${browser_security_control} safeguard"
+done
+assert_no_matches "browser approval can create or return an authenticated browser session" \
+  -n 'SessionResponseFactory|AccessToken|RefreshToken|identity\.refresh' \
+  src/Identity/Http/LoginLinkApprovalHandler.php
 node <<'NODE'
 const fs = require('node:fs');
 const root = JSON.parse(fs.readFileSync('composer.json', 'utf8'));
@@ -147,7 +172,8 @@ for executable in bin/doctrine-migrations bin/providentia \
   scripts/create-development-handover.sh scripts/setup-development.sh \
   scripts/provision-development-user.sh \
   scripts/reset-development.sh tools/agent-setup.sh \
-  tests/Acceptance/headless-platform-acceptance.sh; do
+  tests/Acceptance/headless-platform-acceptance.sh \
+  tests/Acceptance/production-http-smoke.sh; do
   test -x "$executable" || fail "$executable must be executable"
 done
 
@@ -159,7 +185,8 @@ for shell_script in infrastructure/compose/entrypoint.sh tool/generate-dart-clie
   tools/agent-setup.sh \
   tests/Acceptance/development-http-smoke.sh \
   tests/Acceptance/development-auth-http-smoke.sh \
-  tests/Acceptance/headless-platform-acceptance.sh; do
+  tests/Acceptance/headless-platform-acceptance.sh \
+  tests/Acceptance/production-http-smoke.sh; do
   bash -n "$shell_script" || fail "$shell_script has invalid shell syntax"
 done
 
@@ -386,14 +413,27 @@ let routeMatch;
 while ((routeMatch = routePattern.exec(routeSource)) !== null) {
   (runtimeRoutes[routeMatch[2]] ??= []).push(routeMatch[1]);
 }
+const browserApprovalRoutes = {
+  '/login-links/{applicationKind}/{requestId}': ['get'],
+  '/login-links/{applicationKind}/{requestId}/capture': ['post'],
+  '/login-links/{applicationKind}/{requestId}/review': ['get'],
+  '/login-links/{applicationKind}/{requestId}/approve': ['post'],
+  '/login-links/{applicationKind}/{requestId}/deny': ['post'],
+};
 for (const [runtimePath, methods] of Object.entries(runtimeRoutes)) {
   for (const method of methods) {
+    if (browserApprovalRoutes[runtimePath]?.includes(method)) continue;
     if (!contract.paths?.[runtimePath]?.[method]) {
       throw new Error(`OpenAPI is missing ${method.toUpperCase()} ${runtimePath}`);
     }
   }
 }
-for (const forbiddenPath of ['/', '/login-links/{requestId}', '/login-links/{requestId}/review']) {
+for (const [browserPath, methods] of Object.entries(browserApprovalRoutes)) {
+  if (JSON.stringify(runtimeRoutes[browserPath] ?? []) !== JSON.stringify(methods)) {
+    throw new Error(`Narrow browser approval route is missing or has the wrong method: ${browserPath}`);
+  }
+}
+for (const forbiddenPath of ['/']) {
   if (runtimeRoutes[forbiddenPath]) {
     throw new Error(`Interactive backend route remains reachable: ${forbiddenPath}`);
   }

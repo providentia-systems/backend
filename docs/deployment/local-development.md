@@ -164,6 +164,9 @@ Human sign-in is the email login-link exchange only. The generated
 `.env.development.local` sets `EXPOSE_DEVELOPMENT_TOKENS=1` so setup tooling
 can approve its own login link; `.env.example`, production Compose, and
 `.env.production.example` keep it `0`, and production startup rejects it.
+`PUBLIC_BASE_URL` is the backend origin used in emailed browser approval links;
+production requires HTTPS. The homeowner and Admin application-link settings
+remain in use for application-owned step-up confirmations.
 
 ## Production configuration fail-closed rules
 

@@ -15,6 +15,7 @@ x-app: &app
     SYNC_CURSOR_SECRET: ${SYNC_CURSOR_SECRET:-providentia-development-cursor-secret-change-me}
     MAIL_DSN: smtp://mailpit:1025
     MAIL_FROM: no-reply@providentia.local
+    PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:${PROVIDENTIA_HTTP_PORT:-8080}}
     HOMEOWNER_APP_LINK_BASE: ${HOMEOWNER_APP_LINK_BASE:-providentia://login-link/homeowner}
     ADMIN_APP_LINK_BASE: ${ADMIN_APP_LINK_BASE:-providentia-admin://login-link/admin}
     AUTH_APP_LINK_ALLOWED_HOSTS: ${AUTH_APP_LINK_ALLOWED_HOSTS:-login-link}

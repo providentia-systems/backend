@@ -141,8 +141,9 @@ tag is promoted.
 ## Point Flutter at it
 
 Use the development email address from `.providentia-development.json`, choose
-**Send login link** in Flutter, open the message in Mailpit, explicitly approve
-it, and return to the originating client. The handoff stores setup session
+**Send login link** in Flutter, open the message from Mailpit in a browser,
+explicitly approve it there, and return to the originating client. The browser
+does not receive a session. The handoff stores setup session
 tokens, never a password; do not use those saved setup-session bearer tokens
 as Flutter launch arguments.
 

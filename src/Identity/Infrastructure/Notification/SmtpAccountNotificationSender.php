@@ -15,6 +15,7 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
     public function __construct(
         private readonly string $dsn,
         private readonly string $from,
+        private readonly string $publicBaseUrl,
         private readonly array $applicationLinks,
     ) {
     }
@@ -81,10 +82,11 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
             'login-link' => [
                 'Approve your Providentia login',
                 sprintf(
-                    "Review this login request in the %s application:\n%s#requestId=%s&approval=%s\n\n"
-                    . 'The credential is single-use and does not sign a browser or the backend in.',
+                    "Review this login request in your browser:\n%s/login-links/%s/%s#approval=%s\n\n"
+                    . 'Opening the link does not approve the request. Confirm or deny it in the browser. '
+                    . 'The browser will not be signed in.',
+                    $this->publicBaseUrl,
                     $applicationName,
-                    $applicationLink,
                     rawurlencode((string) ($context['requestId'] ?? '')),
                     rawurlencode((string) ($context['approvalToken'] ?? '')),
                 ),

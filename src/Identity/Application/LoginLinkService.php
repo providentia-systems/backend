@@ -564,15 +564,14 @@ final class LoginLinkService
         } elseif ($status === 'exchanging') {
             $status = 'exchanged';
         }
-        $expiresAt = (string) $request['expires_at'];
-        if ($request['exchange_expires_at'] !== null) {
-            $expiresAt = (string) $request['exchange_expires_at'];
-        }
         $response = [
             'requestId' => (string) $request['id'],
             'applicationKind' => (string) $request['application_kind'],
             'status' => $status,
-            'expiresAt' => $this->date($expiresAt)->format(DATE_ATOM),
+            // This is the immutable request expiry returned by start(). The
+            // shorter post-approval exchange deadline remains server-private
+            // and is still enforced by expire().
+            'expiresAt' => $this->date((string) $request['expires_at'])->format(DATE_ATOM),
         ];
         if ($request['approved_at'] !== null) {
             $response['approvedAt'] = $this->date((string) $request['approved_at'])->format(DATE_ATOM);

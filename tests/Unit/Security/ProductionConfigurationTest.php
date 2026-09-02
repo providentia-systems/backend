@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ProvidentiaTest\Unit\Security;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class ProductionConfigurationTest extends TestCase
@@ -20,6 +21,7 @@ final class ProductionConfigurationTest extends TestCase
                 'SYNC_CURSOR_SECRET',
                 'EXPOSE_DEVELOPMENT_TOKENS',
                 'MAIL_DSN',
+                'PUBLIC_BASE_URL',
                 'HOMEOWNER_APP_LINK_BASE',
                 'ADMIN_APP_LINK_BASE',
                 'AUTH_APP_LINK_ALLOWED_HOSTS',
@@ -87,7 +89,7 @@ final class ProductionConfigurationTest extends TestCase
         /**
          * @var array{
          *   app: array{environment: string},
-         *   mail: array{dsn: string},
+         *   mail: array{dsn: string, public_base_url: string, public_origin: string},
          *   identity: array{expose_development_tokens: bool},
          *   http: array{allowed_origins: list<string>}
          * } $config
@@ -96,9 +98,47 @@ final class ProductionConfigurationTest extends TestCase
 
         self::assertSame('production', $config['app']['environment']);
         self::assertSame('smtps://smtp.example.net:465', $config['mail']['dsn']);
+        self::assertSame('https://api.example.net', $config['mail']['public_base_url']);
+        self::assertSame('https://api.example.net', $config['mail']['public_origin']);
         self::assertFalse($config['identity']['expose_development_tokens']);
         self::assertArrayNotHasKey('password_login_enabled', $config['identity']);
-        self::assertSame(['https://client.example.net'], $config['http']['allowed_origins']);
+        self::assertSame(
+            ['https://client.example.net', 'https://api.example.net'],
+            $config['http']['allowed_origins'],
+        );
+    }
+
+    public function testProductionBrowserApprovalOriginRequiresHttps(): void
+    {
+        $this->productionEnvironment();
+        putenv('PUBLIC_BASE_URL=http://api.example.net');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('production requires HTTPS');
+        require dirname(__DIR__, 3) . '/config/autoload/global.php';
+    }
+
+    #[DataProvider('invalidPublicBaseUrls')]
+    public function testBrowserApprovalBaseRejectsAnythingOtherThanAnOrigin(string $url): void
+    {
+        $this->productionEnvironment();
+        putenv('PUBLIC_BASE_URL=' . $url);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('PUBLIC_BASE_URL');
+        require dirname(__DIR__, 3) . '/config/autoload/global.php';
+    }
+
+    /** @return list<array{string}> */
+    public static function invalidPublicBaseUrls(): array
+    {
+        return [
+            ['https://user@example.net'],
+            ['https://api.example.net/login'],
+            ['https://api.example.net?approval=credential'],
+            ['https://api.example.net#approval=credential'],
+            ["https://api.example.net\r\nInjected: value"],
+        ];
     }
 
     public function testApplicationLinkRejectsAnEmbeddedCapabilityFragment(): void
@@ -221,6 +261,7 @@ final class ProductionConfigurationTest extends TestCase
         putenv('SYNC_CURSOR_SECRET=' . str_repeat('b', 32));
         putenv('EXPOSE_DEVELOPMENT_TOKENS=0');
         putenv('MAIL_DSN=smtps://smtp.example.net:465');
+        putenv('PUBLIC_BASE_URL=https://api.example.net');
         putenv('HOMEOWNER_APP_LINK_BASE=providentia://login-link/homeowner');
         putenv('ADMIN_APP_LINK_BASE=providentia-admin://login-link/admin');
         putenv('AUTH_APP_LINK_ALLOWED_HOSTS=login-link');

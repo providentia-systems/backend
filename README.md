@@ -3,9 +3,10 @@
 > **Proprietary software.** Copyright (c) 2026 Vast Development Method Trading
 > Pty Ltd. All rights reserved. No licence is granted; see [LICENSE](LICENSE).
 
-Providentia is a headless JSON API for household stock control. It serves no
-browser login, homeowner application, or administrative user interface. Homeowners
-use the separate [Flutter Client](https://github.com/providentia-systems/client),
+Providentia is a headless API for household stock control. Its only browser
+HTML surface is a narrow, unauthenticated login-link approval ceremony that
+never signs the browser in. It serves no homeowner or administrative user
+interface. Homeowners use the separate [Flutter Client](https://github.com/providentia-systems/client),
 while authorized platform staff use the separate Linux
 [Flutter Admin](https://github.com/providentia-systems/admin) application. The
 backend is a modular monolith built with Mezzio, selected Laminas components,
@@ -146,8 +147,10 @@ Then open:
 login link without a mailbox. Never enable it outside isolated development;
 production startup rejects it.
 
-The root deliberately returns JSON `404`; the backend has no interactive web
-surface. `/metrics` also returns `404` unless `METRICS_ENABLED=1` and a
+The root deliberately returns JSON `404`; the backend has no general-purpose
+interactive web surface. Only emailed `/login-links/...` URLs render the
+approval/denial ceremony. `/metrics` also returns `404` unless
+`METRICS_ENABLED=1` and a
 dedicated `METRICS_BEARER_TOKEN` are configured, after which it additionally
 requires that bearer credential and a private network/edge policy.
 
@@ -180,10 +183,10 @@ queue message is never represented as equivalent to the database commit.
 
 ## Product surface
 
-- Email-only login-link onboarding with explicit Client/Admin application approval,
-  origin-client polling and PKCE exchange, automatic first-home ownership,
+- Email-only login-link onboarding with explicit browser approval bound to the
+  Client/Admin request, origin-client polling and PKCE exchange, automatic first-home ownership,
   refresh rotation, logout, device sessions, and secure-cookie/bearer
-  transports. The approving application never receives the originating application session.
+  transports. The approval browser never receives the originating application session.
 - No password surface anywhere. Development and acceptance environments set
   `EXPOSE_DEVELOPMENT_TOKENS=1` so the login-link start response returns the
   emailed approval token and scripts complete the flow non-interactively;

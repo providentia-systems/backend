@@ -12,6 +12,41 @@ $environment = mb_strtolower($env('APP_ENV', 'development'));
 $tokenPepper = $env('AUTH_TOKEN_PEPPER', 'development-only-change-me');
 $cursorSecret = $env('SYNC_CURSOR_SECRET', 'development-sync-secret-change-me');
 $mailDsn = $env('MAIL_DSN', 'smtp://127.0.0.1:1025');
+$publicBaseUrl = rtrim(trim($env('PUBLIC_BASE_URL', 'http://127.0.0.1:8080')), '/');
+$publicBaseParts = parse_url($publicBaseUrl);
+$publicBaseScheme = mb_strtolower((string) ($publicBaseParts['scheme'] ?? ''));
+if (
+    $publicBaseUrl === ''
+    || $publicBaseParts === false
+    || ! isset($publicBaseParts['scheme'], $publicBaseParts['host'])
+    || ! in_array($publicBaseScheme, ['http', 'https'], true)
+    || ($environment === 'production' && $publicBaseScheme !== 'https')
+    || isset($publicBaseParts['user'])
+    || isset($publicBaseParts['pass'])
+    || isset($publicBaseParts['query'])
+    || isset($publicBaseParts['fragment'])
+    || (isset($publicBaseParts['path']) && ! in_array($publicBaseParts['path'], ['', '/'], true))
+    || str_contains($publicBaseUrl, "\r")
+    || str_contains($publicBaseUrl, "\n")
+) {
+    throw new RuntimeException(
+        'PUBLIC_BASE_URL must be an absolute HTTP(S) origin without credentials, path, query, or fragment; '
+        . 'production requires HTTPS.',
+    );
+}
+$publicBaseHost = (string) $publicBaseParts['host'];
+if (str_contains($publicBaseHost, ':') && ! str_starts_with($publicBaseHost, '[')) {
+    $publicBaseHost = '[' . $publicBaseHost . ']';
+}
+$publicBasePort = isset($publicBaseParts['port']) ? (int) $publicBaseParts['port'] : null;
+$publicOrigin = $publicBaseScheme . '://' . mb_strtolower($publicBaseHost);
+if (
+    $publicBasePort !== null
+    && ! ($publicBaseScheme === 'https' && $publicBasePort === 443)
+    && ! ($publicBaseScheme === 'http' && $publicBasePort === 80)
+) {
+    $publicOrigin .= ':' . $publicBasePort;
+}
 $applicationLinkAllowedHosts = array_values(array_unique(array_filter(array_map(
     static fn (string $host): string => mb_strtolower(trim($host)),
     explode(',', $env('AUTH_APP_LINK_ALLOWED_HOSTS', 'login-link,localhost,127.0.0.1')),
@@ -77,6 +112,8 @@ $corsAllowedOrigins = array_values(array_unique(array_filter(array_map(
         'http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:8081,http://localhost:8081',
     )),
 ))));
+$corsAllowedOrigins[] = $publicOrigin;
+$corsAllowedOrigins = array_values(array_unique($corsAllowedOrigins));
 $exposeDevelopmentTokens = filter_var(
     $env('EXPOSE_DEVELOPMENT_TOKENS', '0'),
     FILTER_VALIDATE_BOOL,
@@ -374,6 +411,8 @@ return [
     'mail' => [
         'dsn' => $mailDsn,
         'from' => $env('MAIL_FROM', 'no-reply@providentia.local'),
+        'public_base_url' => $publicBaseUrl,
+        'public_origin' => $publicOrigin,
         'notification_payload_kek' => $notificationPayloadKek,
         'notification_key_version' => max(1, (int) $env('NOTIFICATION_KEY_VERSION', '1')),
         'batch_size' => max(1, min(500, (int) $env('NOTIFICATION_BATCH_SIZE', '100'))),
