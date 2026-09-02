@@ -9,8 +9,9 @@ FROM ${COMPOSER_IMAGE} AS composer-bin
 
 FROM ${GO_IMAGE} AS web-builder
 ARG CADDY_VERSION=2.11.4
+ARG GO_CRYPTO_VERSION=0.55.0
 ARG GO_TEXT_VERSION=0.39.0
-ARG GO_GRPC_VERSION=1.82.1
+ARG GO_GRPC_VERSION=1.83.1
 ENV CGO_ENABLED=0 \
     GOPROXY=https://proxy.golang.org,direct \
     GOSUMDB=sum.golang.org \
@@ -19,7 +20,9 @@ WORKDIR /build
 RUN apk add --no-cache ca-certificates git \
     && go mod init providentia.local/caddy-build \
     && go get github.com/caddyserver/caddy/v2/cmd/caddy@v${CADDY_VERSION} \
-    && go get golang.org/x/text@v${GO_TEXT_VERSION} google.golang.org/grpc@v${GO_GRPC_VERSION} \
+    && go get golang.org/x/crypto@v${GO_CRYPTO_VERSION} \
+        golang.org/x/text@v${GO_TEXT_VERSION} \
+        google.golang.org/grpc@v${GO_GRPC_VERSION} \
     && go build -trimpath -ldflags="-s -w" \
         -o /usr/local/bin/caddy github.com/caddyserver/caddy/v2/cmd/caddy
 
