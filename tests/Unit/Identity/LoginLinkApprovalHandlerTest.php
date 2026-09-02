@@ -267,6 +267,28 @@ final class LoginLinkApprovalHandlerTest extends TestCase
         self::assertStringContainsString('providentia_login_link_csrf=deleted', $cookies);
     }
 
+    public function testUsedLinkIsUnavailableAndClearsCeremonyCookies(): void
+    {
+        $row = $this->approvalRequest('admin');
+        $row['status'] = 'approved';
+        $row['approval_token_hash'] = null;
+        $requests = $this->createMock(LoginLinkStore::class);
+        $requests->expects(self::once())->method('find')->willReturn($row);
+        $request = $this->formRequest('approve', 'admin', ['csrf' => 'browser-token'])
+            ->withCookieParams([
+                'providentia_login_link_approval' => 'approval-token',
+                'providentia_login_link_csrf' => 'browser-token',
+            ]);
+
+        $response = $this->handler($requests, 'approve')->handle($request);
+        $cookies = implode('; ', $response->getHeader('Set-Cookie'));
+
+        self::assertSame(404, $response->getStatusCode());
+        self::assertStringContainsString('Login link unavailable', (string) $response->getBody());
+        self::assertStringContainsString('providentia_login_link_approval=deleted', $cookies);
+        self::assertStringContainsString('providentia_login_link_csrf=deleted', $cookies);
+    }
+
     /** @param array<string, mixed> $body */
     private function formRequest(string $action, string $application, array $body): ServerRequestInterface
     {

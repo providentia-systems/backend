@@ -591,10 +591,10 @@ login_link_session() {
     grep -Eiq '^set-cookie:.*(access|refresh|session)' "$response_headers" \
         && fail 'The browser approval created a browser session.'
 
-    http_browser POST "${browser_path}/approve" 409 "$replay_cookie_jar" \
+    http_browser POST "${browser_path}/approve" 404 "$replay_cookie_jar" \
         "csrf=${csrf}" "$expected_base"
-    grep -Fq 'Login link already handled' "$response_body" \
-        || fail 'A replayed browser approval was not rejected explicitly.'
+    grep -Fq 'Login link unavailable' "$response_body" \
+        || fail 'A replayed browser approval was not invalidated.'
     rm -f "$browser_cookie_jar" "$replay_cookie_jar"
 
     status_body="$(jq -cn --arg pollToken "$poll_token" '{pollToken:$pollToken}')"
