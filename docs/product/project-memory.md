@@ -154,8 +154,9 @@ by the 24 August three-repository contract below.
 - Backend API `1.18.0` is the sole runtime and contract authority. The backend
   is headless: it exposes versioned JSON API, health checks, explicitly secured
   metrics, and narrow audited CLI owner commands. It exposes no public site,
-  browser login, homeowner GUI, or operator GUI. All emailed login,
-  verification, reset, and step-up capabilities target the explicitly bound
+  authenticated browser login, homeowner GUI, or operator GUI. The later
+  browser-approval correction below supersedes this checkpoint's app-owned
+  login-link detail; step-up capabilities still target the explicitly bound
   homeowner or administrator application in URI fragments.
 - A stock-count line is created with `expectedRevision: 0`; subsequent writes
   compare against its current positive revision. Successful writes return the
@@ -199,6 +200,24 @@ by the 24 August three-repository contract below.
   non-interactively; production startup rejects that setting.
 - The controlling decision is recorded in
   [`docs/unification-decision-record.md`](../unification-decision-record.md).
+
+## Browser login approval correction — 2 September 2026
+
+- Login links emailed for both homeowner and Admin requests open the backend's
+  HTTPS browser approval ceremony. This supersedes the application-owned email
+  link details recorded in the 4 August baseline and 24 August stabilization
+  checkpoint; application links remain only for step-up confirmations.
+- The approval credential remains solely in the URL fragment until the launch
+  page scrubs it and posts it same-origin into a short-lived, request-scoped
+  `HttpOnly`, `SameSite=Strict` cookie. Approval and denial require an explicit
+  CSRF-protected browser POST and are still application-kind-bound, expiring,
+  atomic, and single-use.
+- The browser never receives an account session or redirects into an app. Only
+  the originating application retains the poll token, state, and PKCE verifier;
+  it observes the decision and exchanges the approved request for its session.
+- Login status keeps the original request `expiresAt` returned by start. The
+  shorter post-approval exchange deadline remains private and server-enforced,
+  preventing Admin from discarding a valid approval when that deadline begins.
 
 ## Proprietary licensing decision — 26 August 2026
 

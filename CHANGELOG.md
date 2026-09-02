@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Restored scanner-safe browser approval for emailed login links, retained
+  application links for step-up confirmations, and kept the public request
+  expiry stable after approval so Admin can complete its private PKCE exchange.
 - Added API v1.13 revision-bound stock-count cancellation to the inventory
   resource and typed synchronization protocol. Cancellation is idempotent,
   publishes the terminal session revision, and creates no stock movement.

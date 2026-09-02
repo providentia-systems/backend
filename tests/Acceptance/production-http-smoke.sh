@@ -40,12 +40,26 @@ request live /health/live 200
 request ready /health/ready 200
 request system /api/v1/system/info 200
 request metrics /metrics 404
+request root / 404
+request login-approval \
+  /login-links/admin/01912345-6789-7abc-8def-0123456789ab 200
 
 grep -Eq '"status"[[:space:]]*:[[:space:]]*"alive"' "$evidence_directory/live.body"
 grep -Eq '"status"[[:space:]]*:[[:space:]]*"ready"' "$evidence_directory/ready.body"
 grep -Eiq '^x-content-type-options:[[:space:]]*nosniff' "$evidence_directory/live.headers"
 grep -Eiq '^x-frame-options:[[:space:]]*DENY' "$evidence_directory/live.headers"
 grep -Eiq '^cache-control:[[:space:]]*no-store' "$evidence_directory/live.headers"
+grep -Eq '"status"[[:space:]]*:[[:space:]]*404' "$evidence_directory/root.body"
+grep -Fq 'Preparing login review' "$evidence_directory/login-approval.body"
+grep -Fq 'window.history.replaceState' "$evidence_directory/login-approval.body"
+grep -Eiq "^content-security-policy:.*frame-ancestors 'none'" \
+  "$evidence_directory/login-approval.headers"
+grep -Eiq '^referrer-policy:[[:space:]]*no-referrer' \
+  "$evidence_directory/login-approval.headers"
+if grep -Eiq '^set-cookie:|^location:' "$evidence_directory/login-approval.headers"; then
+  printf 'The scanner-safe login launch mutated browser state or redirected.\n' >&2
+  exit 1
+fi
 if grep -Eiq '^server:' "$evidence_directory/live.headers"; then
   printf 'The public response exposes a Server header.\n' >&2
   exit 1

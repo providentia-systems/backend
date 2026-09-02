@@ -63,7 +63,8 @@ bash tools/agent-check.sh        # builds and verifies the Debian package
 sudo apt install ./build/packages/providentia-admin_*_amd64.deb
 ```
 
-Admin authenticates through its own application-bound login link. An
+Admin starts its own application-bound login request, while the emailed link
+opens the backend's browser approval ceremony. An
 operator identity requires the platform role: set
 `PLATFORM_BOOTSTRAP_ADMIN_EMAILS=you@example.test` in the backend
 environment before that account's first login-link approval.
@@ -71,8 +72,9 @@ environment before that account's first login-link approval.
 ## 4. Acceptance journeys (pass/fail)
 
 Sign-in and sessions
-- [ ] Enter your email in the client; approve the emailed link (Mailpit in
-      development); the app signs in without any password existing anywhere.
+- [ ] Enter your email in the client; open and approve the emailed link in a
+      browser (Mailpit in development); the originating app signs in without
+      any password existing anywhere, while the approval browser remains signed out.
 - [ ] Device sessions list shows the installation as
       "Signed in until you sign out"; restart the app — still signed in.
 - [ ] Sign out; the session is revoked server-side.

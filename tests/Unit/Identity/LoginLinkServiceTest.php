@@ -270,7 +270,20 @@ final class LoginLinkServiceTest extends TestCase
         }
     }
 
-    public function testExpiredApprovedStatusReportsTheExchangeDeadline(): void
+    public function testApprovedStatusKeepsTheOriginalRequestExpiry(): void
+    {
+        $requests = $this->createMock(LoginLinkStore::class);
+        $requests->method('find')->willReturn($this->approvedRequest());
+        $requests->expects(self::never())->method('expire');
+
+        $status = $this->service($requests)->status(self::REQUEST_ID, str_repeat('p', 43));
+
+        self::assertSame('approved', $status['status']);
+        self::assertSame('2026-08-09T12:15:00+00:00', $status['expiresAt']);
+        self::assertSame('2026-08-09T12:00:00+00:00', $status['approvedAt']);
+    }
+
+    public function testExpiredApprovedStatusStillReportsTheOriginalRequestExpiry(): void
     {
         $row = $this->approvedRequest();
         $row['exchange_expires_at'] = '2026-08-09 12:00:00';
@@ -289,7 +302,8 @@ final class LoginLinkServiceTest extends TestCase
         $status = $this->service($requests)->status(self::REQUEST_ID, str_repeat('p', 43));
 
         self::assertSame('expired', $status['status']);
-        self::assertSame('2026-08-09T12:00:00+00:00', $status['expiresAt']);
+        self::assertSame('2026-08-09T12:15:00+00:00', $status['expiresAt']);
+        self::assertSame('2026-08-09T12:00:00+00:00', $status['approvedAt']);
     }
 
     public function testFirstVerifiedAccountReceivesExactlyOneOwnedDefaultHome(): void

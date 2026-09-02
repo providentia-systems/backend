@@ -42,6 +42,7 @@ redact_stream() {
 cleanup() {
     local status=$?
     trap - EXIT
+    rm -f "${evidence_dir}"/login-browser-*.cookies
     if [[ "$status" -ne 0 ]]; then
         "${compose[@]}" ps >&2 || true
         "${compose[@]}" logs --no-color --tail 160 \
@@ -108,6 +109,39 @@ http_json() {
     response_status="$(curl "${arguments[@]}" "${api_base}${path}")"
     if [[ "$response_status" != "$expected_status" ]]; then
         fail "${method} ${path} returned HTTP ${response_status}; expected ${expected_status}: $(safe_response_summary)"
+    fi
+}
+
+http_browser() {
+    local method="$1"
+    local path="$2"
+    local expected_status="$3"
+    local cookie_jar="${4:-}"
+    local payload="${5:-}"
+    local origin="${6:-}"
+    local -a arguments=(
+        --silent --show-error
+        --connect-timeout 10 --max-time 90
+        --request "$method"
+        --dump-header "$response_headers"
+        --output "$response_body"
+        --write-out '%{http_code}'
+        --header 'Accept: text/html'
+    )
+    if [[ -n "$cookie_jar" ]]; then
+        arguments+=(--cookie "$cookie_jar" --cookie-jar "$cookie_jar")
+    fi
+    if [[ -n "$origin" ]]; then
+        arguments+=(--header "Origin: ${origin}" --header 'Sec-Fetch-Site: same-origin')
+    fi
+    if [[ -n "$payload" ]]; then
+        arguments+=(--header 'Content-Type: application/x-www-form-urlencoded' --data-binary @-)
+        response_status="$(printf '%s' "$payload" | curl "${arguments[@]}" "${api_base}${path}")"
+    else
+        response_status="$(curl "${arguments[@]}" "${api_base}${path}")"
+    fi
+    if [[ "$response_status" != "$expected_status" ]]; then
+        fail "${method} ${path} returned HTTP ${response_status}; expected ${expected_status}."
     fi
 }
 
@@ -381,13 +415,14 @@ preflight_ai_fixture() {
 
 wait_for_login_message() {
     local email="$1"
-    local request_id="$2"
-    local expected_base="$3"
+    local application_kind="$2"
+    local request_id="$3"
+    local expected_base="$4"
     local messages_file="${evidence_dir}/mailpit-messages.json"
     local message_file="${evidence_dir}/mailpit-message.json"
     local message_id=''
     local message_text=''
-    local expected_prefix="${expected_base}#requestId=${request_id}&approval="
+    local expected_prefix="${expected_base}/login-links/${application_kind}/${request_id}#approval="
     local link=''
     local attempt
 
@@ -405,7 +440,7 @@ wait_for_login_message() {
         fi
         sleep 0.5
     done
-    [[ -n "$message_id" ]] || fail 'Mailpit did not receive the application-bound login link.'
+    [[ -n "$message_id" ]] || fail 'Mailpit did not receive the browser login link.'
     curl --fail --silent --show-error --max-time 5 \
         "${mailpit_base}/api/v1/message/${message_id}" >"$message_file"
     message_text="$(jq -er '.Text' "$message_file")" \
@@ -417,12 +452,17 @@ wait_for_login_message() {
             break
         fi
     done <<<"$message_text"
-    [[ -n "$link" ]] || fail 'The login email did not use the configured application-owned base.'
+    [[ -n "$link" ]] || fail 'The login email did not use the configured backend approval origin.'
     login_approval_token="${link#"$expected_prefix"}"
     [[ "$login_approval_token" =~ ^[A-Za-z0-9_-]{40,128}$ ]] \
         || fail 'The approval capability in the application fragment has an invalid shape.'
-    if [[ "$message_text" == *'/auth#requestId='* || "$message_text" == *'?approval='* ]]; then
-        fail 'The login email used a stale path or query-string capability.'
+    if [[
+        "$message_text" == *'/auth#requestId='*
+        || "$message_text" == *'?approval='*
+        || "$message_text" == *'providentia-admin://login-link/'*
+        || "$message_text" == *'providentia://login-link/'*
+    ]]; then
+        fail 'The login email used an app link, stale path, or query-string capability.'
     fi
     rm -f "$messages_file" "$message_file"
 }
@@ -441,8 +481,12 @@ login_link_session() {
     local state
     local other_kind
     local request_body
+    local request_expires_at
     local approval_body
-    local decision_body
+    local browser_path
+    local browser_cookie_jar
+    local replay_cookie_jar
+    local csrf
     local status_body
     local exchange_body
 
@@ -483,8 +527,9 @@ login_link_session() {
     assert_json 'The login-link start response was not generic and client-bound.' \
         '.accepted == true and .requestId == $requestId and (.pollIntervalSeconds >= 1)' \
         --arg requestId "$request_id"
+    request_expires_at="$(jq -er '.expiresAt' "$response_body")"
 
-    wait_for_login_message "$email" "$request_id" "$expected_base"
+    wait_for_login_message "$email" "$application_kind" "$request_id" "$expected_base"
 
     approval_body="$(jq -cn \
         --arg applicationKind "$other_kind" \
@@ -493,48 +538,74 @@ login_link_session() {
     http_json POST "/api/v1/auth/login-links/${request_id}/proof" 404 '' "$approval_body"
     assert_problem_json
 
-    approval_body="$(jq -cn \
-        --arg applicationKind "$application_kind" \
-        --arg approvalToken "$login_approval_token" \
-        '{applicationKind:$applicationKind,approvalToken:$approvalToken}')"
-    http_json POST "/api/v1/auth/login-links/${request_id}/proof" 200 '' "$approval_body"
-    assert_json 'The approval proof disclosed unexpected identity data or did not bind the application.' '
-        .valid == true
-        and .requestId == $requestId
-        and .applicationKind == $applicationKind
-        and (has("email") | not)
-        and (has("account") | not)
-        and (has("approvalToken") | not)
-    ' --arg requestId "$request_id" --arg applicationKind "$application_kind"
+    browser_path="/login-links/${application_kind}/${request_id}"
+    browser_cookie_jar="${evidence_dir}/login-browser-${request_id}.cookies"
+    replay_cookie_jar="${browser_cookie_jar}.replay.cookies"
+    : >"$browser_cookie_jar"
+    chmod 600 "$browser_cookie_jar"
 
-    http_json POST "/api/v1/auth/login-links/${request_id}/review" 200 '' "$approval_body"
-    assert_json 'The approval review was not privacy-minimal or application-bound.' '
-        .requestId == $requestId
-        and .applicationKind == $applicationKind
-        and .deviceName == "Headless acceptance"
-        and .platform == $platform
-        and (has("email") | not)
-        and (has("userId") | not)
-    ' --arg requestId "$request_id" --arg applicationKind "$application_kind" --arg platform "$platform"
+    # A scanner-style GET receives only the launch document. The fragment is
+    # unavailable to the server, and the request remains pending until the
+    # explicit browser form is submitted.
+    http_browser GET "$browser_path" 200
+    grep -Fq 'window.history.replaceState' "$response_body" \
+        || fail 'The browser launch did not scrub the approval fragment.'
+    grep -Fq "${browser_path}/capture" "$response_body" \
+        || fail 'The browser launch did not target the clean capture path.'
+    grep -Fq "$login_approval_token" "$response_body" \
+        && fail 'The approval capability appeared in the launch document.'
+    grep -Eiq "^content-security-policy:.*frame-ancestors 'none'" "$response_headers" \
+        || fail 'The browser launch did not return its restrictive CSP.'
+    grep -Eiq '^set-cookie:' "$response_headers" \
+        && fail 'A scanner-style launch unexpectedly set a browser cookie.'
 
-    decision_body="$(jq -cn \
-        --arg applicationKind "$application_kind" \
-        --arg approvalToken "$login_approval_token" \
-        '{applicationKind:$applicationKind,approvalToken:$approvalToken,decision:"approve"}')"
-    http_json POST "/api/v1/auth/login-links/${request_id}/decision" 202 '' "$decision_body"
-    assert_json 'The login decision was not acknowledged generically.' \
-        '.requestId == $requestId and .applicationKind == $applicationKind and .status == "received"' \
-        --arg requestId "$request_id" --arg applicationKind "$application_kind"
-    http_json POST "/api/v1/auth/login-links/${request_id}/decision" 202 '' "$decision_body"
-    assert_json 'A replayed login decision was not acknowledged generically.' \
-        '.requestId == $requestId and .applicationKind == $applicationKind and .status == "received"' \
-        --arg requestId "$request_id" --arg applicationKind "$application_kind"
+    http_browser POST "${browser_path}/capture" 303 "$browser_cookie_jar" \
+        "approval=${login_approval_token}" "$expected_base"
+    grep -Eiq "^location:[[:space:]]*${browser_path}/review[[:space:]]*$" "$response_headers" \
+        || fail 'The capability capture did not redirect to a clean review URL.'
+    grep -Eiq '^set-cookie:.*providentia_login_link_approval=.*HttpOnly.*SameSite=Strict' \
+        "$response_headers" \
+        || fail 'The approval capability cookie was not host-only and hardened.'
+
+    http_browser GET "${browser_path}/review" 200 "$browser_cookie_jar" '' "$expected_base"
+    grep -Fq 'Approve this login?' "$response_body" \
+        || fail 'The browser did not render the explicit login review.'
+    grep -Fq 'Headless acceptance' "$response_body" \
+        || fail 'The browser review omitted the requesting device.'
+    grep -Fq "$email" "$response_body" \
+        && fail 'The browser review disclosed the account email.'
+    csrf="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' "$response_body" | head -n 1)"
+    [[ "$csrf" =~ ^[A-Za-z0-9_-]{40,128}$ ]] \
+        || fail 'The browser review did not expose a valid double-submit CSRF value.'
+    cp "$browser_cookie_jar" "$replay_cookie_jar"
+    chmod 600 "$replay_cookie_jar"
+
+    http_browser POST "${browser_path}/approve" 200 "$browser_cookie_jar" \
+        "csrf=${csrf}" "$expected_base"
+    grep -Fq 'Login approved' "$response_body" \
+        || fail 'The browser did not confirm the login approval.'
+    grep -Eiq '^location:' "$response_headers" \
+        && fail 'The browser approval redirected into an application.'
+    [[ "$(grep -Eic '^set-cookie:.*Max-Age=0' "$response_headers")" -eq 2 ]] \
+        || fail 'The browser approval did not clear both ceremony cookies.'
+    grep -Eiq '^set-cookie:.*(access|refresh|session)' "$response_headers" \
+        && fail 'The browser approval created a browser session.'
+
+    http_browser POST "${browser_path}/approve" 409 "$replay_cookie_jar" \
+        "csrf=${csrf}" "$expected_base"
+    grep -Fq 'Login link already handled' "$response_body" \
+        || fail 'A replayed browser approval was not rejected explicitly.'
+    rm -f "$browser_cookie_jar" "$replay_cookie_jar"
 
     status_body="$(jq -cn --arg pollToken "$poll_token" '{pollToken:$pollToken}')"
     http_json POST "/api/v1/auth/login-links/${request_id}/status" 200 '' "$status_body"
-    assert_json 'The originating installation did not observe an approved login.' \
-        '.requestId == $requestId and .applicationKind == $applicationKind and .status == "approved"' \
-        --arg requestId "$request_id" --arg applicationKind "$application_kind"
+    assert_json 'The originating installation did not observe a stable approved login.' '
+        .requestId == $requestId
+        and .applicationKind == $applicationKind
+        and .status == "approved"
+        and .expiresAt == $expiresAt
+    ' --arg requestId "$request_id" --arg applicationKind "$application_kind" \
+        --arg expiresAt "$request_expires_at"
 
     exchange_body="$(jq -cn \
         --arg pollToken "$poll_token" \
@@ -571,8 +642,8 @@ docker compose version >/dev/null
 wait_for_api
 preflight_ai_fixture
 
-# The backend is JSON-only. Metrics are unavailable unless separately enabled
-# with their dedicated credential, and CORS admits only the homeowner origin.
+# The backend root remains headless. The only HTML surface is the narrow,
+# unauthenticated browser approval ceremony. Metrics remain separately gated.
 http_json GET '/' 404
 assert_problem_json
 assert_json 'The headless root returned an interactive document.' '
@@ -588,11 +659,11 @@ grep -Eiq '^access-control-allow-origin:[[:space:]]*https://app\.example\.invali
 http_json OPTIONS '/api/v1/me' 403 '' '' 'https://untrusted.example.invalid'
 assert_problem_json
 
-# One login-link protocol serves both Flutter clients but the approval
-# capability is cryptographically and operationally bound to its application.
+# One login-link protocol serves both Flutter clients. Approval occurs in the
+# browser and remains cryptographically bound to the originating application.
 login_link_session \
     admin acceptance-admin@example.test \
-    'providentia-admin://login-link/admin' linux
+    "$api_base" linux
 admin_access_token="$login_access_token"
 admin_user_id="$login_user_id"
 [[ -z "$login_active_home_id" ]] || fail 'An Admin-only first login created a household.'
@@ -607,7 +678,7 @@ assert_json 'The Admin bootstrap crossed the household boundary.' '
 
 login_link_session \
     homeowner acceptance-homeowner@example.test \
-    'https://app.example.invalid/homeowner' linux
+    "$api_base" linux
 homeowner_access_token="$login_access_token"
 homeowner_user_id="$login_user_id"
 home_id="$login_active_home_id"
@@ -1634,7 +1705,8 @@ jq -n \
     {
         contractVersion:$contractVersion,
         contractSha256:$contractSha256,
-        headlessJsonOnly:true,
+        headlessRoot:true,
+        narrowBrowserApproval:true,
         metricsDisabledByDefault:true,
         applicationBoundLoginLinks:true,
         adminHasNoHousehold:true,
@@ -1663,5 +1735,5 @@ jq -n \
     }
 ' >"$summary_file"
 
-printf 'Headless platform acceptance passed against API %s (%s).\n' \
+printf 'Platform acceptance passed against API %s (%s).\n' \
     "$contract_version" "$contract_sha256"

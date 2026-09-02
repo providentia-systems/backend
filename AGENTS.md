@@ -6,7 +6,9 @@ This repository owns the API, domain services, persistence, authorization,
 CLI, deployment images, and the canonical OpenAPI contract. The multi-platform
 homeowner application lives in `providentia-systems/client`; the Linux Flutter
 operator application lives in `providentia-systems/admin`. Do not add an
-authenticated household or operator management UI to the backend.
+authenticated household or operator management UI to the backend. The sole
+browser HTML exception is the unauthenticated login-link approval ceremony;
+it may approve or deny a bound request but must never create a browser session.
 
 ## Start every development session
 

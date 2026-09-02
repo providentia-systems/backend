@@ -17,6 +17,31 @@ use Providentia\SharedKernel\Http\MetricsHandler;
 use Providentia\SharedKernel\Http\SystemInfoHandler;
 
 return static function (Application $app): void {
+    $app->get(
+        '/login-links/{applicationKind}/{requestId}',
+        'identity.login-link-browser-launch',
+        'public.login-links.launch',
+    );
+    $app->post(
+        '/login-links/{applicationKind}/{requestId}/capture',
+        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-browser-capture'],
+        'public.login-links.capture',
+    );
+    $app->get(
+        '/login-links/{applicationKind}/{requestId}/review',
+        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-browser-review'],
+        'public.login-links.review',
+    );
+    $app->post(
+        '/login-links/{applicationKind}/{requestId}/approve',
+        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-browser-approve'],
+        'public.login-links.approve',
+    );
+    $app->post(
+        '/login-links/{applicationKind}/{requestId}/deny',
+        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-browser-deny'],
+        'public.login-links.deny',
+    );
     $app->get('/health/live', LivenessHandler::class, 'health.live');
     $app->get('/health/ready', ReadinessHandler::class, 'health.ready');
     $app->get('/api/v1/system/info', SystemInfoHandler::class, 'api.system.info');

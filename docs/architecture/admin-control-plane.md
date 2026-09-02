@@ -5,9 +5,10 @@ rules, persistence, authorization, deployment and the authoritative OpenAPI
 contract. `providentia-systems/client` is the homeowner Flutter application for
 the supported mobile and desktop platforms. `providentia-systems/admin` is a
 separate Flutter application initially packaged only for Linux desktop. The
-backend is headless and provides no public site, browser login, household GUI,
-or operator GUI. Login approval is application-owned JSON flow, and owner-only
-recovery or bootstrap work remains a narrow CLI concern.
+backend provides no public site, authenticated browser login, household GUI,
+or operator GUI. Its only HTML exception is the unauthenticated browser
+approval/denial ceremony for emailed login links; that browser never receives
+a session. Owner-only recovery or bootstrap work remains a narrow CLI concern.
 
 Both clients use the same login-link and bearer/session protocol, but they are
 different security principals at the installation boundary. The Admin package

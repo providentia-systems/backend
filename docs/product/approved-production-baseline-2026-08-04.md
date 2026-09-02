@@ -3,17 +3,20 @@
 Status: **approved product direction**  
 Applies to: Providentia backend Phases 0–10 and the Flutter client contract
 
+Amended 2 September 2026: emailed login links now use the backend's narrow
+browser approval ceremony; application links remain only for step-up actions.
+
 ## Release and platform contract
 
 Providentia is a commercial, proprietary SaaS product. The authenticated Flutter
 application must support Android, iOS, Windows, macOS, Linux, and modern web
 browsers. Platform packaging belongs to the Flutter repository; this backend
 must expose one versioned, platform-neutral API and synchronization contract.
-The backend is headless. It exposes versioned JSON API, health checks,
-explicitly secured metrics, and narrow owner CLI commands; it renders no public
-site, login page, or operational GUI. Every account, login approval, home,
-invitation, device-session, and platform-administration screen belongs to the
-appropriate Flutter application.
+The backend exposes versioned JSON API, health checks, explicitly secured
+metrics, and narrow owner CLI commands; it renders no public site or operational
+GUI. Its sole HTML exception is the unauthenticated login-link approval/denial
+ceremony. Every authenticated account, home, invitation, device-session, and
+platform-administration screen belongs to the appropriate Flutter application.
 
 There is no artificial household, product, inventory, or catalog-size product
 limit. Operational limits exist only to protect availability and must use
@@ -41,22 +44,20 @@ a private poll token and PKCE verifier and sends only their challenges, a state
 value, and device metadata when it starts the login-link request. The API gives
 the same generic response whether or not the account already exists.
 
-The emailed fragment link opens the Flutter application named by the request's
-`applicationKind`, possibly on a different device. Opening it must show an
-application-owned review and must not approve the request: approval or denial
-is a separate deliberate JSON decision. The approving application receives no
-originating session. The originating client polls with its private token and
-exchanges the approved request with the PKCE verifier; polling is the
-authoritative cross-device handoff.
+The emailed fragment link opens the backend approval origin in any browser,
+possibly on a different device. Opening it must show an explicit review and
+must not approve the request: approval or denial is a separate deliberate form
+submission. The browser receives no originating session. The originating
+client polls with its private token and exchanges the approved request with the
+PKCE verifier; polling is the authoritative cross-device handoff.
 
 Access, refresh, session, poll, and PKCE credentials must never appear in the
 email URL query, HTTP request target, analytics, or logs. The email carries
 only a short-lived, single-use approval credential in the URI fragment. The
-matching application removes it from navigation state and sends it only in
-proof/review/decision bodies. Requests expire, are cancellable, and are
-single-exchange. Email
-scanners, replay, a wrong state, a wrong poll token, or a wrong PKCE verifier
-must not create a session.
+browser launch removes it from the address bar before posting it to a clean,
+same-origin capture route. Requests expire, are cancellable, and are
+single-exchange. Email scanners, replay, a wrong application binding, a wrong
+state, a wrong poll token, or a wrong PKCE verifier must not create a session.
 
 An unknown address is not provisioned merely because a request was started.
 Deliberate approval creates and verifies the account idempotently, creates one
