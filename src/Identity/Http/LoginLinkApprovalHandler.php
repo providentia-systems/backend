@@ -57,7 +57,12 @@ final class LoginLinkApprovalHandler implements RequestHandlerInterface
         $nonce = $this->tokens->generate();
         $capturePath = json_encode(
             $path . '/capture',
-            JSON_THROW_ON_ERROR | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT,
+            JSON_THROW_ON_ERROR
+                | JSON_HEX_TAG
+                | JSON_HEX_AMP
+                | JSON_HEX_APOS
+                | JSON_HEX_QUOT
+                | JSON_UNESCAPED_SLASHES,
         );
         $escapedNonce = $this->escape($nonce);
         $content = <<<'HTML'
@@ -369,8 +374,7 @@ final class LoginLinkApprovalHandler implements RequestHandlerInterface
         ResponseInterface $response,
         ?string $nonce = null,
         bool $allowScript = false,
-    ): ResponseInterface
-    {
+    ): ResponseInterface {
         $stylePolicy = $nonce === null ? "style-src 'none';" : "style-src 'nonce-" . $nonce . "';";
         $scriptPolicy = $allowScript && $nonce !== null
             ? " script-src 'nonce-" . $nonce . "';"
