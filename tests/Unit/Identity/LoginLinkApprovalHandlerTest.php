@@ -282,8 +282,7 @@ final class LoginLinkApprovalHandlerTest extends TestCase
         string $application,
         string $action = '',
         string $fragment = '',
-    ): ServerRequestInterface
-    {
+    ): ServerRequestInterface {
         $path = '/login-links/' . $application . '/' . self::REQUEST_ID
             . ($action === '' ? '' : '/' . $action);
         $uri = self::ORIGIN . $path . ($fragment === '' ? '' : '#' . $fragment);
@@ -299,8 +298,7 @@ final class LoginLinkApprovalHandlerTest extends TestCase
         bool $cookieSecure = true,
         ?IdentityStore $identities = null,
         ?UuidGenerator $ids = null,
-    ): LoginLinkApprovalHandler
-    {
+    ): LoginLinkApprovalHandler {
         $tokens = $this->createStub(SecureTokenGenerator::class);
         $tokens->method('generate')->willReturn('browser-token');
 
@@ -334,8 +332,7 @@ final class LoginLinkApprovalHandlerTest extends TestCase
         LoginLinkStore $requests,
         ?IdentityStore $identities,
         ?UuidGenerator $ids,
-    ): LoginLinkService
-    {
+    ): LoginLinkService {
         $hasher = $this->createStub(CredentialHasher::class);
         $hasher->method('hashToken')->willReturnCallback(
             static fn (string $token): string => 'hash:' . $token,
