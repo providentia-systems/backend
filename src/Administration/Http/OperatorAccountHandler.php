@@ -58,18 +58,6 @@ final class OperatorAccountHandler implements RequestHandlerInterface
                 (string) ($body['reason'] ?? ''),
                 (int) ($body['expectedRevision'] ?? 0),
             )),
-            'role-grant' => new JsonResponse($this->accounts->grantRole(
-                $identity,
-                $userId,
-                (string) $request->getAttribute('role', ''),
-                (int) ($body['expectedRevision'] ?? 0),
-            )),
-            'role-revoke' => new JsonResponse($this->accounts->revokeRole(
-                $identity,
-                $userId,
-                (string) $request->getAttribute('role', ''),
-                (int) ($body['expectedRevision'] ?? 0),
-            )),
             default => throw new \LogicException('Unknown operator-account action.'),
         };
     }

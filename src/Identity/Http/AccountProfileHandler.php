@@ -13,15 +13,20 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 final class AccountProfileHandler implements RequestHandlerInterface
 {
-    public function __construct(private readonly AccountProfileService $profiles, private readonly string $action)
-    {
+    public function __construct(
+        private readonly AccountProfileService $profiles,
+        private readonly string $action,
+    ) {
     }
 
-    public function handle(ServerRequestInterface $request): ResponseInterface
-    {
+    public function handle(
+        ServerRequestInterface $request,
+    ): ResponseInterface {
         $identity = RequestIdentity::require($request);
         /** @var array<string, mixed> $body */
-        $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
+        $body = is_array($request->getParsedBody())
+            ? $request->getParsedBody()
+            : [];
         $ip = (string) ($request->getServerParams()['REMOTE_ADDR'] ?? 'unknown');
         $result = match ($this->action) {
             'get' => $this->profiles->get($identity),
@@ -36,12 +41,21 @@ final class AccountProfileHandler implements RequestHandlerInterface
         return new JsonResponse($result, 200, ['Cache-Control' => 'no-store']);
     }
 
-    /** @param array<string, mixed> $body
+    /**
+     * @param array<string, mixed> $body
+     *
      * @return array{changed: true}
      */
-    private function changeEmail(ServerRequestInterface $request, array $body): array
-    {
-        $this->profiles->changeEmail(RequestIdentity::require($request), (string) $request->getAttribute('emailId', ''), (string) ($body['proofToken'] ?? ''), $this->action === 'email-primary');
+    private function changeEmail(
+        ServerRequestInterface $request,
+        array $body,
+    ): array {
+        $this->profiles->changeEmail(
+            RequestIdentity::require($request),
+            (string) $request->getAttribute('emailId', ''),
+            (string) ($body['proofToken'] ?? ''),
+            $this->action === 'email-primary',
+        );
         return ['changed' => true];
     }
 }

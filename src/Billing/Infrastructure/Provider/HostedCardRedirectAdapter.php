@@ -187,7 +187,8 @@ final readonly class HostedCardRedirectAdapter implements HostedCardCheckoutGate
         );
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function successfulObject(BillingHttpResponse $response): array
     {
         if ($response->status < 200 || $response->status >= 300) {
@@ -206,7 +207,8 @@ final readonly class HostedCardRedirectAdapter implements HostedCardCheckoutGate
         return $this->decodeObject($response->body, 'provider_invalid_response');
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function decodeObject(string $json, string $code): array
     {
         try {
@@ -224,7 +226,8 @@ final readonly class HostedCardRedirectAdapter implements HostedCardCheckoutGate
         return $decoded;
     }
 
-    /** @param array<string, list<string>> $headers */
+    /**
+     * @param array<string, list<string>> $headers */
     private function requiredHeader(array $headers, string $name, int $maximumLength): string
     {
         foreach ($headers as $candidate => $values) {
@@ -240,7 +243,8 @@ final readonly class HostedCardRedirectAdapter implements HostedCardCheckoutGate
         throw $this->invalidWebhook();
     }
 
-    /** @param array<string, mixed> $source */
+    /**
+     * @param array<string, mixed> $source */
     private function requiredString(array $source, string $key, int $maximumLength): string
     {
         $value = $source[$key] ?? null;
@@ -251,7 +255,8 @@ final readonly class HostedCardRedirectAdapter implements HostedCardCheckoutGate
         return $value;
     }
 
-    /** @param array<string, mixed> $source */
+    /**
+     * @param array<string, mixed> $source */
     private function optionalString(array $source, string $key, int $maximumLength): ?string
     {
         $value = $source[$key] ?? null;

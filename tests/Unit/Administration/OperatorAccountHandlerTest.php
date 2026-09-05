@@ -82,46 +82,7 @@ final class OperatorAccountHandlerTest extends TestCase
         self::assertArrayNotHasKey('stock', $body['homes'][0]);
     }
 
-    public function testRoleGrantMutatesThenReloadsTheComposedDetail(): void
-    {
-        $roles = $this->createMock(PlatformRoleStore::class);
-        $roles->expects(self::once())->method('changePlatformRole')->with(
-            self::isString(),
-            self::ACTOR_ID,
-            self::TARGET_ID,
-            PlatformRoleService::CATALOG_REVIEWER,
-            true,
-            3,
-            self::isInstanceOf(DateTimeImmutable::class),
-        )->willReturn('updated');
-        $directory = $this->createMock(OperatorIdentityDirectory::class);
-        $directory->expects(self::once())->method('operatorAccount')->willReturn($this->identityProjection(4));
-        $homes = $this->createMock(OperatorHomeAccessReader::class);
-        $homes->expects(self::once())->method('operatorHomeAccess')->with([self::TARGET_ID])->willReturn([
-            self::TARGET_ID => [],
-        ]);
-        $billing = $this->createMock(OperatorSubscriptionReader::class);
-        $billing->expects(self::never())->method('operatorSubscriptions');
-        $request = $this->request('PUT')
-            ->withAttribute('role', PlatformRoleService::CATALOG_REVIEWER)
-            ->withParsedBody(['expectedRevision' => 3]);
 
-        $response = (new OperatorAccountHandler(
-            $this->service(
-                $directory,
-                $this->createStub(OperatorAccountControl::class),
-                $roles,
-                $homes,
-                $billing,
-            ),
-            'role-grant',
-        ))->handle($request);
-        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
-
-        self::assertSame(200, $response->getStatusCode());
-        self::assertSame(4, $body['revision']);
-        self::assertSame([], $body['homes']);
-    }
 
     public function testMutationRejectsExtraJsonFieldsBeforeTheUseCase(): void
     {
@@ -164,10 +125,10 @@ final class OperatorAccountHandlerTest extends TestCase
             $control,
             $homes,
             $billing,
-            new PlatformRoleService($roles, $ids, $clock, $transactions),
             $ids,
             $clock,
             $transactions,
+            $this->createStub(\Providentia\Identity\Application\AccountProfileStore::class)
         );
     }
 
@@ -186,7 +147,8 @@ final class OperatorAccountHandlerTest extends TestCase
                 'session',
                 'device',
                 null,
-                [PlatformRoleService::ADMINISTRATOR],
+                ['platform_administrator'],
+                \ProvidentiaTest\Support\AccessFixture::administratorPermissions(['platform_administrator'])
             ));
     }
 

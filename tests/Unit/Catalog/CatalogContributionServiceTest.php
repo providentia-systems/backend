@@ -306,6 +306,7 @@ final class CatalogContributionServiceTest extends TestCase
             'device',
             null,
             [CatalogAuthorization::REVIEWER],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([CatalogAuthorization::REVIEWER])
         );
         $result = $this->service($store, $this->createStub(CatalogAuditRecorder::class))
             ->reviewQueue($identity, 'approved', 50, 0);
@@ -374,6 +375,7 @@ final class CatalogContributionServiceTest extends TestCase
             'device',
             null,
             [CatalogAuthorization::REVIEWER],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([CatalogAuthorization::REVIEWER])
         );
 
         $rows = $this->service($store, $this->createStub(CatalogAuditRecorder::class))
@@ -474,6 +476,7 @@ final class CatalogContributionServiceTest extends TestCase
             '01912345-6789-7abc-adef-1123456789ab',
             self::HOME_ID,
             [],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([])
         );
     }
 }

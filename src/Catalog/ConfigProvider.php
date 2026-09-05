@@ -27,7 +27,6 @@ use Providentia\Catalog\Http\CatalogContributionPromotionHandler;
 use Providentia\Catalog\Http\CatalogProductHandler;
 use Providentia\Catalog\Http\CatalogSearchHandler;
 use Providentia\Catalog\Infrastructure\Cli\CatalogSeedCommand;
-use Providentia\Catalog\Infrastructure\Cli\CatalogRoleCommand;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogGovernanceStore;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogStore;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogContributionStore;
@@ -101,13 +100,11 @@ final class ConfigProvider
                     'catalog.imports.get' => CatalogImportFactory::class,
                     'catalog.imports.confirm' => CatalogImportFactory::class,
                     CatalogSeedCommand::class => CatalogFactory::class,
-                    CatalogRoleCommand::class => CatalogFactory::class,
                 ],
             ],
             'laminas-cli' => [
                 'commands' => [
                     'catalog:seed' => CatalogSeedCommand::class,
-                    'catalog:role' => CatalogRoleCommand::class,
                 ],
             ],
         ];

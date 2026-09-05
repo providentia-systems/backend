@@ -12,7 +12,8 @@ namespace Providentia\Synchronization\Application;
  */
 final readonly class SyncCommand
 {
-    /** @param array<string, mixed> $payload */
+    /**
+     * @param array<string, mixed> $payload */
     public function __construct(
         public string $operationId,
         public string $commandType,
@@ -24,7 +25,8 @@ final readonly class SyncCommand
     ) {
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function requestShape(): array
     {
         return [

@@ -23,7 +23,6 @@ final class AuthenticationServiceTest extends TestCase
     private const DEVICE_ID = '01912345-6789-7abc-adef-0123456789ab';
     private const INSTALLATION_ID = '01912345-6789-7abc-adef-0123456789ab';
     private const ACCOUNT_SCOPED_DEVICE_ID = 'fccd73a3-5252-8327-8069-735fdf4674cc';
-
     public function testLoginLinkSessionIssuanceCreatesBoundedDeviceSession(): void
     {
         $store = $this->createMock(IdentityStore::class);
@@ -39,12 +38,10 @@ final class AuthenticationServiceTest extends TestCase
                 'hash:refresh-token',
                 'hash:csrf-token',
                 self::callback(
-                    static fn (DateTimeImmutable $date): bool => $date->format(DATE_ATOM)
-                        === '2026-07-30T12:15:00+00:00',
+                    static fn(DateTimeImmutable $date): bool => $date->format(DATE_ATOM) === '2026-07-30T12:15:00+00:00',
                 ),
                 self::callback(
-                    static fn (DateTimeImmutable $date): bool => $date->format(DATE_ATOM)
-                        === '2026-09-28T12:00:00+00:00',
+                    static fn(DateTimeImmutable $date): bool => $date->format(DATE_ATOM) === '2026-09-28T12:00:00+00:00',
                 ),
                 self::isInstanceOf(DateTimeImmutable::class),
                 'native',
@@ -55,22 +52,25 @@ final class AuthenticationServiceTest extends TestCase
         $hasher = $this->hasher();
         $tokens = $this->tokenGenerator('access-token', 'refresh-token', 'csrf-token');
         $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturn(self::SESSION_ID);
-
-        $result = $this->service($store, $hasher, $tokens, $ids)->issueLoginLinkSession(
-            self::USER_ID,
-            self::INSTALLATION_ID,
-            'Kitchen tablet',
-            'android',
-            'native',
-            5184000,
-            null,
-        );
-
+        $ids->method('generate')
+            ->willReturn(self::SESSION_ID);
+        $result = $this->service($store, $hasher, $tokens, $ids)
+            ->issueVerifiedSession(
+                self::USER_ID,
+                self::INSTALLATION_ID,
+                'Kitchen tablet',
+                'android',
+                'native',
+                5184000,
+                null,
+            );
         self::assertSame('access-token', $result['accessToken']);
         self::assertSame('refresh-token', $result['refreshToken']);
         self::assertSame('csrf-token', $result['csrfToken']);
-        self::assertSame(self::ACCOUNT_SCOPED_DEVICE_ID, $result['deviceId']);
+        self::assertSame(
+            self::ACCOUNT_SCOPED_DEVICE_ID,
+            $result['deviceId'],
+        );
         self::assertSame(self::INSTALLATION_ID, $result['installationId']);
         self::assertNotSame($result['deviceId'], $result['installationId']);
         self::assertSame(self::USER_ID, $result['userId']);
@@ -81,26 +81,27 @@ final class AuthenticationServiceTest extends TestCase
     public function testWebSessionIdleTimeIsClampedToTheWebTransportMaximum(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->expects(self::once())->method('createSession');
+        $store->expects(self::once())
+            ->method('createSession');
         $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturn(self::SESSION_ID);
-
+        $ids->method('generate')
+            ->willReturn(self::SESSION_ID);
         $result = $this->service(
             $store,
             $this->hasher(),
             null,
             $ids,
             webIdleTtlSeconds: 2592000,
-        )->issueLoginLinkSession(
-            self::USER_ID,
-            self::INSTALLATION_ID,
-            'Web browser',
-            'web',
-            'web',
-            5184000,
-            null,
-        );
-
+        )
+            ->issueVerifiedSession(
+                self::USER_ID,
+                self::INSTALLATION_ID,
+                'Web browser',
+                'web',
+                'web',
+                5184000,
+                null,
+            );
         self::assertSame('web', $result['transport']);
         self::assertSame(2592000, $result['refreshIdleTtlSeconds']);
     }
@@ -128,18 +129,18 @@ final class AuthenticationServiceTest extends TestCase
                 null,
             );
         $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturn(self::SESSION_ID);
-
-        $result = $this->service($store, $this->hasher(), null, $ids)->issueLoginLinkSession(
-            self::USER_ID,
-            self::INSTALLATION_ID,
-            'Kitchen tablet',
-            'android',
-            'native',
-            0,
-            null,
-        );
-
+        $ids->method('generate')
+            ->willReturn(self::SESSION_ID);
+        $result = $this->service($store, $this->hasher(), null, $ids)
+            ->issueVerifiedSession(
+                self::USER_ID,
+                self::INSTALLATION_ID,
+                'Kitchen tablet',
+                'android',
+                'native',
+                0,
+                null,
+            );
         self::assertNull($result['idleExpiresAt']);
         self::assertNull($result['refreshExpiresAt']);
         self::assertNull($result['refreshIdleTtlSeconds']);
@@ -149,16 +150,19 @@ final class AuthenticationServiceTest extends TestCase
     public function testRefreshKeepsADurableSessionUnlimited(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->method('findSessionByRefreshHash')->willReturn([
-            'id' => self::SESSION_ID,
-            'user_id' => self::USER_ID,
-            'device_id' => self::ACCOUNT_SCOPED_DEVICE_ID,
-            'installation_id' => self::INSTALLATION_ID,
-            'refresh_token_hash' => 'hash:old-refresh',
-            'transport' => 'native',
-            'refresh_idle_ttl_seconds' => 0,
-            'active_home_id' => null,
-        ]);
+        $store->method('findSessionByRefreshHash')
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'user_id' => self::USER_ID,
+                'device_id' => self::ACCOUNT_SCOPED_DEVICE_ID,
+                'installation_id' => self::INSTALLATION_ID,
+                'refresh_token_hash' => 'hash:old-refresh',
+                'transport' => 'native',
+                'refresh_idle_ttl_seconds' => 0,
+                'active_home_id' => null,
+                ],
+            );
         $store->expects(self::once())
             ->method('rotateSession')
             ->with(
@@ -171,14 +175,17 @@ final class AuthenticationServiceTest extends TestCase
                 self::isNull(),
                 self::isInstanceOf(DateTimeImmutable::class),
             )
-            ->willReturn(true);
-
+            ->willReturn(
+                true,
+            );
         $result = $this->service(
             $store,
             $this->hasher(),
             $this->tokenGenerator('next-access', 'next-refresh', 'next-csrf'),
-        )->refresh('old-refresh');
-
+        )
+            ->refresh(
+                'old-refresh',
+            );
         self::assertNull($result['idleExpiresAt']);
         self::assertNull($result['refreshExpiresAt']);
         self::assertNull($result['refreshIdleTtlSeconds']);
@@ -187,44 +194,53 @@ final class AuthenticationServiceTest extends TestCase
     public function testRefreshClampsALegacyUnlimitedSessionToAFiniteCeiling(): void
     {
         $store = $this->createStub(IdentityStore::class);
-        $store->method('findSessionByRefreshHash')->willReturn([
-            'id' => self::SESSION_ID,
-            'user_id' => self::USER_ID,
-            'device_id' => self::ACCOUNT_SCOPED_DEVICE_ID,
-            'installation_id' => self::INSTALLATION_ID,
-            'refresh_token_hash' => 'hash:old-refresh',
-            'transport' => 'native',
-            'refresh_idle_ttl_seconds' => 0,
-            'active_home_id' => null,
-        ]);
-        $store->method('rotateSession')->willReturn(true);
-
+        $store->method('findSessionByRefreshHash')
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'user_id' => self::USER_ID,
+                'device_id' => self::ACCOUNT_SCOPED_DEVICE_ID,
+                'installation_id' => self::INSTALLATION_ID,
+                'refresh_token_hash' => 'hash:old-refresh',
+                'transport' => 'native',
+                'refresh_idle_ttl_seconds' => 0,
+                'active_home_id' => null,
+                ],
+            );
+        $store->method('rotateSession')
+            ->willReturn(true);
         $result = $this->service(
             $store,
             $this->hasher(),
             $this->tokenGenerator('next-access', 'next-refresh', 'next-csrf'),
             nativeIdleTtlSeconds: 5184000,
-        )->refresh('old-refresh');
-
+        )
+            ->refresh(
+                'old-refresh',
+            );
         self::assertSame(5184000, $result['refreshIdleTtlSeconds']);
-        self::assertSame('2026-09-28T12:00:00+00:00', $result['idleExpiresAt']);
+        self::assertSame(
+            '2026-09-28T12:00:00+00:00',
+            $result['idleExpiresAt'],
+        );
     }
 
     public function testSessionIssuanceRejectsAnUnknownTransport(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->expects(self::never())->method('createSession');
-
+        $store->expects(self::never())
+            ->method('createSession');
         try {
-            $this->service($store, $this->hasher())->issueLoginLinkSession(
-                self::USER_ID,
-                self::INSTALLATION_ID,
-                'Kitchen tablet',
-                'android',
-                'carrier-pigeon',
-                5184000,
-                null,
-            );
+            $this->service($store, $this->hasher())
+                ->issueVerifiedSession(
+                    self::USER_ID,
+                    self::INSTALLATION_ID,
+                    'Kitchen tablet',
+                    'android',
+                    'carrier-pigeon',
+                    5184000,
+                    null,
+                );
             self::fail('An unknown session transport was accepted.');
         } catch (Problem $problem) {
             self::assertSame(422, $problem->status);
@@ -234,19 +250,22 @@ final class AuthenticationServiceTest extends TestCase
     public function testSessionIssuanceRejectsAnOutOfRangeIdleTime(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->expects(self::never())->method('createSession');
-
+        $store->expects(self::never())
+            ->method('createSession');
         try {
-            $this->service($store, $this->hasher())->issueLoginLinkSession(
-                self::USER_ID,
-                self::INSTALLATION_ID,
-                'Kitchen tablet',
-                'android',
-                'native',
-                899,
-                null,
+            $this->service($store, $this->hasher())
+                ->issueVerifiedSession(
+                    self::USER_ID,
+                    self::INSTALLATION_ID,
+                    'Kitchen tablet',
+                    'android',
+                    'native',
+                    899,
+                    null,
+                );
+            self::fail(
+                'An out-of-range session idle time was accepted.',
             );
-            self::fail('An out-of-range session idle time was accepted.');
         } catch (Problem $problem) {
             self::assertSame(422, $problem->status);
         }
@@ -255,14 +274,20 @@ final class AuthenticationServiceTest extends TestCase
     public function testRefreshReplayRevokesCompromisedSession(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->method('findSessionByRefreshHash')->willReturn(null);
+        $store->method('findSessionByRefreshHash')
+            ->willReturn(null);
         $store->expects(self::once())
             ->method('revokeRefreshReplay')
-            ->with('hash:old-refresh', self::isInstanceOf(DateTimeImmutable::class))
-            ->willReturn(true);
-
+            ->with(
+                'hash:old-refresh',
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(
+                true,
+            );
         try {
-            $this->service($store, $this->hasher())->refresh('old-refresh');
+            $this->service($store, $this->hasher())
+                ->refresh('old-refresh');
             self::fail('A replayed refresh credential was accepted.');
         } catch (Problem $problem) {
             self::assertSame('Credential replay detected', $problem->title);
@@ -272,11 +297,13 @@ final class AuthenticationServiceTest extends TestCase
     public function testUnknownRefreshCredentialFailsWithoutRevealingReplayState(): void
     {
         $store = $this->createStub(IdentityStore::class);
-        $store->method('findSessionByRefreshHash')->willReturn(null);
-        $store->method('revokeRefreshReplay')->willReturn(false);
-
+        $store->method('findSessionByRefreshHash')
+            ->willReturn(null);
+        $store->method('revokeRefreshReplay')
+            ->willReturn(false);
         try {
-            $this->service($store, $this->hasher())->refresh('unknown-refresh');
+            $this->service($store, $this->hasher())
+                ->refresh('unknown-refresh');
             self::fail('An unknown refresh credential was accepted.');
         } catch (Problem $problem) {
             self::assertSame(401, $problem->status);
@@ -287,13 +314,16 @@ final class AuthenticationServiceTest extends TestCase
     public function testRefreshRotatesEverySessionCredential(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->method('findSessionByRefreshHash')->willReturn([
-            'id' => self::SESSION_ID,
-            'user_id' => self::USER_ID,
-            'device_id' => self::DEVICE_ID,
-            'installation_id' => '01912345-6789-7abc-bdef-0123456789ab',
-            'refresh_token_hash' => 'stored-refresh-hash',
-        ]);
+        $store->method('findSessionByRefreshHash')
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'user_id' => self::USER_ID,
+                'device_id' => self::DEVICE_ID,
+                'installation_id' => '01912345-6789-7abc-bdef-0123456789ab',
+                'refresh_token_hash' => 'stored-refresh-hash',
+                ],
+            );
         $store->expects(self::once())
             ->method('rotateSession')
             ->with(
@@ -306,11 +336,12 @@ final class AuthenticationServiceTest extends TestCase
                 self::isInstanceOf(DateTimeImmutable::class),
                 self::isInstanceOf(DateTimeImmutable::class),
             )
-            ->willReturn(true);
+            ->willReturn(
+                true,
+            );
         $tokens = $this->tokenGenerator('next-access', 'next-refresh', 'next-csrf');
-
-        $result = $this->service($store, $this->hasher(), $tokens)->refresh('current-refresh');
-
+        $result = $this->service($store, $this->hasher(), $tokens)
+            ->refresh('current-refresh');
         self::assertSame(self::USER_ID, $result['userId']);
         self::assertSame('next-access', $result['accessToken']);
         self::assertSame('next-refresh', $result['refreshToken']);
@@ -326,17 +357,23 @@ final class AuthenticationServiceTest extends TestCase
     public function testConcurrentRefreshRotationIsReportedAsReplay(): void
     {
         $store = $this->createStub(IdentityStore::class);
-        $store->method('findSessionByRefreshHash')->willReturn([
-            'id' => self::SESSION_ID,
-            'user_id' => self::USER_ID,
-            'device_id' => self::DEVICE_ID,
-            'refresh_token_hash' => 'stored-refresh-hash',
-        ]);
-        $store->method('rotateSession')->willReturn(false);
-
+        $store->method('findSessionByRefreshHash')
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'user_id' => self::USER_ID,
+                'device_id' => self::DEVICE_ID,
+                'refresh_token_hash' => 'stored-refresh-hash',
+                ],
+            );
+        $store->method('rotateSession')
+            ->willReturn(false);
         try {
-            $this->service($store, $this->hasher())->refresh('current-refresh');
-            self::fail('A concurrently rotated refresh credential was accepted.');
+            $this->service($store, $this->hasher())
+                ->refresh('current-refresh');
+            self::fail(
+                'A concurrently rotated refresh credential was accepted.',
+            );
         } catch (Problem $problem) {
             self::assertSame(401, $problem->status);
             self::assertSame('Credential replay detected', $problem->title);
@@ -346,86 +383,71 @@ final class AuthenticationServiceTest extends TestCase
     public function testAuthenticateBuildsIdentityFromSessionAndRoles(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->method('findSessionByAccessHash')->willReturn([
-            'user_id' => self::USER_ID,
-            'id' => self::SESSION_ID,
-            'device_id' => self::DEVICE_ID,
-            'active_home_id' => null,
-        ]);
-        $store->method('platformRoles')->with(self::USER_ID)->willReturn(['billing_operator']);
+        $store->method('findSessionByAccessHash')
+            ->willReturn(
+                [
+                'user_id' => self::USER_ID,
+                'id' => self::SESSION_ID,
+                'device_id' => self::DEVICE_ID,
+                'active_home_id' => null,
+                ],
+            );
+        $store->method('platformRoles')
+            ->with(self::USER_ID)
+            ->willReturn(
+                ['billing_operator'],
+            );
         $hasher = $this->createStub(CredentialHasher::class);
-        $hasher->method('hashToken')->willReturn('access-hash');
-
-        $identity = $this->service($store, $hasher)->authenticate('access-token');
-
+        $hasher->method('hashToken')
+            ->willReturn('access-hash');
+        $identity = $this->service($store, $hasher)
+            ->authenticate('access-token');
         self::assertSame(self::USER_ID, $identity->userId);
         self::assertSame(self::SESSION_ID, $identity->sessionId);
         self::assertSame(self::DEVICE_ID, $identity->deviceId);
-        self::assertSame(['billing_operator'], $identity->platformRoles);
+        self::assertSame([], $identity->platformRoles);
+        self::assertContains(
+            'billing.read',
+            $identity->administratorPermissions,
+        );
     }
 
     public function testListSessionsMarksOnlyTheCallingDeviceSessionAsCurrent(): void
     {
         $store = $this->createStub(IdentityStore::class);
-        $store->method('listSessions')->willReturn([
-            ['id' => self::SESSION_ID],
-            ['id' => '01912345-6789-7abc-bdef-0123456789ab'],
-        ]);
-
-        $sessions = $this->service($store, $this->hasher())->listSessions($this->identity());
-
+        $store->method('listSessions')
+            ->willReturn(
+                [
+                ['id' => self::SESSION_ID],
+                ['id' => '01912345-6789-7abc-bdef-0123456789ab'],
+                ],
+            );
+        $sessions = $this->service($store, $this->hasher())
+            ->listSessions($this->identity());
         self::assertTrue($sessions[0]['current']);
         self::assertFalse($sessions[1]['current']);
-    }
-
-    public function testStepUpRequestIssuesOneEmailedCapabilityBoundToTheAccount(): void
-    {
-        $store = $this->createMock(IdentityStore::class);
-        $store->method('findUserById')->with(self::USER_ID)->willReturn([
-            'id' => self::USER_ID,
-            'email' => 'user@example.test',
-            'status' => 'active',
-        ]);
-        $store->expects(self::once())->method('issueOneTimeToken')->with(
-            self::SESSION_ID,
-            self::USER_ID,
-            'step-up-ownership:homeowner',
-            'hash:step-up-token',
-            self::isInstanceOf(DateTimeImmutable::class),
-            self::isInstanceOf(DateTimeImmutable::class),
-        );
-        $notifications = $this->createMock(AccountNotificationSender::class);
-        $notifications->expects(self::once())->method('sendStepUpLink')->with(
-            'user@example.test',
-            'step-up-token',
-            'ownership-transfer',
-            LoginApplicationKind::HOMEOWNER,
-        );
-        $tokens = $this->tokenGenerator('step-up-token');
-        $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturn(self::SESSION_ID);
-
-        $token = $this->service($store, $this->hasher(), $tokens, $ids, null, $notifications)
-            ->requestStepUp($this->identity(), 'ownership-transfer', 'homeowner');
-
-        self::assertSame('step-up-token', $token);
     }
 
     public function testStepUpProofCannotBeConsumedByAnotherAccount(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->expects(self::once())->method('consumeOneTimeToken')->with(
-            'step-up-ownership:homeowner',
-            'hash:step-up-token',
-            self::isInstanceOf(DateTimeImmutable::class),
-        )->willReturn('01912345-6789-7abc-bdef-0123456789ab');
-
-        try {
-            $this->service($store, $this->hasher())->consumeStepUp(
-                $this->identity(),
-                'step-up-token',
-                'ownership-transfer',
+        $store->expects(self::once())
+            ->method('consumeOneTimeToken')
+            ->with(
+                'step-up-ownership:homeowner',
+                'hash:' . self::SESSION_ID . ':step-up-token',
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(
+                '01912345-6789-7abc-bdef-0123456789ab',
             );
+        try {
+            $this->service($store, $this->hasher())
+                ->consumeStepUp(
+                    $this->identity(),
+                    'step-up-token',
+                    'ownership-transfer',
+                );
             self::fail('A step-up proof crossed between accounts.');
         } catch (Problem $problem) {
             self::assertSame(422, $problem->status);
@@ -433,40 +455,20 @@ final class AuthenticationServiceTest extends TestCase
         }
     }
 
-    public function testAdminApplicationCannotRequestHomeownerOwnershipStepUp(): void
-    {
-        $store = $this->createMock(IdentityStore::class);
-        $store->expects(self::never())->method('findUserById');
-        $store->expects(self::never())->method('issueOneTimeToken');
-        $hasher = $this->createStub(CredentialHasher::class);
-        $identity = new AuthenticatedIdentity(
-            self::USER_ID,
-            self::SESSION_ID,
-            self::DEVICE_ID,
-            null,
-            ['platform_admin'],
-        );
-
-        try {
-            $this->service($store, $hasher)->requestStepUp($identity, 'ownership-transfer', 'admin');
-            self::fail('The administrator application requested a homeowner ownership step-up.');
-        } catch (Problem $problem) {
-            self::assertSame(422, $problem->status);
-            self::assertSame('Validation failed', $problem->title);
-        }
-    }
-
     public function testRevokingAnUnknownSessionIsReportedAsNotFound(): void
     {
         $store = $this->createStub(IdentityStore::class);
-        $store->method('revokeSession')->willReturn(false);
-
+        $store->method('revokeSession')
+            ->willReturn(false);
         try {
-            $this->service($store, $this->hasher())->revokeSession(
-                $this->identity(),
-                '01912345-6789-7abc-bdef-0123456789ab',
+            $this->service($store, $this->hasher())
+                ->revokeSession(
+                    $this->identity(),
+                    '01912345-6789-7abc-bdef-0123456789ab',
+                );
+            self::fail(
+                'An unknown session revocation was reported as successful.',
             );
-            self::fail('An unknown session revocation was reported as successful.');
         } catch (Problem $problem) {
             self::assertSame(404, $problem->status);
         }
@@ -475,12 +477,17 @@ final class AuthenticationServiceTest extends TestCase
     public function testEmptyLogoutProofsNeverReachTheSessionStore(): void
     {
         $store = $this->createMock(IdentityStore::class);
-        $store->expects(self::never())->method('revokeSessionByRefreshProof');
-        $store->expects(self::never())->method('revokeSessionByRefreshHash');
+        $store->expects(self::never())
+            ->method('revokeSessionByRefreshProof');
+        $store->expects(self::never())
+            ->method('revokeSessionByRefreshHash');
         $service = $this->service($store, $this->hasher());
-
-        self::assertFalse($service->revokeSessionByRefreshProof('', 'csrf'));
-        self::assertFalse($service->revokeSessionByRefreshProof('refresh', ''));
+        self::assertFalse(
+            $service->revokeSessionByRefreshProof('', 'csrf'),
+        );
+        self::assertFalse(
+            $service->revokeSessionByRefreshProof('refresh', ''),
+        );
         self::assertFalse($service->revokeSessionByRefreshToken(''));
     }
 
@@ -492,6 +499,7 @@ final class AuthenticationServiceTest extends TestCase
             self::DEVICE_ID,
             null,
             [],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([]),
         );
     }
 
@@ -499,8 +507,9 @@ final class AuthenticationServiceTest extends TestCase
     {
         $hasher = $this->createStub(CredentialHasher::class);
         $hasher->method('hashToken')
-            ->willReturnCallback(static fn (string $token): string => 'hash:' . $token);
-
+            ->willReturnCallback(
+                static fn(string $token): string => 'hash:' . $token,
+            );
         return $hasher;
     }
 
@@ -517,23 +526,24 @@ final class AuthenticationServiceTest extends TestCase
         return new AuthenticationService(
             $store,
             $hasher,
-            $notifications ?? $this->createStub(AccountNotificationSender::class),
             $ids ?? $this->createStub(UuidGenerator::class),
-            new IdentityFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
-            $transactions ?? new IdentityTransactionManager(),
+            new IdentityFixedClock(
+                new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
+            ),
             $tokens ?? $this->createStub(SecureTokenGenerator::class),
             900,
             2592000,
             $webIdleTtlSeconds,
             $nativeIdleTtlSeconds,
+            \ProvidentiaTest\Support\AccessFixture::create(),
         );
     }
 
     private function tokenGenerator(string ...$tokens): SecureTokenGenerator
     {
         $generator = $this->createStub(SecureTokenGenerator::class);
-        $generator->method('generate')->willReturnOnConsecutiveCalls(...array_values($tokens));
-
+        $generator->method('generate')
+            ->willReturnOnConsecutiveCalls(...array_values($tokens));
         return $generator;
     }
 }

@@ -17,10 +17,8 @@ use Providentia\Catalog\Http\CatalogSearchHandler;
 use Providentia\Catalog\Http\CatalogGovernanceHandler;
 use Providentia\Catalog\Http\CatalogProductHandler;
 use Providentia\Catalog\Infrastructure\Cli\CatalogSeedCommand;
-use Providentia\Catalog\Infrastructure\Cli\CatalogRoleCommand;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogGovernanceStore;
 use Providentia\Catalog\Infrastructure\Doctrine\DbalCatalogStore;
-use Providentia\Identity\Application\PlatformRoleService;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
@@ -71,9 +69,6 @@ final class CatalogFactory
             ),
             $requestedName === CatalogSeedCommand::class => new CatalogSeedCommand(
                 $container->get(CatalogSeedService::class),
-            ),
-            $requestedName === CatalogRoleCommand::class => new CatalogRoleCommand(
-                $container->get(PlatformRoleService::class),
             ),
             default => throw new \LogicException('Unsupported catalog service: ' . $requestedName),
         };

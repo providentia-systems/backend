@@ -47,64 +47,6 @@ if (
 ) {
     $publicOrigin .= ':' . $publicBasePort;
 }
-$applicationLinkAllowedHosts = array_values(array_unique(array_filter(array_map(
-    static fn (string $host): string => mb_strtolower(trim($host)),
-    explode(',', $env('AUTH_APP_LINK_ALLOWED_HOSTS', 'login-link,localhost,127.0.0.1')),
-))));
-$applicationLink = static function (
-    string $environmentName,
-    string $value,
-    string $name,
-    string $nativeScheme,
-    array $allowedHosts,
-): string {
-    $value = rtrim(trim($value), '/');
-    $parts = parse_url($value);
-    $allowedSchemes = ['https', $nativeScheme];
-    if ($environmentName !== 'production') {
-        $allowedSchemes[] = 'http';
-    }
-    $scheme = mb_strtolower((string) ($parts['scheme'] ?? ''));
-    $host = mb_strtolower((string) ($parts['host'] ?? ''));
-    if (
-        $value === ''
-        || $parts === false
-        || $scheme === ''
-        || $host === ''
-        || ! in_array($scheme, $allowedSchemes, true)
-        || ! in_array($host, $allowedHosts, true)
-        || isset($parts['user'])
-        || isset($parts['pass'])
-        || isset($parts['query'])
-        || isset($parts['fragment'])
-        || str_contains($value, "\r")
-        || str_contains($value, "\n")
-    ) {
-        throw new RuntimeException(
-            $name . ' must be an absolute application URL with an allowlisted scheme and host, '
-            . 'without credentials, query, or fragment.',
-        );
-    }
-
-    return $value;
-};
-$homeownerAppLinkBase = $applicationLink(
-    $environment,
-    $env('HOMEOWNER_APP_LINK_BASE', 'providentia://login-link/homeowner'),
-    'HOMEOWNER_APP_LINK_BASE',
-    'providentia',
-    $applicationLinkAllowedHosts,
-);
-$adminAppLinkBase = $applicationLink(
-    $environment,
-    $env('ADMIN_APP_LINK_BASE', 'providentia-admin://login-link/admin'),
-    'ADMIN_APP_LINK_BASE',
-    'providentia-admin',
-    $applicationLinkAllowedHosts,
-);
-if (hash_equals($homeownerAppLinkBase, $adminAppLinkBase)) {
-    throw new RuntimeException('Homeowner and administrator application-link bases must be distinct.');
-}
 $corsAllowedOrigins = array_values(array_unique(array_filter(array_map(
     'trim',
     explode(',', $env(
@@ -152,34 +94,6 @@ $cookieSecure = filter_var(
     $env('AUTH_COOKIE_SECURE', $environment === 'production' ? '1' : '0'),
     FILTER_VALIDATE_BOOL,
 );
-$bootstrapAdministratorEmails = array_values(array_unique(array_filter(array_map(
-    static fn (string $email): string => mb_strtolower(trim($email)),
-    explode(',', $env('PLATFORM_BOOTSTRAP_ADMIN_EMAILS', '')),
-))));
-foreach ($bootstrapAdministratorEmails as $bootstrapAdministratorEmail) {
-    if (
-        filter_var($bootstrapAdministratorEmail, FILTER_VALIDATE_EMAIL) === false
-        || mb_strlen($bootstrapAdministratorEmail) > 254
-    ) {
-        throw new RuntimeException('PLATFORM_BOOTSTRAP_ADMIN_EMAILS contains an invalid email address.');
-    }
-}
-$onboardingHomeName = trim($env('ONBOARDING_HOME_NAME', 'My home'));
-$onboardingHomeLocale = trim($env('ONBOARDING_HOME_LOCALE', 'en-NA'));
-$onboardingHomeCurrency = strtoupper(trim($env('ONBOARDING_HOME_CURRENCY', 'NAD')));
-$onboardingHomeTimezone = trim($env('ONBOARDING_HOME_TIMEZONE', 'Africa/Windhoek'));
-if ($onboardingHomeName === '' || mb_strlen($onboardingHomeName) > 120) {
-    throw new RuntimeException('ONBOARDING_HOME_NAME must contain 1 to 120 characters.');
-}
-if ($onboardingHomeLocale === '' || mb_strlen($onboardingHomeLocale) > 16) {
-    throw new RuntimeException('ONBOARDING_HOME_LOCALE must contain 1 to 16 characters.');
-}
-if (preg_match('/^[A-Z]{3}$/', $onboardingHomeCurrency) !== 1) {
-    throw new RuntimeException('ONBOARDING_HOME_CURRENCY must be a three-letter ISO currency code.');
-}
-if (! in_array($onboardingHomeTimezone, DateTimeZone::listIdentifiers(), true)) {
-    throw new RuntimeException('ONBOARDING_HOME_TIMEZONE must be a recognized IANA timezone.');
-}
 $notificationPayloadKek = $env('NOTIFICATION_PAYLOAD_KEK', '');
 $billingEnabled = filter_var($env('BILLING_ENABLED', '0'), FILTER_VALIDATE_BOOL);
 $billingAllowPrivateEndpoints = filter_var(
@@ -373,37 +287,10 @@ return [
         'native_idle_ttl_seconds' => (static fn (int $seconds): int => $seconds <= 0
             ? 0
             : max(900, $seconds))((int) $env('AUTH_NATIVE_IDLE_TTL_SECONDS', '0')),
-        'login_link_ttl_seconds' => min(3600, max(300, (int) $env(
-            'AUTH_LOGIN_LINK_TTL_SECONDS',
-            '900',
-        ))),
-        'login_link_exchange_ttl_seconds' => min(600, max(30, (int) $env(
-            'AUTH_LOGIN_LINK_EXCHANGE_TTL_SECONDS',
-            '120',
-        ))),
-        'login_link_poll_interval_seconds' => min(30, max(1, (int) $env(
-            'AUTH_LOGIN_LINK_POLL_INTERVAL_SECONDS',
-            '3',
-        ))),
-        'login_link_retention_days' => min(365, max(1, (int) $env(
-            'AUTH_LOGIN_LINK_RETENTION_DAYS',
-            '30',
-        ))),
         'rate_limit_retention_days' => min(30, max(1, (int) $env(
             'AUTH_RATE_LIMIT_RETENTION_DAYS',
             '2',
         ))),
-        'bootstrap_administrator_emails' => $bootstrapAdministratorEmails,
-        'application_links' => [
-            'homeowner' => $homeownerAppLinkBase,
-            'admin' => $adminAppLinkBase,
-        ],
-        'onboarding_home' => [
-            'name' => $onboardingHomeName,
-            'locale' => $onboardingHomeLocale,
-            'currency' => $onboardingHomeCurrency,
-            'timezone' => $onboardingHomeTimezone,
-        ],
         'token_pepper' => $tokenPepper,
         'expose_development_tokens' => $exposeDevelopmentTokens,
         'cookie_secure' => $cookieSecure,

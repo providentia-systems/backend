@@ -8,13 +8,16 @@ use DateTimeImmutable;
 
 interface CatalogImportStore
 {
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function findByIdempotency(string $homeId, string $idempotencyKeyHash): ?array;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function batch(string $homeId, string $batchId): ?array;
 
     /**
+     *
      * @return array{
      *   resolution: 'existing_home'|'global_match'|'no_match'|'error',
      *   homeProductId?: string,
@@ -34,7 +37,8 @@ interface CatalogImportStore
         string $normalizedPrivateName,
     ): array;
 
-    /** @param list<array<string, mixed>> $rows */
+    /**
+     * @param list<array<string, mixed>> $rows */
     public function createBatch(
         string $id,
         string $homeId,
@@ -46,6 +50,7 @@ interface CatalogImportStore
     ): bool;
 
     /**
+     *
      * @return array{
      *   confirmed: bool,
      *   imported: list<array{

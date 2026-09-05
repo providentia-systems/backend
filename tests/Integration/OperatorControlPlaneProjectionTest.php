@@ -53,7 +53,7 @@ final class OperatorControlPlaneProjectionTest extends TestCase
         self::assertCount(3, $page['data']);
         self::assertSame(1, $page['data'][1]['homeCount']);
         self::assertSame(1, $page['data'][1]['activeSessionCount']);
-        self::assertContains(PlatformRoleService::CATALOG_REVIEWER, $page['data'][1]['platformRoles']);
+        self::assertContains('catalog_reviewer', $page['data'][1]['platformRoles']);
         self::assertLessThanOrEqual(
             4,
             $this->queries->count,
@@ -139,33 +139,7 @@ final class OperatorControlPlaneProjectionTest extends TestCase
         ));
     }
 
-    public function testInactiveAdministratorRoleCanBeRevokedWithoutBlockingTheActiveAdministrator(): void
-    {
-        $service = $this->service();
-        $service->grantRole(
-            $this->administrator(),
-            self::TARGET_ID,
-            PlatformRoleService::ADMINISTRATOR,
-            1,
-        );
-        $service->updateStatus(
-            $this->administrator(),
-            self::TARGET_ID,
-            'suspended',
-            'Security review',
-            2,
-        );
 
-        $detail = $service->revokeRole(
-            $this->administrator(),
-            self::TARGET_ID,
-            PlatformRoleService::ADMINISTRATOR,
-            3,
-        );
-
-        self::assertSame(4, $detail['revision']);
-        self::assertNotContains(PlatformRoleService::ADMINISTRATOR, $detail['platformRoles']);
-    }
 
     public function testDetailComposesOnlyAllowlistedHomeAndSubscriptionMetadata(): void
     {
@@ -257,131 +231,13 @@ final class OperatorControlPlaneProjectionTest extends TestCase
         ));
     }
 
-    public function testRoleCasFailureDoesNotCreateTheRoleOrAudit(): void
-    {
-        $this->connection->executeStatement(
-            "CREATE TRIGGER reject_role_cas BEFORE UPDATE OF revision ON users
-             WHEN OLD.id = '" . self::TARGET_ID . "'
-             BEGIN SELECT RAISE(IGNORE); END",
-        );
 
-        try {
-            $this->service()->grantRole(
-                $this->administrator(),
-                self::TARGET_ID,
-                PlatformRoleService::BILLING_OPERATOR,
-                1,
-            );
-            self::fail('The ignored revision update was reported as successful.');
-        } catch (Problem $problem) {
-            self::assertSame(409, $problem->status);
-        }
-        self::assertSame(0, (int) $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM user_platform_roles WHERE user_id = :user AND role = :role',
-            ['user' => self::TARGET_ID, 'role' => PlatformRoleService::BILLING_OPERATOR],
-        ));
-        self::assertSame(0, (int) $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM audit_events WHERE target_id = :user',
-            ['user' => self::TARGET_ID],
-        ));
-    }
 
-    public function testNoOpRoleGrantKeepsTheAccountRevisionAndDoesNotAudit(): void
-    {
-        $detail = $this->service()->grantRole(
-            $this->administrator(),
-            self::TARGET_ID,
-            PlatformRoleService::CATALOG_REVIEWER,
-            1,
-        );
 
-        self::assertSame(1, $detail['revision']);
-        self::assertSame(0, (int) $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM audit_events WHERE target_id = :user',
-            ['user' => self::TARGET_ID],
-        ));
-    }
 
-    public function testNoOpRoleRevokeKeepsTheAccountRevisionAndDoesNotAudit(): void
-    {
-        $detail = $this->service()->revokeRole(
-            $this->administrator(),
-            self::TARGET_ID,
-            PlatformRoleService::BILLING_OPERATOR,
-            1,
-        );
 
-        self::assertSame(1, $detail['revision']);
-        self::assertNotContains(PlatformRoleService::BILLING_OPERATOR, $detail['platformRoles']);
-        self::assertSame(0, (int) $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM audit_events WHERE target_id = :user',
-            ['user' => self::TARGET_ID],
-        ));
-    }
 
-    public function testEmailInvitationAndAccountRolePathsShareTheAccountRevision(): void
-    {
-        $identities = new DbalIdentityStore($this->connection);
-        $at = new DateTimeImmutable('2026-08-24T12:00:00+00:00');
-        $grant = $this->connection->transactional(fn (): array =>
-            $identities->grantPlatformAdministrator(
-                '01912345-6789-7abc-8def-000000000101',
-                '01912345-6789-7abc-8def-000000000102',
-                self::ACTOR_ID,
-                'person@example.test',
-                $at,
-            ));
 
-        self::assertTrue($grant['changed']);
-        self::assertSame(2, (int) $this->connection->fetchOne(
-            'SELECT revision FROM users WHERE id = :user',
-            ['user' => self::TARGET_ID],
-        ));
-        try {
-            $this->service()->grantRole(
-                $this->administrator(),
-                self::TARGET_ID,
-                PlatformRoleService::BILLING_OPERATOR,
-                1,
-            );
-            self::fail('An account snapshot survived an email-path role grant.');
-        } catch (Problem $problem) {
-            self::assertSame(409, $problem->status);
-        }
-
-        $detail = $this->service()->grantRole(
-            $this->administrator(),
-            self::TARGET_ID,
-            PlatformRoleService::BILLING_OPERATOR,
-            2,
-        );
-        self::assertSame(3, $detail['revision']);
-
-        $revoked = $this->connection->transactional(fn (): string =>
-            $identities->revokePlatformAdministrator(
-                '01912345-6789-7abc-8def-000000000103',
-                self::ACTOR_ID,
-                self::TARGET_ID,
-                1,
-                $at,
-            ));
-        self::assertSame('revoked', $revoked);
-        self::assertSame(4, (int) $this->connection->fetchOne(
-            'SELECT revision FROM users WHERE id = :user',
-            ['user' => self::TARGET_ID],
-        ));
-        try {
-            $this->service()->revokeRole(
-                $this->administrator(),
-                self::TARGET_ID,
-                PlatformRoleService::BILLING_OPERATOR,
-                3,
-            );
-            self::fail('An account snapshot survived an email-path role revocation.');
-        } catch (Problem $problem) {
-            self::assertSame(409, $problem->status);
-        }
-    }
 
     private function service(): OperatorAccountService
     {
@@ -404,10 +260,10 @@ final class OperatorControlPlaneProjectionTest extends TestCase
             $identities,
             new DbalHomeStore($this->connection),
             new DbalBillingStore($this->connection),
-            new PlatformRoleService($identities, $ids, $clock, $transactions),
             $ids,
             $clock,
             $transactions,
+            $this->createStub(\Providentia\Identity\Application\AccountProfileStore::class)
         );
     }
 
@@ -418,7 +274,8 @@ final class OperatorControlPlaneProjectionTest extends TestCase
             'session',
             'device',
             null,
-            [PlatformRoleService::ADMINISTRATOR],
+            ['platform_administrator'],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions(['platform_administrator'])
         );
     }
 
@@ -489,13 +346,13 @@ final class OperatorControlPlaneProjectionTest extends TestCase
         }
         $this->connection->insert('user_platform_roles', [
             'user_id' => self::ACTOR_ID,
-            'role' => PlatformRoleService::ADMINISTRATOR,
+            'role' => 'platform_administrator',
             'revoked_at' => null,
             'updated_at' => '2026-08-01 12:00:00',
         ]);
         $this->connection->insert('user_platform_roles', [
             'user_id' => self::TARGET_ID,
-            'role' => PlatformRoleService::CATALOG_REVIEWER,
+            'role' => 'catalog_reviewer',
             'revoked_at' => null,
             'updated_at' => '2026-08-01 12:00:00',
         ]);

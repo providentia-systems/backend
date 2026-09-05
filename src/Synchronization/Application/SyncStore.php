@@ -8,7 +8,8 @@ use DateTimeImmutable;
 
 interface SyncStore
 {
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function apply(
         string $homeId,
         string $userId,
@@ -30,7 +31,8 @@ interface SyncStore
         int $limit,
     ): SyncSnapshotPage;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function changes(string $homeId, int $after, int $highWater, int $limit): array;
 
     public function acknowledgeCursor(
@@ -41,10 +43,12 @@ interface SyncStore
         DateTimeImmutable $at,
     ): void;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function operationReceipt(string $operationId): ?array;
 
-    /** @param array<string, mixed> $response */
+    /**
+     * @param array<string, mixed> $response */
     public function recordCommandReceipt(
         string $homeId,
         string $userId,
@@ -56,7 +60,9 @@ interface SyncStore
     ): void;
 
     /**
+     *
      * @param list<string> $operationIds
+     *
      * @return array<string, array<string, mixed>>
      */
     public function operationStatuses(
@@ -66,14 +72,17 @@ interface SyncStore
         array $operationIds,
     ): array;
 
-    /** @return array{deleted: int, safeCursor: int} */
+    /**
+     * @return array{deleted: int, safeCursor: int} */
     public function compactTombstones(string $homeId, DateTimeImmutable $at, int $batchSize): array;
 
     public function minimumAvailableCursor(string $homeId): int;
 
-    /** @return list<string> */
+    /**
+     * @return list<string> */
     public function homesWithExpiredTombstones(DateTimeImmutable $at, int $limit): array;
 
-    /** @return array{operations: int, accepted: int, conflicts: int, tombstones: int, changes: int, cursors: int} */
+    /**
+     * @return array{operations: int, accepted: int, conflicts: int, tombstones: int, changes: int, cursors: int} */
     public function metrics(): array;
 }

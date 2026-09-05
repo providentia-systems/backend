@@ -688,7 +688,7 @@ final class SynchronizationServiceTest extends TestCase
         return new SynchronizationService(
             $syncStore,
             $cursors,
-            new HomeAuthorization($homeStore),
+            new HomeAuthorization($homeStore, \ProvidentiaTest\Support\AccessFixture::create()),
             $clock,
             new SyncEnvelopeValidator(100),
             new SyncOperationValidator(
@@ -738,6 +738,7 @@ final class SynchronizationServiceTest extends TestCase
             self::DEVICE_ID,
             null,
             [],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([])
         );
     }
 

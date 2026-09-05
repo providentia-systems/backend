@@ -9,7 +9,6 @@ use Providentia\Home\Application\OperatorHomeAccessReader;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Application\OperatorAccountControl;
 use Providentia\Identity\Application\OperatorIdentityDirectory;
-use Providentia\Identity\Application\PlatformRoleService;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
@@ -27,7 +26,6 @@ final class OperatorAccountService
         private readonly OperatorAccountControl $accountControl,
         private readonly OperatorHomeAccessReader $homes,
         private readonly OperatorSubscriptionReader $subscriptions,
-        private readonly PlatformRoleService $roles,
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
@@ -164,29 +162,9 @@ final class OperatorAccountService
         return $this->get($identity, $userId);
     }
 
-    /** @return array<string, mixed> */
-    public function grantRole(
-        AuthenticatedIdentity $identity,
-        string $userId,
-        string $role,
-        int $expectedRevision,
-    ): array {
-        $this->roles->grant($identity, $userId, $role, $expectedRevision);
 
-        return $this->get($identity, $userId);
-    }
 
-    /** @return array<string, mixed> */
-    public function revokeRole(
-        AuthenticatedIdentity $identity,
-        string $userId,
-        string $role,
-        int $expectedRevision,
-    ): array {
-        $this->roles->revoke($identity, $userId, $role, $expectedRevision);
 
-        return $this->get($identity, $userId);
-    }
 
     private function requireAdministrator(AuthenticatedIdentity $identity, string $permission): void
     {

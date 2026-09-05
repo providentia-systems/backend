@@ -27,7 +27,6 @@ use Providentia\SharedKernel\Application\UuidGenerator;
 final class BillingServiceTest extends TestCase
 {
     public const NOW = '2026-08-04T12:00:00+00:00';
-
     public function testBillingIsDisabledUntilDeploymentExplicitlyEnablesIt(): void
     {
         $service = $this->service(
@@ -35,7 +34,6 @@ final class BillingServiceTest extends TestCase
             new FakePayPalGateway(),
             false,
         );
-
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('disabled');
         $service->availablePlans();
@@ -44,23 +42,23 @@ final class BillingServiceTest extends TestCase
     public function testOperatorCanCreateAPlanWhileRuntimeBillingIsDisabled(): void
     {
         $store = $this->createMock(BillingStore::class);
-        $store->expects(self::once())->method('createPlan')->with(
-            'generated-id',
-            'household_plus',
-            'Household Plus',
-            'Shared pantry automation',
-            'operator-user',
-            self::isInstanceOf(DateTimeImmutable::class),
-        );
+        $store->expects(self::once())
+            ->method('createPlan')
+            ->with(
+                'generated-id',
+                'household_plus',
+                'Household Plus',
+                'Shared pantry automation',
+                'operator-user',
+                self::isInstanceOf(DateTimeImmutable::class),
+            );
         $service = $this->service($store, new FakePayPalGateway(), false);
-
         $result = $service->createPlan(
             $this->identity(['billing_operator'], 'operator-user'),
             ' Household_Plus ',
             'Household Plus',
             'Shared pantry automation',
         );
-
         self::assertSame('generated-id', $result['id']);
         self::assertSame('household_plus', $result['code']);
         self::assertSame('draft', $result['status']);
@@ -69,37 +67,47 @@ final class BillingServiceTest extends TestCase
     public function testCheckoutSendsOnlyProviderNeutralHostedPaymentData(): void
     {
         $store = $this->createMock(BillingStore::class);
-        $store->method('price')->with('price-1')->willReturn([
-            'id' => 'price-1',
-            'planId' => 'plan-1',
-            'code' => 'plus_nad_monthly',
-            'currency' => 'NAD',
-            'amountMinor' => 9900,
-            'intervalUnit' => 'month',
-            'intervalCount' => 1,
-            'status' => 'active',
-            'planStatus' => 'active',
-        ]);
-        $store->method('providerPriceReference')->willReturn('paypal-price-1');
-        $store->method('entitlements')->with('plan-1')->willReturn([
-            'media.storage.bytes' => '2147483648',
-            'ai.enabled' => 'true',
-        ]);
-        $store->expects(self::once())->method('createCheckoutSession')->with(
-            'generated-id',
-            'home-1',
-            'price-1',
-            'paypal',
-            'provider-session-1',
-            'https://payments.example/checkout/provider-session-1',
-            null,
-            'owner-user',
-            self::isInstanceOf(DateTimeImmutable::class),
-            self::isInstanceOf(DateTimeImmutable::class),
-        );
+        $store->method('price')
+            ->with('price-1')
+            ->willReturn(
+                [
+                'id' => 'price-1',
+                'planId' => 'plan-1',
+                'code' => 'plus_nad_monthly',
+                'currency' => 'NAD',
+                'amountMinor' => 9900,
+                'intervalUnit' => 'month',
+                'intervalCount' => 1,
+                'status' => 'active',
+                'planStatus' => 'active',
+                ],
+            );
+        $store->method('providerPriceReference')
+            ->willReturn('paypal-price-1');
+        $store->method('entitlements')
+            ->with('plan-1')
+            ->willReturn(
+                [
+                'media.storage.bytes' => '2147483648',
+                'ai.enabled' => 'true',
+                ],
+            );
+        $store->expects(self::once())
+            ->method('createCheckoutSession')
+            ->with(
+                'generated-id',
+                'home-1',
+                'price-1',
+                'paypal',
+                'provider-session-1',
+                'https://payments.example/checkout/provider-session-1',
+                null,
+                'owner-user',
+                self::isInstanceOf(DateTimeImmutable::class),
+                self::isInstanceOf(DateTimeImmutable::class),
+            );
         $gateway = new FakePayPalGateway();
         $service = $this->service($store, $gateway, true, 'owner');
-
         $result = $service->startCheckout(
             $this->identity([], 'owner-user'),
             'home-1',
@@ -109,12 +117,20 @@ final class BillingServiceTest extends TestCase
             'https://app.example/billing/cancel',
             null,
         );
-
-        self::assertSame('https://payments.example/checkout/provider-session-1', $result['redirectUrl']);
+        self::assertSame(
+            'https://payments.example/checkout/provider-session-1',
+            $result['redirectUrl'],
+        );
         $gatewayRequest = $gateway->request;
         self::assertInstanceOf(HostedCheckoutRequest::class, $gatewayRequest);
-        self::assertSame('paypal-price-1', $gatewayRequest->providerPriceReference);
-        self::assertSame(2147483648, $gatewayRequest->entitlements['media.storage.bytes']);
+        self::assertSame(
+            'paypal-price-1',
+            $gatewayRequest->providerPriceReference,
+        );
+        self::assertSame(
+            2147483648,
+            $gatewayRequest->entitlements['media.storage.bytes'],
+        );
         self::assertObjectNotHasProperty('cardNumber', $gatewayRequest);
         self::assertObjectNotHasProperty('cvc', $gatewayRequest);
     }
@@ -122,18 +138,22 @@ final class BillingServiceTest extends TestCase
     public function testVerifiedWebhookReplayIsAcknowledgedWithoutApplyingItTwice(): void
     {
         $store = $this->createMock(BillingStore::class);
-        $store->expects(self::once())->method('claimWebhook')->willReturn('duplicate');
-        $store->expects(self::never())->method('checkoutByProviderReference');
-        $store->expects(self::never())->method('applyWebhook');
+        $store->expects(self::once())
+            ->method('claimWebhook')
+            ->willReturn('duplicate');
+        $store->expects(self::never())
+            ->method('checkoutByProviderReference');
+        $store->expects(self::never())
+            ->method('applyWebhook');
         $gateway = new FakePayPalGateway();
         $service = $this->service($store, $gateway, true);
-
         $result = $service->acceptWebhook(
             'paypal',
             '{"id":"event-1"}',
-            ['PayPal-Transmission-Sig' => ['verified-by-adapter']],
+            [
+                'PayPal-Transmission-Sig' => ['verified-by-adapter'],
+            ],
         );
-
         self::assertSame('duplicate', $result);
         self::assertSame('{"id":"event-1"}', $gateway->webhookBody);
     }
@@ -142,36 +162,47 @@ final class BillingServiceTest extends TestCase
     {
         $claimed = false;
         $store = $this->createMock(BillingStore::class);
-        $store->expects(self::once())->method('claimWebhook')->willReturnCallback(
-            static function () use (&$claimed): string {
-                $claimed = true;
-
-                return 'claimed';
-            },
-        );
-        $store->method('checkoutByProviderReference')->willReturn([
-            'id' => 'checkout-1',
-            'homeId' => 'home-1',
-            'planId' => 'plan-1',
-            'priceId' => 'price-1',
-            'promotionId' => null,
-            'provider' => 'paypal',
-        ]);
-        $store->expects(self::once())->method('applyWebhook');
-        $store->expects(self::once())->method('markWebhookProcessed');
-        $store->expects(self::never())->method('releaseWebhookClaim');
+        $store->expects(self::once())
+            ->method('claimWebhook')
+            ->willReturnCallback(
+                static function () use (&$claimed): string {
+                    $claimed = true;
+                    return 'claimed';
+                },
+            );
+        $store->method('checkoutByProviderReference')
+            ->willReturn(
+                [
+                'id' => 'checkout-1',
+                'homeId' => 'home-1',
+                'planId' => 'plan-1',
+                'priceId' => 'price-1',
+                'promotionId' => null,
+                'provider' => 'paypal',
+                ],
+            );
+        $store->expects(self::once())
+            ->method('applyWebhook');
+        $store->expects(self::once())
+            ->method('markWebhookProcessed');
+        $store->expects(self::never())
+            ->method('releaseWebhookClaim');
         $gateway = new FakePayPalGateway();
         $gateway->webhookEventType = 'checkout.approved';
         $gateway->onCapture = static function () use (&$claimed): void {
-            self::assertTrue($claimed, 'PayPal capture ran before the signed event was claimed.');
+            self::assertTrue(
+                $claimed,
+                'PayPal capture ran before the signed event was claimed.',
+            );
         };
-
-        $result = $this->service($store, $gateway, true)->acceptWebhook(
-            'paypal',
-            '{"id":"event-1"}',
-            ['PayPal-Transmission-Sig' => ['verified-by-adapter']],
-        );
-
+        $result = $this->service($store, $gateway, true)
+            ->acceptWebhook(
+                'paypal',
+                '{"id":"event-1"}',
+                [
+                'PayPal-Transmission-Sig' => ['verified-by-adapter'],
+                ],
+            );
         self::assertSame('processed', $result);
         self::assertSame(1, $gateway->captureCalls);
     }
@@ -179,68 +210,97 @@ final class BillingServiceTest extends TestCase
     public function testFailedCaptureReleasesTheClaimForProviderRetry(): void
     {
         $store = $this->createMock(BillingStore::class);
-        $store->expects(self::once())->method('claimWebhook')->willReturn('claimed');
-        $store->expects(self::once())->method('releaseWebhookClaim');
-        $store->expects(self::never())->method('applyWebhook');
+        $store->expects(self::once())
+            ->method('claimWebhook')
+            ->willReturn('claimed');
+        $store->expects(self::once())
+            ->method('releaseWebhookClaim');
+        $store->expects(self::never())
+            ->method('applyWebhook');
         $gateway = new FakePayPalGateway();
         $gateway->webhookEventType = 'checkout.approved';
         $gateway->failCapture = true;
-
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('should be retried');
-        $this->service($store, $gateway, true)->acceptWebhook(
-            'paypal',
-            '{"id":"event-1"}',
-            ['PayPal-Transmission-Sig' => ['verified-by-adapter']],
-        );
+        $this->service($store, $gateway, true)
+            ->acceptWebhook(
+                'paypal',
+                '{"id":"event-1"}',
+                [
+                'PayPal-Transmission-Sig' => ['verified-by-adapter'],
+                ],
+            );
     }
 
     public function testHomeSummaryCombinesPlanEntitlementsWithActiveOperatorOverrides(): void
     {
         $store = $this->createStub(BillingStore::class);
-        $store->method('subscription')->willReturn([
-            'id' => 'subscription-1',
-            'planId' => 'plan-1',
-            'status' => 'active',
-        ]);
-        $store->method('entitlements')->willReturn([
-            'ai.enabled' => 'true',
-            'media.storage.bytes' => '2147483648',
-        ]);
-        $store->method('activeOverrides')->willReturn([
-            'media.storage.bytes' => '4294967296',
-        ]);
+        $store->method('subscription')
+            ->willReturn(
+                [
+                'id' => 'subscription-1',
+                'planId' => 'plan-1',
+                'status' => 'active',
+                ],
+            );
+        $store->method('entitlements')
+            ->willReturn(
+                [
+                'ai.enabled' => 'true',
+                'media.storage.bytes' => '2147483648',
+                ],
+            );
+        $store->method('activeOverrides')
+            ->willReturn(['media.storage.bytes' => '4294967296']);
         $service = $this->service($store, new FakePayPalGateway(), true, 'manager');
-
         $summary = $service->homeSummary($this->identity([], 'manager-user'), 'home-1');
-
         self::assertTrue($summary['entitlements']['ai.enabled']);
-        self::assertSame(4294967296, $summary['entitlements']['media.storage.bytes']);
+        self::assertSame(
+            4294967296,
+            $summary['entitlements']['media.storage.bytes'],
+        );
     }
 
     public function testDisabledBillingReturnsAnAuthorizedFreePhaseSummaryWithoutReadingSubscriptionData(): void
     {
         $store = $this->createMock(BillingStore::class);
-        $store->expects(self::never())->method('subscription');
-        $store->expects(self::never())->method('entitlements');
-        $store->expects(self::never())->method('activeOverrides');
-
+        $store->expects(self::never())
+            ->method('subscription');
+        $store->expects(self::never())
+            ->method('entitlements');
+        $store->expects(self::never())
+            ->method('activeOverrides');
         self::assertSame(
             [
                 'subscription' => null,
                 'entitlements' => ['billing.enforced' => false],
             ],
-            $this->service($store, new FakePayPalGateway(), false, 'manager')->homeSummary(
-                $this->identity([], 'manager-user'),
-                'home-1',
-            ),
+            $this->service(
+                $store,
+                new FakePayPalGateway(),
+                false,
+                'manager',
+            )
+                ->homeSummary(
+                    $this->identity([], 'manager-user'),
+                    'home-1',
+                ),
         );
     }
 
     /** @param list<string> $roles */
-    private function identity(array $roles = [], string $userId = 'user-1'): AuthenticatedIdentity
-    {
-        return new AuthenticatedIdentity($userId, 'session-1', 'device-1', null, $roles);
+    private function identity(
+        array $roles = [],
+        string $userId = 'user-1',
+    ): AuthenticatedIdentity {
+        return new AuthenticatedIdentity(
+            $userId,
+            'session-1',
+            'device-1',
+            null,
+            $roles,
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions($roles),
+        );
     }
 
     private function service(
@@ -250,11 +310,16 @@ final class BillingServiceTest extends TestCase
         string $homeRole = 'owner',
     ): BillingService {
         $homes = $this->createStub(HomeStore::class);
-        $homes->method('membership')->willReturn(['status' => 'active', 'role' => $homeRole]);
-
+        $homes->method('membership')
+            ->willReturn(['status' => 'active', 'role' => $homeRole]);
         return new BillingService(
             $store,
-            new BillingAuthorization(new HomeAuthorization($homes)),
+            new BillingAuthorization(
+                new HomeAuthorization(
+                    $homes,
+                    \ProvidentiaTest\Support\AccessFixture::create(),
+                ),
+            ),
             new CheckoutGatewayRegistry([$gateway]),
             new BillingConfiguration($enabled, ['paypal']),
             new FixedBillingUuidGenerator(),
@@ -263,7 +328,6 @@ final class BillingServiceTest extends TestCase
         );
     }
 }
-
 // phpcs:disable PSR1.Classes.ClassDeclaration.MultipleClasses -- focused test doubles belong with this unit.
 final class FakePayPalGateway implements PayPalHostedCheckoutGateway
 {
@@ -273,7 +337,6 @@ final class FakePayPalGateway implements PayPalHostedCheckoutGateway
     public int $captureCalls = 0;
     public bool $failCapture = false;
     public ?\Closure $onCapture = null;
-
     public function provider(): string
     {
         return 'paypal';
@@ -282,7 +345,6 @@ final class FakePayPalGateway implements PayPalHostedCheckoutGateway
     public function createSession(HostedCheckoutRequest $request): HostedCheckoutSession
     {
         $this->request = $request;
-
         return new HostedCheckoutSession(
             'provider-session-1',
             'https://payments.example/checkout/provider-session-1',
@@ -291,11 +353,12 @@ final class FakePayPalGateway implements PayPalHostedCheckoutGateway
     }
 
     /** @param array<string, list<string>> $headers */
-    public function verifyWebhook(string $rawBody, array $headers): HostedCheckoutWebhook
-    {
+    public function verifyWebhook(
+        string $rawBody,
+        array $headers,
+    ): HostedCheckoutWebhook {
         unset($headers);
         $this->webhookBody = $rawBody;
-
         return new HostedCheckoutWebhook(
             'event-1',
             $this->webhookEventType,
@@ -308,8 +371,9 @@ final class FakePayPalGateway implements PayPalHostedCheckoutGateway
         );
     }
 
-    public function captureApprovedOrder(HostedCheckoutWebhook $approved): HostedCheckoutWebhook
-    {
+    public function captureApprovedOrder(
+        HostedCheckoutWebhook $approved,
+    ): HostedCheckoutWebhook {
         ++$this->captureCalls;
         if ($this->onCapture !== null) {
             ($this->onCapture)();
@@ -317,7 +381,6 @@ final class FakePayPalGateway implements PayPalHostedCheckoutGateway
         if ($this->failCapture) {
             throw new BillingProviderException('capture_failed', 'The capture failed safely.');
         }
-
         return new HostedCheckoutWebhook(
             $approved->eventId,
             'checkout.completed',
@@ -330,7 +393,6 @@ final class FakePayPalGateway implements PayPalHostedCheckoutGateway
         );
     }
 }
-
 final class FixedBillingUuidGenerator implements UuidGenerator
 {
     public function generate(): string
@@ -338,7 +400,6 @@ final class FixedBillingUuidGenerator implements UuidGenerator
         return 'generated-id';
     }
 }
-
 final class FixedBillingClock implements Clock
 {
     public function now(): DateTimeImmutable
@@ -346,7 +407,6 @@ final class FixedBillingClock implements Clock
         return new DateTimeImmutable(BillingServiceTest::NOW);
     }
 }
-
 final class ImmediateBillingTransactionManager implements TransactionManager
 {
     public function transactional(callable $operation): mixed

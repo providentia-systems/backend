@@ -15,7 +15,6 @@ use Providentia\Billing\Application\OperatorSubscriptionReader;
 use Providentia\Home\Application\OperatorHomeAccessReader;
 use Providentia\Identity\Application\OperatorAccountControl;
 use Providentia\Identity\Application\OperatorIdentityDirectory;
-use Providentia\Identity\Application\PlatformRoleService;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
@@ -50,7 +49,6 @@ final class AdministrationFactory
                 $container->get(OperatorAccountControl::class),
                 $container->get(OperatorHomeAccessReader::class),
                 $container->get(OperatorSubscriptionReader::class),
-                $container->get(PlatformRoleService::class),
                 $container->get(UuidGenerator::class),
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),

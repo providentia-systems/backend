@@ -42,7 +42,8 @@ final class AiService
         $this->profileEndpoints = $profileEndpoints ?? new ProfileEndpointPolicy(false);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function settings(AuthenticatedIdentity $identity, string $homeId): array
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_READ);
@@ -76,7 +77,8 @@ final class AiService
         return $settings;
     }
 
-    /** @return array{mode: string, provider: string|null, model: string|null, revision: int} */
+    /**
+     * @return array{mode: string, provider: string|null, model: string|null, revision: int} */
     public function configure(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -141,13 +143,15 @@ final class AiService
         ];
     }
 
-    /** @return array{provider: string, configured: bool, lastFour: string} */
+    /**
+     * @return array{provider: string, configured: bool, lastFour: string} */
     public function putCredential(
         AuthenticatedIdentity $identity,
         string $homeId,
         string $providerId,
         string $credential,
     ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_CREDENTIALS_USE);
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
         $provider = $this->providers->get($providerId);
         $credential = trim($credential);
@@ -197,7 +201,8 @@ final class AiService
         $this->store->removeCredential($homeId, $providerId, $this->clock->now());
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function providerProfiles(AuthenticatedIdentity $identity, string $homeId): array
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_READ);
@@ -205,7 +210,8 @@ final class AiService
         return $this->publicProfiles($this->maturity->providerProfiles($homeId, $identity->userId));
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function putProviderProfile(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -219,6 +225,7 @@ final class AiService
         string $ownerScope = 'private',
         ?string $endpoint = null,
     ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_CREDENTIALS_USE);
         $membership = $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_MANAGE);
         $label = trim($label);
         $model = trim($model);
@@ -403,7 +410,8 @@ final class AiService
         }
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function revokeProviderProfileCredential(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -465,7 +473,8 @@ final class AiService
         return $this->publicProfile($profile);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function orchestrationPolicy(AuthenticatedIdentity $identity, string $homeId): array
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_READ);
@@ -481,7 +490,9 @@ final class AiService
     }
 
     /**
+     *
      * @param list<string> $extractionProfileIds
+     *
      * @return array<string, mixed>
      */
     public function putOrchestrationPolicy(
@@ -567,7 +578,9 @@ final class AiService
     }
 
     /**
+     *
      * @param list<array{mimeType: string, bytes: string}> $additionalImages
+     *
      * @return array{id: string, status: string, candidateCount: int, observationCount: int}
      */
     public function extract(
@@ -607,7 +620,9 @@ final class AiService
     }
 
     /**
+     *
      * @param list<array{mimeType: string, bytes: string}> $additionalImages
+     *
      * @return array{id: string, status: string, candidateCount: int, observationCount: int}
      */
     private function extractTracked(
@@ -621,6 +636,7 @@ final class AiService
         array &$additionalImages,
         SensitiveBufferScope $sensitive,
     ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_CREDENTIALS_USE);
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_USE);
         if (! $transmissionConsent) {
             throw new Problem(
@@ -804,7 +820,9 @@ final class AiService
     }
 
     /**
+     *
      * @param list<string> $assetIds
+     *
      * @return array<string, mixed>
      */
     public function extractStoredMedia(
@@ -833,7 +851,8 @@ final class AiService
         );
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function extraction(AuthenticatedIdentity $identity, string $homeId, string $id): array
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_READ);
@@ -962,7 +981,9 @@ final class AiService
     }
 
     /**
+     *
      * @param array<string, mixed> $settings
+     *
      * @return array{0: non-empty-list<AiExecution>, 1: null, 2: list<string>}
      */
     private function legacyPlan(string $homeId, array $settings): array
@@ -997,7 +1018,9 @@ final class AiService
     }
 
     /**
+     *
      * @param array<string, mixed> $policy
+     *
      * @return array{0: non-empty-list<AiExecution>, 1: AiExecution|null, 2: list<string>}
      */
     private function policyPlan(string $homeId, array $policy, string $userId): array
@@ -1032,6 +1055,7 @@ final class AiService
      * The profiles the requesting person may use: every home-shared profile
      * plus their own private profiles, indexed for policy resolution.
      *
+     *
      * @return array{
      *     byId: array<string, array<string, mixed>>,
      *     privateByProvider: array<string, array<string, mixed>>
@@ -1064,10 +1088,12 @@ final class AiService
      * usable private profile for the same provider is preferred over a
      * home-shared profile, so a person's scans run on their own key by default.
      *
+     *
      * @param array{
      *     byId: array<string, array<string, mixed>>,
      *     privateByProvider: array<string, array<string, mixed>>
      * } $visible
+     *
      * @return array<string, mixed>
      */
     private function resolveProfile(array $visible, string $profileId): array
@@ -1084,7 +1110,9 @@ final class AiService
     }
 
     /**
+     *
      * @param array<string, mixed> $profile
+     *
      * @param list<string> $credentials
      */
     private function executionForProfile(string $homeId, array $profile, array &$credentials): AiExecution
@@ -1129,7 +1157,8 @@ final class AiService
         );
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function activeProfile(AuthenticatedIdentity $identity, string $homeId, string $profileId): array
     {
         $profile = $this->maturity->providerProfile($homeId, $profileId);
@@ -1144,7 +1173,8 @@ final class AiService
         return $profile;
     }
 
-    /** @param array<string, mixed> $profile */
+    /**
+     * @param array<string, mixed> $profile */
     private function foreignPrivateProfile(array $profile, AuthenticatedIdentity $identity): bool
     {
         $owner = $profile['ownerUserId'] ?? null;
@@ -1153,7 +1183,9 @@ final class AiService
     }
 
     /**
+     *
      * @param list<array<string, mixed>> $profiles
+     *
      * @return list<array<string, mixed>>
      */
     private function publicProfiles(array $profiles): array
@@ -1162,7 +1194,9 @@ final class AiService
     }
 
     /**
+     *
      * @param array<string, mixed> $profile
+     *
      * @return array{
      *     id: string,
      *     label: string,
@@ -1197,7 +1231,9 @@ final class AiService
     }
 
     /**
+     *
      * @param array<int, array<string, mixed>> $results
+     *
      * @return array<string, mixed>
      */
     private function mergeObservationResults(array $results, string $kind, string $homeId, string $extractionId): array
@@ -1255,7 +1291,8 @@ final class AiService
         return $this->schema->validate($merged, $kind);
     }
 
-    /** @param array<string, mixed> $candidate */
+    /**
+     * @param array<string, mixed> $candidate */
     private function candidateObservationKey(array $candidate): string
     {
         return hash('sha256', implode('|', [
@@ -1268,8 +1305,11 @@ final class AiService
     }
 
     /**
+     *
      * @param array{inputTokens: int|null, outputTokens: int|null, totalTokens: int|null} $left
+     *
      * @param array{inputTokens: int|null, outputTokens: int|null, totalTokens: int|null} $right
+     *
      * @return array{inputTokens: int|null, outputTokens: int|null, totalTokens: int|null}
      */
     private function addUsage(array $left, array $right): array

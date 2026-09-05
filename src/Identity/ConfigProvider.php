@@ -11,8 +11,6 @@ use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\CurrentUserService;
 use Providentia\Identity\Application\IdentityStore;
-use Providentia\Identity\Application\PlatformAdministratorService;
-use Providentia\Identity\Application\PlatformRoleService;
 use Providentia\Identity\Application\PlatformRoleStore;
 use Providentia\Identity\Application\NotificationDeliveryService;
 use Providentia\Identity\Application\NotificationOutbox;
@@ -26,7 +24,6 @@ use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
 use Providentia\Identity\Infrastructure\Doctrine\DbalIdentityStore;
 use Providentia\Identity\Infrastructure\Doctrine\DbalNotificationOutbox;
 use Providentia\Identity\Infrastructure\Cli\NotificationDeliverCommand;
-use Providentia\Identity\Infrastructure\Cli\PlatformRoleCommand;
 use Providentia\Identity\Infrastructure\Doctrine\DbalAuthenticationRateLimitStore;
 use Providentia\Identity\Infrastructure\Factory\IdentityFactory;
 use Providentia\Identity\Infrastructure\Notification\SmtpAccountNotificationSender;
@@ -62,11 +59,8 @@ final class ConfigProvider
                     QueuedAccountNotificationSender::class => IdentityFactory::class,
                     NotificationDeliveryService::class => IdentityFactory::class,
                     NotificationDeliverCommand::class => IdentityFactory::class,
-                    PlatformRoleCommand::class => IdentityFactory::class,
                     AuthenticationService::class => IdentityFactory::class,
                     CurrentUserService::class => IdentityFactory::class,
-                    PlatformAdministratorService::class => IdentityFactory::class,
-                    PlatformRoleService::class => IdentityFactory::class,
                     BearerAuthenticationMiddleware::class => IdentityFactory::class,
                     AuthenticationRateLimiter::class => IdentityFactory::class,
                     AuthenticationRateLimitMiddleware::class => IdentityFactory::class,

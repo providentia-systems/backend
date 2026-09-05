@@ -9,12 +9,15 @@ use DateTimeImmutable;
 interface CatalogGovernanceStore extends CatalogIconPublisher
 {
     /**
+     *
      * @param array<string, mixed> $payload
+     *
      * @return array<string, mixed>|null
      */
     public function conflictFor(string $type, string $normalizedKey, array $payload): ?array;
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * @param array<string, mixed> $payload */
     public function createProposal(
         string $id,
         string $type,
@@ -26,7 +29,8 @@ interface CatalogGovernanceStore extends CatalogIconPublisher
         DateTimeImmutable $at,
     ): void;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function proposal(string $id): ?array;
 
     /**
@@ -35,11 +39,14 @@ interface CatalogGovernanceStore extends CatalogIconPublisher
      */
     public function proposalSourceEligible(string $proposalId): bool;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function workbench(string $queue, int $limit, int $offset): array;
 
     /**
+     *
      * @param array<string, mixed> $proposal
+     *
      * @return array{entityType: string, entityId: string}
      */
     public function publishProposal(
@@ -71,13 +78,17 @@ interface CatalogGovernanceStore extends CatalogIconPublisher
     ): bool;
 
     /**
+     *
      * @param list<string> $duplicateIds
+     *
      * @return array<string, mixed>
      */
     public function mergePreview(string $survivorId, array $duplicateIds): array;
 
     /**
+     *
      * @param array<string, int> $duplicateRevisions
+     *
      * @return array<string, mixed>
      */
     public function applyMerge(
@@ -90,7 +101,8 @@ interface CatalogGovernanceStore extends CatalogIconPublisher
         DateTimeImmutable $at,
     ): array;
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function reverseMerge(
         string $mergeId,
         int $expectedRevision,
