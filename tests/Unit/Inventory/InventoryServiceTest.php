@@ -28,7 +28,6 @@ final class InventoryServiceTest extends TestCase
     private const MOVEMENT_ID = '01912345-6789-7abc-ddef-0123456789ab';
     private const SECOND_MOVEMENT_ID = '01912345-6789-7abc-edef-0123456789ab';
     private const OTHER_HOME_ID = '01912345-6789-7abc-8def-1123456789ab';
-
     /** @param array{status: string, role: string}|null $membership */
     #[DataProvider('concealedMembershipProvider')]
     public function testItemMasterConcealsAbsentRevokedAndForeignMembership(
@@ -36,13 +35,9 @@ final class InventoryServiceTest extends TestCase
         string $membershipHomeId,
     ): void {
         $store = $this->createMock(InventoryStore::class);
-        $store->expects(self::never())->method('itemMaster');
-        $service = $this->serviceWithMembership(
-            $store,
-            $membership,
-            $membershipHomeId,
-        );
-
+        $store->expects(self::never())
+            ->method('itemMaster');
+        $service = $this->serviceWithMembership($store, $membership, $membershipHomeId);
         try {
             $representation = $service->itemMaster(
                 $this->identity(),
@@ -53,10 +48,12 @@ final class InventoryServiceTest extends TestCase
                 100,
                 0,
             );
-            self::fail(sprintf(
-                'The item master returned a private representation to a non-member: %s',
-                json_encode($representation, JSON_THROW_ON_ERROR),
-            ));
+            self::fail(
+                sprintf(
+                    'The item master returned a private representation to a non-member: %s',
+                    json_encode($representation, JSON_THROW_ON_ERROR),
+                ),
+            );
         } catch (Problem $problem) {
             self::assertSame(404, $problem->status);
             self::assertNotSame(403, $problem->status);
@@ -74,14 +71,20 @@ final class InventoryServiceTest extends TestCase
     public static function concealedMembershipProvider(): iterable
     {
         yield 'absent membership' => [null, self::HOME_ID];
-        yield 'revoked membership' => [[
-            'status' => 'revoked',
-            'role' => HomeAuthorization::MEMBER,
-        ], self::HOME_ID];
-        yield 'active membership in a foreign home' => [[
-            'status' => 'active',
-            'role' => HomeAuthorization::MEMBER,
-        ], self::OTHER_HOME_ID];
+        yield 'revoked membership' => [
+            [
+                'status' => 'revoked',
+                'role' => HomeAuthorization::MEMBER,
+            ],
+            self::HOME_ID,
+        ];
+        yield 'active membership in a foreign home' => [
+            [
+                'status' => 'active',
+                'role' => HomeAuthorization::MEMBER,
+            ],
+            self::OTHER_HOME_ID,
+        ];
     }
 
     public function testItemMasterReturnsACompletePageEnvelope(): void
@@ -89,73 +92,81 @@ final class InventoryServiceTest extends TestCase
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::once())
             ->method('itemMaster')
-            ->with(self::HOME_ID, 'beans', null, null, 2, 0)
-            ->willReturn([
-                'items' => [
-                    ['packId' => 'pack-1'],
-                    ['packId' => 'pack-2'],
+            ->with(
+                self::HOME_ID,
+                'beans',
+                null,
+                null,
+                2,
+                0,
+            )
+            ->willReturn(
+                [
+                'items' => [['packId' => 'pack-1'], ['packId' => 'pack-2']],
+                'total' => 3,
                 ],
-                'total' => 3,
-            ]);
-
-        self::assertSame([
-            'data' => [
-                ['packId' => 'pack-1'],
-                ['packId' => 'pack-2'],
+            );
+        self::assertSame(
+            [
+                'data' => [['packId' => 'pack-1'], ['packId' => 'pack-2']],
+                'pagination' => [
+                    'limit' => 2,
+                    'offset' => 0,
+                    'returned' => 2,
+                    'total' => 3,
+                    'hasMore' => true,
+                    'nextOffset' => 2,
+                ],
             ],
-            'pagination' => [
-                'limit' => 2,
-                'offset' => 0,
-                'returned' => 2,
-                'total' => 3,
-                'hasMore' => true,
-                'nextOffset' => 2,
-            ],
-        ], $this->service($store)->itemMaster(
-            $this->identity(),
-            self::HOME_ID,
-            'beans',
-            null,
-            null,
-            2,
-            0,
-        ));
+            $this->service($store)
+                ->itemMaster(
+                    $this->identity(),
+                    self::HOME_ID,
+                    'beans',
+                    null,
+                    null,
+                    2,
+                    0,
+                ),
+        );
     }
 
     public function testItemMasterRejectsMixedGlobalAndPrivateCategoryFilters(): void
     {
         $store = $this->createMock(InventoryStore::class);
-        $store->expects(self::never())->method('itemMaster');
-
+        $store->expects(self::never())
+            ->method('itemMaster');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('Use either categoryId');
-        $this->service($store)->itemMaster(
-            $this->identity(),
-            self::HOME_ID,
-            '',
-            self::PRODUCT_ID,
-            self::SESSION_ID,
-            100,
-            0,
-        );
+        $this->service($store)
+            ->itemMaster(
+                $this->identity(),
+                self::HOME_ID,
+                '',
+                self::PRODUCT_ID,
+                self::SESSION_ID,
+                100,
+                0,
+            );
     }
 
     public function testItemMasterRejectsAMalformedCategoryFilterBeforeQueryingTheStore(): void
     {
         $store = $this->createMock(InventoryStore::class);
-        $store->expects(self::never())->method('itemMaster');
-
+        $store->expects(self::never())
+            ->method('itemMaster');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('Category filters must be UUIDs.');
-        $this->service($store)->itemMaster(
-            $this->identity(),
-            self::HOME_ID,
-            '',
-            'not-a-category-id',
-            null,
-            100,
-            0,
-        );
+        $this->service($store)
+            ->itemMaster(
+                $this->identity(),
+                self::HOME_ID,
+                '',
+                'not-a-category-id',
+                null,
+                100,
+                0,
+            );
     }
 
     public function testViewerIsARealMemberAndCanReadTheItemMaster(): void
@@ -163,9 +174,17 @@ final class InventoryServiceTest extends TestCase
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::once())
             ->method('itemMaster')
-            ->with(self::HOME_ID, '', null, null, 100, 0)
-            ->willReturn(['items' => [], 'total' => 0]);
-
+            ->with(
+                self::HOME_ID,
+                '',
+                null,
+                null,
+                100,
+                0,
+            )
+            ->willReturn(
+                ['items' => [], 'total' => 0],
+            );
         self::assertSame(
             [
                 'data' => [],
@@ -178,20 +197,16 @@ final class InventoryServiceTest extends TestCase
                     'nextOffset' => null,
                 ],
             ],
-            $this->service(
-                $store,
-                null,
-                null,
-                HomeAuthorization::VIEWER,
-            )->itemMaster(
-                $this->identity(),
-                self::HOME_ID,
-                '',
-                null,
-                null,
-                100,
-                0,
-            ),
+            $this->service($store, null, null, HomeAuthorization::VIEWER)
+                ->itemMaster(
+                    $this->identity(),
+                    self::HOME_ID,
+                    '',
+                    null,
+                    null,
+                    100,
+                    0,
+                ),
         );
     }
 
@@ -212,18 +227,19 @@ final class InventoryServiceTest extends TestCase
                 self::isInstanceOf(DateTimeImmutable::class),
             );
         $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturn(self::PRODUCT_ID);
-
+        $ids->method('generate')
+            ->willReturn(self::PRODUCT_ID);
         self::assertSame(
             ['id' => self::PRODUCT_ID],
-            $this->service($store, $ids)->addHomeProduct(
-                $this->identity(),
-                self::HOME_ID,
-                null,
-                self::LINE_ID,
-                null,
-                null,
-            ),
+            $this->service($store, $ids)
+                ->addHomeProduct(
+                    $this->identity(),
+                    self::HOME_ID,
+                    null,
+                    self::LINE_ID,
+                    null,
+                    null,
+                ),
         );
     }
 
@@ -232,8 +248,13 @@ final class InventoryServiceTest extends TestCase
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::exactly(2))
             ->method('homeProduct')
-            ->with(self::HOME_ID, self::PRODUCT_ID)
-            ->willReturn(['id' => self::PRODUCT_ID]);
+            ->with(
+                self::HOME_ID,
+                self::PRODUCT_ID,
+            )
+            ->willReturn(
+                ['id' => self::PRODUCT_ID],
+            );
         $store->expects(self::exactly(2))
             ->method('appendMovement')
             ->with(
@@ -251,16 +272,16 @@ final class InventoryServiceTest extends TestCase
             )
             ->willReturnOnConsecutiveCalls(
                 [
-                    'id' => self::MOVEMENT_ID,
-                    'balance' => '3.5',
-                    'balanceRevision' => 2,
-                    'replayed' => false,
+                'id' => self::MOVEMENT_ID,
+                'balance' => '3.5',
+                'balanceRevision' => 2,
+                'replayed' => false,
                 ],
                 [
-                    'id' => self::MOVEMENT_ID,
-                    'balance' => '3.5',
-                    'balanceRevision' => 2,
-                    'replayed' => true,
+                'id' => self::MOVEMENT_ID,
+                'balance' => '3.5',
+                'balanceRevision' => 2,
+                'replayed' => true,
                 ],
             );
         $changes = $this->createMock(ChangeFeedWriter::class);
@@ -273,17 +294,22 @@ final class InventoryServiceTest extends TestCase
                 self::PRODUCT_ID,
                 2,
                 [
-                    'homeProductId' => self::PRODUCT_ID,
-                    'quantity' => '3.5',
-                    'lastMovementId' => self::MOVEMENT_ID,
+                'homeProductId' => self::PRODUCT_ID,
+                'quantity' => '3.5',
+                'lastMovementId' => self::MOVEMENT_ID,
                 ],
                 self::isInstanceOf(DateTimeImmutable::class),
             )
-            ->willReturn(1);
+            ->willReturn(
+                1,
+            );
         $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturnOnConsecutiveCalls(self::MOVEMENT_ID, self::SECOND_MOVEMENT_ID);
+        $ids->method('generate')
+            ->willReturnOnConsecutiveCalls(
+                self::MOVEMENT_ID,
+                self::SECOND_MOVEMENT_ID,
+            );
         $service = $this->service($store, $ids, $changes);
-
         $first = $service->manualAdjustment(
             $this->identity(),
             self::HOME_ID,
@@ -300,7 +326,6 @@ final class InventoryServiceTest extends TestCase
             'Counted after delivery',
             'client-operation-1',
         );
-
         self::assertFalse((bool) $first['replayed']);
         self::assertTrue((bool) $replay['replayed']);
         self::assertSame(self::MOVEMENT_ID, $replay['id']);
@@ -309,29 +334,42 @@ final class InventoryServiceTest extends TestCase
     public function testManualAdjustmentCannotReferenceAProductFromAnotherHome(): void
     {
         $store = $this->createMock(InventoryStore::class);
-        $store->expects(self::once())->method('homeProduct')->with(self::HOME_ID, self::PRODUCT_ID)->willReturn(null);
-        $store->expects(self::never())->method('appendMovement');
-
+        $store->expects(self::once())
+            ->method('homeProduct')
+            ->with(
+                self::HOME_ID,
+                self::PRODUCT_ID,
+            )
+            ->willReturn(
+                null,
+            );
+        $store->expects(self::never())
+            ->method('appendMovement');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('requested resource is unavailable');
-        $this->service($store)->manualAdjustment(
-            $this->identity(),
-            self::HOME_ID,
-            self::PRODUCT_ID,
-            '1',
-            'Manual correction',
-            'client-operation-2',
-        );
+        $this->service($store)
+            ->manualAdjustment(
+                $this->identity(),
+                self::HOME_ID,
+                self::PRODUCT_ID,
+                '1',
+                'Manual correction',
+                'client-operation-2',
+            );
     }
 
     public function testCountLineRevisionConflictDoesNotPublishAProjection(): void
     {
         $store = $this->createMock(InventoryStore::class);
-        $store->method('countSession')->with(self::HOME_ID, self::SESSION_ID)->willReturn([
-            'id' => self::SESSION_ID,
-            'status' => 'open',
-            'revision' => 4,
-        ]);
+        $store->method('countSession')
+            ->with(self::HOME_ID, self::SESSION_ID)
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'status' => 'open',
+                'revision' => 4,
+                ],
+            );
         $store->expects(self::once())
             ->method('saveCountLine')
             ->with(
@@ -347,25 +385,29 @@ final class InventoryServiceTest extends TestCase
                 2,
                 self::isInstanceOf(DateTimeImmutable::class),
             )
-            ->willReturn(false);
-        $store->expects(self::never())->method('countLine');
+            ->willReturn(
+                false,
+            );
+        $store->expects(self::never())
+            ->method('countLine');
         $changes = $this->createMock(ChangeFeedWriter::class);
-        $changes->expects(self::never())->method('put');
-
+        $changes->expects(self::never())
+            ->method('put');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('changed on another device');
-        $this->service($store, null, $changes)->recordCount(
-            $this->identity(),
-            self::HOME_ID,
-            self::SESSION_ID,
-            self::LINE_ID,
-            self::PRODUCT_ID,
-            '4.000',
-            null,
-            'manual',
-            '',
-            2,
-        );
+        $this->service($store, null, $changes)
+            ->recordCount(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                self::LINE_ID,
+                self::PRODUCT_ID,
+                '4.000',
+                null,
+                'manual',
+                '',
+                2,
+            );
     }
 
     public function testPhotoConfirmedCountSourceIsStoredWithoutTranslation(): void
@@ -381,11 +423,15 @@ final class InventoryServiceTest extends TestCase
             'revision' => '1',
         ];
         $store = $this->createMock(InventoryStore::class);
-        $store->method('countSession')->with(self::HOME_ID, self::SESSION_ID)->willReturn([
-            'id' => self::SESSION_ID,
-            'status' => 'open',
-            'revision' => 4,
-        ]);
+        $store->method('countSession')
+            ->with(self::HOME_ID, self::SESSION_ID)
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'status' => 'open',
+                'revision' => 4,
+                ],
+            );
         $store->expects(self::once())
             ->method('saveCountLine')
             ->with(
@@ -401,26 +447,39 @@ final class InventoryServiceTest extends TestCase
                 0,
                 self::isInstanceOf(DateTimeImmutable::class),
             )
-            ->willReturn(true);
+            ->willReturn(
+                true,
+            );
         $store->expects(self::once())
             ->method('countLine')
-            ->with(self::HOME_ID, self::SESSION_ID, self::LINE_ID)
-            ->willReturn($storedLine);
-
-        self::assertSame(
-            [...$storedLine, 'quantity' => '4', 'confidence' => '0.875', 'revision' => 1],
-            $this->service($store)->recordCount(
-                $this->identity(),
+            ->with(
                 self::HOME_ID,
                 self::SESSION_ID,
                 self::LINE_ID,
-                self::PRODUCT_ID,
-                '4.000',
-                '0.875',
-                'photo-confirmed',
-                '',
-                0,
-            ),
+            )
+            ->willReturn(
+                $storedLine,
+            );
+        self::assertSame(
+            [
+                ...$storedLine,
+                'quantity' => '4',
+                'confidence' => '0.875',
+                'revision' => 1,
+            ],
+            $this->service($store)
+                ->recordCount(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::SESSION_ID,
+                    self::LINE_ID,
+                    self::PRODUCT_ID,
+                    '4.000',
+                    '0.875',
+                    'photo-confirmed',
+                    '',
+                    0,
+                ),
         );
     }
 
@@ -437,11 +496,15 @@ final class InventoryServiceTest extends TestCase
             'revision' => '2',
         ];
         $store = $this->createMock(InventoryStore::class);
-        $store->method('countSession')->with(self::HOME_ID, self::SESSION_ID)->willReturn([
-            'id' => self::SESSION_ID,
-            'status' => 'open',
-            'revision' => 5,
-        ]);
+        $store->method('countSession')
+            ->with(self::HOME_ID, self::SESSION_ID)
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'status' => 'open',
+                'revision' => 5,
+                ],
+            );
         $store->expects(self::once())
             ->method('saveCountLine')
             ->with(
@@ -457,54 +520,68 @@ final class InventoryServiceTest extends TestCase
                 1,
                 self::isInstanceOf(DateTimeImmutable::class),
             )
-            ->willReturn(true);
+            ->willReturn(
+                true,
+            );
         $store->expects(self::once())
             ->method('countLine')
-            ->with(self::HOME_ID, self::SESSION_ID, self::LINE_ID)
-            ->willReturn($storedLine);
-
-        self::assertSame(
-            [...$storedLine, 'revision' => 2],
-            $this->service($store)->recordCount(
-                $this->identity(),
+            ->with(
                 self::HOME_ID,
                 self::SESSION_ID,
                 self::LINE_ID,
-                self::PRODUCT_ID,
-                '5.2500',
-                null,
-                'manual',
-                ' Second pass ',
-                1,
-            ),
+            )
+            ->willReturn(
+                $storedLine,
+            );
+        self::assertSame(
+            [...$storedLine, 'revision' => 2],
+            $this->service($store)
+                ->recordCount(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::SESSION_ID,
+                    self::LINE_ID,
+                    self::PRODUCT_ID,
+                    '5.2500',
+                    null,
+                    'manual',
+                    ' Second pass ',
+                    1,
+                ),
         );
     }
 
     public function testCountLineRejectsANegativeRevisionBeforeWriting(): void
     {
         $store = $this->createMock(InventoryStore::class);
-        $store->method('countSession')->with(self::HOME_ID, self::SESSION_ID)->willReturn([
-            'id' => self::SESSION_ID,
-            'status' => 'open',
-            'revision' => 4,
-        ]);
-        $store->expects(self::never())->method('saveCountLine');
-        $store->expects(self::never())->method('countLine');
-
+        $store->method('countSession')
+            ->with(self::HOME_ID, self::SESSION_ID)
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'status' => 'open',
+                'revision' => 4,
+                ],
+            );
+        $store->expects(self::never())
+            ->method('saveCountLine');
+        $store->expects(self::never())
+            ->method('countLine');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('Expected revision cannot be negative.');
-        $this->service($store)->recordCount(
-            $this->identity(),
-            self::HOME_ID,
-            self::SESSION_ID,
-            self::LINE_ID,
-            self::PRODUCT_ID,
-            '4',
-            null,
-            'manual',
-            '',
-            -1,
-        );
+        $this->service($store)
+            ->recordCount(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                self::LINE_ID,
+                self::PRODUCT_ID,
+                '4',
+                null,
+                'manual',
+                '',
+                -1,
+            );
     }
 
     public function testStartingAndListingCountsReturnContractCompleteSessions(): void
@@ -532,14 +609,24 @@ final class InventoryServiceTest extends TestCase
             );
         $store->expects(self::once())
             ->method('countSession')
-            ->with(self::HOME_ID, self::SESSION_ID)
-            ->willReturn($session);
+            ->with(
+                self::HOME_ID,
+                self::SESSION_ID,
+            )
+            ->willReturn(
+                $session,
+            );
         $store->expects(self::once())
             ->method('countSessions')
-            ->with(self::HOME_ID, 25, 0)
-            ->willReturn([$session]);
+            ->with(
+                self::HOME_ID,
+                25,
+                0,
+            )
+            ->willReturn(
+                [$session],
+            );
         $service = $this->service($store);
-
         $created = $service->startCount(
             $this->identity(),
             self::HOME_ID,
@@ -549,19 +636,21 @@ final class InventoryServiceTest extends TestCase
             'unassessed',
             self::SESSION_ID,
         );
-
         self::assertSame(self::HOME_ID, $created['homeId']);
         self::assertSame('open', $created['status']);
         self::assertSame(1, $created['revision']);
         self::assertSame([], $created['lines']);
-        self::assertSame([
+        self::assertSame(
             [
-                ...$session,
-                'revision' => 1,
-                'scopeComplete' => false,
-                'lineCount' => 0,
+                [
+                    ...$session,
+                    'revision' => 1,
+                    'scopeComplete' => false,
+                    'lineCount' => 0,
+                ],
             ],
-        ], $service->countSessions($this->identity(), self::HOME_ID, 25, 0));
+            $service->countSessions($this->identity(), self::HOME_ID, 25, 0),
+        );
     }
 
     public function testClosingAnAlreadyClosedCountIsAnIdempotentReplay(): void
@@ -580,20 +669,31 @@ final class InventoryServiceTest extends TestCase
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::once())
             ->method('countSession')
-            ->with(self::HOME_ID, self::SESSION_ID)
-            ->willReturn([
+            ->with(
+                self::HOME_ID,
+                self::SESSION_ID,
+            )
+            ->willReturn(
+                [
                 'id' => self::SESSION_ID,
                 'status' => 'closed',
                 'revision' => 6,
                 'closedAt' => $closedAt,
-            ]);
+                ],
+            );
         $store->expects(self::once())
             ->method('countLines')
-            ->with(self::HOME_ID, self::SESSION_ID)
-            ->willReturn([$line]);
-        $store->expects(self::never())->method('appendMovement');
-        $store->expects(self::never())->method('closeCountSession');
-
+            ->with(
+                self::HOME_ID,
+                self::SESSION_ID,
+            )
+            ->willReturn(
+                [$line],
+            );
+        $store->expects(self::never())
+            ->method('appendMovement');
+        $store->expects(self::never())
+            ->method('closeCountSession');
         self::assertSame(
             [
                 'id' => self::SESSION_ID,
@@ -601,14 +701,22 @@ final class InventoryServiceTest extends TestCase
                 'revision' => 6,
                 'closedAt' => $closedAt,
                 'homeId' => self::HOME_ID,
-                'lines' => [[
-                    ...$line,
-                    'quantity' => '4',
-                    'confidence' => '0.875',
-                    'revision' => 1,
-                ]],
+                'lines' => [
+                    [
+                        ...$line,
+                        'quantity' => '4',
+                        'confidence' => '0.875',
+                        'revision' => 1,
+                    ],
+                ],
             ],
-            $this->service($store)->closeCount($this->identity(), self::HOME_ID, self::SESSION_ID, 5),
+            $this->service($store)
+                ->closeCount(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::SESSION_ID,
+                    5,
+                ),
         );
     }
 
@@ -617,8 +725,12 @@ final class InventoryServiceTest extends TestCase
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::once())
             ->method('countSession')
-            ->with(self::HOME_ID, self::SESSION_ID)
-            ->willReturn([
+            ->with(
+                self::HOME_ID,
+                self::SESSION_ID,
+            )
+            ->willReturn(
+                [
                 'id' => self::SESSION_ID,
                 'status' => 'open',
                 'revision' => 4,
@@ -626,7 +738,8 @@ final class InventoryServiceTest extends TestCase
                 'notes' => '',
                 'scopeComplete' => false,
                 'reliability' => 'unassessed',
-            ]);
+                ],
+            );
         $store->expects(self::once())
             ->method('cancelCountSession')
             ->with(
@@ -636,9 +749,13 @@ final class InventoryServiceTest extends TestCase
                 self::USER_ID,
                 self::isInstanceOf(DateTimeImmutable::class),
             )
-            ->willReturn(true);
-        $store->expects(self::never())->method('countLines');
-        $store->expects(self::never())->method('appendMovement');
+            ->willReturn(
+                true,
+            );
+        $store->expects(self::never())
+            ->method('countLines');
+        $store->expects(self::never())
+            ->method('appendMovement');
         $changes = $this->createMock(ChangeFeedWriter::class);
         $changes->expects(self::once())
             ->method('put')
@@ -649,24 +766,30 @@ final class InventoryServiceTest extends TestCase
                 self::SESSION_ID,
                 5,
                 [
-                    'locationId' => null,
-                    'notes' => '',
-                    'scopeComplete' => false,
-                    'reliability' => 'unassessed',
-                    'status' => 'cancelled',
+                'locationId' => null,
+                'notes' => '',
+                'scopeComplete' => false,
+                'reliability' => 'unassessed',
+                'status' => 'cancelled',
                 ],
                 self::isInstanceOf(DateTimeImmutable::class),
             )
-            ->willReturn(1);
-
+            ->willReturn(
+                1,
+            );
         self::assertSame(
-            ['sessionId' => self::SESSION_ID, 'status' => 'cancelled', 'revision' => 5],
-            $this->service($store, null, $changes)->cancelCount(
-                $this->identity(),
-                self::HOME_ID,
-                self::SESSION_ID,
-                4,
-            ),
+            [
+                'sessionId' => self::SESSION_ID,
+                'status' => 'cancelled',
+                'revision' => 5,
+            ],
+            $this->service($store, null, $changes)
+                ->cancelCount(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::SESSION_ID,
+                    4,
+                ),
         );
     }
 
@@ -675,20 +798,35 @@ final class InventoryServiceTest extends TestCase
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::once())
             ->method('countSession')
-            ->with(self::HOME_ID, self::SESSION_ID)
-            ->willReturn(['id' => self::SESSION_ID, 'status' => 'cancelled', 'revision' => 5]);
-        $store->expects(self::never())->method('cancelCountSession');
-        $changes = $this->createMock(ChangeFeedWriter::class);
-        $changes->expects(self::never())->method('put');
-
-        self::assertSame(
-            ['sessionId' => self::SESSION_ID, 'status' => 'cancelled', 'revision' => 5],
-            $this->service($store, null, $changes)->cancelCount(
-                $this->identity(),
+            ->with(
                 self::HOME_ID,
                 self::SESSION_ID,
-                4,
-            ),
+            )
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'status' => 'cancelled',
+                'revision' => 5,
+                ],
+            );
+        $store->expects(self::never())
+            ->method('cancelCountSession');
+        $changes = $this->createMock(ChangeFeedWriter::class);
+        $changes->expects(self::never())
+            ->method('put');
+        self::assertSame(
+            [
+                'sessionId' => self::SESSION_ID,
+                'status' => 'cancelled',
+                'revision' => 5,
+            ],
+            $this->service($store, null, $changes)
+                ->cancelCount(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::SESSION_ID,
+                    4,
+                ),
         );
     }
 
@@ -697,20 +835,31 @@ final class InventoryServiceTest extends TestCase
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::once())
             ->method('countSession')
-            ->with(self::HOME_ID, self::SESSION_ID)
-            ->willReturn(['id' => self::SESSION_ID, 'status' => 'cancelled', 'revision' => 5]);
-        $store->expects(self::never())->method('cancelCountSession');
+            ->with(
+                self::HOME_ID,
+                self::SESSION_ID,
+            )
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'status' => 'cancelled',
+                'revision' => 5,
+                ],
+            );
+        $store->expects(self::never())
+            ->method('cancelCountSession');
         $changes = $this->createMock(ChangeFeedWriter::class);
-        $changes->expects(self::never())->method('put');
-
+        $changes->expects(self::never())
+            ->method('put');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('changed on another device');
-        $this->service($store, null, $changes)->cancelCount(
-            $this->identity(),
-            self::HOME_ID,
-            self::SESSION_ID,
-            2,
-        );
+        $this->service($store, null, $changes)
+            ->cancelCount(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                2,
+            );
     }
 
     public function testCancellingAClosedCountIsAConflictWithoutMovements(): void
@@ -718,36 +867,50 @@ final class InventoryServiceTest extends TestCase
         $store = $this->createMock(InventoryStore::class);
         $store->expects(self::once())
             ->method('countSession')
-            ->with(self::HOME_ID, self::SESSION_ID)
-            ->willReturn(['id' => self::SESSION_ID, 'status' => 'closed', 'revision' => 5]);
-        $store->expects(self::never())->method('cancelCountSession');
-        $store->expects(self::never())->method('appendMovement');
-
+            ->with(
+                self::HOME_ID,
+                self::SESSION_ID,
+            )
+            ->willReturn(
+                [
+                'id' => self::SESSION_ID,
+                'status' => 'closed',
+                'revision' => 5,
+                ],
+            );
+        $store->expects(self::never())
+            ->method('cancelCountSession');
+        $store->expects(self::never())
+            ->method('appendMovement');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('changed on another device');
-        $this->service($store)->cancelCount(
-            $this->identity(),
-            self::HOME_ID,
-            self::SESSION_ID,
-            4,
-        );
+        $this->service($store)
+            ->cancelCount(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                4,
+            );
     }
 
     public function testViewerCannotCancelACountSession(): void
     {
         $store = $this->createMock(InventoryStore::class);
-        $store->expects(self::never())->method('countSession');
-        $store->expects(self::never())->method('cancelCountSession');
-        $store->expects(self::never())->method('appendMovement');
-
+        $store->expects(self::never())
+            ->method('countSession');
+        $store->expects(self::never())
+            ->method('cancelCountSession');
+        $store->expects(self::never())
+            ->method('appendMovement');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('requested resource is unavailable');
-        $this->service($store, null, null, HomeAuthorization::VIEWER)->cancelCount(
-            $this->identity(),
-            self::HOME_ID,
-            self::SESSION_ID,
-            4,
-        );
+        $this->service($store, null, null, HomeAuthorization::VIEWER)
+            ->cancelCount(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                4,
+            );
     }
 
     private function service(
@@ -774,28 +937,45 @@ final class InventoryServiceTest extends TestCase
         ?ChangeFeedWriter $changes = null,
     ): InventoryService {
         $homes = $this->createStub(HomeStore::class);
-        $homes->method('membership')->willReturnCallback(
-            static fn (string $homeId, string $_userId): ?array => $homeId === $membershipHomeId
+        $homes->method('membership')
+            ->willReturnCallback(
+                static fn(
+                string $homeId,
+                string $_userId,
+                ): ?array => $homeId === $membershipHomeId
                 ? $membership
                 : null,
-        );
+            );
         if ($ids === null) {
             $ids = $this->createStub(UuidGenerator::class);
-            $ids->method('generate')->willReturn(self::MOVEMENT_ID);
+            $ids->method('generate')
+                ->willReturn(self::MOVEMENT_ID);
         }
-
         return new InventoryService(
             $inventory,
-            new HomeAuthorization($homes),
+            new HomeAuthorization(
+                $homes,
+                \ProvidentiaTest\Support\AccessFixture::create(),
+            ),
             $ids,
-            new HomeFixedClock(new DateTimeImmutable('2026-08-04T12:00:00+00:00')),
+            new HomeFixedClock(
+                new DateTimeImmutable('2026-08-04T12:00:00+00:00'),
+            ),
             new RecordingTransactionManager(),
             $changes,
+            \ProvidentiaTest\Support\AccessFixture::create(),
         );
     }
 
     private function identity(): AuthenticatedIdentity
     {
-        return new AuthenticatedIdentity(self::USER_ID, 'session', 'device', self::HOME_ID, []);
+        return new AuthenticatedIdentity(
+            self::USER_ID,
+            'session',
+            'device',
+            self::HOME_ID,
+            [],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([]),
+        );
     }
 }

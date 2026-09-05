@@ -182,6 +182,7 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
     }
 
     /**
+     *
      * @param array<string, mixed> $event
      */
     private function normalizeWebhook(array $event): HostedCheckoutWebhook
@@ -254,7 +255,8 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
         };
     }
 
-    /** @param array<string, mixed> $resource */
+    /**
+     * @param array<string, mixed> $resource */
     private function approvedOrderWebhook(
         string $eventId,
         DateTimeImmutable $occurredAt,
@@ -274,7 +276,8 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
         );
     }
 
-    /** @param array<string, mixed> $resource */
+    /**
+     * @param array<string, mixed> $resource */
     private function orderWebhook(
         string $eventId,
         DateTimeImmutable $occurredAt,
@@ -294,7 +297,8 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
         );
     }
 
-    /** @param array<string, mixed> $resource */
+    /**
+     * @param array<string, mixed> $resource */
     private function captureWebhook(
         string $eventId,
         DateTimeImmutable $occurredAt,
@@ -320,7 +324,8 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
         );
     }
 
-    /** @param array<string, mixed> $resource */
+    /**
+     * @param array<string, mixed> $resource */
     private function subscriptionWebhook(
         string $eventId,
         string $eventType,
@@ -355,7 +360,9 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
     }
 
     /**
+     *
      * @param array<string, mixed>|object $payload
+     *
      * @return array<string, mixed>
      */
     private function postJson(string $path, array|object $payload, ?string $requestId = null): array
@@ -417,7 +424,8 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
         return $this->accessToken;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function successfulObject(BillingHttpResponse $response): array
     {
         if ($response->status < 200 || $response->status >= 300) {
@@ -436,7 +444,8 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
         return $this->decodeObject($response->body, 'provider_invalid_response');
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function decodeObject(string $json, string $code): array
     {
         try {
@@ -452,7 +461,9 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
     }
 
     /**
+     *
      * @param array<string, mixed> $response
+     *
      * @param list<string> $relations
      */
     private function approvalLink(array $response, array $relations): string
@@ -493,7 +504,8 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
             && str_ends_with(mb_strtolower($parts['host']), '.paypal.com');
     }
 
-    /** @param array<string, list<string>> $headers */
+    /**
+     * @param array<string, list<string>> $headers */
     private function requiredHeader(array $headers, string $name, int $maximumLength): string
     {
         foreach ($headers as $candidate => $values) {
@@ -524,7 +536,8 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
         return $url;
     }
 
-    /** @param array<string, mixed> $source */
+    /**
+     * @param array<string, mixed> $source */
     private function requiredString(array $source, string $key, int $maximumLength): string
     {
         $value = $source[$key] ?? null;
@@ -539,7 +552,9 @@ final class PayPalHostedCheckoutAdapter implements PayPalHostedCheckoutGateway
     }
 
     /**
+     *
      * @param array<string, mixed> $source
+     *
      * @param list<string> $path
      */
     private function nestedString(array $source, array $path): ?string

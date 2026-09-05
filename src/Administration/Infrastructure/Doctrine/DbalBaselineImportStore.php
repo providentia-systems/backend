@@ -135,7 +135,9 @@ final class DbalBaselineImportStore implements BaselineImportStore
     }
 
     /**
+     *
      * @param list<array<string, mixed>> $items
+     *
      * @return array{
      *   0: array<string, array<string, string>|null>,
      *   1: array<string, array<string, string>|null>,
@@ -202,9 +204,13 @@ final class DbalBaselineImportStore implements BaselineImportStore
     }
 
     /**
+     *
      * @param list<array<string, mixed>> $rows
+     *
      * @param array<string, array<string, string>|null> $exactItems
+     *
      * @param array<string, array<string, string>> $sourceItems
+     *
      * @return array{catalogLinked: int, privateProducts: int, countLines: int, quantity: int}
      */
     private function importOpeningStock(
@@ -328,9 +334,13 @@ final class DbalBaselineImportStore implements BaselineImportStore
     }
 
     /**
+     *
      * @param list<array<string, mixed>> $history
+     *
      * @param list<array<string, mixed>> $recent
+     *
      * @param array<string, array<string, string>|null> $looseItems
+     *
      * @return array{receipts: int, lines: int, approvedMatches: int, unresolvedLines: int, priceObservations: int}
      */
     private function importPurchases(
@@ -526,7 +536,8 @@ final class DbalBaselineImportStore implements BaselineImportStore
         return $id;
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * @param array<string, mixed> $payload */
     private function mapping(
         string $runId,
         string $sourceType,
@@ -548,7 +559,8 @@ final class DbalBaselineImportStore implements BaselineImportStore
         ]);
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * @param array<string, mixed> $payload */
     private function quarantine(
         string $runId,
         string $homeId,
@@ -607,7 +619,9 @@ final class DbalBaselineImportStore implements BaselineImportStore
     }
 
     /**
+     *
      * @param array<string, mixed> $parameters
+     *
      * @return array<string, mixed>|null
      */
     private function one(string $sql, array $parameters): ?array

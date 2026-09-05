@@ -6,13 +6,16 @@ namespace Providentia\Identity\Application;
 
 interface AccountProfileStore
 {
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function profile(string $userId): array;
 
-    /** @param array<string, mixed> $values */
+    /**
+     * @param array<string, mixed> $values */
     public function update(string $userId, array $values, int $revision): bool;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function emails(string $userId): array;
 
     public function addEmail(string $id, string $userId, string $email, string $now): void;

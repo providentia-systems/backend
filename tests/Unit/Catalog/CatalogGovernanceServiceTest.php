@@ -22,8 +22,14 @@ final class CatalogGovernanceServiceTest extends TestCase
         $store = $this->createMock(CatalogGovernanceStore::class);
         $store->expects(self::once())
             ->method('conflictFor')
-            ->with('category', 'dry goods', ['canonicalName' => 'Dry Goods'])
-            ->willReturn(null);
+            ->with(
+                'category',
+                'dry goods',
+                ['canonicalName' => 'Dry Goods'],
+            )
+            ->willReturn(
+                null,
+            );
         $store->expects(self::once())
             ->method('createProposal')
             ->with(
@@ -37,18 +43,28 @@ final class CatalogGovernanceServiceTest extends TestCase
                 self::isInstanceOf(DateTimeImmutable::class),
             );
         $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturn('proposal-1');
+        $ids->method('generate')
+            ->willReturn('proposal-1');
         $service = new CatalogGovernanceService(
             $store,
             new CatalogAuthorization(),
             $ids,
-            new HomeFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
+            new HomeFixedClock(
+                new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
+            ),
             new RecordingTransactionManager(),
         );
-
         self::assertSame(
-            ['id' => 'proposal-1', 'status' => 'pending', 'revision' => 1],
-            $service->submit($this->identity([]), 'category', ['canonicalName' => ' Dry Goods ']),
+            [
+                'id' => 'proposal-1',
+                'status' => 'pending',
+                'revision' => 1,
+            ],
+            $service->submit(
+                $this->identity([]),
+                'category',
+                ['canonicalName' => ' Dry Goods '],
+            ),
         );
     }
 
@@ -57,12 +73,18 @@ final class CatalogGovernanceServiceTest extends TestCase
         $store = $this->createMock(CatalogGovernanceStore::class);
         $store->expects(self::once())
             ->method('conflictFor')
-            ->with('product', self::anything(), [
+            ->with(
+                'product',
+                self::anything(),
+                [
                 'canonicalName' => 'Brown Rice',
                 'brand' => 'Example',
                 'categoryId' => 'category-1',
-            ])
-            ->willReturn(null);
+                ],
+            )
+            ->willReturn(
+                null,
+            );
         $store->expects(self::once())
             ->method('createProposal')
             ->with(
@@ -70,9 +92,9 @@ final class CatalogGovernanceServiceTest extends TestCase
                 'product',
                 self::anything(),
                 [
-                    'canonicalName' => 'Brown Rice',
-                    'brand' => 'Example',
-                    'categoryId' => 'category-1',
+                'canonicalName' => 'Brown Rice',
+                'brand' => 'Example',
+                'categoryId' => 'category-1',
                 ],
                 'pending',
                 null,
@@ -80,22 +102,34 @@ final class CatalogGovernanceServiceTest extends TestCase
                 self::isInstanceOf(DateTimeImmutable::class),
             );
         $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturn('proposal-1');
+        $ids->method('generate')
+            ->willReturn('proposal-1');
         $service = new CatalogGovernanceService(
             $store,
             new CatalogAuthorization(),
             $ids,
-            new HomeFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
+            new HomeFixedClock(
+                new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
+            ),
             new RecordingTransactionManager(),
         );
-
-        $result = $service->submit($this->identity([]), 'product', [
-            'canonicalName' => ' Brown Rice ',
-            'brand' => 'Example',
-            'categoryId' => 'category-1',
-        ]);
-
-        self::assertSame(['id' => 'proposal-1', 'status' => 'pending', 'revision' => 1], $result);
+        $result = $service->submit(
+            $this->identity([]),
+            'product',
+            [
+                'canonicalName' => ' Brown Rice ',
+                'brand' => 'Example',
+                'categoryId' => 'category-1',
+            ],
+        );
+        self::assertSame(
+            [
+                'id' => 'proposal-1',
+                'status' => 'pending',
+                'revision' => 1,
+            ],
+            $result,
+        );
     }
 
     public function testPrivateHouseholdFieldsCannotEnterCatalogProposal(): void
@@ -104,17 +138,22 @@ final class CatalogGovernanceServiceTest extends TestCase
             $this->createStub(CatalogGovernanceStore::class),
             new CatalogAuthorization(),
             $this->createStub(UuidGenerator::class),
-            new HomeFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
+            new HomeFixedClock(
+                new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
+            ),
             new RecordingTransactionManager(),
         );
-
         $this->expectException(Problem::class);
-        $service->submit($this->identity([]), 'product', [
-            'canonicalName' => 'Brown Rice',
-            'brand' => 'Example',
-            'categoryId' => 'category-1',
-            'price' => '12.50',
-        ]);
+        $service->submit(
+            $this->identity([]),
+            'product',
+            [
+                'canonicalName' => 'Brown Rice',
+                'brand' => 'Example',
+                'categoryId' => 'category-1',
+                'price' => '12.50',
+            ],
+        );
     }
 
     public function testHomeMembershipDoesNotGrantCatalogWorkbenchAccess(): void
@@ -123,10 +162,11 @@ final class CatalogGovernanceServiceTest extends TestCase
             $this->createStub(CatalogGovernanceStore::class),
             new CatalogAuthorization(),
             $this->createStub(UuidGenerator::class),
-            new HomeFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
+            new HomeFixedClock(
+                new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
+            ),
             new RecordingTransactionManager(),
         );
-
         $this->expectException(Problem::class);
         $service->workbench($this->identity([]), 'proposals', 50, 0);
     }
@@ -137,43 +177,61 @@ final class CatalogGovernanceServiceTest extends TestCase
             $this->createStub(CatalogGovernanceStore::class),
             new CatalogAuthorization(),
             $this->createStub(UuidGenerator::class),
-            new HomeFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
+            new HomeFixedClock(
+                new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
+            ),
             new RecordingTransactionManager(),
         );
-
         $this->expectException(Problem::class);
-        $service->submit($this->identity([]), 'barcode', [
-            'packId' => 'pack-1',
-            'barcode' => '4006381333932',
-            'barcodeType' => 'gtin-13',
-        ]);
+        $service->submit(
+            $this->identity([]),
+            'barcode',
+            [
+                'packId' => 'pack-1',
+                'barcode' => '4006381333932',
+                'barcodeType' => 'gtin-13',
+            ],
+        );
     }
 
     public function testWithdrawnContributionCannotBePublishedThroughItsLinkedProposal(): void
     {
         $store = $this->createMock(CatalogGovernanceStore::class);
-        $store->method('proposal')->willReturn([
-            'id' => 'proposal-1',
-            'proposalType' => 'product',
-            'payload' => [
-                'canonicalName' => 'Rolled oats',
-                'brand' => '',
-                'categoryId' => 'category-1',
-            ],
-            'moderationStatus' => 'pending',
-            'revision' => 1,
-        ]);
-        $store->expects(self::once())->method('proposalSourceEligible')->with('proposal-1')->willReturn(false);
-        $store->expects(self::never())->method('publishProposal');
-        $store->expects(self::never())->method('decideProposal');
+        $store->method('proposal')
+            ->willReturn(
+                [
+                'id' => 'proposal-1',
+                'proposalType' => 'product',
+                'payload' => [
+                    'canonicalName' => 'Rolled oats',
+                    'brand' => '',
+                    'categoryId' => 'category-1',
+                ],
+                'moderationStatus' => 'pending',
+                'revision' => 1,
+                ],
+            );
+        $store->expects(self::once())
+            ->method('proposalSourceEligible')
+            ->with(
+                'proposal-1',
+            )
+            ->willReturn(
+                false,
+            );
+        $store->expects(self::never())
+            ->method('publishProposal');
+        $store->expects(self::never())
+            ->method('decideProposal');
         $service = new CatalogGovernanceService(
             $store,
             new CatalogAuthorization(),
             $this->createStub(UuidGenerator::class),
-            new HomeFixedClock(new DateTimeImmutable('2026-08-24T12:00:00+00:00')),
+            new HomeFixedClock(
+                new DateTimeImmutable('2026-08-24T12:00:00+00:00'),
+            ),
             new RecordingTransactionManager(),
         );
-
         $this->expectException(Problem::class);
         $service->decideProposal(
             $this->identity([CatalogAuthorization::REVIEWER]),
@@ -187,6 +245,13 @@ final class CatalogGovernanceServiceTest extends TestCase
     /** @param list<string> $roles */
     private function identity(array $roles): AuthenticatedIdentity
     {
-        return new AuthenticatedIdentity('user-1', 'session-1', 'device-1', 'home-1', $roles);
+        return new AuthenticatedIdentity(
+            'user-1',
+            'session-1',
+            'device-1',
+            'home-1',
+            $roles,
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions($roles),
+        );
     }
 }

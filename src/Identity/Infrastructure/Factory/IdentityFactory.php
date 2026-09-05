@@ -17,19 +17,15 @@ use Providentia\Identity\Application\NotificationDeliveryService;
 use Providentia\Identity\Application\NotificationOutbox;
 use Providentia\Identity\Application\NotificationPayloadCipher;
 use Providentia\Identity\Application\NotificationTransport;
-use Providentia\Identity\Application\PlatformAdministratorService;
-use Providentia\Identity\Application\PlatformRoleService;
 use Providentia\Identity\Application\PlatformRoleStore;
 use Providentia\Identity\Application\QueuedAccountNotificationSender;
 use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\CurrentUserHandler;
 use Providentia\Identity\Http\IdentityHandler;
-use Providentia\Identity\Http\PlatformAdministratorHandler;
 use Providentia\Identity\Infrastructure\Doctrine\DbalIdentityStore;
 use Providentia\Identity\Infrastructure\Doctrine\DbalNotificationOutbox;
 use Providentia\Identity\Infrastructure\Cli\NotificationDeliverCommand;
-use Providentia\Identity\Infrastructure\Cli\PlatformRoleCommand;
 use Providentia\Identity\Infrastructure\Doctrine\DbalAuthenticationRateLimitStore;
 use Providentia\Identity\Infrastructure\Notification\SmtpAccountNotificationSender;
 use Providentia\Identity\Infrastructure\Security\NativeCredentialHasher;
@@ -90,8 +86,6 @@ final class IdentityFactory
             return new SmtpAccountNotificationSender(
                 $config['mail']['dsn'],
                 $config['mail']['from'],
-                $config['mail']['public_base_url'],
-                $config['identity']['application_links'],
             );
         }
         if ($requestedName === NativeNotificationPayloadCipher::class) {
@@ -125,17 +119,13 @@ final class IdentityFactory
         if ($requestedName === NotificationDeliverCommand::class) {
             return new NotificationDeliverCommand($container->get(NotificationDeliveryService::class));
         }
-        if ($requestedName === PlatformRoleCommand::class) {
-            return new PlatformRoleCommand($container->get(PlatformRoleService::class));
-        }
+
         if ($requestedName === AuthenticationService::class) {
             return new AuthenticationService(
                 $container->get(IdentityStore::class),
                 $container->get(CredentialHasher::class),
-                $container->get(AccountNotificationSender::class),
                 $container->get(UuidGenerator::class),
                 $container->get(Clock::class),
-                $container->get(TransactionManager::class),
                 $container->get(SecureTokenGenerator::class),
                 $config['identity']['access_ttl_seconds'],
                 $config['identity']['refresh_ttl_seconds'],
@@ -153,23 +143,8 @@ final class IdentityFactory
                 $container->get(\Providentia\Identity\Application\AccountProfileStore::class),
             );
         }
-        if ($requestedName === PlatformAdministratorService::class) {
-            return new PlatformAdministratorService(
-                $container->get(IdentityStore::class),
-                $container->get(UuidGenerator::class),
-                $container->get(Clock::class),
-                $container->get(TransactionManager::class),
-                $container->get(AccountNotificationSender::class),
-            );
-        }
-        if ($requestedName === PlatformRoleService::class) {
-            return new PlatformRoleService(
-                $container->get(PlatformRoleStore::class),
-                $container->get(UuidGenerator::class),
-                $container->get(Clock::class),
-                $container->get(TransactionManager::class),
-            );
-        }
+
+
         if ($requestedName === BearerAuthenticationMiddleware::class) {
             return new BearerAuthenticationMiddleware($container->get(AuthenticationService::class));
         }
@@ -188,17 +163,11 @@ final class IdentityFactory
                 $container->get(AuthenticationRateLimiter::class),
             );
         }
-        if (str_starts_with($requestedName, 'identity.platform-administrators-')) {
-            return new PlatformAdministratorHandler(
-                $container->get(PlatformAdministratorService::class),
-                substr($requestedName, strlen('identity.platform-administrators-')),
-            );
-        }
+
         if (str_starts_with($requestedName, 'identity.')) {
             return new IdentityHandler(
                 $container->get(AuthenticationService::class),
                 substr($requestedName, strlen('identity.')),
-                $config['identity']['expose_development_tokens'],
                 $config['identity']['cookie_secure'],
             );
         }

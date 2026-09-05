@@ -16,13 +16,15 @@ final class StderrJsonLogger extends AbstractLogger
     /** @var Closure(string): void */
     private readonly Closure $writer;
 
-    /** @param null|Closure(string): void $writer */
+    /**
+     * @param null|Closure(string): void $writer */
     public function __construct(?Closure $writer = null)
     {
         $this->writer = $writer ?? Closure::fromCallable(new StderrLineWriter());
     }
 
-    /** @param array<string, mixed> $context */
+    /**
+     * @param array<string, mixed> $context */
     public function log($level, string|Stringable $message, array $context = []): void
     {
         $record = [
@@ -40,7 +42,9 @@ final class StderrJsonLogger extends AbstractLogger
     }
 
     /**
+     *
      * @param array<string, mixed> $context
+     *
      * @return array<string, mixed>
      */
     private function sanitizeContext(array $context): array

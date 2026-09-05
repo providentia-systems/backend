@@ -34,6 +34,9 @@ final class DataGovernanceService
     /** @return array<string, mixed> */
     public function requestAccountErasure(AuthenticatedIdentity $identity): array
     {
+        if ($this->store->isSystemOwner($identity->userId)) {
+            throw new Problem(409, 'Protected account', 'The system owner cannot be erased.');
+        }
         $ownedHomes = $this->store->ownedHomeIds($identity->userId);
         if ($ownedHomes !== []) {
             throw new Problem(

@@ -263,6 +263,7 @@ final class CatalogImportServiceTest extends TestCase
             '01912345-6789-7abc-adef-1123456789ab',
             self::HOME_ID,
             [],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([])
         );
     }
 }

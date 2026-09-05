@@ -9,7 +9,8 @@ namespace Providentia\Synchronization\Application;
  */
 final readonly class SyncOperation
 {
-    /** @param array<string, mixed> $payload */
+    /**
+     * @param array<string, mixed> $payload */
     public function __construct(
         public string $operationId,
         public string $entityType,
@@ -22,7 +23,8 @@ final readonly class SyncOperation
     ) {
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function requestShape(): array
     {
         return [

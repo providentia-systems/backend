@@ -29,7 +29,6 @@ use Symfony\Component\Cache\Adapter\ArrayAdapter;
 final class ContainerTest extends TestCase
 {
     private ContainerInterface $container;
-
     protected function setUp(): void
     {
         putenv('APP_ENV=test');
@@ -40,25 +39,64 @@ final class ContainerTest extends TestCase
 
     public function testExplicitFactoriesCompileTheFoundationObjectGraph(): void
     {
-        self::assertInstanceOf(Application::class, $this->container->get(Application::class));
-        self::assertInstanceOf(Connection::class, $this->container->get(Connection::class));
-        self::assertInstanceOf(EntityManagerInterface::class, $this->container->get(EntityManagerInterface::class));
-        self::assertInstanceOf(Context::class, $this->container->get(Context::class));
-        self::assertInstanceOf(OutboxStore::class, $this->container->get(OutboxStore::class));
-        self::assertInstanceOf(AsyncMessageBus::class, $this->container->get(AsyncMessageBus::class));
-        self::assertInstanceOf(LivenessHandler::class, $this->container->get(LivenessHandler::class));
-        self::assertInstanceOf(MetricsHandler::class, $this->container->get(MetricsHandler::class));
-        self::assertInstanceOf(NotFoundHandler::class, $this->container->get(NotFoundHandler::class));
-        self::assertInstanceOf(AuthenticationService::class, $this->container->get(AuthenticationService::class));
-        foreach (['launch', 'capture', 'review', 'approve', 'deny'] as $action) {
-            self::assertInstanceOf(
-                LoginLinkApprovalHandler::class,
-                $this->container->get('identity.login-link-browser-' . $action),
-            );
-        }
-        self::assertInstanceOf(HomeService::class, $this->container->get(HomeService::class));
-        self::assertInstanceOf(CatalogSeedService::class, $this->container->get(CatalogSeedService::class));
-        self::assertInstanceOf(AiService::class, $this->container->get(AiService::class));
+        self::assertInstanceOf(
+            Application::class,
+            $this->container->get(Application::class),
+        );
+        self::assertInstanceOf(
+            Connection::class,
+            $this->container->get(Connection::class),
+        );
+        self::assertInstanceOf(
+            EntityManagerInterface::class,
+            $this->container->get(EntityManagerInterface::class),
+        );
+        self::assertInstanceOf(
+            Context::class,
+            $this->container->get(Context::class),
+        );
+        self::assertInstanceOf(
+            OutboxStore::class,
+            $this->container->get(OutboxStore::class),
+        );
+        self::assertInstanceOf(
+            AsyncMessageBus::class,
+            $this->container->get(AsyncMessageBus::class),
+        );
+        self::assertInstanceOf(
+            LivenessHandler::class,
+            $this->container->get(LivenessHandler::class),
+        );
+        self::assertInstanceOf(
+            MetricsHandler::class,
+            $this->container->get(MetricsHandler::class),
+        );
+        self::assertInstanceOf(
+            NotFoundHandler::class,
+            $this->container->get(NotFoundHandler::class),
+        );
+        self::assertInstanceOf(
+            AuthenticationService::class,
+            $this->container->get(AuthenticationService::class),
+        );
+        self::assertInstanceOf(
+            \Providentia\Identity\Application\EmailLoginService::class,
+            $this->container->get(
+                \Providentia\Identity\Application\EmailLoginService::class,
+            ),
+        );
+        self::assertInstanceOf(
+            HomeService::class,
+            $this->container->get(HomeService::class),
+        );
+        self::assertInstanceOf(
+            CatalogSeedService::class,
+            $this->container->get(CatalogSeedService::class),
+        );
+        self::assertInstanceOf(
+            AiService::class,
+            $this->container->get(AiService::class),
+        );
         self::assertInstanceOf(
             PrivateMediaService::class,
             $this->container->get(PrivateMediaService::class),
@@ -71,30 +109,39 @@ final class ContainerTest extends TestCase
 
     public function testHeadlessFallbackReturnsProblemDetailsWithoutHtml(): void
     {
-        $response = $this->container->get(NotFoundHandler::class)->handle(
-            new ServerRequest([], [], new Uri('http://127.0.0.1/')),
-        );
-
+        $response = $this->container->get(NotFoundHandler::class)
+            ->handle(
+                new ServerRequest([], [], new Uri('http://127.0.0.1/')),
+            );
         self::assertSame(404, $response->getStatusCode());
-        self::assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
-        self::assertJsonStringEqualsJsonString(json_encode([
-            'type' => 'about:blank',
-            'title' => 'Not Found',
-            'status' => 404,
-            'detail' => 'The requested API resource is unavailable.',
-            'instance' => '/',
-            'requestId' => $response->getHeaderLine('X-Request-Id'),
-        ], JSON_THROW_ON_ERROR), (string) $response->getBody());
+        self::assertSame(
+            'application/problem+json',
+            $response->getHeaderLine('Content-Type'),
+        );
+        self::assertJsonStringEqualsJsonString(
+            json_encode(
+                [
+                    'type' => 'about:blank',
+                    'title' => 'Not Found',
+                    'status' => 404,
+                    'detail' => 'The requested API resource is unavailable.',
+                    'instance' => '/',
+                    'requestId' => $response->getHeaderLine('X-Request-Id'),
+                ],
+                JSON_THROW_ON_ERROR,
+            ),
+            (string) $response->getBody(),
+        );
         self::assertStringNotContainsString('<html', (string) $response->getBody());
     }
 
     public function testEntityManagerUsesAnExplicitProcessLocalCache(): void
     {
         $entityManager = $this->container->get(EntityManagerInterface::class);
-
         self::assertInstanceOf(
             ArrayAdapter::class,
-            $entityManager->getConfiguration()->getMetadataCache(),
+            $entityManager->getConfiguration()
+                ->getMetadataCache(),
         );
     }
 }

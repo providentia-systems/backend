@@ -23,7 +23,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param array<string, mixed> $payload
+     *
      * @return array{id: string, status: string, revision: int}
      */
     public function submit(
@@ -60,7 +62,8 @@ final class CatalogGovernanceService
         return ['id' => $id, 'status' => $status, 'revision' => 1];
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function workbench(
         AuthenticatedIdentity $identity,
         string $queue,
@@ -79,7 +82,8 @@ final class CatalogGovernanceService
         );
     }
 
-    /** @return array{status: string, entityType: string|null, entityId: string|null} */
+    /**
+     * @return array{status: string, entityType: string|null, entityId: string|null} */
     public function decideProposal(
         AuthenticatedIdentity $identity,
         string $proposalId,
@@ -192,7 +196,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param array<string, mixed> $input
+     *
      * @return array{id: string, revision: int}
      */
     public function putIcon(
@@ -254,7 +260,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param list<string> $duplicateIds
+     *
      * @return array<string, mixed>
      */
     public function previewMerge(
@@ -269,7 +277,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param array<string, int> $duplicateRevisions
+     *
      * @return array<string, mixed>
      */
     public function applyMerge(
@@ -310,7 +320,8 @@ final class CatalogGovernanceService
         }
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function reverseMerge(
         AuthenticatedIdentity $identity,
         string $mergeId,
@@ -336,7 +347,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param array<string, mixed> $payload
+     *
      * @return array<string, mixed>
      */
     private function sanitize(string $type, array $payload): array
@@ -374,7 +387,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param array<string, mixed> $payload
+     *
      * @return array{canonicalName: string}
      */
     private function categoryPayload(array $payload): array
@@ -388,7 +403,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param array<string, mixed> $payload
+     *
      * @return array<string, mixed>
      */
     private function productPayload(array $payload): array
@@ -404,7 +421,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param array<string, mixed> $payload
+     *
      * @return array<string, mixed>
      */
     private function packPayload(array $payload): array
@@ -437,7 +456,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param array<string, mixed> $payload
+     *
      * @return array<string, mixed>
      */
     private function aliasPayload(array $payload): array
@@ -459,7 +480,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param array<string, mixed> $payload
+     *
      * @return array<string, mixed>
      */
     private function barcodePayload(array $payload): array
@@ -477,7 +500,8 @@ final class CatalogGovernanceService
         return ['packId' => $packId, 'barcode' => $barcode, 'barcodeType' => $barcodeType];
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * @param array<string, mixed> $payload */
     private function normalizedKey(string $type, array $payload): string
     {
         $value = match ($type) {
@@ -495,7 +519,9 @@ final class CatalogGovernanceService
     }
 
     /**
+     *
      * @param list<string> $duplicateIds
+     *
      * @return list<string>
      */
     private function mergeIds(string $survivorId, array $duplicateIds): array

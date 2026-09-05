@@ -57,7 +57,9 @@ final class CatalogImportService
     }
 
     /**
+     *
      * @param list<mixed> $records
+     *
      * @return array<string, mixed>
      */
     public function stage(
@@ -151,7 +153,8 @@ final class CatalogImportService
         return $batch;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function get(AuthenticatedIdentity $identity, string $homeId, string $batchId): array
     {
         $this->homes->requireImport($identity, $homeId);
@@ -163,7 +166,8 @@ final class CatalogImportService
         return $batch;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function confirm(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -247,7 +251,8 @@ final class CatalogImportService
         return $result;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function stageRow(string $homeId, int $position, mixed $record): array
     {
         if (! is_array($record) || array_is_list($record)) {
@@ -352,8 +357,11 @@ final class CatalogImportService
     }
 
     /**
+     *
      * @param array<string, mixed> $record
+     *
      * @param array<string, mixed> $match
+     *
      * @return array<string, mixed>
      */
     private function resolvedRow(
@@ -421,7 +429,9 @@ final class CatalogImportService
     }
 
     /**
+     *
      * @param array<string, mixed> $record
+     *
      * @return array<string, mixed>
      */
     private function errorRow(int $position, array $record, string $code, string $detail): array
@@ -444,7 +454,8 @@ final class CatalogImportService
         ];
     }
 
-    /** @param array<string, mixed> $record */
+    /**
+     * @param array<string, mixed> $record */
     private function forbiddenField(array $record): ?string
     {
         foreach ($record as $key => $value) {
@@ -475,7 +486,9 @@ final class CatalogImportService
     }
 
     /**
+     *
      * @param array<string, mixed> $record
+     *
      * @return array<string, string>
      */
     private function safePayload(array $record): array

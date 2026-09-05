@@ -90,7 +90,8 @@ final readonly class CatalogGovernanceHandler implements RequestHandlerInterface
         ]);
     }
 
-    /** @param array<string, mixed> $body */
+    /**
+     * @param array<string, mixed> $body */
     private function keepExisting(
         AuthenticatedIdentity $identity,
         ServerRequestInterface $request,
@@ -106,7 +107,8 @@ final readonly class CatalogGovernanceHandler implements RequestHandlerInterface
         return new EmptyResponse(204);
     }
 
-    /** @return list<string> */
+    /**
+     * @return list<string> */
     private function stringList(mixed $value): array
     {
         if (! is_array($value) || ! array_is_list($value)) {
@@ -116,7 +118,8 @@ final readonly class CatalogGovernanceHandler implements RequestHandlerInterface
         return array_values(array_filter($value, 'is_string'));
     }
 
-    /** @return array<string, int> */
+    /**
+     * @return array<string, int> */
     private function revisions(mixed $value): array
     {
         if (! is_array($value) || array_is_list($value)) {

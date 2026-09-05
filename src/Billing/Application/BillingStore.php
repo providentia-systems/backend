@@ -10,10 +10,12 @@ interface BillingStore
 {
     public function homeExists(string $homeId): bool;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function plans(bool $includeInactive): array;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function plan(string $planId): ?array;
 
     public function createPlan(
@@ -35,10 +37,12 @@ interface BillingStore
         DateTimeImmutable $at,
     ): bool;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function prices(string $planId, bool $includeInactive): array;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function price(string $priceId): ?array;
 
     public function createPrice(
@@ -80,7 +84,8 @@ interface BillingStore
         DateTimeImmutable $at,
     ): void;
 
-    /** @return array<string, string> */
+    /**
+     * @return array<string, string> */
     public function entitlements(string $planId): array;
 
     public function createPromotion(
@@ -98,7 +103,8 @@ interface BillingStore
         DateTimeImmutable $at,
     ): void;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function promotion(string $normalizedCode): ?array;
 
     public function createOverride(
@@ -119,10 +125,12 @@ interface BillingStore
         DateTimeImmutable $at,
     ): bool;
 
-    /** @return array<string, string> */
+    /**
+     * @return array<string, string> */
     public function activeOverrides(string $homeId, DateTimeImmutable $at): array;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function subscription(string $homeId): ?array;
 
     public function createCheckoutSession(
@@ -138,7 +146,8 @@ interface BillingStore
         DateTimeImmutable $at,
     ): void;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function checkoutByProviderReference(string $provider, string $providerReference): ?array;
 
     /**
@@ -160,7 +169,8 @@ interface BillingStore
         string $payloadSha256,
     ): void;
 
-    /** @param array<string, mixed> $checkout */
+    /**
+     * @param array<string, mixed> $checkout */
     public function applyWebhook(
         array $checkout,
         HostedCheckoutWebhook $event,

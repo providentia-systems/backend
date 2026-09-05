@@ -32,7 +32,8 @@ final class CatalogContributionService
     ) {
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function consent(AuthenticatedIdentity $identity, string $homeId): array
     {
         $this->homes->requireRead($identity, $homeId);
@@ -47,7 +48,8 @@ final class CatalogContributionService
         ];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function configureConsent(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -112,6 +114,7 @@ final class CatalogContributionService
     }
 
     /**
+     *
      * @param array<string, mixed> $input
      */
     public function submit(
@@ -225,7 +228,8 @@ final class CatalogContributionService
         });
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function contributions(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -237,7 +241,8 @@ final class CatalogContributionService
         return $this->store->contributionsForHome($homeId, min(100, max(1, $limit)), max(0, $offset));
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function reviewQueue(
         AuthenticatedIdentity $identity,
         string $status,
@@ -255,7 +260,8 @@ final class CatalogContributionService
         );
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function published(?string $type, int $limit, int $offset): array
     {
         $type = $type === null || trim($type) === '' ? null : trim($type);
@@ -319,7 +325,8 @@ final class CatalogContributionService
         }
     }
 
-    /** @param array<string, mixed> $consent */
+    /**
+     * @param array<string, mixed> $consent */
     private function allows(array $consent, string $type): bool
     {
         return match ($type) {
@@ -331,7 +338,9 @@ final class CatalogContributionService
     }
 
     /**
+     *
      * @param array<string, mixed> $input
+     *
      * @return array<string, string>
      */
     private function sanitize(string $type, array $input): array
@@ -344,7 +353,9 @@ final class CatalogContributionService
     }
 
     /**
+     *
      * @param array<string, mixed> $input
+     *
      * @return array<string, string>
      */
     private function productIdentity(array $input): array
@@ -372,7 +383,9 @@ final class CatalogContributionService
     }
 
     /**
+     *
      * @param array<string, mixed> $input
+     *
      * @return array<string, string>
      */
     private function storePrice(array $input): array
@@ -414,7 +427,9 @@ final class CatalogContributionService
      * query already omits attribution; this projection prevents a future
      * store implementation from accidentally returning it.
      *
+     *
      * @param array<string, mixed> $row
+     *
      * @return array<string, mixed>
      */
     private function reviewProjection(array $row): array
@@ -464,7 +479,9 @@ final class CatalogContributionService
     }
 
     /**
+     *
      * @param array<string, mixed> $row
+     *
      * @return array{contributionType: string, payload: array<string, string>, publishedAt: string}
      */
     private function publishedProjection(array $row): array
@@ -493,6 +510,7 @@ final class CatalogContributionService
     }
 
     /**
+     *
      * @return array<string, string>
      */
     private function publishedPayload(string $type, mixed $payload): array
@@ -538,7 +556,8 @@ final class CatalogContributionService
         return $projected;
     }
 
-    /** @param array<string, mixed> $details */
+    /**
+     * @param array<string, mixed> $details */
     private function recordAudit(
         AuthenticatedIdentity $identity,
         string $action,

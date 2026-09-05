@@ -71,6 +71,8 @@ final class CurrentUserServiceTest extends TestCase
             $store,
             $homes,
             new IdentityFixedClock(new DateTimeImmutable('2026-08-09T12:00:00+00:00')),
+            \ProvidentiaTest\Support\AccessFixture::profile(),
+            \ProvidentiaTest\Support\AccessFixture::profileEmails()
         );
 
         $result = $service->bootstrap($this->identity());
@@ -96,6 +98,8 @@ final class CurrentUserServiceTest extends TestCase
             $store,
             $this->createStub(HomeStore::class),
             new IdentityFixedClock(new DateTimeImmutable('2026-08-09T12:00:00+00:00')),
+            \ProvidentiaTest\Support\AccessFixture::profile(),
+            \ProvidentiaTest\Support\AccessFixture::profileEmails()
         );
 
         $this->expectException(Problem::class);
@@ -110,6 +114,7 @@ final class CurrentUserServiceTest extends TestCase
             '01912345-6789-7abc-cdef-0123456789ab',
             self::STALE_HOME_ID,
             ['platform_administrator'],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions(['platform_administrator'])
         );
     }
 }

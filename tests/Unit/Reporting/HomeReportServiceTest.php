@@ -22,7 +22,6 @@ final class HomeReportServiceTest extends TestCase
 {
     private const HOME_ID = '01912345-6789-7abc-8def-0123456789ab';
     private const USER_ID = '01912345-6789-7abc-9def-0123456789ab';
-
     public function testPurchaseTotalsRemainSeparatedByCurrencyAndAreAudited(): void
     {
         $purchases = $this->createMock(PurchaseAnalyticsReader::class);
@@ -30,14 +29,20 @@ final class HomeReportServiceTest extends TestCase
             ->method('purchaseFacts')
             ->with(
                 self::HOME_ID,
-                self::callback(static fn (DateTimeImmutable $date): bool => $date->format('Y-m-d') === '2026-07-01'),
-                self::callback(static fn (DateTimeImmutable $date): bool => $date->format('Y-m-d') === '2026-07-31'),
+                self::callback(
+                    static fn(DateTimeImmutable $date): bool => $date->format('Y-m-d') === '2026-07-01',
+                ),
+                self::callback(
+                    static fn(DateTimeImmutable $date): bool => $date->format('Y-m-d') === '2026-07-31',
+                ),
             )
-            ->willReturn([
+            ->willReturn(
+                [
                 $this->purchase('NAD', '10.25'),
                 $this->purchase('NAD', '2.25'),
                 $this->purchase('ZAR', '99.00'),
-            ]);
+                ],
+            );
         $audit = $this->createMock(HomeAuditRecorder::class);
         $audit->expects(self::once())
             ->method('recordAudit')
@@ -51,16 +56,22 @@ final class HomeReportServiceTest extends TestCase
                 self::stringContains('"from":"2026-07-01"'),
                 self::isInstanceOf(DateTimeImmutable::class),
             );
-
-        $report = $this->service($this->homeStore(HomeAuthorization::VIEWER), $purchases, $audit)->report(
-            $this->identity(),
-            self::HOME_ID,
-            'purchases',
-            '2026-07-01',
-            '2026-07-31',
+        $report = $this->service(
+            $this->homeStore(HomeAuthorization::VIEWER),
+            $purchases,
+            $audit,
+        )
+            ->report(
+                $this->identity(),
+                self::HOME_ID,
+                'purchases',
+                '2026-07-01',
+                '2026-07-31',
+            );
+        self::assertSame(
+            'totals-are-never-combined-across-currencies',
+            $report['currencyPolicy'],
         );
-
-        self::assertSame('totals-are-never-combined-across-currencies', $report['currencyPolicy']);
         self::assertCount(2, $report['data']);
         self::assertSame('NAD', $report['data'][0]['currency']);
         self::assertSame('12.5', $report['data'][0]['total']);
@@ -72,26 +83,31 @@ final class HomeReportServiceTest extends TestCase
     public function testInvalidCalendarDateIsRejectedBeforeReadingFacts(): void
     {
         $purchases = $this->createMock(PurchaseAnalyticsReader::class);
-        $purchases->expects(self::never())->method('purchaseFacts');
-
+        $purchases->expects(self::never())
+            ->method('purchaseFacts');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('valid range');
-        $this->service($this->homeStore(HomeAuthorization::MEMBER), $purchases)->report(
-            $this->identity(),
-            self::HOME_ID,
-            'purchases',
-            '2026-02-30',
-            '2026-03-31',
-        );
+        $this->service(
+            $this->homeStore(HomeAuthorization::MEMBER),
+            $purchases,
+        )
+            ->report(
+                $this->identity(),
+                self::HOME_ID,
+                'purchases',
+                '2026-02-30',
+                '2026-03-31',
+            );
     }
 
     public function testPlatformRoleWithoutMembershipCannotReadAHomeReport(): void
     {
         $homes = $this->createStub(HomeStore::class);
-        $homes->method('membership')->willReturn(null);
+        $homes->method('membership')
+            ->willReturn(null);
         $inventory = $this->createMock(InventoryAnalyticsReader::class);
-        $inventory->expects(self::never())->method('inventoryReport');
-
+        $inventory->expects(self::never())
+            ->method('inventoryReport');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('requested resource is unavailable');
         $this->service(
@@ -99,33 +115,59 @@ final class HomeReportServiceTest extends TestCase
             $this->createStub(PurchaseAnalyticsReader::class),
             null,
             $inventory,
-        )->report(
-            new AuthenticatedIdentity(self::USER_ID, 'session', 'device', null, ['catalog_reviewer']),
-            self::HOME_ID,
-            'inventory',
-            null,
-            null,
-        );
+        )
+            ->report(
+                new AuthenticatedIdentity(
+                    self::USER_ID,
+                    'session',
+                    'device',
+                    null,
+                    ['catalog_reviewer'],
+                    \ProvidentiaTest\Support\AccessFixture::administratorPermissions(['catalog_reviewer']),
+                ),
+                self::HOME_ID,
+                'inventory',
+                null,
+                null,
+            );
     }
 
     public function testSuggestionReportPreservesUnavailableEvidenceForTheClient(): void
     {
         $intelligence = $this->createStub(ShoppingIntelligenceReader::class);
-        $intelligence->method('latestSuggestions')->willReturn([
-            ['homeProductId' => 'product-1', 'evidenceStatus' => 'unavailable'],
-        ]);
-        $intelligence->method('latestPriceComparisons')->willReturn([]);
-
+        $intelligence->method('latestSuggestions')
+            ->willReturn(
+                [
+                [
+                    'homeProductId' => 'product-1',
+                    'evidenceStatus' => 'unavailable',
+                ],
+                ],
+            );
+        $intelligence->method('latestPriceComparisons')
+            ->willReturn([]);
         $report = $this->service(
             $this->homeStore(HomeAuthorization::MEMBER),
             $this->createStub(PurchaseAnalyticsReader::class),
             null,
             null,
             $intelligence,
-        )->report($this->identity(), self::HOME_ID, 'suggestions', null, null);
-
-        self::assertSame('forecast-not-ledger-fact', $report['quantitySemantics']);
-        self::assertSame('unavailable', $report['data'][0]['evidenceStatus']);
+        )
+            ->report(
+                $this->identity(),
+                self::HOME_ID,
+                'suggestions',
+                null,
+                null,
+            );
+        self::assertSame(
+            'forecast-not-ledger-fact',
+            $report['quantitySemantics'],
+        );
+        self::assertSame(
+            'unavailable',
+            $report['data'][0]['evidenceStatus'],
+        );
     }
 
     private function service(
@@ -136,12 +178,18 @@ final class HomeReportServiceTest extends TestCase
         ?ShoppingIntelligenceReader $intelligence = null,
     ): HomeReportService {
         $clock = $this->createStub(Clock::class);
-        $clock->method('now')->willReturn(new DateTimeImmutable('2026-08-04T12:00:00+00:00'));
+        $clock->method('now')
+            ->willReturn(
+                new DateTimeImmutable('2026-08-04T12:00:00+00:00'),
+            );
         $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturn('01912345-6789-7abc-adef-0123456789ab');
-
+        $ids->method('generate')
+            ->willReturn('01912345-6789-7abc-adef-0123456789ab');
         return new HomeReportService(
-            new HomeAuthorization($homes),
+            new HomeAuthorization(
+                $homes,
+                \ProvidentiaTest\Support\AccessFixture::create(),
+            ),
             $inventory ?? $this->createStub(InventoryAnalyticsReader::class),
             $purchases,
             $intelligence ?? $this->createStub(ShoppingIntelligenceReader::class),
@@ -154,15 +202,18 @@ final class HomeReportServiceTest extends TestCase
     private function homeStore(string $role): HomeStore
     {
         $homes = $this->createStub(HomeStore::class);
-        $homes->method('membership')->willReturn(['status' => 'active', 'role' => $role]);
-        $homes->method('permissionDecision')->willReturn(null);
-
+        $homes->method('membership')
+            ->willReturn(['status' => 'active', 'role' => $role]);
+        $homes->method('permissionDecision')
+            ->willReturn(null);
         return $homes;
     }
 
     /** @return array<string, mixed> */
-    private function purchase(string $currency, string $total): array
-    {
+    private function purchase(
+        string $currency,
+        string $total,
+    ): array {
         return [
             'purchaseDate' => '2026-07-15',
             'currency' => $currency,
@@ -174,6 +225,13 @@ final class HomeReportServiceTest extends TestCase
 
     private function identity(): AuthenticatedIdentity
     {
-        return new AuthenticatedIdentity(self::USER_ID, 'session', 'device', self::HOME_ID, []);
+        return new AuthenticatedIdentity(
+            self::USER_ID,
+            'session',
+            'device',
+            self::HOME_ID,
+            [],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([]),
+        );
     }
 }

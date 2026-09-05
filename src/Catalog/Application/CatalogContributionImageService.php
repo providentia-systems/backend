@@ -195,7 +195,8 @@ final class CatalogContributionImageService
         return $this->contentFromEncrypted($contributionId, $row, false);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function publish(
         AuthenticatedIdentity $identity,
         string $contributionId,
@@ -340,7 +341,9 @@ final class CatalogContributionImageService
     }
 
     /**
+     *
      * @param array<string, mixed>|null $source
+     *
      * @return array<string, mixed>
      */
     private function requirePublishableSource(?array $source, int $expectedRevision): array
@@ -361,7 +364,8 @@ final class CatalogContributionImageService
         return $source;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function exactPublicationReplay(
         string $contributionId,
         string $productId,
@@ -389,7 +393,8 @@ final class CatalogContributionImageService
         return $publication;
     }
 
-    /** @param array<string, mixed> $row */
+    /**
+     * @param array<string, mixed> $row */
     private function contentFromEncrypted(
         string $identity,
         array $row,

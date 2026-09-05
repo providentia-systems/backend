@@ -63,7 +63,8 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
         return $actor;
     }
 
-    /** @return array<string, string> */
+    /**
+     * @return array<string, string> */
     private function queries(): array
     {
         $missing = static fn (string $type): string =>
@@ -159,7 +160,8 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
         ];
     }
 
-    /** @param array<string, mixed> $row */
+    /**
+     * @param array<string, mixed> $row */
     private function record(string $entityType, array $row): SyncBackfillRecord
     {
         $representation = match ($entityType) {

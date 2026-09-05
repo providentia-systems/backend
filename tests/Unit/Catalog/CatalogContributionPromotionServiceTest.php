@@ -279,6 +279,7 @@ final class CatalogContributionPromotionServiceTest extends TestCase
             '01991f22-6b2f-7e30-8ef6-4f62cc89a008',
             null,
             [CatalogAuthorization::CURATOR],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([CatalogAuthorization::CURATOR])
         );
     }
 }

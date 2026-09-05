@@ -84,7 +84,9 @@ final class BillingFactory
     }
 
     /**
+     *
      * @param array<string, mixed> $billing
+     *
      * @return list<string>
      */
     private function enabledProviderNames(array $billing): array
@@ -100,7 +102,9 @@ final class BillingFactory
     }
 
     /**
+     *
      * @param array<string, mixed> $billing
+     *
      * @return list<HostedCheckoutGateway>
      */
     private function gateways(ContainerInterface $container, array $billing): array
@@ -125,7 +129,9 @@ final class BillingFactory
     }
 
     /**
+     *
      * @param array<string, mixed> $billing
+     *
      * @return array<string, array<string, mixed>>
      */
     private function providerConfiguration(array $billing): array
@@ -148,7 +154,8 @@ final class BillingFactory
         return $result;
     }
 
-    /** @param array<string, mixed> $billing */
+    /**
+     * @param array<string, mixed> $billing */
     private function paypal(ContainerInterface $container, array $billing): PayPalHostedCheckoutAdapter
     {
         $provider = $this->providerConfiguration($billing)['paypal'] ?? [];
@@ -165,7 +172,8 @@ final class BillingFactory
         );
     }
 
-    /** @param array<string, mixed> $billing */
+    /**
+     * @param array<string, mixed> $billing */
     private function hostedCard(
         ContainerInterface $container,
         array $billing,
@@ -189,7 +197,9 @@ final class BillingFactory
     }
 
     /**
+     *
      * @param array<string, mixed> $billing
+     *
      * @return list<string>
      */
     private function allowedHosts(array $billing): array
@@ -209,7 +219,8 @@ final class BillingFactory
         return array_values(array_unique($hosts));
     }
 
-    /** @return list<string> */
+    /**
+     * @return list<string> */
     private function stringList(mixed $value): array
     {
         if (! is_array($value)) {

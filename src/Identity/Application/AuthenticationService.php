@@ -8,7 +8,6 @@ use DateInterval;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\SecureTokenGenerator;
-use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 
 final class AuthenticationService
@@ -16,10 +15,8 @@ final class AuthenticationService
     public function __construct(
         private readonly IdentityStore $store,
         private readonly CredentialHasher $hasher,
-        private readonly AccountNotificationSender $notifications,
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
-        private readonly TransactionManager $transactions,
         private readonly SecureTokenGenerator $tokens,
         private readonly int $accessTtlSeconds,
         private readonly int $refreshTtlSeconds,
@@ -29,15 +26,22 @@ final class AuthenticationService
     ) {
     }
 
-    public function consumeStepUp(AuthenticatedIdentity $identity, string $token, string $action): void
-    {
+    public function consumeStepUp(
+        AuthenticatedIdentity $identity,
+        string $token,
+        string $action,
+    ): void {
         $userId = $this->store->consumeOneTimeToken(
             $this->stepUpPurpose($action, LoginApplicationKind::HOMEOWNER),
             $this->hasher->hashToken($identity->sessionId . ':' . $token),
             $this->clock->now(),
         );
-        if ($userId === null || ! hash_equals($identity->userId, $userId)) {
-            throw new Problem(422, 'Invalid step-up proof', 'The confirmation proof is invalid or expired.');
+        if ($userId === null || !hash_equals($identity->userId, $userId)) {
+            throw new Problem(
+                422,
+                'Invalid step-up proof',
+                'The confirmation proof is invalid or expired.',
+            );
         }
     }
 
@@ -61,32 +65,37 @@ final class AuthenticationService
     public function refresh(string $refreshToken): array
     {
         $now = $this->clock->now();
-        $session = $this->store->findSessionByRefreshHash(
-            $this->hasher->hashToken($refreshToken),
-            $now,
-        );
+        $session = $this->store->findSessionByRefreshHash($this->hasher->hashToken($refreshToken), $now);
         if ($session === null) {
             if ($this->store->revokeRefreshReplay($this->hasher->hashToken($refreshToken), $now)) {
                 throw new Problem(
                     401,
                     'Credential replay detected',
-                    'The device session was revoked because a rotated refresh credential was reused.',
+                    ('The device session was revoked because a rotated refresh credential was '
+                        . 'reused.'),
                 );
             }
-            throw new Problem(401, 'Authentication failed', 'The refresh credential is invalid or expired.');
+            throw new Problem(
+                401,
+                'Authentication failed',
+                'The refresh credential is invalid or expired.',
+            );
         }
-
         $accessToken = $this->tokens->generate();
         $nextRefreshToken = $this->tokens->generate();
         $csrfToken = $this->tokens->generate();
-        $accessExpiry = $now->add(new DateInterval('PT' . $this->accessTtlSeconds . 'S'));
+        $accessExpiry = $now->add(
+            new DateInterval('PT' . $this->accessTtlSeconds . 'S'),
+        );
         $transport = (string) ($session['transport'] ?? 'native');
         $transportMaximum = $transport === 'web'
             ? $this->webIdleTtlSeconds
             : $this->nativeIdleTtlSeconds;
         $storedIdleTtl = (int) ($session['refresh_idle_ttl_seconds'] ?? $this->refreshTtlSeconds);
         if ($transportMaximum === 0) {
-            $refreshIdleTtl = $storedIdleTtl === 0 ? 0 : max(900, $storedIdleTtl);
+            $refreshIdleTtl = $storedIdleTtl === 0
+                ? 0
+                : max(900, $storedIdleTtl);
         } elseif ($storedIdleTtl === 0) {
             $refreshIdleTtl = $transportMaximum;
         } else {
@@ -105,14 +114,13 @@ final class AuthenticationService
             $refreshExpiry,
             $now,
         );
-        if (! $rotated) {
+        if (!$rotated) {
             throw new Problem(
                 401,
                 'Credential replay detected',
                 'A concurrent refresh was detected and the device session was revoked.',
             );
         }
-
         return [
             'accessToken' => $accessToken,
             'refreshToken' => $nextRefreshToken,
@@ -120,8 +128,12 @@ final class AuthenticationService
             'accessExpiresAt' => $accessExpiry->format(DATE_ATOM),
             'refreshExpiresAt' => $refreshExpiry?->format(DATE_ATOM),
             'idleExpiresAt' => $refreshExpiry?->format(DATE_ATOM),
-            'refreshIdleTtlSeconds' => $refreshIdleTtl === 0 ? null : $refreshIdleTtl,
-            'transport' => $transport === 'web' ? 'web' : 'native',
+            'refreshIdleTtlSeconds' => $refreshIdleTtl === 0
+                ? null
+                : $refreshIdleTtl,
+            'transport' => $transport === 'web'
+                ? 'web'
+                : 'native',
             'activeHomeId' => ($session['active_home_id'] ?? null) === null
                 ? null
                 : (string) $session['active_home_id'],
@@ -139,26 +151,36 @@ final class AuthenticationService
             $this->clock->now(),
         );
         if ($session === null) {
-            throw new Problem(401, 'Authentication required', 'A valid access credential is required.');
+            throw new Problem(
+                401,
+                'Authentication required',
+                'A valid access credential is required.',
+            );
         }
-
         return new AuthenticatedIdentity(
             (string) $session['user_id'],
             (string) $session['id'],
             (string) $session['device_id'],
-            $session['active_home_id'] === null ? null : (string) $session['active_home_id'],
+            $session['active_home_id'] === null
+                ? null
+                : (string) $session['active_home_id'],
             [],
-            array_keys(array_filter($this->access->effective('admin', (string) $session['user_id'])['features'], static fn (mixed $enabled): bool => $enabled === true)),
+            array_keys(
+                array_filter(
+                    $this->access->effective('admin', (string) $session['user_id'])['features'],
+                    static fn(mixed $enabled): bool => $enabled === true,
+                ),
+            ),
         );
     }
 
     /** @return list<array<string, mixed>> */
-    public function listSessions(AuthenticatedIdentity $identity): array
-    {
+    public function listSessions(
+        AuthenticatedIdentity $identity,
+    ): array {
         return array_map(
             static function (array $session) use ($identity): array {
                 $session['current'] = (string) ($session['id'] ?? '') === $identity->sessionId;
-
                 return $session;
             },
             $this->store->listSessions($identity->userId),
@@ -187,19 +209,32 @@ final class AuthenticationService
         );
     }
 
-    public function revokeSession(AuthenticatedIdentity $identity, string $sessionId): void
-    {
-        if (! $this->store->revokeSession($identity->userId, $sessionId, $this->clock->now())) {
-            throw new Problem(404, 'Not found', 'The requested session is unavailable.');
+    public function revokeSession(
+        AuthenticatedIdentity $identity,
+        string $sessionId,
+    ): void {
+        if (
+            !$this->store->revokeSession(
+                $identity->userId,
+                $sessionId,
+                $this->clock->now(),
+            )
+        ) {
+            throw new Problem(
+                404,
+                'Not found',
+                'The requested session is unavailable.',
+            );
         }
     }
 
-    public function revokeSessionByRefreshProof(string $refreshToken, string $csrfToken): bool
-    {
+    public function revokeSessionByRefreshProof(
+        string $refreshToken,
+        string $csrfToken,
+    ): bool {
         if ($refreshToken === '' || $csrfToken === '') {
             return false;
         }
-
         return $this->store->revokeSessionByRefreshProof(
             $this->hasher->hashToken($refreshToken),
             $this->hasher->hashToken($csrfToken),
@@ -212,17 +247,20 @@ final class AuthenticationService
         if ($refreshToken === '') {
             return false;
         }
-
         return $this->store->revokeSessionByRefreshHash(
             $this->hasher->hashToken($refreshToken),
             $this->clock->now(),
         );
     }
 
-    public function verifyCsrf(AuthenticatedIdentity $identity, string $token): bool
-    {
-        return $token !== ''
-            && $this->store->verifyCsrf($identity->sessionId, $this->hasher->hashToken($token));
+    public function verifyCsrf(
+        AuthenticatedIdentity $identity,
+        string $token,
+    ): bool {
+        return $token !== '' && $this->store->verifyCsrf(
+            $identity->sessionId,
+            $this->hasher->hashToken($token),
+        );
     }
 
     /**
@@ -256,15 +294,23 @@ final class AuthenticationService
         $now = $this->clock->now();
         $accessToken = $this->tokens->generate();
         $refreshToken = $this->tokens->generate();
-        $accessExpiry = $now->add(new DateInterval('PT' . $this->accessTtlSeconds . 'S'));
+        $accessExpiry = $now->add(
+            new DateInterval('PT' . $this->accessTtlSeconds . 'S'),
+        );
         $refreshIdleTtlSeconds = $this->requestedIdleTtl($transport, $refreshIdleTtlSeconds);
         $refreshExpiry = $refreshIdleTtlSeconds === 0
             ? null
-            : $now->add(new DateInterval('PT' . $refreshIdleTtlSeconds . 'S'));
+            : $now->add(
+                new DateInterval('PT' . $refreshIdleTtlSeconds . 'S'),
+            );
         $sessionId = $this->ids->generate();
         $csrfToken = $this->tokens->generate();
-        $storedDeviceName = $deviceName === '' ? 'Unnamed device' : mb_substr($deviceName, 0, 120);
-        $storedPlatform = $platform === '' ? 'unknown' : mb_substr($platform, 0, 40);
+        $storedDeviceName = $deviceName === ''
+            ? 'Unnamed device'
+            : mb_substr($deviceName, 0, 120);
+        $storedPlatform = $platform === ''
+            ? 'unknown'
+            : mb_substr($platform, 0, 40);
         $accessHash = $this->hasher->hashToken($accessToken);
         $refreshHash = $this->hasher->hashToken($refreshToken);
         $csrfHash = $this->hasher->hashToken($csrfToken);
@@ -285,7 +331,6 @@ final class AuthenticationService
             $installationId,
             $activeHomeId,
         );
-
         return [
             'accessToken' => $accessToken,
             'refreshToken' => $refreshToken,
@@ -293,7 +338,9 @@ final class AuthenticationService
             'accessExpiresAt' => $accessExpiry->format(DATE_ATOM),
             'refreshExpiresAt' => $refreshExpiry?->format(DATE_ATOM),
             'idleExpiresAt' => $refreshExpiry?->format(DATE_ATOM),
-            'refreshIdleTtlSeconds' => $refreshIdleTtlSeconds === 0 ? null : $refreshIdleTtlSeconds,
+            'refreshIdleTtlSeconds' => $refreshIdleTtlSeconds === 0
+                ? null
+                : $refreshIdleTtlSeconds,
             'transport' => $transport,
             'activeHomeId' => $activeHomeId,
             'sessionId' => $sessionId,
@@ -303,12 +350,13 @@ final class AuthenticationService
         ];
     }
 
-    private function accountScopedDeviceId(string $userId, string $installationId): string
-    {
-        $hex = hash('sha256', $userId . "\0" . $installationId);
-        $hex = substr($hex, 0, 12) . '8' . substr($hex, 13, 3)
-            . dechex((hexdec($hex[16]) & 0x3) | 0x8) . substr($hex, 17, 15);
-
+    private function accountScopedDeviceId(
+        string $userId,
+        string $installationId,
+    ): string {
+        $hex = hash('sha256', $userId . "\x00" . $installationId);
+        $hex = substr($hex, 0, 12) . '8' . substr($hex, 13, 3) . dechex(hexdec($hex[16]) & 0x3 | 0x8)
+            . substr($hex, 17, 15);
         return sprintf(
             '%s-%s-%s-%s-%s',
             substr($hex, 0, 8),
@@ -322,16 +370,23 @@ final class AuthenticationService
     private function normalizeTransport(string $transport): string
     {
         $transport = mb_strtolower(trim($transport));
-        if (! in_array($transport, ['web', 'native'], true)) {
-            throw new Problem(422, 'Validation failed', 'Transport must be web or native.');
+        if (!in_array($transport, ['web', 'native'], true)) {
+            throw new Problem(
+                422,
+                'Validation failed',
+                'Transport must be web or native.',
+            );
         }
-
         return $transport;
     }
 
-    private function requestedIdleTtl(string $transport, ?int $requested): int
-    {
-        $maximum = $transport === 'web' ? $this->webIdleTtlSeconds : $this->nativeIdleTtlSeconds;
+    private function requestedIdleTtl(
+        string $transport,
+        ?int $requested,
+    ): int {
+        $maximum = $transport === 'web'
+            ? $this->webIdleTtlSeconds
+            : $this->nativeIdleTtlSeconds;
         if ($requested === null || $requested === 0) {
             return $maximum;
         }
@@ -342,24 +397,36 @@ final class AuthenticationService
                 'Requested session idle time must be between 900 and 5184000 seconds.',
             );
         }
-
-        return $maximum === 0 ? $requested : min($requested, $maximum);
+        return $maximum === 0
+            ? $requested
+            : min($requested, $maximum);
     }
 
-    private function stepUpPurpose(string $action, LoginApplicationKind $application): string
-    {
+    private function stepUpPurpose(
+        string $action,
+        LoginApplicationKind $application,
+    ): string {
         if ($action !== 'ownership-transfer') {
-            throw new Problem(422, 'Validation failed', 'The requested step-up action is not supported.');
+            throw new Problem(
+                422,
+                'Validation failed',
+                'The requested step-up action is not supported.',
+            );
         }
         if ($application !== LoginApplicationKind::HOMEOWNER) {
-            throw new Problem(422, 'Validation failed', 'The requested action is not available in that application.');
+            throw new Problem(
+                422,
+                'Validation failed',
+                'The requested action is not available in that application.',
+            );
         }
-
         return $this->oneTimePurpose('step-up-ownership', $application);
     }
 
-    private function oneTimePurpose(string $purpose, LoginApplicationKind $application): string
-    {
+    private function oneTimePurpose(
+        string $purpose,
+        LoginApplicationKind $application,
+    ): string {
         return $purpose . ':' . $application->value;
     }
 }

@@ -15,16 +15,11 @@ final class HomeInvitationAuthorityTest extends TestCase
     private const HOME_ID = '01912345-6789-7abc-8def-0123456789ab';
     private const INVITER_ID = '01912345-6789-7abc-9def-0123456789ab';
     private const INVITEE_ID = '01912345-6789-7abc-adef-0123456789ab';
-
     private Connection $connection;
     private DbalHomeStore $store;
-
     protected function setUp(): void
     {
-        $this->connection = DriverManager::getConnection([
-            'driver' => 'pdo_sqlite',
-            'memory' => true,
-        ]);
+        $this->connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         $this->connection->executeStatement(
             'CREATE TABLE home_memberships (
                 home_id VARCHAR(36) NOT NULL,
@@ -75,46 +70,54 @@ final class HomeInvitationAuthorityTest extends TestCase
                 PRIMARY KEY (home_id, role, permission)
             )',
         );
-        $this->connection->insert('home_memberships', [
-            'home_id' => self::HOME_ID,
-            'user_id' => self::INVITER_ID,
-            'role' => 'manager',
-            'status' => 'active',
-            'revision' => 1,
-            'joined_at' => '2026-07-30 10:00:00',
-            'left_at' => null,
-            'updated_at' => '2026-07-30 10:00:00',
-        ]);
-        $this->connection->insert('home_invitations', [
-            'id' => '01912345-6789-7abc-bdef-0123456789ab',
-            'home_id' => self::HOME_ID,
-            'inviter_user_id' => self::INVITER_ID,
-            'normalized_email' => 'invitee@example.test',
-            'role' => 'manager',
-            'token_hash' => str_repeat('a', 64),
-            'status' => 'pending',
-            'expires_at' => '2026-08-01 12:00:00',
-            'accepted_by_user_id' => null,
-            'accepted_at' => null,
-            'revoked_at' => null,
-            'revoked_by_user_id' => null,
-            'revision' => 1,
-            'created_at' => '2026-07-30 10:00:00',
-            'updated_at' => '2026-07-30 10:00:00',
-        ]);
+        $this->connection->insert(
+            'home_memberships',
+            [
+                'home_id' => self::HOME_ID,
+                'user_id' => self::INVITER_ID,
+                'role' => 'manager',
+                'status' => 'active',
+                'revision' => 1,
+                'joined_at' => '2026-07-30 10:00:00',
+                'left_at' => null,
+                'updated_at' => '2026-07-30 10:00:00',
+            ],
+        );
+        $this->connection->insert(
+            'home_invitations',
+            [
+                'id' => '01912345-6789-7abc-bdef-0123456789ab',
+                'home_id' => self::HOME_ID,
+                'inviter_user_id' => self::INVITER_ID,
+                'normalized_email' => 'invitee@example.test',
+                'role' => 'manager',
+                'token_hash' => str_repeat('a', 64),
+                'status' => 'pending',
+                'expires_at' => '2026-08-01 12:00:00',
+                'accepted_by_user_id' => null,
+                'accepted_at' => null,
+                'revoked_at' => null,
+                'revoked_by_user_id' => null,
+                'revision' => 1,
+                'created_at' => '2026-07-30 10:00:00',
+                'updated_at' => '2026-07-30 10:00:00',
+            ],
+        );
+        $this->connection->executeStatement(
+            'CREATE TABLE user_emails (user_id VARCHAR(36), normalized_email VARCHAR(254))',
+        );
+        $this->connection->insert(
+            'user_emails',
+            [
+                'user_id' => self::INVITEE_ID,
+                'normalized_email' => 'invitee@example.test',
+            ],
+        );
         $this->store = new DbalHomeStore($this->connection);
     }
 
-    public function testAcceptanceRechecksTheInvitersCurrentGrantCeiling(): void
+    public function testAcceptanceResolvesTheVerifiedRecipientAndCreatesOneMembership(): void
     {
-        $denied = $this->store->acceptInvitation(
-            str_repeat('a', 64),
-            self::INVITEE_ID,
-            'invitee@example.test',
-            new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
-        );
-        self::assertNull($denied);
-
         $this->connection->update(
             'home_invitations',
             ['role' => 'member'],
@@ -126,9 +129,10 @@ final class HomeInvitationAuthorityTest extends TestCase
             'invitee@example.test',
             new DateTimeImmutable('2026-07-30T12:01:00+00:00'),
         );
-
         if ($accepted === null) {
-            self::fail('A manager was unable to grant an ordinary member role.');
+            self::fail(
+                'A manager was unable to grant an ordinary member role.',
+            );
         }
         self::assertSame('member', $accepted['role']);
         self::assertSame(
@@ -136,7 +140,12 @@ final class HomeInvitationAuthorityTest extends TestCase
             (int) $this->connection->fetchOne(
                 'SELECT COUNT(*) FROM home_memberships
                  WHERE home_id = ? AND user_id = ? AND role = ? AND status = ?',
-                [self::HOME_ID, self::INVITEE_ID, 'member', 'active'],
+                [
+                    self::HOME_ID,
+                    self::INVITEE_ID,
+                    'member',
+                    'active',
+                ],
             ),
         );
     }
@@ -146,16 +155,17 @@ final class HomeInvitationAuthorityTest extends TestCase
         $this->connection->update(
             'home_memberships',
             ['status' => 'left', 'role' => 'owner'],
-            ['home_id' => self::HOME_ID, 'user_id' => self::INVITER_ID],
+            [
+                'home_id' => self::HOME_ID,
+                'user_id' => self::INVITER_ID,
+            ],
         );
-
         $result = $this->store->acceptInvitation(
             str_repeat('a', 64),
             self::INVITEE_ID,
             'invitee@example.test',
             new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
         );
-
         self::assertNull($result);
         self::assertSame(
             'pending',

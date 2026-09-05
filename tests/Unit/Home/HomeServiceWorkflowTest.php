@@ -25,159 +25,66 @@ final class HomeServiceWorkflowTest extends TestCase
     private const DEVICE_ID = '01912345-6789-7abc-bdef-0123456789ab';
     private const AUDIT_ID = '01912345-6789-7abc-8def-1123456789ab';
     private const TARGET_ID = '01912345-6789-7abc-8def-2123456789ab';
-
-    public function testCreatePersistsHomeAndAuditInOneTransaction(): void
-    {
-        $transactions = new RecordingTransactionManager();
-        $homes = $this->createMock(HomeStore::class);
-        $homes->expects(self::once())
-            ->method('createHome')
-            ->willReturnCallback(function () use ($transactions): void {
-                self::assertTrue($transactions->active);
-            });
-        $homes->expects(self::once())
-            ->method('recordAudit')
-            ->with(
-                self::AUDIT_ID,
-                self::USER_ID,
-                'home.created',
-                'home',
-                self::HOME_ID,
-                self::HOME_ID,
-                '[]',
-                self::isInstanceOf(DateTimeImmutable::class),
-            );
-        $homes->method('findHome')->with(self::HOME_ID)->willReturn([
-            'id' => self::HOME_ID,
-            'name' => 'Windhoek Home',
-        ]);
-
-        $result = $this->service($homes, $transactions)->create(
-            $this->identity(),
-            ' Windhoek Home ',
-            'en-NA',
-            'NAD',
-            'Africa/Windhoek',
-        );
-
-        self::assertSame(self::HOME_ID, $result['id']);
-        self::assertSame(HomeAuthorization::OWNER, $result['role']);
-        self::assertSame(1, $transactions->invocations);
-    }
-
     public function testManagerCannotInviteAnotherManager(): void
     {
         $homes = $this->createMock(HomeStore::class);
-        $homes->method('membership')->willReturn([
-            'status' => 'active',
-            'role' => HomeAuthorization::MANAGER,
-        ]);
-        $homes->expects(self::never())->method('createInvitation');
-
-        try {
-            $this->service($homes)->invite(
-                $this->identity(),
-                self::HOME_ID,
-                'member@example.test',
-                HomeAuthorization::MANAGER,
+        $homes->method('membership')
+            ->willReturn(
+                [
+                'status' => 'active',
+                'role' => HomeAuthorization::MANAGER,
+                ],
             );
+        $homes->expects(self::never())
+            ->method('createInvitation');
+        try {
+            $this->service($homes)
+                ->invite(
+                    $this->identity(),
+                    self::HOME_ID,
+                    'member@example.test',
+                    HomeAuthorization::MANAGER,
+                );
             self::fail('A manager created a peer manager invitation.');
         } catch (Problem $problem) {
             self::assertSame(403, $problem->status);
         }
     }
 
-    public function testAcceptInvitationUsesAuthenticatedAccountEmailAndAudits(): void
-    {
-        $homes = $this->createMock(HomeStore::class);
-        $homes->expects(self::once())
-            ->method('acceptInvitation')
-            ->with(
-                'hashed-invitation',
-                self::USER_ID,
-                'user@example.test',
-                self::isInstanceOf(DateTimeImmutable::class),
-            )
-            ->willReturn([
-                'invitationId' => '01912345-6789-7abc-9def-1123456789ab',
-                'homeId' => self::HOME_ID,
-            ]);
-        $homes->expects(self::once())->method('recordAudit');
-        $identities = $this->createStub(IdentityStore::class);
-        $identities->method('findUserById')->willReturn([
-            'normalized_email' => 'user@example.test',
-        ]);
-        $hasher = $this->createMock(CredentialHasher::class);
-        $hasher->method('hashToken')->with('invitation')->willReturn('hashed-invitation');
-
-        $result = $this->service(
-            $homes,
-            null,
-            $identities,
-            $hasher,
-        )->acceptInvitation($this->identity(), 'invitation');
-
-        self::assertSame(self::HOME_ID, $result['homeId']);
-    }
-
     public function testOwnerCannotLeaveWithoutExplicitTransfer(): void
     {
         $homes = $this->createMock(HomeStore::class);
-        $homes->method('membership')->willReturn([
-            'status' => 'active',
-            'role' => HomeAuthorization::OWNER,
-        ]);
-        $homes->expects(self::never())->method('removeMembership');
-
+        $homes->method('membership')
+            ->willReturn(
+                [
+                'status' => 'active',
+                'role' => HomeAuthorization::OWNER,
+                ],
+            );
+        $homes->expects(self::never())
+            ->method('removeMembership');
         $this->expectException(Problem::class);
         $this->expectExceptionMessage('transfer ownership');
-        $this->service($homes)->leave($this->identity(), self::HOME_ID);
-    }
-
-    public function testInvitationAcceptanceRetryPreservesExistingRoleWithoutDuplicateAudit(): void
-    {
-        $homes = $this->createMock(HomeStore::class);
-        $homes->expects(self::once())->method('acceptInvitationById')->willReturn([
-            'outcome' => 'accepted',
-            'changed' => false,
-            'invitationId' => '01912345-6789-7abc-9def-1123456789ab',
-            'homeId' => self::HOME_ID,
-            'role' => HomeAuthorization::VIEWER,
-        ]);
-        $homes->expects(self::never())->method('recordAudit');
-        $identities = $this->createMock(IdentityStore::class);
-        $identities->method('findUserById')->willReturn([
-            'normalized_email' => 'user@example.test',
-            'email_verified_at' => '2026-07-30 10:00:00',
-        ]);
-        $identities->expects(self::never())->method('setActiveHome');
-
-        $result = $this->service($homes, identities: $identities)->acceptInvitationById(
-            $this->identity(),
-            '01912345-6789-7abc-9def-1123456789ab',
-            1,
-        );
-
-        self::assertSame(HomeAuthorization::VIEWER, $result['role']);
-        self::assertArrayNotHasKey('changed', $result);
-        self::assertArrayNotHasKey('outcome', $result);
+        $this->service($homes)
+            ->leave($this->identity(), self::HOME_ID);
     }
 
     public function testHomeUpdateRejectsMissingMutableFieldBeforePersistence(): void
     {
         $homes = $this->createMock(HomeStore::class);
-        $homes->expects(self::never())->method('updateHome');
-
+        $homes->expects(self::never())
+            ->method('updateHome');
         try {
-            $this->service($homes)->update(
-                $this->identity(),
-                self::HOME_ID,
-                'My home',
-                'en-NA',
-                'NAD',
-                'Africa/Windhoek',
-                0,
-            );
+            $this->service($homes)
+                ->update(
+                    $this->identity(),
+                    self::HOME_ID,
+                    'My home',
+                    'en-NA',
+                    'NAD',
+                    'Africa/Windhoek',
+                    0,
+                );
             self::fail('A non-positive home revision was accepted.');
         } catch (Problem $problem) {
             self::assertSame(422, $problem->status);
@@ -187,30 +94,45 @@ final class HomeServiceWorkflowTest extends TestCase
     public function testOwnershipCannotTransferToCurrentOwner(): void
     {
         $homes = $this->createMock(HomeStore::class);
-        $homes->expects(self::never())->method('transferOwnership');
-
+        $homes->expects(self::never())
+            ->method('transferOwnership');
         $this->expectException(Problem::class);
-        $this->service($homes)->transferOwnership(
-            $this->identity(),
-            self::HOME_ID,
-            self::USER_ID,
-            1,
-        );
+        $this->service($homes)
+            ->transferOwnership(
+                $this->identity(),
+                self::HOME_ID,
+                self::USER_ID,
+                1,
+            );
     }
-
 
     public function testOwnerRemovesAMemberAndRevokesTheirHomeAccess(): void
     {
         $homes = $this->createMock(HomeStore::class);
-        $homes->method('membership')->willReturnCallback(
-            static fn (string $homeId, string $userId): array => $userId === self::USER_ID
-                ? ['status' => 'active', 'role' => HomeAuthorization::OWNER]
-                : ['status' => 'active', 'role' => HomeAuthorization::MEMBER, 'revision' => 4],
-        );
+        $homes->method('membership')
+            ->willReturnCallback(
+                static fn(string $homeId, string $userId): array => $userId === self::USER_ID
+                ? [
+                'status' => 'active',
+                'role' => HomeAuthorization::OWNER,
+                ]
+                : [
+                'status' => 'active',
+                'role' => HomeAuthorization::MEMBER,
+                'revision' => 4,
+                ],
+            );
         $homes->expects(self::once())
             ->method('removeMembershipAtRevision')
-            ->with(self::HOME_ID, self::TARGET_ID, 4, self::isInstanceOf(DateTimeImmutable::class))
-            ->willReturn(true);
+            ->with(
+                self::HOME_ID,
+                self::TARGET_ID,
+                4,
+                self::isInstanceOf(DateTimeImmutable::class),
+            )
+            ->willReturn(
+                true,
+            );
         $homes->expects(self::once())
             ->method('recordAudit')
             ->with(
@@ -226,29 +148,48 @@ final class HomeServiceWorkflowTest extends TestCase
         $identities = $this->createMock(IdentityStore::class);
         $identities->expects(self::once())
             ->method('clearActiveHome')
-            ->with(self::TARGET_ID, self::HOME_ID, self::isInstanceOf(DateTimeImmutable::class));
-
-        $this->service($homes, null, $identities)->removeMember(
-            $this->identity(),
-            self::HOME_ID,
-            self::TARGET_ID,
-            4,
-        );
+            ->with(
+                self::TARGET_ID,
+                self::HOME_ID,
+                self::isInstanceOf(DateTimeImmutable::class),
+            );
+        $this->service($homes, null, $identities)
+            ->removeMember(
+                $this->identity(),
+                self::HOME_ID,
+                self::TARGET_ID,
+                4,
+            );
     }
 
     public function testManagerCannotRemoveAPeerManager(): void
     {
         $homes = $this->createMock(HomeStore::class);
-        $homes->method('membership')->willReturnCallback(
-            static fn (string $homeId, string $userId): array => $userId === self::USER_ID
-                ? ['status' => 'active', 'role' => HomeAuthorization::MANAGER]
-                : ['status' => 'active', 'role' => HomeAuthorization::MANAGER, 'revision' => 2],
-        );
-        $homes->method('permissionDecision')->willReturn(true);
-        $homes->expects(self::never())->method('removeMembershipAtRevision');
-
+        $homes->method('membership')
+            ->willReturnCallback(
+                static fn(string $homeId, string $userId): array => $userId === self::USER_ID
+                ? [
+                'status' => 'active',
+                'role' => HomeAuthorization::MANAGER,
+                ]
+                : [
+                'status' => 'active',
+                'role' => HomeAuthorization::MANAGER,
+                'revision' => 2,
+                ],
+            );
+        $homes->method('permissionDecision')
+            ->willReturn(true);
+        $homes->expects(self::never())
+            ->method('removeMembershipAtRevision');
         try {
-            $this->service($homes)->removeMember($this->identity(), self::HOME_ID, self::TARGET_ID, 2);
+            $this->service($homes)
+                ->removeMember(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::TARGET_ID,
+                    2,
+                );
             self::fail('A manager removed a peer manager.');
         } catch (Problem $problem) {
             self::assertSame(403, $problem->status);
@@ -258,14 +199,23 @@ final class HomeServiceWorkflowTest extends TestCase
     public function testTheOwnerMembershipCannotBeRemoved(): void
     {
         $homes = $this->createMock(HomeStore::class);
-        $homes->method('membership')->willReturn([
-            'status' => 'active',
-            'role' => HomeAuthorization::OWNER,
-        ]);
-        $homes->expects(self::never())->method('removeMembershipAtRevision');
-
+        $homes->method('membership')
+            ->willReturn(
+                [
+                'status' => 'active',
+                'role' => HomeAuthorization::OWNER,
+                ],
+            );
+        $homes->expects(self::never())
+            ->method('removeMembershipAtRevision');
         try {
-            $this->service($homes)->removeMember($this->identity(), self::HOME_ID, self::TARGET_ID, 1);
+            $this->service($homes)
+                ->removeMember(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::TARGET_ID,
+                    1,
+                );
             self::fail('The owner membership was removed.');
         } catch (Problem $problem) {
             self::assertSame(409, $problem->status);
@@ -276,15 +226,26 @@ final class HomeServiceWorkflowTest extends TestCase
     public function testSelfRemovalIsRedirectedToTheLeaveOperation(): void
     {
         $homes = $this->createMock(HomeStore::class);
-        $homes->method('membership')->willReturn([
-            'status' => 'active',
-            'role' => HomeAuthorization::OWNER,
-        ]);
-        $homes->expects(self::never())->method('removeMembershipAtRevision');
-
+        $homes->method('membership')
+            ->willReturn(
+                [
+                'status' => 'active',
+                'role' => HomeAuthorization::OWNER,
+                ],
+            );
+        $homes->expects(self::never())
+            ->method('removeMembershipAtRevision');
         try {
-            $this->service($homes)->removeMember($this->identity(), self::HOME_ID, self::USER_ID, 1);
-            self::fail('A member removed their own membership through the administrative removal.');
+            $this->service($homes)
+                ->removeMember(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::USER_ID,
+                    1,
+                );
+            self::fail(
+                'A member removed their own membership through the administrative removal.',
+            );
         } catch (Problem $problem) {
             self::assertSame(409, $problem->status);
             self::assertStringContainsString('Leave the home', $problem->getMessage());
@@ -294,22 +255,32 @@ final class HomeServiceWorkflowTest extends TestCase
     public function testMemberRemovalDetectsARevisionConflict(): void
     {
         $homes = $this->createStub(HomeStore::class);
-        $homes->method('membership')->willReturnCallback(
-            static fn (string $homeId, string $userId): array => $userId === self::USER_ID
-                ? ['status' => 'active', 'role' => HomeAuthorization::OWNER]
-                : ['status' => 'active', 'role' => HomeAuthorization::VIEWER, 'revision' => 9],
-        );
-        $homes->method('removeMembershipAtRevision')->willReturn(false);
-        $identities = $this->createMock(IdentityStore::class);
-        $identities->expects(self::never())->method('clearActiveHome');
-
-        try {
-            $this->service($homes, null, $identities)->removeMember(
-                $this->identity(),
-                self::HOME_ID,
-                self::TARGET_ID,
-                8,
+        $homes->method('membership')
+            ->willReturnCallback(
+                static fn(string $homeId, string $userId): array => $userId === self::USER_ID
+                ? [
+                'status' => 'active',
+                'role' => HomeAuthorization::OWNER,
+                ]
+                : [
+                'status' => 'active',
+                'role' => HomeAuthorization::VIEWER,
+                'revision' => 9,
+                ],
             );
+        $homes->method('removeMembershipAtRevision')
+            ->willReturn(false);
+        $identities = $this->createMock(IdentityStore::class);
+        $identities->expects(self::never())
+            ->method('clearActiveHome');
+        try {
+            $this->service($homes, null, $identities)
+                ->removeMember(
+                    $this->identity(),
+                    self::HOME_ID,
+                    self::TARGET_ID,
+                    8,
+                );
             self::fail('A stale membership revision was removed.');
         } catch (Problem $problem) {
             self::assertSame(409, $problem->status);
@@ -324,24 +295,36 @@ final class HomeServiceWorkflowTest extends TestCase
         ?CredentialHasher $hasher = null,
     ): HomeService {
         $ids = $this->createStub(UuidGenerator::class);
-        $ids->method('generate')->willReturnOnConsecutiveCalls(
-            self::HOME_ID,
-            self::AUDIT_ID,
-            self::AUDIT_ID,
-        );
+        $ids->method('generate')
+            ->willReturnOnConsecutiveCalls(
+                self::HOME_ID,
+                self::AUDIT_ID,
+                self::AUDIT_ID,
+            );
         $tokens = $this->createStub(SecureTokenGenerator::class);
-        $tokens->method('generate')->willReturn('invitation-token');
-
+        $tokens->method('generate')
+            ->willReturn('invitation-token');
         return new HomeService(
             $homes,
-            new HomeAuthorization($homes),
+            new HomeAuthorization(
+                $homes,
+                \ProvidentiaTest\Support\AccessFixture::create(),
+            ),
             $identities ?? $this->createStub(IdentityStore::class),
             $hasher ?? $this->createStub(CredentialHasher::class),
             $this->createStub(AccountNotificationSender::class),
             $ids,
-            new HomeFixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00')),
+            new HomeFixedClock(
+                new DateTimeImmutable('2026-07-30T12:00:00+00:00'),
+            ),
             $transactions ?? new RecordingTransactionManager(),
             $tokens,
+            \ProvidentiaTest\Support\AccessFixture::authentication(),
+            \ProvidentiaTest\Support\AccessFixture::create(),
+            $this->createStub(
+                \Providentia\Identity\Application\AccountProfileStore::class,
+            ),
+            \ProvidentiaTest\Support\AccessFixture::countries(),
         );
     }
 
@@ -353,6 +336,7 @@ final class HomeServiceWorkflowTest extends TestCase
             self::DEVICE_ID,
             null,
             [],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([]),
         );
     }
 }

@@ -11,7 +11,8 @@ final class AiProviderRegistry
     /** @var array<string, AiProvider> */
     private array $providers = [];
 
-    /** @param iterable<AiProvider> $providers */
+    /**
+     * @param iterable<AiProvider> $providers */
     public function __construct(iterable $providers)
     {
         foreach ($providers as $provider) {
@@ -28,7 +29,8 @@ final class AiProviderRegistry
         return $this->providers[$id] ?? null;
     }
 
-    /** @return list<array{id: string, requiresCredential: bool}> */
+    /**
+     * @return list<array{id: string, requiresCredential: bool}> */
     public function available(): array
     {
         return array_values(array_map(

@@ -188,7 +188,8 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
         };
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function approveReceiptLine(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -206,7 +207,8 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
         return ['id' => $command->entityId];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function checkShoppingLine(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -224,7 +226,8 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
         return ['id' => $command->entityId];
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * @param array<string, mixed> $payload */
     private function string(array $payload, string $field): string
     {
         $value = $payload[$field] ?? null;
@@ -235,7 +238,8 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
         return $value;
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * @param array<string, mixed> $payload */
     private function nullableString(array $payload, string $field): ?string
     {
         $value = $payload[$field] ?? null;
@@ -246,7 +250,8 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
         return $value;
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * @param array<string, mixed> $payload */
     private function boolean(array $payload, string $field): bool
     {
         $value = $payload[$field] ?? null;

@@ -41,7 +41,7 @@ final class PantrySyncCommandDispatcherTest extends TestCase
             'status' => 'active',
             'role' => HomeAuthorization::MEMBER,
         ]);
-        $authorization = new HomeAuthorization($homeStore);
+        $authorization = new HomeAuthorization($homeStore, \ProvidentiaTest\Support\AccessFixture::create());
         $clock = new FixedClock(new DateTimeImmutable('2026-08-04T12:00:00+00:00'));
         $transactions = new PantryImmediateTransactionManager();
         $ids = $this->createStub(UuidGenerator::class);
@@ -51,6 +51,8 @@ final class PantrySyncCommandDispatcherTest extends TestCase
             $ids,
             $clock,
             $transactions,
+            null,
+            \ProvidentiaTest\Support\AccessFixture::create()
         );
         $purchasing = new PurchasingService(
             $this->createStub(PurchasingStore::class),
@@ -101,6 +103,7 @@ final class PantrySyncCommandDispatcherTest extends TestCase
                 self::DEVICE_ID,
                 self::HOME_ID,
                 [],
+                \ProvidentiaTest\Support\AccessFixture::administratorPermissions([])
             ),
             self::HOME_ID,
             new SyncCommand(
@@ -388,7 +391,7 @@ final class PantrySyncCommandDispatcherTest extends TestCase
             'status' => 'active',
             'role' => HomeAuthorization::MEMBER,
         ]);
-        $authorization = new HomeAuthorization($homeStore);
+        $authorization = new HomeAuthorization($homeStore, \ProvidentiaTest\Support\AccessFixture::create());
         $clock = new FixedClock(new DateTimeImmutable('2026-08-04T12:00:00+00:00'));
         $transactions = new PantryImmediateTransactionManager();
         $ids ??= $this->createStub(UuidGenerator::class);
@@ -398,6 +401,8 @@ final class PantrySyncCommandDispatcherTest extends TestCase
             $ids,
             $clock,
             $transactions,
+            null,
+            \ProvidentiaTest\Support\AccessFixture::create()
         );
         $purchasing = new PurchasingService(
             $purchasingStore,
@@ -427,6 +432,7 @@ final class PantrySyncCommandDispatcherTest extends TestCase
             self::DEVICE_ID,
             self::HOME_ID,
             [],
+            \ProvidentiaTest\Support\AccessFixture::administratorPermissions([])
         );
     }
 }

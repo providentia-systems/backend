@@ -24,7 +24,9 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
     }
 
     /**
+     *
      * @param array<string, mixed> $payload
+     *
      * @return array<string, mixed>|null
      */
     public function conflictFor(string $type, string $normalizedKey, array $payload): ?array
@@ -272,7 +274,9 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
     }
 
     /**
+     *
      * @param array<string, mixed> $proposal
+     *
      * @return array{entityType: string, entityId: string}
      */
     public function publishProposal(
@@ -1111,7 +1115,8 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         }
     }
 
-    /** @return array<string, array{table: string}> */
+    /**
+     * @return array<string, array{table: string}> */
     private function referenceDefinitions(): array
     {
         return [
@@ -1183,7 +1188,8 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         );
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     private function productIdentity(string $id): ?array
     {
         return $this->one(
@@ -1225,7 +1231,9 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
     }
 
     /**
+     *
      * @param array<string, mixed>|null $before
+     *
      * @param array<string, mixed> $after
      */
     private function recordRevision(
@@ -1262,7 +1270,8 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         );
     }
 
-    /** @param array<string, mixed> $details */
+    /**
+     * @param array<string, mixed> $details */
     private function audit(
         string $id,
         string $actorUserId,
@@ -1285,7 +1294,9 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
     }
 
     /**
+     *
      * @param array<string, mixed> $parameters
+     *
      * @return array<string, mixed>|null
      */
     private function one(string $sql, array $parameters): ?array
@@ -1295,7 +1306,8 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         return $row === false ? null : $row;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function decode(string $value): array
     {
         $decoded = json_decode($value, true, 64, JSON_THROW_ON_ERROR);
@@ -1303,7 +1315,8 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
         return is_array($decoded) && ! array_is_list($decoded) ? $decoded : [];
     }
 
-    /** @return list<string> */
+    /**
+     * @return list<string> */
     private function decodeList(string $value): array
     {
         $decoded = json_decode($value, true, 32, JSON_THROW_ON_ERROR);

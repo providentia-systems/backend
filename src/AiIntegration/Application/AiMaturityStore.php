@@ -14,14 +14,17 @@ interface AiMaturityStore
      * only that person's own private profiles. A null viewer returns only the
      * home-shared profiles so a caller can never widen visibility by accident.
      *
+     *
      * @return list<array<string, mixed>>
      */
     public function providerProfiles(string $homeId, ?string $visibleToUserId = null): array;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function providerProfile(string $homeId, string $profileId): ?array;
 
-    /** @param array<string, mixed> $profile */
+    /**
+     * @param array<string, mixed> $profile */
     public function saveProviderProfile(array $profile, int $expectedRevision, DateTimeImmutable $at): bool;
 
     public function revokeProviderProfile(
@@ -45,10 +48,12 @@ interface AiMaturityStore
         DateTimeImmutable $at,
     ): bool;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function orchestrationPolicy(string $homeId): ?array;
 
-    /** @param list<string> $extractionProfileIds */
+    /**
+     * @param list<string> $extractionProfileIds */
     public function saveOrchestrationPolicy(
         string $homeId,
         array $extractionProfileIds,
@@ -61,7 +66,8 @@ interface AiMaturityStore
         DateTimeImmutable $at,
     ): bool;
 
-    /** @param array<string, mixed> $attempt */
+    /**
+     * @param array<string, mixed> $attempt */
     public function appendExtractionAttempt(
         string $extractionId,
         int $position,
@@ -70,7 +76,8 @@ interface AiMaturityStore
         DateTimeImmutable $at,
     ): void;
 
-    /** @param list<array<string, mixed>> $discrepancies */
+    /**
+     * @param list<array<string, mixed>> $discrepancies */
     public function appendExtractionDiscrepancies(
         string $extractionId,
         int $observationIndex,
@@ -104,7 +111,8 @@ interface AiMaturityStore
 
     public function releaseMediaBytes(string $homeId, int $bytes, DateTimeImmutable $at): void;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function activeMediaByDigest(string $homeId, string $sha256): ?array;
 
     public function insertMediaWithinQuota(
@@ -125,13 +133,16 @@ interface AiMaturityStore
         DateTimeImmutable $at,
     ): bool;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function media(string $homeId, string $assetId): ?array;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function listMedia(string $homeId, int $limit, ?string $beforeId = null): array;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function derivedMedia(string $homeId, string $sourceAssetId): array;
 
     public function markMediaDeleted(string $homeId, string $assetId, DateTimeImmutable $at): bool;
@@ -160,7 +171,8 @@ interface AiMaturityStore
         DateTimeImmutable $at,
     ): void;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function claimQueuedVideo(DateTimeImmutable $at): ?array;
 
     public function finishVideo(
@@ -171,10 +183,12 @@ interface AiMaturityStore
         DateTimeImmutable $at,
     ): void;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function expiredMedia(DateTimeImmutable $at, int $limit): array;
 
-    /** @param array<string, mixed> $evidence */
+    /**
+     * @param array<string, mixed> $evidence */
     public function recordObservationDecision(
         string $id,
         string $homeId,
@@ -187,7 +201,8 @@ interface AiMaturityStore
         DateTimeImmutable $at,
     ): void;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function observationDecisions(string $homeId, string $extractionId): array;
 
     public function hasPendingObservationDecisions(string $homeId, string $extractionId): bool;
