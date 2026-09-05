@@ -1,0 +1,72 @@
+name: Development toolchain bundle
+on:
+  push:
+    branches: ['agent/complete-platform-access']
+    paths: ['.github/workflows/development-toolchains.yml']
+permissions:
+  contents: read
+jobs:
+  php:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: gd, intl, json, mbstring, pdo_sqlite, pdo_mysql, redis
+          coverage: pcov
+          tools: composer:2.10.2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Bundle public runtime and locked dependencies
+        run: |
+          python3 - <<'PY'
+          import pathlib, shutil, subprocess, re
+          dest = pathlib.Path('portable-php')
+          (dest/'lib').mkdir(parents=True)
+          (dest/'extensions').mkdir()
+          exe = pathlib.Path(shutil.which('php')).resolve()
+          shutil.copy2(exe, dest/'php')
+          extensions = pathlib.Path(subprocess.check_output(['php','-r','echo ini_get("extension_dir");'], text=True))
+          binaries = [exe]
+          for ext in extensions.glob('*.so'):
+              shutil.copy2(ext, dest/'extensions'/ext.name)
+              binaries.append(ext)
+          for binary in binaries:
+              output = subprocess.run(['ldd',str(binary)],capture_output=True,text=True).stdout
+              for library in re.findall(r'(/[\w./+\-]+)', output):
+                  path = pathlib.Path(library)
+                  if path.is_file(): shutil.copy2(path,dest/'lib'/path.name)
+          shutil.copytree('vendor', dest/'vendor')
+          shutil.copy2(shutil.which('composer'),dest/'composer')
+          shutil.copytree('/etc/php/8.5/cli', dest/'configuration')
+          PY
+          tar -czf portable-php.tar.gz portable-php
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: portable-php
+          path: portable-php.tar.gz
+          retention-days: 1
+          compression-level: 0
+  flutter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Prepare the pinned Flutter SDK and public dependencies
+        run: |
+          git clone --depth 1 --branch 3.44.7 https://github.com/flutter/flutter.git flutter
+          export PATH="$PWD/flutter/bin:$PATH"
+          export PUB_CACHE="$PWD/pub-cache"
+          flutter config --no-analytics --enable-linux-desktop
+          flutter precache --linux
+          git clone --depth 1 https://github.com/providentia-systems/client.git client
+          git clone --depth 1 https://github.com/providentia-systems/admin.git admin
+          (cd client && flutter pub get)
+          (cd admin && flutter pub get)
+          tar --exclude='flutter/.git' -czf portable-flutter.tar.gz flutter pub-cache
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: portable-flutter
+          path: portable-flutter.tar.gz
+          retention-days: 1
+          compression-level: 0
