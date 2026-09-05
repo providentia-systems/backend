@@ -104,6 +104,8 @@ interface HomeStore extends HomeAuditRecorder
         DateTimeImmutable $at,
     ): array;
 
+    public function declineInvitation(string $invitationId, string $userId, int $revision, DateTimeImmutable $at): bool;
+
     public function changeMembershipRole(
         string $homeId,
         string $userId,

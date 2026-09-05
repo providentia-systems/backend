@@ -51,7 +51,6 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
             'left_at' => null,
             'updated_at' => $date,
         ]);
-        $this->createDefaultPermissionPolicies($id, $ownerUserId, $at);
     }
 
     public function updateHome(
@@ -380,11 +379,11 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
     ): ?array {
         $invitation = $this->one(
             'SELECT id, home_id, inviter_user_id, role, revision FROM home_invitations
-             WHERE token_hash = :hash AND normalized_email = :email
+             WHERE token_hash = :hash AND normalized_email IN (SELECT normalized_email FROM user_emails WHERE user_id = :invitee)
                AND status = :status AND expires_at > :now',
             [
                 'hash' => $tokenHash,
-                'email' => $normalizedEmail,
+                'invitee' => $userId,
                 'status' => 'pending',
                 'now' => $this->date($at),
             ],
@@ -490,12 +489,10 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
              FROM home_invitations WHERE id = :id',
             ['id' => $invitationId],
         );
-        if (
-            $invitation === null || ! hash_equals(
-                (string) $invitation['normalized_email'],
-                $normalizedEmail,
-            )
-        ) {
+        if ($invitation === null || ! $this->connection->fetchOne(
+            'SELECT id FROM user_emails WHERE user_id = ? AND normalized_email = ?',
+            [$userId, $invitation['normalized_email']],
+        )) {
             return ['outcome' => 'not-found'];
         }
         if (
@@ -551,6 +548,16 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         }
 
         return ['outcome' => 'accepted', 'changed' => true] + $result;
+    }
+
+    public function declineInvitation(string $invitationId, string $userId, int $revision, DateTimeImmutable $at): bool
+    {
+        return $this->connection->executeStatement(
+            "UPDATE home_invitations SET status = 'declined', revision = revision + 1, updated_at = :at
+             WHERE id = :id AND status = 'pending' AND revision = :revision
+               AND normalized_email IN (SELECT normalized_email FROM user_emails WHERE user_id = :user)",
+            ['id' => $invitationId, 'user' => $userId, 'revision' => $revision, 'at' => $this->date($at)],
+        ) === 1;
     }
 
     public function changeMembershipRole(

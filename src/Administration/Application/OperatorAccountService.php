@@ -31,6 +31,7 @@ final class OperatorAccountService
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
+        private readonly \Providentia\Identity\Application\AccountProfileStore $profiles,
     ) {
     }
 
@@ -42,7 +43,7 @@ final class OperatorAccountService
         int $limit,
         int $offset,
     ): array {
-        $this->requireAdministrator($identity);
+        $this->requireAdministrator($identity, 'accounts.read');
         $search = trim($search);
         if (mb_strlen($search) > 191) {
             throw new Problem(422, 'Validation failed', 'Account search must not exceed 191 characters.');
@@ -86,7 +87,7 @@ final class OperatorAccountService
     /** @return array<string, mixed> */
     public function get(AuthenticatedIdentity $identity, string $userId): array
     {
-        $this->requireAdministrator($identity);
+        $this->requireAdministrator($identity, 'accounts.read');
         $account = $this->identities->operatorAccount($userId, $this->clock->now());
         if ($account === null) {
             throw new Problem(404, 'Not found', 'The account is unavailable.');
@@ -119,7 +120,10 @@ final class OperatorAccountService
         string $reason,
         int $expectedRevision,
     ): array {
-        $this->requireAdministrator($identity);
+        $this->requireAdministrator($identity, 'accounts.manage');
+        if ($this->profiles->isSystemOwner($userId) && $status !== 'active') {
+            throw new Problem(409, 'System owner protected', 'The system owner account cannot be suspended or closed.');
+        }
         if (! in_array($status, ['active', 'suspended', 'closed'], true)) {
             throw new Problem(422, 'Validation failed', 'Account status must be active, suspended, or closed.');
         }
@@ -184,9 +188,9 @@ final class OperatorAccountService
         return $this->get($identity, $userId);
     }
 
-    private function requireAdministrator(AuthenticatedIdentity $identity): void
+    private function requireAdministrator(AuthenticatedIdentity $identity, string $permission): void
     {
-        if (! in_array(PlatformRoleService::ADMINISTRATOR, $identity->platformRoles, true)) {
+        if (! in_array($permission, $identity->administratorPermissions, true)) {
             throw new Problem(403, 'Forbidden', 'Platform-administrator authority is required.');
         }
     }

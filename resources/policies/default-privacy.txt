@@ -1,0 +1,21 @@
+Providentia privacy notice — initial service policy
+
+Providentia is a household stock-management service operated by Vast Development Method Trading Pty Ltd. The operator contact shown in the application is available for questions and requests about your information.
+
+We store your account details, verified email addresses, profile preferences, home memberships, home settings and the inventory, categories, products, quantities, purchasing and shopping information you choose to enter. Optional profile pictures and home images are stored so they are available on your devices. A precise home location is optional.
+
+We use this information to provide and secure the service, synchronize your devices, administer access, investigate problems and understand product use so we can improve Providentia. The system owner and specifically authorized staff can inspect application records for these purposes. Staff access is controlled through administrator permissions and recorded in audit history. Using Providentia does not mean that your records are inaccessible to the service operator.
+
+Other households cannot browse your home. Its members receive the access your home owners grant within the available features. Publishing product information to the shared catalog is a separate, optional choice. It does not publish your home's stock quantities or private storage locations. The application explains and asks for confirmation of the information proposed for sharing.
+
+Email delivery providers process addresses and verification messages to deliver login and account notifications. AI processing is optional and requires the applicable feature and your explicit action. The application identifies the selected provider and the information being sent. AI service providers process submitted information under their own terms. AI suggestions require your review before stock or purchasing records are committed.
+
+Receipt and stock-intake images may be retained on your device under your control. Temporary server processing or provider transmission is disclosed by the selected workflow. You may delete locally retained images; doing so does not remove stock records you already confirmed. Gravatar lookup and map services, when selected, contact their respective external services. You may use a default avatar and omit a precise location instead.
+
+We retain operational records while needed to provide the service. Account and home data controls allow you to request an export or erasure subject to authorization, ownership obligations and applicable retention requirements. Security and audit records may be retained as needed to prevent abuse or meet obligations. The operator provides its current retention and service-provider information through the published policy and contact details.
+
+You can correct your profile, add and verify an email address, change the primary address, and remove an address while retaining at least one verified address. You can review and revoke signed-in devices. Optional sharing choices can be changed in the application.
+
+We use access controls, protected transport and security safeguards to protect information. No service can promise absolute security. Please protect your email account and devices because email verification controls access to your Providentia account.
+
+The application records the country and published version of this notice you acknowledge. Material changes are published as a new version and presented for acknowledgment. Optional consent choices are recorded separately from this notice. Contact the operator for questions, correction requests, complaints or assistance exercising applicable rights.

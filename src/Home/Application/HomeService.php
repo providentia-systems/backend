@@ -6,6 +6,10 @@ namespace Providentia\Home\Application;
 
 use DateInterval;
 use DateTimeZone;
+use Providentia\Access\Application\AccessService;
+use Providentia\Access\Domain\FeatureCatalog;
+use Providentia\Identity\Application\AccountProfileStore;
+use Providentia\Geography\Application\CountryService;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Application\AccountNotificationSender;
 use Providentia\Identity\Application\AuthenticationService;
@@ -29,7 +33,10 @@ final class HomeService
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
         private readonly SecureTokenGenerator $tokens,
-        private readonly ?AuthenticationService $authentication = null,
+        private readonly AuthenticationService $authentication,
+        private readonly AccessService $access,
+        private readonly AccountProfileStore $profiles,
+        private readonly CountryService $countries,
     ) {
     }
 
@@ -59,6 +66,12 @@ final class HomeService
             $timezone,
             $now,
         ): void {
+            if (! $this->access->allows(FeatureCatalog::ACCOUNT, $identity->userId, 'homes.create')) {
+                throw new Problem(403, 'Home creation unavailable', 'Your account group does not permit creating a home.');
+            }
+            $this->access->requireCapacity(FeatureCatalog::ACCOUNT, $identity->userId, 'homes.owned');
+            $profile = $this->profiles->profile($identity->userId);
+            $country = $this->countries->published((string) ($profile['country_code'] ?? ''));
             $this->homes->createHome(
                 $id,
                 $identity->userId,
@@ -68,6 +81,7 @@ final class HomeService
                 $timezone,
                 $now,
             );
+$this->access->initialize(FeatureCatalog::HOME, $id, (string) $country['home_group_id']);
             $this->audit($identity, 'home.created', 'home', $id, $id, [], $now);
         });
 
@@ -164,6 +178,8 @@ final class HomeService
         }
 
         $home['role'] = (string) $membership['role'];
+        $home['access'] = $this->access->effective(FeatureCatalog::HOME, $homeId);
+        $home['effectivePermissions'] = $this->authorization->effectivePermissions($identity, $homeId);
 
         return $home;
     }
@@ -197,7 +213,7 @@ final class HomeService
             $policy = $persisted[$role] ?? [
                 'role' => $role,
                 'revision' => 0,
-                'permissions' => HomePermission::defaultsForRole($role),
+                'permissions' => $role === HomeAuthorization::OWNER ? HomePermission::all() : ($this->access->effective(FeatureCatalog::HOME, $homeId)['rolePermissions'][$role] ?? []),
             ];
             $result[] = [
                 ...$policy,
@@ -246,6 +262,19 @@ final class HomeService
             }
         }
 
+        $delegable = $this->access->effective(FeatureCatalog::HOME, $homeId)['delegablePermissions'];
+        $priorPermissions = $this->access->effective(FeatureCatalog::HOME, $homeId)['rolePermissions'][$role] ?? [];
+        foreach ($this->homes->permissionPolicies($homeId) as $policy) {
+            if ($policy['role'] === $role) {
+                $priorPermissions = $policy['permissions'];
+            }
+        }
+        foreach (HomePermission::all() as $permission) {
+            if (in_array($permission, $permissions, true) !== in_array($permission, $priorPermissions, true)
+                && ! in_array($permission, $delegable, true)) {
+                throw new Problem(403, 'Delegation unavailable', 'Your home group does not permit changing ' . $permission . '.');
+            }
+        }
         $now = $this->clock->now();
         $this->transactions->transactional(function () use (
             $identity,
@@ -327,6 +356,8 @@ final class HomeService
             ) {
                 throw new Problem(403, 'Forbidden', 'Only an owner can create a manager membership.');
             }
+            $this->access->requireCapacity(FeatureCatalog::HOME, $homeId, 'members.total');
+            $this->access->requireCapacity(FeatureCatalog::HOME, $homeId, $role === HomeAuthorization::MANAGER ? 'members.managers' : 'members.members');
             $this->homes->createInvitation(
                 $id,
                 $homeId,
@@ -362,43 +393,6 @@ final class HomeService
         ];
     }
 
-    /** @return array<string, mixed> */
-    public function acceptInvitation(AuthenticatedIdentity $identity, string $token): array
-    {
-        $user = $this->identities->findUserById($identity->userId);
-        if ($user === null) {
-            throw new Problem(401, 'Authentication required', 'The account is unavailable.');
-        }
-        $result = $this->transactions->transactional(function () use ($token, $identity, $user): array {
-            $result = $this->homes->acceptInvitation(
-                $this->hasher->hashToken($token),
-                $identity->userId,
-                (string) $user['normalized_email'],
-                $this->clock->now(),
-            );
-            if ($result === null) {
-                throw new Problem(
-                    422,
-                    'Invalid invitation',
-                    'The invitation is invalid, expired, used, or not addressed to you.',
-                );
-            }
-            $this->audit(
-                $identity,
-                'home.invitation.accepted',
-                'home_invitation',
-                (string) $result['invitationId'],
-                (string) $result['homeId'],
-                [],
-                $this->clock->now(),
-            );
-
-            return $result;
-        });
-
-        return $result;
-    }
-
     /** @return list<array<string, mixed>> */
     public function pendingInvitations(AuthenticatedIdentity $identity): array
     {
@@ -407,10 +401,13 @@ final class HomeService
             return [];
         }
 
-        return $this->homes->pendingInvitationsForEmail(
-            (string) $user['normalized_email'],
-            $this->clock->now(),
-        );
+        $pending = [];
+        foreach ($this->profiles->emails($identity->userId) as $email) {
+            foreach ($this->homes->pendingInvitationsForEmail((string) $email['email'], $this->clock->now()) as $invitation) {
+                $pending[(string) $invitation['id']] = $invitation;
+            }
+        }
+        return array_values($pending);
     }
 
     /** @return array<string, mixed> */
@@ -433,6 +430,7 @@ final class HomeService
             $expectedRevision,
             $user,
         ): array {
+            $this->access->serialize(FeatureCatalog::ACCOUNT, $identity->userId);
             $now = $this->clock->now();
             $result = $this->homes->acceptInvitationById(
                 $invitationId,
@@ -442,6 +440,15 @@ final class HomeService
                 $now,
             );
             if (($result['outcome'] ?? null) === 'accepted' && ($result['changed'] ?? false) === true) {
+                $homeId = (string) $result['homeId'];
+                if (! $this->access->allows(FeatureCatalog::ACCOUNT, $identity->userId, 'homes.join')
+                    || ! $this->access->allows(FeatureCatalog::HOME, $homeId, 'members.invite')) {
+                    throw new Problem(403, 'Joining unavailable', 'The account or home group does not permit adding this membership.');
+                }
+                $this->access->requireCapacity(FeatureCatalog::ACCOUNT, $identity->userId, 'homes.joined', true);
+                $this->access->requireCapacity(FeatureCatalog::HOME, $homeId, 'members.total', true);
+                $member = $this->homes->membership($homeId, $identity->userId);
+                $this->access->requireCapacity(FeatureCatalog::HOME, $homeId, ($member['role'] ?? '') === HomeAuthorization::MANAGER ? 'members.managers' : 'members.members', true);
                 $this->identities->setActiveHome($identity->sessionId, (string) $result['homeId'], $now);
                 $this->audit(
                     $identity,
@@ -469,6 +476,50 @@ final class HomeService
         unset($result['outcome'], $result['changed']);
 
         return $result;
+    }
+
+    public function declineInvitation(AuthenticatedIdentity $identity, string $invitationId, int $revision): void
+    {
+        $this->transactions->transactional(function () use ($identity, $invitationId, $revision): void {
+            $this->access->serialize(FeatureCatalog::ACCOUNT, $identity->userId);
+            if (! $this->homes->declineInvitation($invitationId, $identity->userId, $revision, $this->clock->now())) {
+                throw new Problem(409, 'Invitation changed', 'Reload your pending invitations.');
+            }
+        });
+    }
+
+    /** @return array<string, mixed> */
+    public function memberPermissions(AuthenticatedIdentity $identity, string $homeId, string $userId): array
+    {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PERMISSIONS_MANAGE);
+        $target = $this->homes->membership($homeId, $userId);
+        if ($target === null || $target['status'] !== 'active') {
+            throw new Problem(404, 'Membership unavailable', 'The member does not belong to this home.');
+        }
+        return $this->access->memberPolicy($homeId, $userId);
+    }
+
+    /** @param array<string, mixed> $input */
+    public function saveMemberPermissions(AuthenticatedIdentity $identity, string $homeId, string $userId, array $input): void
+    {
+        $actor = $this->authorization->requirePermission($identity, $homeId, HomePermission::PERMISSIONS_MANAGE);
+        $this->memberPermissions($identity, $homeId, $userId);
+        $target = $this->homes->membership($homeId, $userId);
+        if ($target['role'] === HomeAuthorization::OWNER || $identity->userId === $userId) {
+            throw new Problem(403, 'Protected membership', 'Owners inherit home capabilities; members cannot edit their own permissions.');
+        }
+        $permissions = $input['permissions'] ?? [];
+        if (! is_array($permissions)) {
+            throw new Problem(422, 'Invalid permissions', 'Supply a permission map; omit a permission to inherit.');
+        }
+        if ($actor['role'] !== HomeAuthorization::OWNER) {
+            foreach ($permissions as $permission => $enabled) {
+                if ($enabled === true) {
+                    $this->authorization->requirePermission($identity, $homeId, (string) $permission);
+                }
+            }
+        }
+        $this->access->saveMemberPolicy($identity, $homeId, $userId, $permissions, (int) ($input['expectedRevision'] ?? 0));
     }
 
     /** @return list<array<string, mixed>> */
@@ -607,6 +658,9 @@ final class HomeService
                     'Ownership safeguard',
                     'Use the explicit ownership-transfer command to change the owner.',
                 );
+            }
+            if ($membership['role'] !== $role) {
+                $this->access->requireCapacity(FeatureCatalog::HOME, $homeId, $role === HomeAuthorization::MANAGER ? 'members.managers' : 'members.members');
             }
             $now = $this->clock->now();
             if (
@@ -852,6 +906,7 @@ final class HomeService
             if ((string) $transfer['targetUserId'] !== $identity->userId) {
                 throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
             }
+            $this->access->requireCapacity(FeatureCatalog::ACCOUNT, $identity->userId, 'homes.owned');
             $target = $this->homes->membership($homeId, $identity->userId);
             $owner = $this->homes->membership($homeId, (string) $transfer['proposedByUserId']);
             if (

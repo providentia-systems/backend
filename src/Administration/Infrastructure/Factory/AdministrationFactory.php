@@ -54,6 +54,7 @@ final class AdministrationFactory
                 $container->get(UuidGenerator::class),
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
+                $container->get(\Providentia\Identity\Application\AccountProfileStore::class),
             ),
             default => throw new \LogicException('Unsupported administration service: ' . $requestedName),
         };

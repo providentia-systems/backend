@@ -30,30 +30,12 @@ final class IdentityHandler implements RequestHandlerInterface
         $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
 
         return match ($this->action) {
-            'step-up-request' => $this->stepUpRequest($request, $body),
             'refresh' => $this->refresh($request, $body),
             'sessions' => new JsonResponse(['data' => $this->authentication->listSessions($this->identity($request))]),
             'revoke-session' => $this->revoke($request),
             'logout' => $this->logout($request),
             default => throw new \LogicException('Unknown identity action.'),
         };
-    }
-
-    /** @param array<string, mixed> $body */
-    private function stepUpRequest(ServerRequestInterface $request, array $body): ResponseInterface
-    {
-        $this->requireExactKeys($body, ['action', 'applicationKind']);
-        $token = $this->authentication->requestStepUp(
-            $this->identity($request),
-            (string) ($body['action'] ?? ''),
-            (string) ($body['applicationKind'] ?? ''),
-        );
-        $response = ['accepted' => true];
-        if ($token !== null && $this->exposeDevelopmentTokens) {
-            $response['developmentStepUpToken'] = $token;
-        }
-
-        return new JsonResponse($response, 202);
     }
 
     /** @param array<string, mixed> $body */

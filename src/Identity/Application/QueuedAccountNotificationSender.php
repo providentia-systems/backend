@@ -16,32 +16,6 @@ final class QueuedAccountNotificationSender implements AccountNotificationSender
     ) {
     }
 
-    public function sendLoginLink(
-        string $email,
-        string $requestId,
-        string $approvalToken,
-        LoginApplicationKind $application,
-    ): void {
-        $this->enqueue('login-link', $email, [
-            'requestId' => $requestId,
-            'approvalToken' => $approvalToken,
-            'applicationKind' => $application->value,
-        ]);
-    }
-
-    public function sendStepUpLink(
-        string $email,
-        string $token,
-        string $action,
-        LoginApplicationKind $application,
-    ): void {
-        $this->enqueue('step-up-link', $email, [
-            'token' => $token,
-            'action' => $action,
-            'applicationKind' => $application->value,
-        ]);
-    }
-
     public function sendPlatformAdministratorInvitation(string $email): void
     {
         $this->enqueue('platform-administrator-invitation', $email, []);

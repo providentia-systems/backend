@@ -15,26 +15,19 @@ final class CatalogAuthorization
 
     public function requireReviewer(AuthenticatedIdentity $identity): void
     {
-        $this->requireAny($identity, [
-            self::PLATFORM_ADMINISTRATOR,
-            self::CURATOR,
-            self::REVIEWER,
-        ]);
+        $this->requireAny($identity, ['catalog.review', 'catalog.curate']);
     }
 
     public function requireCurator(AuthenticatedIdentity $identity): void
     {
-        $this->requireAny($identity, [
-            self::PLATFORM_ADMINISTRATOR,
-            self::CURATOR,
-        ]);
+        $this->requireAny($identity, ['catalog.curate']);
     }
 
-    /** @param list<string> $roles */
-    private function requireAny(AuthenticatedIdentity $identity, array $roles): void
+    /** @param list<string> $permissions */
+    private function requireAny(AuthenticatedIdentity $identity, array $permissions): void
     {
-        if (array_intersect($roles, $identity->platformRoles) === []) {
-            throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+        if (array_intersect($permissions, $identity->administratorPermissions) === []) {
+            throw new Problem(403, 'Permission required', 'Your administrator group does not permit this catalog action.');
         }
     }
 }

@@ -10,7 +10,7 @@ use Providentia\Catalog\Application\CatalogImportHomeProductGateway;
 
 final readonly class DbalCatalogImportHomeProductGateway implements CatalogImportHomeProductGateway
 {
-    public function __construct(private Connection $connection)
+    public function __construct(private Connection $connection, private \Providentia\Access\Application\AccessService $access)
     {
     }
 
@@ -54,6 +54,7 @@ final readonly class DbalCatalogImportHomeProductGateway implements CatalogImpor
         ?string $originalPackText,
         DateTimeImmutable $at,
     ): void {
+        $this->access->requireCapacity('home', $homeId, 'products.total');
         $this->connection->insert('home_products', [
             'id' => $id,
             'home_id' => $homeId,

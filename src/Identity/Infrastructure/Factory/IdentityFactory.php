@@ -13,8 +13,6 @@ use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\CredentialHasher;
 use Providentia\Identity\Application\CurrentUserService;
 use Providentia\Identity\Application\IdentityStore;
-use Providentia\Identity\Application\LoginLinkService;
-use Providentia\Identity\Application\LoginLinkStore;
 use Providentia\Identity\Application\NotificationDeliveryService;
 use Providentia\Identity\Application\NotificationOutbox;
 use Providentia\Identity\Application\NotificationPayloadCipher;
@@ -27,14 +25,9 @@ use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Identity\Http\CurrentUserHandler;
 use Providentia\Identity\Http\IdentityHandler;
-use Providentia\Identity\Http\LoginLinkApprovalHandler;
-use Providentia\Identity\Http\LoginLinkHandler;
-use Providentia\Identity\Http\LoginLinkProofRateLimitMiddleware;
 use Providentia\Identity\Http\PlatformAdministratorHandler;
 use Providentia\Identity\Infrastructure\Doctrine\DbalIdentityStore;
-use Providentia\Identity\Infrastructure\Doctrine\DbalLoginLinkStore;
 use Providentia\Identity\Infrastructure\Doctrine\DbalNotificationOutbox;
-use Providentia\Identity\Infrastructure\Cli\LoginLinkPurgeCommand;
 use Providentia\Identity\Infrastructure\Cli\NotificationDeliverCommand;
 use Providentia\Identity\Infrastructure\Cli\PlatformRoleCommand;
 use Providentia\Identity\Infrastructure\Doctrine\DbalAuthenticationRateLimitStore;
@@ -87,9 +80,6 @@ final class IdentityFactory
         if ($requestedName === DbalIdentityStore::class) {
             return new DbalIdentityStore($container->get(Connection::class));
         }
-        if ($requestedName === DbalLoginLinkStore::class) {
-            return new DbalLoginLinkStore($container->get(Connection::class));
-        }
         if ($requestedName === DbalAuthenticationRateLimitStore::class) {
             return new DbalAuthenticationRateLimitStore($container->get(Connection::class));
         }
@@ -135,15 +125,6 @@ final class IdentityFactory
         if ($requestedName === NotificationDeliverCommand::class) {
             return new NotificationDeliverCommand($container->get(NotificationDeliveryService::class));
         }
-        if ($requestedName === LoginLinkPurgeCommand::class) {
-            return new LoginLinkPurgeCommand(
-                $container->get(LoginLinkStore::class),
-                $container->get(AuthenticationRateLimitStore::class),
-                $container->get(Clock::class),
-                $config['identity']['login_link_retention_days'],
-                $config['identity']['rate_limit_retention_days'],
-            );
-        }
         if ($requestedName === PlatformRoleCommand::class) {
             return new PlatformRoleCommand($container->get(PlatformRoleService::class));
         }
@@ -160,6 +141,7 @@ final class IdentityFactory
                 $config['identity']['refresh_ttl_seconds'],
                 $config['identity']['web_idle_ttl_seconds'],
                 $config['identity']['native_idle_ttl_seconds'],
+                $container->get(\Providentia\Access\Application\AccessService::class),
             );
         }
         if ($requestedName === CurrentUserService::class) {
@@ -167,28 +149,8 @@ final class IdentityFactory
                 $container->get(IdentityStore::class),
                 $container->get(HomeStore::class),
                 $container->get(Clock::class),
-            );
-        }
-        if ($requestedName === LoginLinkService::class) {
-            return new LoginLinkService(
-                $container->get(LoginLinkStore::class),
-                $container->get(IdentityStore::class),
-                $container->get(HomeStore::class),
-                $container->get(CredentialHasher::class),
-                $container->get(AccountNotificationSender::class),
-                $container->get(AuthenticationService::class),
-                $container->get(UuidGenerator::class),
-                $container->get(Clock::class),
-                $container->get(TransactionManager::class),
-                $container->get(SecureTokenGenerator::class),
-                $config['identity']['login_link_ttl_seconds'],
-                $config['identity']['login_link_exchange_ttl_seconds'],
-                $config['identity']['login_link_poll_interval_seconds'],
-                $config['identity']['web_idle_ttl_seconds'],
-                $config['identity']['native_idle_ttl_seconds'],
-                $config['identity']['bootstrap_administrator_emails'],
-                $config['identity']['onboarding_home'],
-                $config['identity']['expose_development_tokens'],
+                $container->get(\Providentia\Identity\Application\AccountProfileService::class),
+                $container->get(\Providentia\Identity\Application\AccountProfileStore::class),
             );
         }
         if ($requestedName === PlatformAdministratorService::class) {
@@ -224,29 +186,6 @@ final class IdentityFactory
         if ($requestedName === AuthenticationRateLimitMiddleware::class) {
             return new AuthenticationRateLimitMiddleware(
                 $container->get(AuthenticationRateLimiter::class),
-            );
-        }
-        if ($requestedName === LoginLinkProofRateLimitMiddleware::class) {
-            return new LoginLinkProofRateLimitMiddleware(
-                $container->get(AuthenticationRateLimiter::class),
-                $container->get(LoginLinkStore::class),
-            );
-        }
-        if (str_starts_with($requestedName, 'identity.login-link-browser-')) {
-            return new LoginLinkApprovalHandler(
-                $container->get(LoginLinkService::class),
-                $container->get(SecureTokenGenerator::class),
-                substr($requestedName, strlen('identity.login-link-browser-')),
-                $config['mail']['public_origin'],
-                $config['identity']['cookie_secure'],
-                $config['identity']['login_link_ttl_seconds'],
-            );
-        }
-        if (str_starts_with($requestedName, 'identity.login-link-')) {
-            return new LoginLinkHandler(
-                $container->get(LoginLinkService::class),
-                substr($requestedName, strlen('identity.login-link-')),
-                $config['identity']['cookie_secure'],
             );
         }
         if (str_starts_with($requestedName, 'identity.platform-administrators-')) {
