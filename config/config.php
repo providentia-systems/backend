@@ -12,6 +12,7 @@ $providers = [
     Mezzio\Helper\ConfigProvider::class,
     Providentia\SharedKernel\ConfigProvider::class,
     Providentia\Identity\ConfigProvider::class,
+    Providentia\Access\ConfigProvider::class,
     Providentia\Home\ConfigProvider::class,
     Providentia\Catalog\ConfigProvider::class,
     Providentia\DataGovernance\ConfigProvider::class,

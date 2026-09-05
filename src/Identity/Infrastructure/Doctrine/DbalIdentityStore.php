@@ -28,7 +28,7 @@ final class DbalIdentityStore implements
     public function findUserByEmail(string $normalizedEmail): ?array
     {
         return $this->one(
-            'SELECT * FROM users WHERE normalized_email = :email',
+            'SELECT u.* FROM users u INNER JOIN user_emails e ON e.user_id = u.id WHERE e.normalized_email = :email',
             ['email' => $normalizedEmail],
         );
     }

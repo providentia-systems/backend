@@ -33,7 +33,8 @@ final readonly class PrivateMediaService
     ) {
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function upload(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -138,7 +139,8 @@ final readonly class PrivateMediaService
         ];
     }
 
-    /** @return array{items: list<array<string, mixed>>, quotaBytes: int, usageBytes: int} */
+    /**
+     * @return array{items: list<array<string, mixed>>, quotaBytes: int, usageBytes: int} */
     public function list(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -154,7 +156,8 @@ final readonly class PrivateMediaService
         ];
     }
 
-    /** @return array{metadata: array<string, mixed>, bytes: string} */
+    /**
+     * @return array{metadata: array<string, mixed>, bytes: string} */
     public function download(AuthenticatedIdentity $identity, string $homeId, string $assetId): array
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_READ);
@@ -211,7 +214,8 @@ final readonly class PrivateMediaService
         );
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function export(AuthenticatedIdentity $identity, string $homeId, int $limit = 100): array
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_READ);
@@ -234,7 +238,9 @@ final readonly class PrivateMediaService
     }
 
     /**
+     *
      * @param list<string> $assetIds
+     *
      * @return list<array{mimeType: string, bytes: string}>
      */
     public function extractionImages(
@@ -309,7 +315,9 @@ final readonly class PrivateMediaService
     }
 
     /**
+     *
      * @param array<string, mixed> $asset
+     *
      * @param array{offsetMs: int, mimeType: string, bytes: string} $frame
      */
     private function storeDerivedFrame(array $asset, array $frame): void
@@ -368,7 +376,8 @@ final readonly class PrivateMediaService
         }
     }
 
-    /** @return array{0: string, 1: string} */
+    /**
+     * @return array{0: string, 1: string} */
     private function verifiedType(string $declared, string $bytes): array
     {
         $detected = match (true) {
@@ -386,7 +395,8 @@ final readonly class PrivateMediaService
         return [$detected, str_starts_with($detected, 'video/') ? 'video' : 'image'];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function requiredAsset(string $homeId, string $assetId): array
     {
         $asset = $this->store->media($homeId, $assetId);
@@ -397,7 +407,8 @@ final readonly class PrivateMediaService
         return $asset;
     }
 
-    /** @param array<string, mixed> $asset */
+    /**
+     * @param array<string, mixed> $asset */
     private function readAsset(array $asset): string
     {
         return $this->storage->read(
@@ -407,7 +418,8 @@ final readonly class PrivateMediaService
         );
     }
 
-    /** @param array<string, mixed> $asset */
+    /**
+     * @param array<string, mixed> $asset */
     private function object(array $asset): EncryptedMediaObject
     {
         return new EncryptedMediaObject(
@@ -421,7 +433,9 @@ final readonly class PrivateMediaService
     }
 
     /**
+     *
      * @param array<string, mixed> $asset
+     *
      * @return array<string, mixed>
      */
     private function publicAsset(array $asset): array
@@ -440,7 +454,8 @@ final readonly class PrivateMediaService
         return mb_substr(basename(str_replace('\\', '/', trim($name))), 0, 191);
     }
 
-    /** @param array<string, mixed> $asset */
+    /**
+     * @param array<string, mixed> $asset */
     private function requireOwnerOrManager(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -451,7 +466,8 @@ final readonly class PrivateMediaService
         }
     }
 
-    /** @param array<string, mixed> $asset */
+    /**
+     * @param array<string, mixed> $asset */
     private function deleteAsset(array $asset): void
     {
         if (

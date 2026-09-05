@@ -26,7 +26,8 @@ final readonly class BillingService
     ) {
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function availablePlans(): array
     {
         $this->configuration->requireEnabled();
@@ -34,7 +35,8 @@ final readonly class BillingService
         return $this->planCatalog(false);
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function operatorPlans(AuthenticatedIdentity $identity): array
     {
         $this->authorization->requireOperator($identity);
@@ -42,7 +44,8 @@ final readonly class BillingService
         return $this->planCatalog(true);
     }
 
-    /** @return array{id: string, code: string, revision: int, status: string} */
+    /**
+     * @return array{id: string, code: string, revision: int, status: string} */
     public function createPlan(
         AuthenticatedIdentity $identity,
         string $code,
@@ -66,7 +69,8 @@ final readonly class BillingService
         return ['id' => $id, 'code' => $code, 'revision' => 1, 'status' => 'draft'];
     }
 
-    /** @return array{id: string, revision: int, status: string} */
+    /**
+     * @return array{id: string, revision: int, status: string} */
     public function updatePlan(
         AuthenticatedIdentity $identity,
         string $planId,
@@ -97,7 +101,8 @@ final readonly class BillingService
         return ['id' => $planId, 'revision' => $expectedRevision + 1, 'status' => $status];
     }
 
-    /** @return array{id: string, code: string, revision: int, status: string} */
+    /**
+     * @return array{id: string, code: string, revision: int, status: string} */
     public function createPrice(
         AuthenticatedIdentity $identity,
         string $planId,
@@ -143,7 +148,8 @@ final readonly class BillingService
         return ['id' => $id, 'code' => $code, 'revision' => 1, 'status' => 'active'];
     }
 
-    /** @return array{id: string, revision: int, status: string} */
+    /**
+     * @return array{id: string, revision: int, status: string} */
     public function setPriceStatus(
         AuthenticatedIdentity $identity,
         string $priceId,
@@ -210,7 +216,8 @@ final readonly class BillingService
         );
     }
 
-    /** @return array{id: string, code: string} */
+    /**
+     * @return array{id: string, code: string} */
     public function createPromotion(
         AuthenticatedIdentity $identity,
         string $code,
@@ -268,7 +275,8 @@ final readonly class BillingService
         return ['id' => $id, 'code' => $code];
     }
 
-    /** @return array{id: string, featureKey: string} */
+    /**
+     * @return array{id: string, featureKey: string} */
     public function putHomeOverride(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -313,7 +321,8 @@ final readonly class BillingService
         }
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function homeSummary(AuthenticatedIdentity $identity, string $homeId): array
     {
         $this->authorization->requireHomeRead($identity, $homeId);
@@ -339,7 +348,8 @@ final readonly class BillingService
         return ['subscription' => $subscription, 'entitlements' => $values];
     }
 
-    /** @return array{id: string, provider: string, redirectUrl: string, expiresAt: string} */
+    /**
+     * @return array{id: string, provider: string, redirectUrl: string, expiresAt: string} */
     public function startCheckout(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -440,7 +450,8 @@ final readonly class BillingService
         ];
     }
 
-    /** @param array<string, list<string>> $headers */
+    /**
+     * @param array<string, list<string>> $headers */
     public function acceptWebhook(string $provider, string $rawBody, array $headers): string
     {
         $this->configuration->requireEnabled();
@@ -529,7 +540,8 @@ final readonly class BillingService
         }
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     private function checkoutPromotion(?string $code, string $planId, string $currency): ?array
     {
         if ($code === null || trim($code) === '') {
@@ -558,7 +570,8 @@ final readonly class BillingService
         return $promotion;
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     private function planCatalog(bool $includeInactive): array
     {
         $plans = $this->billing->plans($includeInactive);
@@ -659,7 +672,9 @@ final readonly class BillingService
     }
 
     /**
+     *
      * @param array<string, string> $encoded
+     *
      * @return array<string, bool|int|string|null>
      */
     private function decodeEntitlements(array $encoded): array

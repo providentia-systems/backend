@@ -16,8 +16,9 @@ use Providentia\Home\Application\OperatorHomeAccessReader;
 
 final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
 {
-    public function __construct(private readonly Connection $connection)
-    {
+    public function __construct(
+        private readonly Connection $connection,
+    ) {
     }
 
     public function createHome(
@@ -30,28 +31,39 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         DateTimeImmutable $at,
     ): void {
         $date = $this->date($at);
-        $this->connection->insert('homes', [
-            'id' => $id,
-            'name' => $name,
-            'default_locale' => mb_substr($locale, 0, 16),
-            'default_currency' => $currency,
-            'default_timezone' => mb_substr($timezone, 0, 64),
-            'status' => 'active',
-            'revision' => 1,
-            'created_at' => $date,
-            'updated_at' => $date,
-        ]);
-        $this->connection->insert('home_memberships', [
-            'home_id' => $id,
-            'user_id' => $ownerUserId,
-            'role' => 'owner',
-            'status' => 'active',
-            'revision' => 1,
-            'joined_at' => $date,
-            'left_at' => null,
-            'updated_at' => $date,
-        ]);
-        $this->createDefaultPermissionPolicies($id, $ownerUserId, $at);
+        $this->connection->insert(
+            'homes',
+            [
+                'id' => $id,
+                'name' => $name,
+                'country_code' => $this->connection->fetchOne(
+                    'SELECT country_code FROM user_profiles WHERE user_id = ?',
+                    [$ownerUserId],
+                )
+                    ?
+                    : null,
+                'default_locale' => mb_substr($locale, 0, 16),
+                'default_currency' => $currency,
+                'default_timezone' => mb_substr($timezone, 0, 64),
+                'status' => 'active',
+                'revision' => 1,
+                'created_at' => $date,
+                'updated_at' => $date,
+            ],
+        );
+        $this->connection->insert(
+            'home_memberships',
+            [
+                'home_id' => $id,
+                'user_id' => $ownerUserId,
+                'role' => 'owner',
+                'status' => 'active',
+                'revision' => 1,
+                'joined_at' => $date,
+                'left_at' => null,
+                'updated_at' => $date,
+            ],
+        );
     }
 
     public function updateHome(
@@ -84,14 +96,25 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
     public function listForUser(string $userId): array
     {
         return $this->connection->fetchAllAssociative(
-            'SELECT h.id, h.name, h.default_locale AS defaultLocale,
-                    h.default_currency AS defaultCurrency,
-                    h.default_timezone AS defaultTimezone, h.status,
-                    h.revision, m.role, m.revision AS membershipRevision
-             FROM homes h INNER JOIN home_memberships m ON m.home_id = h.id
-             WHERE m.user_id = :user AND m.status = :member_status AND h.status = :home_status
-             ORDER BY h.name, h.id',
-            ['user' => $userId, 'member_status' => 'active', 'home_status' => 'active'],
+            ('SELECT h.id, h.name, h.default_locale AS defaultLocale,'
+                . '
+                    h.default_currency AS defaultCurrency,'
+                . '
+                    h.default_timezone AS defaultTimezone, h.status,'
+                . '
+                    h.revision, m.role, m.revision AS '
+                . 'membershipRevision
+             FROM homes h INNER JOIN home_memberships'
+                . ' m ON m.home_id = h.id
+             WHERE m.user_id = :user AND m.status'
+                . ' = :member_status AND h.status = :home_status
+             ORDER BY '
+                . 'h.name, h.id'),
+            [
+                'user' => $userId,
+                'member_status' => 'active',
+                'home_status' => 'active',
+            ],
         );
     }
 
@@ -108,7 +131,8 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
              ORDER BY m.user_id, h.name, h.id',
             ['users' => array_values(array_unique($userIds))],
             ['users' => ArrayParameterType::STRING],
-        )->fetchAllAssociative();
+        )
+            ->fetchAllAssociative();
         $access = array_fill_keys($userIds, []);
         foreach ($rows as $row) {
             $userId = (string) $row['userId'];
@@ -119,7 +143,6 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
                 'membershipStatus' => (string) $row['membershipStatus'],
             ];
         }
-
         return $access;
     }
 
@@ -157,8 +180,11 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         );
     }
 
-    public function permissionDecision(string $homeId, string $role, string $permission): ?bool
-    {
+    public function permissionDecision(
+        string $homeId,
+        string $role,
+        string $permission,
+    ): ?bool {
         $policy = $this->connection->fetchOne(
             'SELECT revision FROM home_role_policies WHERE home_id = :home AND role = :role',
             ['home' => $homeId, 'role' => $role],
@@ -166,11 +192,15 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         if ($policy === false) {
             return null;
         }
-
         return (int) $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM home_role_permission_grants
-             WHERE home_id = :home AND role = :role AND permission = :permission',
-            ['home' => $homeId, 'role' => $role, 'permission' => $permission],
+            ('SELECT COUNT(*) FROM home_role_permission_grants
+             WHERE '
+                . 'home_id = :home AND role = :role AND permission = :permission'),
+            [
+                'home' => $homeId,
+                'role' => $role,
+                'permission' => $permission,
+            ],
         ) === 1;
     }
 
@@ -198,10 +228,8 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
                 $policies[$role]['permissions'][] = (string) $row['permission'];
             }
         }
-
         /** @var list<array{role: string, revision: int, permissions: list<string>}> $result */
         $result = array_values($policies);
-
         return $result;
     }
 
@@ -216,21 +244,26 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         $date = $this->date($at);
         if ($expectedRevision === 0) {
             try {
-                $this->connection->insert('home_role_policies', [
-                    'home_id' => $homeId,
-                    'role' => $role,
-                    'revision' => 1,
-                    'updated_by_user_id' => $updatedByUserId,
-                    'updated_at' => $date,
-                ]);
+                $this->connection->insert(
+                    'home_role_policies',
+                    [
+                        'home_id' => $homeId,
+                        'role' => $role,
+                        'revision' => 1,
+                        'updated_by_user_id' => $updatedByUserId,
+                        'updated_at' => $date,
+                    ],
+                );
             } catch (UniqueConstraintViolationException) {
                 return false;
             }
         } else {
             $updated = $this->connection->executeStatement(
-                'UPDATE home_role_policies
-                 SET revision = revision + 1, updated_by_user_id = :actor, updated_at = :at
-                 WHERE home_id = :home AND role = :role AND revision = :revision',
+                ('UPDATE home_role_policies
+                 SET revision = revision + 1, '
+                    . 'updated_by_user_id = :actor, updated_at = :at
+                 WHERE '
+                    . 'home_id = :home AND role = :role AND revision = :revision'),
                 [
                     'actor' => $updatedByUserId,
                     'at' => $date,
@@ -243,15 +276,20 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
                 return false;
             }
         }
-        $this->connection->delete('home_role_permission_grants', ['home_id' => $homeId, 'role' => $role]);
+        $this->connection->delete(
+            'home_role_permission_grants',
+            ['home_id' => $homeId, 'role' => $role],
+        );
         foreach ($permissions as $permission) {
-            $this->connection->insert('home_role_permission_grants', [
-                'home_id' => $homeId,
-                'role' => $role,
-                'permission' => $permission,
-            ]);
+            $this->connection->insert(
+                'home_role_permission_grants',
+                [
+                    'home_id' => $homeId,
+                    'role' => $role,
+                    'permission' => $permission,
+                ],
+            );
         }
-
         return true;
     }
 
@@ -265,58 +303,82 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         DateTimeImmutable $expiresAt,
         DateTimeImmutable $at,
     ): void {
-        $this->connection->insert('home_invitations', [
-            'id' => $id,
-            'home_id' => $homeId,
-            'inviter_user_id' => $inviterUserId,
-            'normalized_email' => $normalizedEmail,
-            'role' => $role,
-            'token_hash' => $tokenHash,
-            'status' => 'pending',
-            'expires_at' => $this->date($expiresAt),
-            'accepted_by_user_id' => null,
-            'accepted_at' => null,
-            'revoked_at' => null,
-            'revoked_by_user_id' => null,
-            'revision' => 1,
-            'created_at' => $this->date($at),
-            'updated_at' => $this->date($at),
-        ]);
+        $this->connection->insert(
+            'home_invitations',
+            [
+                'id' => $id,
+                'home_id' => $homeId,
+                'inviter_user_id' => $inviterUserId,
+                'normalized_email' => $normalizedEmail,
+                'role' => $role,
+                'token_hash' => $tokenHash,
+                'status' => 'pending',
+                'expires_at' => $this->date($expiresAt),
+                'accepted_by_user_id' => null,
+                'accepted_at' => null,
+                'revoked_at' => null,
+                'revoked_by_user_id' => null,
+                'revision' => 1,
+                'created_at' => $this->date($at),
+                'updated_at' => $this->date($at),
+            ],
+        );
     }
 
     public function invitations(string $homeId): array
     {
         return $this->connection->fetchAllAssociative(
-            'SELECT id, home_id AS homeId, inviter_user_id AS inviterUserId,
-                    normalized_email AS email, role, status,
-                    expires_at AS expiresAt, accepted_by_user_id AS acceptedByUserId,
-                    accepted_at AS acceptedAt, revoked_by_user_id AS revokedByUserId,
-                    revoked_at AS revokedAt, revision, created_at AS createdAt,
-                    updated_at AS updatedAt
+            ('SELECT id, home_id AS homeId, inviter_user_id AS inviterUserId,'
+                . '
+                    normalized_email AS email, role, status,'
+                . '
+                    expires_at AS expiresAt, accepted_by_user_id AS '
+                . 'acceptedByUserId,
+                    accepted_at AS acceptedAt, '
+                . 'revoked_by_user_id AS revokedByUserId,
+                    revoked_at AS'
+                . ' revokedAt, revision, created_at AS createdAt,
+                    '
+                . 'updated_at AS updatedAt
              FROM home_invitations
-             WHERE home_id = :home
-             ORDER BY created_at DESC, id DESC',
+             '
+                . 'WHERE home_id = :home
+             ORDER BY created_at DESC, id DESC'),
             ['home' => $homeId],
         );
     }
 
-    public function pendingInvitationsForEmail(string $normalizedEmail, DateTimeImmutable $at): array
-    {
+    public function pendingInvitationsForEmail(
+        string $normalizedEmail,
+        DateTimeImmutable $at,
+    ): array {
         $invitations = $this->connection->fetchAllAssociative(
-            'SELECT i.id, i.home_id AS homeId, h.name AS homeName,
-                    i.inviter_user_id AS inviterUserId,
-                    inviter_profile.display_name AS inviterDisplayName,
-                    i.role, i.status, i.revision, i.expires_at AS expiresAt
+            ('SELECT i.id, i.home_id AS homeId, h.name AS homeName,'
+                . '
+                    i.inviter_user_id AS inviterUserId,'
+                . '
+                    inviter_profile.display_name AS inviterDisplayName,'
+                . '
+                    i.role, i.status, i.revision, i.expires_at AS '
+                . 'expiresAt
              FROM home_invitations i
-             INNER JOIN homes h ON h.id = i.home_id AND h.status = :home_status
-             INNER JOIN home_memberships inviter
-                     ON inviter.home_id = i.home_id
-                    AND inviter.user_id = i.inviter_user_id
-                    AND inviter.status = :member_status
-             LEFT JOIN user_profiles inviter_profile ON inviter_profile.user_id = i.inviter_user_id
-             WHERE i.normalized_email = :email AND i.status = :pending
-               AND i.expires_at > :at
-             ORDER BY i.created_at, i.id',
+             INNER JOIN '
+                . 'homes h ON h.id = i.home_id AND h.status = :home_status
+             '
+                . 'INNER JOIN home_memberships inviter
+                     ON '
+                . 'inviter.home_id = i.home_id
+                    AND inviter.user_id = '
+                . 'i.inviter_user_id
+                    AND inviter.status = '
+                . ':member_status
+             LEFT JOIN user_profiles inviter_profile ON '
+                . 'inviter_profile.user_id = i.inviter_user_id
+             WHERE '
+                . 'i.normalized_email = :email AND i.status = :pending
+               AND '
+                . 'i.expires_at > :at
+             ORDER BY i.created_at, i.id'),
             [
                 'home_status' => 'active',
                 'member_status' => 'active',
@@ -325,19 +387,27 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
                 'at' => $this->date($at),
             ],
         );
-
-        return array_map(static function (array $invitation): array {
-            $invitation['expiresAt'] = (new DateTimeImmutable(
-                (string) $invitation['expiresAt'],
-                new DateTimeZone('UTC'),
-            ))->setTimezone(new DateTimeZone('UTC'))->format(DATE_ATOM);
-
-            return $invitation;
-        }, $invitations);
+        return array_map(
+            static function (array $invitation): array {
+                $invitation['expiresAt'] = new DateTimeImmutable(
+                    (string) $invitation['expiresAt'],
+                    new DateTimeZone('UTC'),
+                )->setTimezone(
+                    new DateTimeZone('UTC'),
+                )
+                    ->format(
+                        DATE_ATOM,
+                    );
+                return $invitation;
+            },
+            $invitations,
+        );
     }
 
-    public function invitation(string $homeId, string $invitationId): ?array
-    {
+    public function invitation(
+        string $homeId,
+        string $invitationId,
+    ): ?array {
         return $this->one(
             'SELECT id, home_id AS homeId, inviter_user_id AS inviterUserId,
                     normalized_email AS email, role, status,
@@ -355,11 +425,14 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         DateTimeImmutable $at,
     ): bool {
         return $this->connection->executeStatement(
-            'UPDATE home_invitations
-             SET status = :revoked, revoked_by_user_id = :actor, revoked_at = :at,
-                 revision = revision + 1, updated_at = :at
-             WHERE home_id = :home AND id = :id AND status = :pending
-               AND revision = :revision',
+            ('UPDATE home_invitations
+             SET status = :revoked, '
+                . 'revoked_by_user_id = :actor, revoked_at = :at,
+                 revision'
+                . ' = revision + 1, updated_at = :at
+             WHERE home_id = :home AND'
+                . ' id = :id AND status = :pending
+               AND revision = :revision'),
             [
                 'revoked' => 'revoked',
                 'actor' => $revokedByUserId,
@@ -372,6 +445,19 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         ) === 1;
     }
 
+    public function invitationForUser(
+        string $invitationId,
+        string $userId,
+    ): ?array {
+        return $this->one(
+            ('SELECT * FROM home_invitations WHERE id = :id
+             AND '
+                . 'normalized_email IN (SELECT normalized_email FROM user_emails WHERE '
+                . 'user_id = :user)'),
+            ['id' => $invitationId, 'user' => $userId],
+        );
+    }
+
     public function acceptInvitation(
         string $tokenHash,
         string $userId,
@@ -379,12 +465,16 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         DateTimeImmutable $at,
     ): ?array {
         $invitation = $this->one(
-            'SELECT id, home_id, inviter_user_id, role, revision FROM home_invitations
-             WHERE token_hash = :hash AND normalized_email = :email
-               AND status = :status AND expires_at > :now',
+            ('SELECT id, home_id, inviter_user_id, role, revision FROM '
+                . 'home_invitations
+             WHERE token_hash = :hash AND '
+                . 'normalized_email IN (SELECT normalized_email FROM user_emails WHERE '
+                . 'user_id = :invitee)
+               AND status = :status AND expires_at >'
+                . ' :now'),
             [
                 'hash' => $tokenHash,
-                'email' => $normalizedEmail,
+                'invitee' => $userId,
                 'status' => 'pending',
                 'now' => $this->date($at),
             ],
@@ -403,28 +493,6 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
                    WHERE inviter.home_id = home_invitations.home_id
                      AND inviter.user_id = :inviter
                      AND inviter.status = :active
-                     AND (
-                         inviter.role = :owner
-                         OR (
-                             home_invitations.role IN (:member, :viewer)
-                             AND (
-                                 EXISTS (
-                                     SELECT 1 FROM home_role_permission_grants grant_permission
-                                     WHERE grant_permission.home_id = inviter.home_id
-                                       AND grant_permission.role = inviter.role
-                                       AND grant_permission.permission = :invite_permission
-                                 )
-                                 OR (
-                                     inviter.role = :manager
-                                     AND NOT EXISTS (
-                                         SELECT 1 FROM home_role_policies role_policy
-                                         WHERE role_policy.home_id = inviter.home_id
-                                           AND role_policy.role = inviter.role
-                                     )
-                                 )
-                             )
-                         )
-                     )
                )',
             [
                 'accepted' => 'accepted',
@@ -435,11 +503,6 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
                 'pending' => 'pending',
                 'inviter' => $invitation['inviter_user_id'],
                 'active' => 'active',
-                'owner' => 'owner',
-                'manager' => 'manager',
-                'member' => 'member',
-                'viewer' => 'viewer',
-                'invite_permission' => HomePermission::MEMBERS_INVITE,
             ],
         );
         if ($updated !== 1) {
@@ -447,28 +510,39 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         }
         $existing = $this->membership((string) $invitation['home_id'], $userId);
         if ($existing === null) {
-            $this->connection->insert('home_memberships', [
-                'home_id' => $invitation['home_id'],
-                'user_id' => $userId,
-                'role' => $invitation['role'],
-                'status' => 'active',
-                'revision' => 1,
-                'joined_at' => $this->date($at),
-                'left_at' => null,
-                'updated_at' => $this->date($at),
-            ]);
+            $this->connection->insert(
+                'home_memberships',
+                [
+                    'home_id' => $invitation['home_id'],
+                    'user_id' => $userId,
+                    'role' => $invitation['role'],
+                    'status' => 'active',
+                    'revision' => 1,
+                    'joined_at' => $this->date($at),
+                    'left_at' => null,
+                    'updated_at' => $this->date($at),
+                ],
+            );
         } elseif ((string) $existing['status'] !== 'active') {
-            $this->connection->update('home_memberships', [
-                'role' => $invitation['role'],
-                'status' => 'active',
-                'revision' => (int) $existing['revision'] + 1,
-                'joined_at' => $this->date($at),
-                'left_at' => null,
-                'updated_at' => $this->date($at),
-            ], ['home_id' => $invitation['home_id'], 'user_id' => $userId]);
+            $this->connection->update(
+                'home_memberships',
+                [
+                    'role' => $invitation['role'],
+                    'status' => 'active',
+                    'revision' => (int) $existing['revision'] + 1,
+                    'joined_at' => $this->date($at),
+                    'left_at' => null,
+                    'updated_at' => $this->date($at),
+                ],
+                [
+                    'home_id' => $invitation['home_id'],
+                    'user_id' => $userId,
+                ],
+            );
         }
-
         return [
+            'membershipChanged'
+                => $existing === null || (string) $existing['status'] !== 'active',
             'invitationId' => (string) $invitation['id'],
             'homeId' => (string) $invitation['home_id'],
             'role' => $existing !== null && (string) $existing['status'] === 'active'
@@ -491,9 +565,9 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
             ['id' => $invitationId],
         );
         if (
-            $invitation === null || ! hash_equals(
-                (string) $invitation['normalized_email'],
-                $normalizedEmail,
+            $invitation === null || !$this->connection->fetchOne(
+                'SELECT id FROM user_emails WHERE user_id = ? AND normalized_email = ?',
+                [$userId, $invitation['normalized_email']],
             )
         ) {
             return ['outcome' => 'not-found'];
@@ -533,13 +607,11 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
                     'pending' => 'pending',
                 ],
             );
-
             return ['outcome' => 'expired'];
         }
         if ((int) $invitation['revision'] !== $expectedRevision) {
             return ['outcome' => 'revision-conflict'];
         }
-
         $result = $this->acceptInvitation(
             (string) $invitation['token_hash'],
             $userId,
@@ -549,8 +621,29 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         if ($result === null) {
             return ['outcome' => 'revision-conflict'];
         }
-
         return ['outcome' => 'accepted', 'changed' => true] + $result;
+    }
+
+    public function declineInvitation(
+        string $invitationId,
+        string $userId,
+        int $revision,
+        DateTimeImmutable $at,
+    ): bool {
+        return $this->connection->executeStatement(
+            ('UPDATE home_invitations SET status = \'declined\', revision = revision + '
+                . '1, updated_at = :at
+             WHERE id = :id AND status = \'pending\' '
+                . 'AND revision = :revision
+               AND normalized_email IN (SELECT '
+                . 'normalized_email FROM user_emails WHERE user_id = :user)'),
+            [
+                'id' => $invitationId,
+                'user' => $userId,
+                'revision' => $revision,
+                'at' => $this->date($at),
+            ],
+        ) === 1;
     }
 
     public function changeMembershipRole(
@@ -561,9 +654,11 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         DateTimeImmutable $at,
     ): bool {
         return $this->connection->executeStatement(
-            'UPDATE home_memberships SET role = :role, revision = revision + 1, updated_at = :at
-             WHERE home_id = :home AND user_id = :user
-               AND status = :status AND revision = :revision',
+            ('UPDATE home_memberships SET role = :role, revision = revision + 1, '
+                . 'updated_at = :at
+             WHERE home_id = :home AND user_id = :user'
+                . '
+               AND status = :status AND revision = :revision'),
             [
                 'role' => $role,
                 'at' => $this->date($at),
@@ -597,8 +692,11 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         ) === 1;
     }
 
-    public function removeMembership(string $homeId, string $userId, DateTimeImmutable $at): bool
-    {
+    public function removeMembership(
+        string $homeId,
+        string $userId,
+        DateTimeImmutable $at,
+    ): bool {
         return $this->connection->executeStatement(
             'UPDATE home_memberships SET status = :left, left_at = :at,
                     revision = revision + 1, updated_at = :at
@@ -618,7 +716,11 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         return (int) $this->connection->fetchOne(
             'SELECT COUNT(*) FROM home_memberships
              WHERE home_id = :home AND role = :role AND status = :status',
-            ['home' => $homeId, 'role' => 'owner', 'status' => 'active'],
+            [
+                'home' => $homeId,
+                'role' => 'owner',
+                'status' => 'active',
+            ],
         );
     }
 
@@ -634,36 +736,51 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
     ): void {
         $date = $this->date($at);
         $this->connection->executeStatement(
-            'UPDATE home_ownership_transfers
-             SET status = :expired, active_key = NULL, revision = revision + 1, updated_at = :at
-             WHERE home_id = :home AND status = :pending AND expires_at <= :at',
-            ['expired' => 'expired', 'at' => $date, 'home' => $homeId, 'pending' => 'pending'],
+            ('UPDATE home_ownership_transfers
+             SET status = :expired, '
+                . 'active_key = NULL, revision = revision + 1, updated_at = :at'
+                . '
+             WHERE home_id = :home AND status = :pending AND expires_at'
+                . ' <= :at'),
+            [
+                'expired' => 'expired',
+                'at' => $date,
+                'home' => $homeId,
+                'pending' => 'pending',
+            ],
         );
         try {
-            $this->connection->insert('home_ownership_transfers', [
-                'id' => $id,
-                'home_id' => $homeId,
-                'proposed_by_user_id' => $proposedByUserId,
-                'target_user_id' => $targetUserId,
-                'expected_target_revision' => $expectedTargetRevision,
-                'status' => 'pending',
-                'active_key' => 'active',
-                'step_up_verified_at' => $this->date($stepUpVerifiedAt),
-                'expires_at' => $this->date($expiresAt),
-                'accepted_at' => null,
-                'rejected_at' => null,
-                'revoked_at' => null,
-                'revision' => 1,
-                'created_at' => $date,
-                'updated_at' => $date,
-            ]);
+            $this->connection->insert(
+                'home_ownership_transfers',
+                [
+                    'id' => $id,
+                    'home_id' => $homeId,
+                    'proposed_by_user_id' => $proposedByUserId,
+                    'target_user_id' => $targetUserId,
+                    'expected_target_revision' => $expectedTargetRevision,
+                    'status' => 'pending',
+                    'active_key' => 'active',
+                    'step_up_verified_at' => $this->date($stepUpVerifiedAt),
+                    'expires_at' => $this->date($expiresAt),
+                    'accepted_at' => null,
+                    'rejected_at' => null,
+                    'revoked_at' => null,
+                    'revision' => 1,
+                    'created_at' => $date,
+                    'updated_at' => $date,
+                ],
+            );
         } catch (UniqueConstraintViolationException) {
-            throw new \DomainException('A pending ownership transfer already exists for this home.');
+            throw new \DomainException(
+                'A pending ownership transfer already exists for this home.',
+            );
         }
     }
 
-    public function ownershipTransfer(string $homeId, string $transferId): ?array
-    {
+    public function ownershipTransfer(
+        string $homeId,
+        string $transferId,
+    ): ?array {
         return $this->one(
             'SELECT id, home_id AS homeId, proposed_by_user_id AS proposedByUserId,
                     target_user_id AS targetUserId,
@@ -678,15 +795,16 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         );
     }
 
-    public function ownershipTransfers(string $homeId, ?string $participantUserId): array
-    {
+    public function ownershipTransfers(
+        string $homeId,
+        ?string $participantUserId,
+    ): array {
         $where = 'home_id = :home';
         $params = ['home' => $homeId];
         if ($participantUserId !== null) {
             $where .= ' AND (proposed_by_user_id = :participant OR target_user_id = :participant)';
             $params['participant'] = $participantUserId;
         }
-
         return $this->connection->fetchAllAssociative(
             'SELECT id, home_id AS homeId, proposed_by_user_id AS proposedByUserId,
                     target_user_id AS targetUserId,
@@ -708,7 +826,13 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         string $status,
         DateTimeImmutable $at,
     ): bool {
-        if (! in_array($status, ['accepted', 'rejected', 'revoked'], true)) {
+        if (
+            !in_array(
+                $status,
+                ['accepted', 'rejected', 'revoked'],
+                true,
+            )
+        ) {
             throw new \InvalidArgumentException('Unsupported ownership-transfer transition.');
         }
         $timestampColumn = match ($status) {
@@ -716,7 +840,6 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
             'rejected' => 'rejected_at',
             'revoked' => 'revoked_at',
         };
-
         return $this->connection->executeStatement(
             'UPDATE home_ownership_transfers
              SET status = :status, active_key = NULL, ' . $timestampColumn . ' = :at,
@@ -742,9 +865,12 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         DateTimeImmutable $at,
     ): bool {
         $targetUpdated = $this->connection->executeStatement(
-            'UPDATE home_memberships SET role = :owner, revision = revision + 1, updated_at = :at
-             WHERE home_id = :home AND user_id = :target AND status = :active
-               AND role <> :owner AND revision = :revision',
+            ('UPDATE home_memberships SET role = :owner, revision = revision + 1, '
+                . 'updated_at = :at
+             WHERE home_id = :home AND user_id = '
+                . ':target AND status = :active
+               AND role <> :owner AND '
+                . 'revision = :revision'),
             [
                 'owner' => 'owner',
                 'at' => $this->date($at),
@@ -758,9 +884,11 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
             return false;
         }
         $ownerUpdated = $this->connection->executeStatement(
-            'UPDATE home_memberships SET role = :manager, revision = revision + 1, updated_at = :at
-             WHERE home_id = :home AND user_id = :owner_user
-               AND status = :active AND role = :owner',
+            ('UPDATE home_memberships SET role = :manager, revision = revision + 1, '
+                . 'updated_at = :at
+             WHERE home_id = :home AND user_id = '
+                . ':owner_user
+               AND status = :active AND role = :owner'),
             [
                 'manager' => 'manager',
                 'at' => $this->date($at),
@@ -773,7 +901,6 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         if ($ownerUpdated !== 1) {
             throw new \RuntimeException('Ownership changed during transfer.');
         }
-
         return true;
     }
 
@@ -787,16 +914,19 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
         string $detailsJson,
         DateTimeImmutable $at,
     ): void {
-        $this->connection->insert('audit_events', [
-            'id' => $id,
-            'home_id' => $homeId,
-            'actor_user_id' => $actorUserId,
-            'action' => $action,
-            'target_type' => $targetType,
-            'target_id' => $targetId,
-            'details' => $detailsJson,
-            'occurred_at' => $this->date($at),
-        ]);
+        $this->connection->insert(
+            'audit_events',
+            [
+                'id' => $id,
+                'home_id' => $homeId,
+                'actor_user_id' => $actorUserId,
+                'action' => $action,
+                'target_type' => $targetType,
+                'target_id' => $targetId,
+                'details' => $detailsJson,
+                'occurred_at' => $this->date($at),
+            ],
+        );
     }
 
     /**
@@ -806,42 +936,14 @@ final class DbalHomeStore implements HomeStore, OperatorHomeAccessReader
     private function one(string $sql, array $params): ?array
     {
         $row = $this->connection->fetchAssociative($sql, $params);
-
-        return $row === false ? null : $row;
-    }
-
-    private function createDefaultPermissionPolicies(
-        string $homeId,
-        string $ownerUserId,
-        DateTimeImmutable $at,
-    ): void {
-        foreach (
-            [
-                HomeAuthorization::OWNER,
-                HomeAuthorization::MANAGER,
-                HomeAuthorization::MEMBER,
-                HomeAuthorization::VIEWER,
-            ] as $role
-        ) {
-            $this->connection->insert('home_role_policies', [
-                'home_id' => $homeId,
-                'role' => $role,
-                'revision' => 1,
-                'updated_by_user_id' => $ownerUserId,
-                'updated_at' => $this->date($at),
-            ]);
-            foreach (HomePermission::defaultsForRole($role) as $permission) {
-                $this->connection->insert('home_role_permission_grants', [
-                    'home_id' => $homeId,
-                    'role' => $role,
-                    'permission' => $permission,
-                ]);
-            }
-        }
+        return $row === false
+            ? null
+            : $row;
     }
 
     private function date(DateTimeImmutable $date): string
     {
-        return $date->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+        return $date->setTimezone(new DateTimeZone('UTC'))
+            ->format('Y-m-d H:i:s');
     }
 }

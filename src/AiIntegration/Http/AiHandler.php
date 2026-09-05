@@ -100,7 +100,8 @@ final readonly class AiHandler implements RequestHandlerInterface
         };
     }
 
-    /** @return list<string> */
+    /**
+     * @return list<string> */
     private function stringList(mixed $value): array
     {
         if (! is_array($value)) {
@@ -110,7 +111,8 @@ final readonly class AiHandler implements RequestHandlerInterface
         return array_values(array_map(static fn (mixed $item): string => (string) $item, $value));
     }
 
-    /** @param array<string, mixed> $body */
+    /**
+     * @param array<string, mixed> $body */
     private function removeProfile(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -127,7 +129,8 @@ final readonly class AiHandler implements RequestHandlerInterface
         return new EmptyResponse(204);
     }
 
-    /** @param array<string, mixed> $body */
+    /**
+     * @param array<string, mixed> $body */
     private function reviewObservation(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -145,7 +148,8 @@ final readonly class AiHandler implements RequestHandlerInterface
         return new EmptyResponse(204);
     }
 
-    /** @param array<string, mixed> $body */
+    /**
+     * @param array<string, mixed> $body */
     private function reviewDiscrepancy(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -164,7 +168,8 @@ final readonly class AiHandler implements RequestHandlerInterface
         return new EmptyResponse(204);
     }
 
-    /** @param array<string, mixed> $body */
+    /**
+     * @param array<string, mixed> $body */
     private function reviewCandidate(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -197,7 +202,8 @@ final readonly class AiHandler implements RequestHandlerInterface
         return new EmptyResponse(204);
     }
 
-    /** @param array<string, mixed> $body */
+    /**
+     * @param array<string, mixed> $body */
     private function extract(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -298,7 +304,8 @@ final readonly class AiHandler implements RequestHandlerInterface
         return $stream->getContents();
     }
 
-    /** @param array<mixed> $uploads */
+    /**
+     * @param array<mixed> $uploads */
     private function closeUploads(array $uploads): void
     {
         foreach ($uploads as $upload) {
@@ -318,7 +325,8 @@ final readonly class AiHandler implements RequestHandlerInterface
         }
     }
 
-    /** @param array<string, mixed> $body */
+    /**
+     * @param array<string, mixed> $body */
     private function extractStored(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -348,8 +356,11 @@ final readonly class AiHandler implements RequestHandlerInterface
     }
 
     /**
+     *
      * @param array<string, mixed> $body
+     *
      * @param list<string> $allowed
+     *
      * @param list<string> $required
      */
     private function requireExactKeys(array $body, array $allowed, array $required): void

@@ -32,6 +32,7 @@ final class InventoryFactory
             ),
             $requestedName === DbalCatalogImportHomeProductGateway::class => new DbalCatalogImportHomeProductGateway(
                 $container->get(Connection::class),
+                $container->get(\Providentia\Access\Application\AccessService::class),
             ),
             $requestedName === DbalCatalogMergeHomeProductGateway::class => new DbalCatalogMergeHomeProductGateway(
                 $container->get(Connection::class),
@@ -43,6 +44,7 @@ final class InventoryFactory
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
                 $container->get(ChangeFeedWriter::class),
+                $container->get(\Providentia\Access\Application\AccessService::class),
             ),
             str_starts_with($requestedName, 'inventory.') => new InventoryHandler(
                 $container->get(InventoryService::class),

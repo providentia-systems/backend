@@ -8,5 +8,7 @@
     "../json-schema/problem-details-v1.json": {
       "sha256": "962fd4a9b8f4928e88925056a8343da69f04edf676a8866556d9e46dae96c8ee"
     }
-  }
+  },
+  "version": "2.0.0",
+  "sha256": "764f1b850a150f805eb178bf85cba802ba6b3ee35dcfbfae24a179049a7d55a7"
 }

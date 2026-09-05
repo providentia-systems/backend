@@ -800,7 +800,9 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
     }
 
     /**
+     *
      * @param array<string, mixed> $parameters
+     *
      * @return array<string, mixed>|null
      */
     private function one(string $sql, array $parameters): ?array
@@ -838,7 +840,8 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         return $value instanceof DateTimeImmutable ? $this->date($value) : null;
     }
 
-    /** @return list<string> */
+    /**
+     * @return list<string> */
     private function decodeList(string $value): array
     {
         $decoded = json_decode($value, true, 32, JSON_THROW_ON_ERROR);
@@ -849,7 +852,8 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         return array_values(array_filter($decoded, 'is_string'));
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     private function decodeListOfMaps(string $value): array
     {
         $decoded = json_decode($value, true, 32, JSON_THROW_ON_ERROR);
@@ -860,7 +864,8 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         return array_values(array_filter($decoded, 'is_array'));
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     private function decodeMap(string $value): array
     {
         $decoded = json_decode($value, true, 32, JSON_THROW_ON_ERROR);
@@ -873,7 +878,8 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     }
 
-    /** @param array<string, mixed> $details */
+    /**
+     * @param array<string, mixed> $details */
     private function audit(
         string $id,
         string $homeId,

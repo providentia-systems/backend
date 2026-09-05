@@ -19,7 +19,6 @@ final class IdentityHandler implements RequestHandlerInterface
     public function __construct(
         private readonly AuthenticationService $authentication,
         private readonly string $action,
-        private readonly bool $exposeDevelopmentTokens,
         private readonly bool $cookieSecure = true,
     ) {
     }
@@ -30,30 +29,12 @@ final class IdentityHandler implements RequestHandlerInterface
         $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
 
         return match ($this->action) {
-            'step-up-request' => $this->stepUpRequest($request, $body),
             'refresh' => $this->refresh($request, $body),
             'sessions' => new JsonResponse(['data' => $this->authentication->listSessions($this->identity($request))]),
             'revoke-session' => $this->revoke($request),
             'logout' => $this->logout($request),
             default => throw new \LogicException('Unknown identity action.'),
         };
-    }
-
-    /** @param array<string, mixed> $body */
-    private function stepUpRequest(ServerRequestInterface $request, array $body): ResponseInterface
-    {
-        $this->requireExactKeys($body, ['action', 'applicationKind']);
-        $token = $this->authentication->requestStepUp(
-            $this->identity($request),
-            (string) ($body['action'] ?? ''),
-            (string) ($body['applicationKind'] ?? ''),
-        );
-        $response = ['accepted' => true];
-        if ($token !== null && $this->exposeDevelopmentTokens) {
-            $response['developmentStepUpToken'] = $token;
-        }
-
-        return new JsonResponse($response, 202);
     }
 
     /** @param array<string, mixed> $body */
@@ -133,20 +114,6 @@ final class IdentityHandler implements RequestHandlerInterface
         }
 
         return SessionResponseFactory::cleared(401, $this->cookieSecure);
-    }
-
-    /**
-     * @param array<string, mixed> $body
-     * @param list<string> $expected
-     */
-    private function requireExactKeys(array $body, array $expected): void
-    {
-        $actual = array_keys($body);
-        sort($actual);
-        sort($expected);
-        if ($actual !== $expected) {
-            throw new Problem(422, 'Validation failed', 'The request body does not match the operation.');
-        }
     }
 
     private function identity(ServerRequestInterface $request): AuthenticatedIdentity

@@ -24,6 +24,8 @@ final class HomePermission
     public const AI_READ = 'ai.read';
     public const AI_USE = 'ai.use';
     public const AI_MANAGE = 'ai.manage';
+    public const AI_CREDENTIALS_USE = 'ai.credentials.use';
+    public const AI_PLATFORM_USE = 'ai.platform.use';
     public const REPORTS_READ = 'reports.read';
     public const CATALOG_CONTRIBUTE = 'catalog.contribute';
     public const CATALOG_IMPORT = 'catalog.import';
@@ -53,8 +55,10 @@ final class HomePermission
             self::SHOPPING_WRITE,
             self::SHOPPING_MANAGE,
             self::AI_READ,
-            self::AI_USE,
+            self::AI_USE, self::AI_CREDENTIALS_USE,
             self::AI_MANAGE,
+            self::AI_CREDENTIALS_USE,
+            self::AI_PLATFORM_USE,
             self::REPORTS_READ,
             self::CATALOG_CONTRIBUTE,
             self::CATALOG_IMPORT,
@@ -85,7 +89,7 @@ final class HomePermission
                 self::SHOPPING_WRITE,
                 self::SHOPPING_MANAGE,
                 self::AI_READ,
-                self::AI_USE,
+                self::AI_USE, self::AI_CREDENTIALS_USE,
                 self::AI_MANAGE,
                 self::REPORTS_READ,
                 self::CATALOG_CONTRIBUTE,
@@ -101,7 +105,7 @@ final class HomePermission
                 self::SHOPPING_READ,
                 self::SHOPPING_WRITE,
                 self::AI_READ,
-                self::AI_USE,
+                self::AI_USE, self::AI_CREDENTIALS_USE,
                 self::REPORTS_READ,
                 self::CATALOG_CONTRIBUTE,
                 self::CATALOG_IMPORT,

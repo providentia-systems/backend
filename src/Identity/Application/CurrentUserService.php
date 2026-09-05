@@ -14,21 +14,35 @@ final class CurrentUserService
         private readonly IdentityStore $identities,
         private readonly HomeStore $homes,
         private readonly Clock $clock,
+        private readonly AccountProfileService $profiles,
+        private readonly AccountProfileStore $profileStore,
     ) {
     }
 
     /** @return array<string, mixed> */
-    public function bootstrap(AuthenticatedIdentity $identity): array
-    {
+    public function bootstrap(
+        AuthenticatedIdentity $identity,
+    ): array {
         $profile = $this->identities->profile($identity->userId);
         if ($profile === null || (string) $profile['status'] !== 'active') {
-            throw new Problem(401, 'Authentication required', 'The account is unavailable.');
+            throw new Problem(
+                401,
+                'Authentication required',
+                'The account is unavailable.',
+            );
         }
         $homes = $this->homes->listForUser($identity->userId);
-        $homeIds = array_map(static fn (array $home): string => (string) $home['id'], $homes);
+        $homeIds = array_map(
+            static fn(array $home): string => (string) $home['id'],
+            $homes,
+        );
         $activeHomeId = $identity->activeHomeId;
-        if ($activeHomeId !== null && ! in_array($activeHomeId, $homeIds, true)) {
-            $this->identities->clearActiveHome($identity->userId, $activeHomeId, $this->clock->now());
+        if ($activeHomeId !== null && !in_array($activeHomeId, $homeIds, true)) {
+            $this->identities->clearActiveHome(
+                $identity->userId,
+                $activeHomeId,
+                $this->clock->now(),
+            );
             $activeHomeId = null;
         }
         $sessions = $this->identities->listSessions($identity->userId);
@@ -42,13 +56,18 @@ final class CurrentUserService
             break;
         }
         if ($currentSession === null) {
-            throw new Problem(401, 'Authentication required', 'The current device session is unavailable.');
+            throw new Problem(
+                401,
+                'Authentication required',
+                'The current device session is unavailable.',
+            );
         }
-        $pendingInvitations = $this->homes->pendingInvitationsForEmail(
-            mb_strtolower((string) $profile['email']),
-            $this->clock->now(),
-        );
-
+        $pendingInvitations = [];
+        foreach ($this->profileStore->emails($identity->userId) as $email) {
+            foreach ($this->homes->pendingInvitationsForEmail((string) $email['email'], $this->clock->now()) as $invitation) {
+                $pendingInvitations[(string) $invitation['id']] = $invitation;
+            }
+        }
         return [
             'userId' => $identity->userId,
             'email' => (string) $profile['email'],
@@ -58,7 +77,8 @@ final class CurrentUserService
             'timezone' => $profile['timezone'],
             'activeHomeId' => $activeHomeId,
             'homes' => $homes,
-            'pendingInvitations' => $pendingInvitations,
+            'pendingInvitations' => array_values($pendingInvitations),
+            'profile' => $this->profiles->get($identity),
             'platformRoles' => $identity->platformRoles,
             'currentSession' => $currentSession,
         ];

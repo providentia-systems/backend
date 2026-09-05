@@ -43,6 +43,36 @@ final class AuthenticationRateLimiter
         }
     }
 
+    public function assertCodeResendAllowed(string $email, string $purpose): void
+    {
+        if (
+            ! $this->store->consume(
+                hash_hmac('sha256', 'code-resend:' . $purpose . ':' . $email, $this->pepper),
+                $this->clock->now(),
+                60,
+                1,
+                60,
+            )
+        ) {
+            throw new Problem(429, 'Please wait', 'Wait one minute before requesting another code.');
+        }
+    }
+
+    public function assertCodeVerificationAllowed(string $ip): void
+    {
+        if (
+            ! $this->store->consume(
+                hash_hmac('sha256', 'code-verify:' . $ip, $this->pepper),
+                $this->clock->now(),
+                900,
+                60,
+                900,
+            )
+        ) {
+            throw new Problem(429, 'Too many attempts', 'Wait before trying another verification code.');
+        }
+    }
+
     public function assertLoginLinkProofAllowed(string $ipAddress, ?string $requestId = null): void
     {
         $buckets = ['login-link-ip:' . $ipAddress => 3000];

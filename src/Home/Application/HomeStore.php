@@ -28,28 +28,34 @@ interface HomeStore extends HomeAuditRecorder
         DateTimeImmutable $at,
     ): bool;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function listForUser(string $userId): array;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function findHome(string $homeId): ?array;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function membership(string $homeId, string $userId): ?array;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function memberships(string $homeId): array;
 
     /**
      * Return null when a home has no persisted policy for the role yet. This
-     * preserves the legacy role defaults during rolling deployments.
+     * uses the current home group role defaults until the owner sets a policy.
      */
     public function permissionDecision(string $homeId, string $role, string $permission): ?bool;
 
-    /** @return list<array{role: string, revision: int, permissions: list<string>}> */
+    /**
+     * @return list<array{role: string, revision: int, permissions: list<string>}> */
     public function permissionPolicies(string $homeId): array;
 
-    /** @param list<string> $permissions */
+    /**
+     * @param list<string> $permissions */
     public function replaceRolePermissions(
         string $homeId,
         string $role,
@@ -70,14 +76,21 @@ interface HomeStore extends HomeAuditRecorder
         DateTimeImmutable $at,
     ): void;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function invitations(string $homeId): array;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function pendingInvitationsForEmail(string $normalizedEmail, DateTimeImmutable $at): array;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function invitation(string $homeId, string $invitationId): ?array;
+
+    /**
+     * @return array<string, mixed>|null */
+    public function invitationForUser(string $invitationId, string $userId): ?array;
 
     public function revokeInvitation(
         string $homeId,
@@ -87,7 +100,8 @@ interface HomeStore extends HomeAuditRecorder
         DateTimeImmutable $at,
     ): bool;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function acceptInvitation(
         string $tokenHash,
         string $userId,
@@ -95,7 +109,8 @@ interface HomeStore extends HomeAuditRecorder
         DateTimeImmutable $at,
     ): ?array;
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed> */
     public function acceptInvitationById(
         string $invitationId,
         string $userId,
@@ -103,6 +118,8 @@ interface HomeStore extends HomeAuditRecorder
         int $expectedRevision,
         DateTimeImmutable $at,
     ): array;
+
+    public function declineInvitation(string $invitationId, string $userId, int $revision, DateTimeImmutable $at): bool;
 
     public function changeMembershipRole(
         string $homeId,
@@ -134,10 +151,12 @@ interface HomeStore extends HomeAuditRecorder
         DateTimeImmutable $at,
     ): void;
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array<string, mixed>|null */
     public function ownershipTransfer(string $homeId, string $transferId): ?array;
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * @return list<array<string, mixed>> */
     public function ownershipTransfers(string $homeId, ?string $participantUserId): array;
 
     public function transitionOwnershipTransfer(

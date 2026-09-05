@@ -34,6 +34,7 @@ final class HomeFactory
             $requestedName === DbalHomeStore::class => new DbalHomeStore($container->get(Connection::class)),
             $requestedName === HomeAuthorization::class => new HomeAuthorization(
                 $container->get(HomeStore::class),
+                $container->get(\Providentia\Access\Application\AccessService::class),
             ),
             $requestedName === CatalogHomeAccessAdapter::class => new CatalogHomeAccessAdapter(
                 $container->get(HomeAuthorization::class),
@@ -52,6 +53,9 @@ final class HomeFactory
                 $container->get(TransactionManager::class),
                 $container->get(SecureTokenGenerator::class),
                 $container->get(AuthenticationService::class),
+                $container->get(\Providentia\Access\Application\AccessService::class),
+                $container->get(\Providentia\Identity\Application\AccountProfileStore::class),
+                $container->get(\Providentia\Geography\Application\CountryService::class),
             ),
             str_starts_with($requestedName, 'home.') => new HomeHandler(
                 $container->get(HomeService::class),
