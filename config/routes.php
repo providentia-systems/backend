@@ -8,8 +8,6 @@ use Providentia\Catalog\Http\CatalogContributionPromotionHandler;
 use Providentia\Catalog\Http\CatalogSearchHandler;
 use Providentia\Catalog\Http\CatalogProductHandler;
 use Providentia\Identity\Http\BearerAuthenticationMiddleware;
-use Providentia\Identity\Http\AuthenticationRateLimitMiddleware;
-use Providentia\Identity\Http\LoginLinkProofRateLimitMiddleware;
 use Providentia\Reporting\Http\DashboardHandler;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
 use Providentia\SharedKernel\Http\Health\ReadinessHandler;
@@ -17,76 +15,62 @@ use Providentia\SharedKernel\Http\MetricsHandler;
 use Providentia\SharedKernel\Http\SystemInfoHandler;
 
 return static function (Application $app): void {
-    $app->get(
-        '/login-links/{applicationKind}/{requestId}',
-        'identity.login-link-browser-launch',
-        'public.login-links.launch',
-    );
-    $app->post(
-        '/login-links/{applicationKind}/{requestId}/capture',
-        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-browser-capture'],
-        'public.login-links.capture',
-    );
-    $app->get(
-        '/login-links/{applicationKind}/{requestId}/review',
-        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-browser-review'],
-        'public.login-links.review',
-    );
-    $app->post(
-        '/login-links/{applicationKind}/{requestId}/approve',
-        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-browser-approve'],
-        'public.login-links.approve',
-    );
-    $app->post(
-        '/login-links/{applicationKind}/{requestId}/deny',
-        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-browser-deny'],
-        'public.login-links.deny',
-    );
+    $app->get('/api/v1/admin/homes', [BearerAuthenticationMiddleware::class, 'operator-workspace.homes'], 'api.operator-workspace.homes.0');
+    $app->get('/api/v1/admin/homes/{homeId}', [BearerAuthenticationMiddleware::class, 'operator-workspace.home'], 'api.operator-workspace.home.1');
+    $app->get('/api/v1/admin/homes/{homeId}/records/{collection}', [BearerAuthenticationMiddleware::class, 'operator-workspace.records'], 'api.operator-workspace.records.2');
+    $app->get('/api/v1/admin/administrators', [BearerAuthenticationMiddleware::class, 'operator-workspace.administrators'], 'api.operator-workspace.administrators.3');
+    $app->post('/api/v1/admin/administrators/{userId}/review', [BearerAuthenticationMiddleware::class, 'operator-workspace.review-administrator'], 'api.operator-workspace.review-administrator.4');
+    $app->get('/api/v1/admin/audit-events', [BearerAuthenticationMiddleware::class, 'operator-workspace.audit'], 'api.operator-workspace.audit.5');
+    $app->get('/api/v1/homes/{homeId}/profile', [BearerAuthenticationMiddleware::class, 'profile-media.home-profile'], 'api.profile-media.home-profile.6');
+    $app->put('/api/v1/homes/{homeId}/profile', [BearerAuthenticationMiddleware::class, 'profile-media.home-profile'], 'api.profile-media.home-profile.7');
+    $app->get('/api/v1/homes/{homeId}/image', [BearerAuthenticationMiddleware::class, 'profile-media.image'], 'api.profile-media.image.8');
+    $app->put('/api/v1/homes/{homeId}/image', [BearerAuthenticationMiddleware::class, 'profile-media.image'], 'api.profile-media.image.9');
+    $app->delete('/api/v1/homes/{homeId}/image', [BearerAuthenticationMiddleware::class, 'profile-media.image'], 'api.profile-media.image.10');
+    $app->get('/api/v1/users/{userId}/avatar', [BearerAuthenticationMiddleware::class, 'profile-media.image'], 'api.profile-media.image.11');
+    $app->get('/api/v1/me/avatar', [BearerAuthenticationMiddleware::class, 'profile-media.image'], 'api.profile-media.image.12');
+    $app->put('/api/v1/me/avatar', [BearerAuthenticationMiddleware::class, 'profile-media.image'], 'api.profile-media.image.13');
+    $app->delete('/api/v1/me/avatar', [BearerAuthenticationMiddleware::class, 'profile-media.image'], 'api.profile-media.image.14');
+    $app->post('/api/v1/me/avatar/gravatar', [BearerAuthenticationMiddleware::class, 'profile-media.gravatar'], 'api.profile-media.gravatar.15');
+    $app->get('/api/v1/admin/homes/{homeId}/image', [BearerAuthenticationMiddleware::class, 'profile-media.operator-image'], 'api.profile-media.operator-image.16');
+    $app->get('/api/v1/admin/users/{userId}/avatar', [BearerAuthenticationMiddleware::class, 'profile-media.operator-image'], 'api.profile-media.operator-image.17');
+
+    $app->post('/api/v1/me/home-invitations/{invitationId}/decline', [BearerAuthenticationMiddleware::class, 'home.decline-invitation'], 'api.home-invitations.decline');
+    $app->get('/api/v1/homes/{homeId}/memberships/{userId}/permissions', [BearerAuthenticationMiddleware::class, 'home.member-permissions'], 'api.home-memberships.permissions');
+    $app->put('/api/v1/homes/{homeId}/memberships/{userId}/permissions', [BearerAuthenticationMiddleware::class, 'home.save-member-permissions'], 'api.home-memberships.permissions.save');
+    $app->post('/api/v1/auth/email-codes', 'email-login.request', 'api.email-login.request');
+    $app->post('/api/v1/auth/email-codes/verify', 'email-login.verify', 'api.email-login.verify');
+    $app->get('/api/v1/me/profile', [BearerAuthenticationMiddleware::class, 'profile.get'], 'api.profile.get');
+    $app->patch('/api/v1/me/profile', [BearerAuthenticationMiddleware::class, 'profile.update'], 'api.profile.update');
+    $app->post('/api/v1/me/onboarding', [BearerAuthenticationMiddleware::class, 'profile.onboard'], 'api.profile.onboard');
+    $app->post('/api/v1/me/emails/codes', [BearerAuthenticationMiddleware::class, 'profile.email-request'], 'api.profile.email-request');
+    $app->post('/api/v1/me/emails/verify', [BearerAuthenticationMiddleware::class, 'profile.email-verify'], 'api.profile.email-verify');
+    $app->post('/api/v1/me/emails/{emailId}/primary', [BearerAuthenticationMiddleware::class, 'profile.email-primary'], 'api.profile.email-primary');
+    $app->post('/api/v1/me/emails/{emailId}/remove', [BearerAuthenticationMiddleware::class, 'profile.email-remove'], 'api.profile.email-remove');
+    $app->post('/api/v1/me/security-codes', [BearerAuthenticationMiddleware::class, 'profile.security-request'], 'api.profile.security-request');
+    $app->post('/api/v1/me/security-codes/verify', [BearerAuthenticationMiddleware::class, 'profile.security-verify'], 'api.profile.security-verify');
+    $app->get('/api/v1/admin/access/catalog', [BearerAuthenticationMiddleware::class, 'access.catalog'], 'api.access.catalog');
+    $app->get('/api/v1/admin/access/groups', [BearerAuthenticationMiddleware::class, 'access.list'], 'api.access.list');
+    $app->post('/api/v1/admin/access/groups', [BearerAuthenticationMiddleware::class, 'access.create'], 'api.access.create');
+    $app->put('/api/v1/admin/access/groups/{groupId}', [BearerAuthenticationMiddleware::class, 'access.update'], 'api.access.update');
+    $app->put('/api/v1/admin/access/{scope}/{subjectId}', [BearerAuthenticationMiddleware::class, 'access.assign'], 'api.access.assign');
+    $app->get('/api/v1/countries', 'country.list', 'api.country.list');
+    $app->get('/api/v1/countries/{countryCode}/policy', 'country.policy', 'api.country.policy');
+    $app->get('/api/v1/countries/{countryCode}/states', 'country.states', 'api.country.states');
+    $app->get('/api/v1/countries/{countryCode}/cities', 'country.cities', 'api.country.cities');
+    $app->get('/api/v1/admin/countries', [BearerAuthenticationMiddleware::class, 'country.admin-list'], 'api.country.admin-list');
+    $app->get('/api/v1/admin/countries/{countryCode}', [BearerAuthenticationMiddleware::class, 'country.settings'], 'api.country.settings');
+    $app->put('/api/v1/admin/countries/{countryCode}', [BearerAuthenticationMiddleware::class, 'country.configure'], 'api.country.configure');
+    $app->get('/api/v1/admin/privacy-policies', [BearerAuthenticationMiddleware::class, 'country.policies'], 'api.country.policies');
+    $app->post('/api/v1/admin/privacy-policies', [BearerAuthenticationMiddleware::class, 'country.policy-create'], 'api.country.policy-create');
+    $app->put('/api/v1/admin/privacy-policies/{policyId}', [BearerAuthenticationMiddleware::class, 'country.policy-update'], 'api.country.policy-update');
+    $app->get('/api/v1/admin/reference-updates', [BearerAuthenticationMiddleware::class, 'country.jobs'], 'api.country.jobs');
+    $app->post('/api/v1/admin/reference-updates', [BearerAuthenticationMiddleware::class, 'country.update'], 'api.country.update');
+
     $app->get('/health/live', LivenessHandler::class, 'health.live');
     $app->get('/health/ready', ReadinessHandler::class, 'health.ready');
     $app->get('/api/v1/system/info', SystemInfoHandler::class, 'api.system.info');
     $app->get('/metrics', MetricsHandler::class, 'metrics');
 
-    $app->post(
-        '/api/v1/auth/login-links',
-        [AuthenticationRateLimitMiddleware::class, 'identity.login-link-start'],
-        'api.auth.login-links.start',
-    );
-    $app->post(
-        '/api/v1/auth/login-links/{requestId}/status',
-        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-status'],
-        'api.auth.login-links.status',
-    );
-    $app->post(
-        '/api/v1/auth/login-links/{requestId}/proof',
-        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-proof'],
-        'api.auth.login-links.proof',
-    );
-    $app->post(
-        '/api/v1/auth/login-links/{requestId}/review',
-        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-review'],
-        'api.auth.login-links.review',
-    );
-    $app->post(
-        '/api/v1/auth/login-links/{requestId}/decision',
-        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-decision'],
-        'api.auth.login-links.decision',
-    );
-    $app->post(
-        '/api/v1/auth/login-links/{requestId}/exchange',
-        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-exchange'],
-        'api.auth.login-links.exchange',
-    );
-    $app->post(
-        '/api/v1/auth/login-links/{requestId}/cancel',
-        [LoginLinkProofRateLimitMiddleware::class, 'identity.login-link-cancel'],
-        'api.auth.login-links.cancel',
-    );
-    $app->post(
-        '/api/v1/auth/step-up-links',
-        [BearerAuthenticationMiddleware::class, 'identity.step-up-request'],
-        'api.auth.step-up-links.request',
-    );
     $app->post('/api/v1/auth/refresh', 'identity.refresh', 'api.auth.refresh');
     $app->get(
         '/api/v1/auth/sessions',
@@ -114,21 +98,6 @@ return static function (Application $app): void {
         'api.me',
     );
     $app->get(
-        '/api/v1/platform/administrators',
-        [BearerAuthenticationMiddleware::class, 'identity.platform-administrators-list'],
-        'api.platform-administrators.list',
-    );
-    $app->post(
-        '/api/v1/platform/administrators',
-        [BearerAuthenticationMiddleware::class, 'identity.platform-administrators-grant'],
-        'api.platform-administrators.grant',
-    );
-    $app->post(
-        '/api/v1/platform/administrators/{administratorId}/revoke',
-        [BearerAuthenticationMiddleware::class, 'identity.platform-administrators-revoke'],
-        'api.platform-administrators.revoke',
-    );
-    $app->get(
         '/api/v1/admin/accounts',
         [BearerAuthenticationMiddleware::class, 'administration.operator-accounts-list'],
         'api.admin.accounts.list',
@@ -143,16 +112,6 @@ return static function (Application $app): void {
         [BearerAuthenticationMiddleware::class, 'administration.operator-accounts-status'],
         'api.admin.accounts.status',
     );
-    $app->put(
-        '/api/v1/admin/accounts/{userId}/roles/{role}',
-        [BearerAuthenticationMiddleware::class, 'administration.operator-accounts-role-grant'],
-        'api.admin.accounts.roles.grant',
-    );
-    $app->delete(
-        '/api/v1/admin/accounts/{userId}/roles/{role}',
-        [BearerAuthenticationMiddleware::class, 'administration.operator-accounts-role-revoke'],
-        'api.admin.accounts.roles.revoke',
-    );
 
     $app->post('/api/v1/homes', [BearerAuthenticationMiddleware::class, 'home.create'], 'api.homes.create');
     $app->get('/api/v1/homes', [BearerAuthenticationMiddleware::class, 'home.list'], 'api.homes.list');
@@ -165,11 +124,6 @@ return static function (Application $app): void {
         '/api/v1/me/home-invitations/{invitationId}/accept',
         [BearerAuthenticationMiddleware::class, 'home.accept-invitation-by-id'],
         'api.me.home-invitations.accept',
-    );
-    $app->post(
-        '/api/v1/home-invitations/accept',
-        [BearerAuthenticationMiddleware::class, 'home.accept-invitation'],
-        'api.home-invitations.accept',
     );
     $app->get(
         '/api/v1/homes/{homeId}',

@@ -56,9 +56,9 @@ final class HomeHandler implements RequestHandlerInterface
             'invitations' => new JsonResponse(['data' => $this->homes->invitations($identity, $homeId)]),
             'invite' => $this->invite($identity, $homeId, $body),
             'revoke-invitation' => $this->revokeInvitation($identity, $homeId, $request, $body),
-            'accept-invitation' => new JsonResponse(
-                $this->homes->acceptInvitation($identity, (string) ($body['token'] ?? '')),
-            ),
+            'decline-invitation' => $this->declineInvitation($identity, $request, $body),
+            'member-permissions' => new JsonResponse($this->homes->memberPermissions($identity, $homeId, (string) $request->getAttribute('userId', ''))),
+            'save-member-permissions' => $this->saveMemberPermissions($identity, $homeId, $request, $body),
             'pending-invitations' => new JsonResponse(['data' => $this->homes->pendingInvitations($identity)]),
             'accept-invitation-by-id' => new JsonResponse($this->homes->acceptInvitationById(
                 $identity,
@@ -103,6 +103,20 @@ final class HomeHandler implements RequestHandlerInterface
             'leave' => $this->leave($identity, $homeId),
             default => throw new \LogicException('Unknown home action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function declineInvitation(AuthenticatedIdentity $identity, ServerRequestInterface $request, array $body): ResponseInterface
+    {
+        $this->homes->declineInvitation($identity, (string) $request->getAttribute('invitationId', ''), (int) ($body['expectedRevision'] ?? 0));
+        return new EmptyResponse(204);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function saveMemberPermissions(AuthenticatedIdentity $identity, string $homeId, ServerRequestInterface $request, array $body): ResponseInterface
+    {
+        $this->homes->saveMemberPermissions($identity, $homeId, (string) $request->getAttribute('userId', ''), $body);
+        return new JsonResponse($this->homes->memberPermissions($identity, $homeId, (string) $request->getAttribute('userId', '')));
     }
 
     /** @param array<string, mixed> $body */

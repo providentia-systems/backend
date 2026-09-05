@@ -23,59 +23,21 @@ final class AuthenticationService
         private readonly SecureTokenGenerator $tokens,
         private readonly int $accessTtlSeconds,
         private readonly int $refreshTtlSeconds,
-        private readonly int $webIdleTtlSeconds = 0,
-        private readonly int $nativeIdleTtlSeconds = 0,
+        private readonly int $webIdleTtlSeconds,
+        private readonly int $nativeIdleTtlSeconds,
+        private readonly \Providentia\Access\Application\AccessService $access,
     ) {
-    }
-
-    public function requestStepUp(
-        AuthenticatedIdentity $identity,
-        string $action,
-        string $applicationKind,
-    ): ?string {
-        $application = LoginApplicationKind::fromInput($applicationKind);
-        $purpose = $this->stepUpPurpose($action, $application);
-
-        return $this->transactions->transactional(function () use (
-            $identity,
-            $action,
-            $application,
-            $purpose,
-        ): ?string {
-            $user = $this->store->findUserById($identity->userId);
-            if ($user === null || (string) $user['status'] !== 'active') {
-                return null;
-            }
-            $token = $this->tokens->generate();
-            $now = $this->clock->now();
-            $this->store->issueOneTimeToken(
-                $this->ids->generate(),
-                $identity->userId,
-                $purpose,
-                $this->hasher->hashToken($token),
-                $now->add(new DateInterval('PT10M')),
-                $now,
-            );
-            $this->notifications->sendStepUpLink(
-                (string) $user['email'],
-                $token,
-                $action,
-                $application,
-            );
-
-            return $token;
-        });
     }
 
     public function consumeStepUp(AuthenticatedIdentity $identity, string $token, string $action): void
     {
         $userId = $this->store->consumeOneTimeToken(
             $this->stepUpPurpose($action, LoginApplicationKind::HOMEOWNER),
-            $this->hasher->hashToken($token),
+            $this->hasher->hashToken($identity->sessionId . ':' . $token),
             $this->clock->now(),
         );
         if ($userId === null || ! hash_equals($identity->userId, $userId)) {
-            throw new Problem(422, 'Invalid step-up proof', 'The confirmation link is invalid or expired.');
+            throw new Problem(422, 'Invalid step-up proof', 'The confirmation proof is invalid or expired.');
         }
     }
 
@@ -185,7 +147,8 @@ final class AuthenticationService
             (string) $session['id'],
             (string) $session['device_id'],
             $session['active_home_id'] === null ? null : (string) $session['active_home_id'],
-            $this->store->platformRoles((string) $session['user_id']),
+            [],
+            array_keys(array_filter($this->access->effective('admin', (string) $session['user_id'])['features'], static fn (mixed $enabled): bool => $enabled === true)),
         );
     }
 
@@ -203,7 +166,7 @@ final class AuthenticationService
     }
 
     /** @return array<string, mixed> */
-    public function issueLoginLinkSession(
+    public function issueVerifiedSession(
         string $userId,
         string $installationId,
         string $deviceName,

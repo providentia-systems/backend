@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Providentia\Identity\Infrastructure\Notification;
 
 use Providentia\Identity\Application\AccountNotificationSender;
-use Providentia\Identity\Application\LoginApplicationKind;
 use Providentia\Identity\Application\NotificationTransport;
 use RuntimeException;
 
@@ -18,32 +17,6 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
         private readonly string $publicBaseUrl,
         private readonly array $applicationLinks,
     ) {
-    }
-
-    public function sendLoginLink(
-        string $email,
-        string $requestId,
-        string $approvalToken,
-        LoginApplicationKind $application,
-    ): void {
-        $this->deliver('login-link', $email, [
-            'requestId' => $requestId,
-            'approvalToken' => $approvalToken,
-            'applicationKind' => $application->value,
-        ]);
-    }
-
-    public function sendStepUpLink(
-        string $email,
-        string $token,
-        string $action,
-        LoginApplicationKind $application,
-    ): void {
-        $this->deliver('step-up-link', $email, [
-            'token' => $token,
-            'action' => $action,
-            'applicationKind' => $application->value,
-        ]);
     }
 
     public function sendPlatformAdministratorInvitation(string $email): void
@@ -64,53 +37,22 @@ final class SmtpAccountNotificationSender implements AccountNotificationSender, 
 
     public function deliver(string $template, string $recipient, array $context): void
     {
-        $token = rawurlencode((string) ($context['token'] ?? ''));
-        $loginApplication = LoginApplicationKind::tryFrom(
-            (string) ($context['applicationKind'] ?? ''),
-        );
-        if (
-            in_array($template, ['login-link', 'step-up-link'], true)
-            && $loginApplication === null
-        ) {
-            throw new RuntimeException('Application-link notification has no valid application kind.');
-        }
-        $applicationLink = $loginApplication === null
-            ? ''
-            : $this->applicationLinks[$loginApplication->value];
-        $applicationName = $loginApplication === null ? '' : $loginApplication->value;
         [$subject, $body] = match ($template) {
-            'login-link' => [
-                'Approve your Providentia login',
-                sprintf(
-                    "Review this login request in your browser:\n%s/login-links/%s/%s#approval=%s\n\n"
-                    . 'Opening the link does not approve the request. Confirm or deny it in the browser. '
-                    . 'The browser will not be signed in.',
-                    $this->publicBaseUrl,
-                    $applicationName,
-                    rawurlencode((string) ($context['requestId'] ?? '')),
-                    rawurlencode((string) ($context['approvalToken'] ?? '')),
-                ),
-            ],
-            'step-up-link' => [
-                'Confirm a sensitive Providentia action',
-                sprintf(
-                    "Confirm %s in Providentia:\n%s#action=step-up&token=%s&operation=%s",
-                    (string) ($context['action'] ?? 'sensitive action'),
-                    $applicationLink,
-                    $token,
-                    rawurlencode((string) ($context['action'] ?? '')),
-                ),
+            'email-code' => [
+                'Your Providentia verification code',
+                sprintf("Your verification code is:\n\n%s\n\nEnter it in the app where you requested it. It expires in ten minutes. "
+                    . 'Do not share this code. If you did not request it, ignore this email.', (string) ($context['code'] ?? '')),
             ],
             'platform-administrator-invitation' => [
                 'You were invited to administer Providentia',
-                'Open Providentia Admin and request a login link using this exact email address. '
-                . 'Your platform-administrator access will activate after verification.',
+                'Open Providentia Admin and request a sign-in code using this exact email address. '
+                . 'An authorized administrator must approve your administrator access.',
             ],
             'home-invitation' => [
                 'You were invited to a Providentia home',
                 sprintf(
                     "You were invited to %s as %s.\n"
-                    . 'Open the Providentia homeowner application and request a login link '
+                    . 'Open the Providentia homeowner application and request a sign-in code '
                     . 'using this exact email address. '
                     . 'The pending home invitation will appear after you sign in.',
                     (string) ($context['homeName'] ?? 'a Providentia home'),

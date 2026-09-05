@@ -14,6 +14,8 @@ final class CurrentUserService
         private readonly IdentityStore $identities,
         private readonly HomeStore $homes,
         private readonly Clock $clock,
+        private readonly AccountProfileService $profiles,
+        private readonly AccountProfileStore $profileStore,
     ) {
     }
 
@@ -44,10 +46,12 @@ final class CurrentUserService
         if ($currentSession === null) {
             throw new Problem(401, 'Authentication required', 'The current device session is unavailable.');
         }
-        $pendingInvitations = $this->homes->pendingInvitationsForEmail(
-            mb_strtolower((string) $profile['email']),
-            $this->clock->now(),
-        );
+        $pendingInvitations = [];
+        foreach ($this->profileStore->emails($identity->userId) as $email) {
+            foreach ($this->homes->pendingInvitationsForEmail((string) $email['email'], $this->clock->now()) as $invitation) {
+                $pendingInvitations[(string) $invitation['id']] = $invitation;
+            }
+        }
 
         return [
             'userId' => $identity->userId,
@@ -58,7 +62,8 @@ final class CurrentUserService
             'timezone' => $profile['timezone'],
             'activeHomeId' => $activeHomeId,
             'homes' => $homes,
-            'pendingInvitations' => $pendingInvitations,
+            'pendingInvitations' => array_values($pendingInvitations),
+            'profile' => $this->profiles->get($identity),
             'platformRoles' => $identity->platformRoles,
             'currentSession' => $currentSession,
         ];

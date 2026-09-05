@@ -26,7 +26,8 @@ final class InventoryService implements InventoryMovementGateway
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
-        private readonly ?ChangeFeedWriter $changes = null,
+        private readonly ?ChangeFeedWriter $changes,
+        private readonly \Providentia\Access\Application\AccessService $access,
     ) {
     }
 
@@ -54,6 +55,7 @@ final class InventoryService implements InventoryMovementGateway
         $at = $this->clock->now();
         try {
             $this->transactions->transactional(function () use ($identity, $homeId, $id, $name, $at): void {
+                $this->access->requireCapacity('home', $homeId, 'categories.total');
                 $this->inventory->createHomeCategory($id, $homeId, $name, $this->normalize($name), $at);
                 $this->changes?->put(
                     $homeId,
@@ -185,7 +187,8 @@ final class InventoryService implements InventoryMovementGateway
         $id = $this->identifier($requestedId);
         $at = $this->clock->now();
         $this->transactions->transactional(function () use ($id, $homeId, $name, $kind, $identity, $at): void {
-            $this->inventory->createLocation($id, $homeId, $name, $this->normalize($name), $kind, $at);
+            $this->access->requireCapacity('home', $homeId, 'locations.total');
+                $this->inventory->createLocation($id, $homeId, $name, $this->normalize($name), $kind, $at);
             $this->changes?->put(
                 $homeId,
                 $identity->userId,
@@ -311,6 +314,7 @@ final class InventoryService implements InventoryMovementGateway
                 $identity,
                 $at,
             ): void {
+                $this->access->requireCapacity('home', $homeId, 'products.total');
                 $this->inventory->createHomeProduct(
                     $id,
                     $homeId,

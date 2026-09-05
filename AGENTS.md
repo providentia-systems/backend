@@ -6,9 +6,8 @@ This repository owns the API, domain services, persistence, authorization,
 CLI, deployment images, and the canonical OpenAPI contract. The multi-platform
 homeowner application lives in `providentia-systems/client`; the Linux Flutter
 operator application lives in `providentia-systems/admin`. Do not add an
-authenticated household or operator management UI to the backend. The sole
-browser HTML exception is the unauthenticated login-link approval ceremony;
-it may approve or deny a bound request but must never create a browser session.
+authenticated household or operator management UI to the backend. Authentication uses email codes entered in the originating client. The backend
+serves no browser login ceremony.
 
 ## Start every development session
 
@@ -32,8 +31,12 @@ runner lacks package or Docker access.
 - Preserve module and Domain/Application/Infrastructure/Http boundaries.
 - Keep authorization and tenant checks in application services and stores,
   not in presentation-specific conditionals.
-- A platform role never grants implicit access to household stock, locations,
-  receipts, prices, media, AI credentials, or private notes.
+- Homeowner access is isolated by membership and the active home group. The
+  system owner can inspect all application data and delegates operator access
+  through administrator groups. Use dedicated, audited operator endpoints;
+  global catalog sharing is separate from internal operator visibility.
+- Credentials and session proofs remain encrypted or hashed and are never
+  returned by administrative inspection endpoints.
 - Contribution is explicit, field-scoped, attribution-free outside the home,
   and moderated before global publication.
 - AI credentials are encrypted, write-only, and home-scoped. AI extraction is

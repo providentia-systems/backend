@@ -34,8 +34,8 @@ final readonly class BillingAuthorization
     {
         if (
             array_intersect(
-                [self::PLATFORM_ADMINISTRATOR, self::BILLING_OPERATOR],
-                $identity->platformRoles,
+                ['billing.manage'],
+                $identity->administratorPermissions,
             ) === []
         ) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
