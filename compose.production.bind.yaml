@@ -1,0 +1,28 @@
+# Optional host persistence. Use with compose.production.yaml; create these
+# directories first (setup-production.sh does so without resetting existing data).
+# Local driver binds keep the same volume names and mount targets for every role.
+volumes:
+  app-var:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PROVIDENTIA_DATA_DIRECTORY:?Set an absolute data directory}/app-var
+  mysql-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PROVIDENTIA_DATA_DIRECTORY:?Set an absolute data directory}/mysql
+  mariadb-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PROVIDENTIA_DATA_DIRECTORY:?Set an absolute data directory}/mariadb
+  redis-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PROVIDENTIA_DATA_DIRECTORY:?Set an absolute data directory}/redis

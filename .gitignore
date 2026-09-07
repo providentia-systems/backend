@@ -13,3 +13,5 @@
 /.providentia-development.json
 /.agent-env
 /.agent-tools/
+__pycache__/
+*.pyc

@@ -57,6 +57,7 @@ LABEL org.opencontainers.image.title="Providentia backend" \
       org.opencontainers.image.source="${VCS_URL}" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}"
+ENV APP_VERSION=${APP_VERSION}
 WORKDIR /app
 COPY --from=dependencies /app /app
 COPY infrastructure/php/request-limits.ini /usr/local/etc/php/conf.d/zz-providentia-request-limits.ini
@@ -85,6 +86,13 @@ USER www-data
 CMD ["php", "bin/providentia", "ai:video:process"]
 
 FROM ${ALPINE_IMAGE} AS web
+ARG APP_VERSION=development
+ARG VCS_REF=unknown
+ARG VCS_URL=https://github.com/providentia-systems/backend
+LABEL org.opencontainers.image.title="Providentia backend web gateway" \
+      org.opencontainers.image.source="${VCS_URL}" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}"
 RUN apk upgrade --no-cache \
     && apk add --no-cache ca-certificates \
     && addgroup -S caddy \

@@ -6,6 +6,8 @@ on:
       - Dockerfile.production
       - .dockerignore
       - compose.production.yaml
+      - compose.production.bind.yaml
+      - .env.production.example
       - compose.prebuilt.yaml
       - infrastructure/**
       - bin/**
@@ -13,6 +15,11 @@ on:
       - templates/**
       - tool/**
       - scripts/setup-prebuilt.sh
+      - scripts/setup-production.sh
+      - scripts/lib/**
+      - scripts/release.py
+      - tests/Release/**
+      - tests/Deployment/**
       - tests/Acceptance/production-http-smoke.sh
       - composer.json
       - composer.lock
@@ -27,16 +34,22 @@ on:
     branches:
       - main
       - "agent/**"
-    tags:
-      - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Optional vX.Y.Z for the next minor/major release (default: next patch; main only)"
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
   group: production-image-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep every main update queued, including more than one pending merge.
+  # GitHub supports queue:max; it cannot be combined with cancellation.
+  queue: max
+  cancel-in-progress: false
 
 env:
   # Every published reference is derived from the repository that runs this
@@ -81,7 +94,11 @@ jobs:
         run: |
           docker compose -f compose.production.yaml --profile tools --profile mysql --profile mariadb --profile redis --profile backup config --quiet
           docker compose -f compose.prebuilt.yaml --profile tools config --quiet
-          bash -n scripts/setup-prebuilt.sh
+          bash -n scripts/setup-prebuilt.sh scripts/setup-production.sh
+      - name: Test release recovery and production setup without external services
+        run: |
+          python3 -m unittest discover -s tests/Release -p 'test_*.py'
+          python3 -m unittest discover -s tests/Deployment -p 'test_*.py'
 
   build:
     runs-on: ubuntu-24.04
@@ -282,81 +299,39 @@ jobs:
       - validate-compose
       - build
     runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      release_id: ${{ steps.release.outputs.release_id }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      NAMESPACE_OVERRIDE: ${{ vars.CONTAINER_IMAGE_NAMESPACE }}
     permissions:
-      contents: read
+      actions: read
+      contents: write
       packages: write
       id-token: write
       attestations: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - name: Require successful same-commit gates and reserve or resume the version
+        id: release
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          NEXT_RELEASE_VERSION: ${{ vars.NEXT_RELEASE_VERSION }}
+        run: python3 scripts/release.py prepare
       - uses: docker/setup-qemu-action@e77e8065d9f7ec6abdd9838668cd7b43924dd64d # v3.6.0
       - uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
       - name: Authenticate to the container registry of this repository
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" --username "${{ github.actor }}" --password-stdin
-      - name: Resolve the image namespace, immutable tags, and promotion tags
-        id: tags
-        shell: bash
-        env:
-          NAMESPACE_OVERRIDE: ${{ vars.CONTAINER_IMAGE_NAMESPACE }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -Eeuo pipefail
-          namespace="${NAMESPACE_OVERRIDE:-$GITHUB_REPOSITORY}"
-          namespace="${namespace,,}"
-          if [[ ! "$namespace" =~ ^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)+$ ]]; then
-            printf 'The image namespace must be a lowercase owner/name path: %s\n' "$namespace" >&2
-            exit 2
-          fi
-          runtime_repository="${REGISTRY}/${namespace}"
-          web_repository="${runtime_repository}-web"
-          media_repository="${runtime_repository}-media-worker"
-          default_branch="${DEFAULT_BRANCH:-main}"
-          short_sha="${GITHUB_SHA:0:12}"
-          runtime="${runtime_repository}:sha-${short_sha}"
-          web="${web_repository}:sha-${short_sha}"
-          media="${media_repository}:sha-${short_sha}"
-          runtime_promotions=()
-          web_promotions=()
-          media_promotions=()
-
-          if [[ "$GITHUB_REF" == "refs/heads/${default_branch}" ]]; then
-            runtime_promotions+=("${runtime_repository}:edge")
-            web_promotions+=("${web_repository}:edge")
-            media_promotions+=("${media_repository}:edge")
-          fi
-
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              printf 'Release tag must be vX.Y.Z: %s\n' "$GITHUB_REF_NAME" >&2
-              exit 2
-            fi
-            runtime_promotions+=("${runtime_repository}:${version}" "${runtime_repository}:latest")
-            web_promotions+=("${web_repository}:${version}" "${web_repository}:latest")
-            media_promotions+=("${media_repository}:${version}" "${media_repository}:latest")
-          fi
-
-          {
-            printf 'runtime_repository=%s\n' "$runtime_repository"
-            printf 'web_repository=%s\n' "$web_repository"
-            printf 'media_repository=%s\n' "$media_repository"
-            printf 'runtime=%s\n' "$runtime"
-            printf 'web=%s\n' "$web"
-            printf 'media=%s\n' "$media"
-            echo 'runtime_promotions<<EOF'
-            printf '%s\n' "${runtime_promotions[@]}"
-            echo 'EOF'
-            echo 'web_promotions<<EOF'
-            printf '%s\n' "${web_promotions[@]}"
-            echo 'EOF'
-            echo 'media_promotions<<EOF'
-            printf '%s\n' "${media_promotions[@]}"
-            echo 'EOF'
-          } >>"$GITHUB_OUTPUT"
       - name: Publish runtime image
         id: runtime
+        if: steps.release.outputs.reuse != 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -364,12 +339,12 @@ jobs:
           target: runtime
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.tags.outputs.runtime }}
+          tags: ${{ steps.release.outputs.runtime }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
-            APP_VERSION=${{ github.ref_name }}
+            APP_VERSION=${{ steps.release.outputs.version }}
             VCS_REF=${{ github.sha }}
             VCS_URL=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=production-runtime
@@ -378,6 +353,7 @@ jobs:
           sbom: true
       - name: Publish web image
         id: web
+        if: steps.release.outputs.reuse != 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -385,18 +361,21 @@ jobs:
           target: web
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.tags.outputs.web }}
+          tags: ${{ steps.release.outputs.web }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=production-web
           cache-to: type=gha,mode=max,scope=production-web
           build-args: |
+            APP_VERSION=${{ steps.release.outputs.version }}
+            VCS_REF=${{ github.sha }}
             VCS_URL=${{ github.server_url }}/${{ github.repository }}
           provenance: mode=max
           sbom: true
       - name: Publish media-worker image
         id: media
+        if: steps.release.outputs.reuse != 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -404,23 +383,30 @@ jobs:
           target: media-worker
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.tags.outputs.media }}
+          tags: ${{ steps.release.outputs.media }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=production-media
           cache-to: type=gha,mode=max,scope=production-media
           build-args: |
+            APP_VERSION=${{ steps.release.outputs.version }}
+            VCS_REF=${{ github.sha }}
             VCS_URL=${{ github.server_url }}/${{ github.repository }}
           provenance: mode=max
           sbom: true
       - name: Record and inspect immutable published digests
+        id: images
         env:
-          RUNTIME_IMAGE: ${{ steps.tags.outputs.runtime_repository }}@${{ steps.runtime.outputs.digest }}
-          WEB_IMAGE: ${{ steps.tags.outputs.web_repository }}@${{ steps.web.outputs.digest }}
-          MEDIA_IMAGE: ${{ steps.tags.outputs.media_repository }}@${{ steps.media.outputs.digest }}
+          APP_VERSION: ${{ steps.release.outputs.version }}
+          RUNTIME_DIGEST: ${{ steps.runtime.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+          MEDIA_DIGEST: ${{ steps.media.outputs.digest }}
+          RUNTIME_LOCKED: ${{ steps.release.outputs.runtime_locked }}
+          WEB_LOCKED: ${{ steps.release.outputs.web_locked }}
+          MEDIA_LOCKED: ${{ steps.release.outputs.media_locked }}
         run: |
-          printf '%s\n' "$RUNTIME_IMAGE" "$WEB_IMAGE" "$MEDIA_IMAGE" >published-images.txt
+          python3 scripts/release.py images
           while IFS= read -r image; do
             docker buildx imagetools inspect "$image"
           done <published-images.txt
@@ -443,7 +429,7 @@ jobs:
       - name: Exercise the immutable published runtime
         env:
           APP_ENV: production
-          APP_VERSION: ${{ github.ref_name }}
+          APP_VERSION: ${{ steps.release.outputs.version }}
           APP_DEBUG: "0"
           DATABASE_URL: sqlite:////app/var/published-smoke.sqlite
           QUEUE_DSN: redis+phpredis://:test@redis:6379
@@ -459,9 +445,9 @@ jobs:
           MAIL_FROM: no-reply@example.invalid
           PUBLIC_BASE_URL: https://api.example.invalid
           CORS_ALLOWED_ORIGINS: https://app.example.invalid
-          RUNTIME_IMAGE: ${{ steps.tags.outputs.runtime_repository }}@${{ steps.runtime.outputs.digest }}
-          WEB_IMAGE: ${{ steps.tags.outputs.web_repository }}@${{ steps.web.outputs.digest }}
-          MEDIA_IMAGE: ${{ steps.tags.outputs.media_repository }}@${{ steps.media.outputs.digest }}
+          RUNTIME_IMAGE: ${{ steps.images.outputs.runtime }}
+          WEB_IMAGE: ${{ steps.images.outputs.web }}
+          MEDIA_IMAGE: ${{ steps.images.outputs.media }}
         run: |
           cleanup() {
             docker rm --force providentia-published-api providentia-published-web providentia-published-redis >/dev/null 2>&1 || true
@@ -515,28 +501,11 @@ jobs:
           curl --fail-with-body --silent http://127.0.0.1:18080/health/live
           curl --fail-with-body --silent http://127.0.0.1:18080/api/v1/system/info
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/metrics)" = "404"
-      - name: Promote only scanned and exercised digests
+      - name: Lock deployment assets, promote tested digests, and publish the release
         env:
-          RUNTIME_IMAGE: ${{ steps.tags.outputs.runtime_repository }}@${{ steps.runtime.outputs.digest }}
-          WEB_IMAGE: ${{ steps.tags.outputs.web_repository }}@${{ steps.web.outputs.digest }}
-          MEDIA_IMAGE: ${{ steps.tags.outputs.media_repository }}@${{ steps.media.outputs.digest }}
-          RUNTIME_PROMOTIONS: ${{ steps.tags.outputs.runtime_promotions }}
-          WEB_PROMOTIONS: ${{ steps.tags.outputs.web_promotions }}
-          MEDIA_PROMOTIONS: ${{ steps.tags.outputs.media_promotions }}
-        run: |
-          promote() {
-            local source="$1"
-            local tags="$2"
-            local tag
-            while IFS= read -r tag; do
-              [[ -n "$tag" ]] || continue
-              docker buildx imagetools create --tag "$tag" "$source"
-              docker buildx imagetools inspect "$tag"
-            done <<<"$tags"
-          }
-          promote "$RUNTIME_IMAGE" "$RUNTIME_PROMOTIONS"
-          promote "$WEB_IMAGE" "$WEB_PROMOTIONS"
-          promote "$MEDIA_IMAGE" "$MEDIA_PROMOTIONS"
+          APP_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: python3 scripts/release.py finalize
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -546,3 +515,39 @@ jobs:
             var/published-image-scans/*.sarif
           if-no-files-found: warn
           retention-days: 90
+
+  dockerhub-mirror:
+    name: Optional Docker Hub mirror
+    if: needs.publish.outputs.release_id != '' && vars.DOCKERHUB_IMAGE_NAMESPACE != ''
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      NAMESPACE_OVERRIDE: ${{ vars.CONTAINER_IMAGE_NAMESPACE }}
+      DOCKERHUB_IMAGE_NAMESPACE: ${{ vars.DOCKERHUB_IMAGE_NAMESPACE }}
+      APP_VERSION: ${{ needs.publish.outputs.version }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
+      - name: Install the distribution-maintained registry copy tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes skopeo
+      - name: Authenticate both registries
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME"
+          test -n "$DOCKERHUB_TOKEN"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io --username "$DOCKERHUB_USERNAME" --password-stdin
+      - name: Mirror the released multi-platform manifests and blobs without changing digests
+        run: |
+          mkdir -p var/release
+          gh release download "v${APP_VERSION}" --repo "$GITHUB_REPOSITORY" --pattern release-manifest.json --dir var/release
+          python3 scripts/release.py mirror

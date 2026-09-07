@@ -1,5 +1,18 @@
 # Providentia backend
 
+<p align="center">
+  <a href="https://github.com/providentia-systems/backend/releases/latest"><img alt="Backend release" src="https://img.shields.io/github/v/release/providentia-systems/backend?filter=v*&amp;label=release"></a>
+  <a href="https://github.com/providentia-systems/backend/actions/workflows/quality.yml"><img alt="CI and CLI checks" src="https://img.shields.io/github/actions/workflow/status/providentia-systems/backend/quality.yml?branch=main&amp;label=CI%20%2F%20CLI"></a>
+  <a href="https://github.com/providentia-systems/backend/actions/workflows/security.yml"><img alt="Security checks" src="https://img.shields.io/github/actions/workflow/status/providentia-systems/backend/security.yml?branch=main&amp;label=security"></a>
+  <a href="https://github.com/providentia-systems/backend/actions/workflows/production-image.yml"><img alt="Docker build and release" src="https://img.shields.io/github/actions/workflow/status/providentia-systems/backend/production-image.yml?branch=main&amp;label=Docker"></a>
+  <a href="https://github.com/providentia-systems/backend/actions/workflows/contracts.yml"><img alt="Latest pull request contract checks" src="https://img.shields.io/github/actions/workflow/status/providentia-systems/backend/contracts.yml?event=pull_request&amp;label=PR%20contracts"></a>
+</p>
+<p align="center">
+  <a href="Dockerfile.production"><img alt="PHP 8.5" src="https://img.shields.io/badge/PHP-8.5-777BB4"></a>
+  <a href="docs/deployment/release-process.md"><img alt="Linux AMD64 and ARM64" src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-2496ED"></a>
+  <a href="LICENSE"><img alt="Proprietary license" src="https://img.shields.io/badge/license-proprietary-lightgrey"></a>
+</p>
+
 > **Proprietary software.** Copyright (c) 2026 Vast Development Method Trading
 > Pty Ltd. All rights reserved. No licence is granted; see [LICENSE](LICENSE).
 
@@ -24,6 +37,59 @@ shopping lists, reviewed imports, synchronization, catalog contributions and
 optional AI intake. This is a pre-release alignment with no live customers to
 migrate. Paid plans and platform-funded AI billing are future work; administrators
 assign groups manually now. See the [current decisions](docs/unification-decision-record.md).
+
+## Deploy on your server
+
+Published images already live in GitHub Container Registry; Docker Hub can be
+configured as an additional mirror. The production host needs Docker Engine and
+Compose v2, Bash, Python 3, `flock`, a stable HTTPS domain and an SMTP service.
+It does not need PHP or Composer installed.
+
+| Image | Role |
+|---|---|
+| `ghcr.io/providentia-systems/backend` | PHP API, CLI, migrations and ordinary workers |
+| `ghcr.io/providentia-systems/backend-web` | Caddy HTTP entry point |
+| `ghcr.io/providentia-systems/backend-media-worker` | Video processing with FFmpeg |
+
+Start with a [published release](https://github.com/providentia-systems/backend/releases),
+extract its deployment bundle, and prepare the configuration:
+
+```bash
+bash scripts/setup-production.sh \
+  --env-file /etc/providentia/production.env \
+  --image-env images.env \
+  --public-url https://api.example.net \
+  --mail-from no-reply@example.net \
+  --trusted-proxies 192.0.2.10/32 \
+  --data-directory /srv/providentia \
+  --prepare-only
+```
+
+Replace the example domain and proxy address with your infrastructure, edit
+`MAIL_DSN` in the generated protected env file, then start the deployment:
+
+```bash
+bash scripts/setup-production.sh --env-file /etc/providentia/production.env
+```
+
+The helper preserves existing secrets, pulls the selected images, starts the
+chosen database and Redis, runs migrations once, starts the application
+processes and checks readiness. The release's `images.env` pins all three
+images by digest. Put your TLS reverse proxy in front of the default
+`127.0.0.1:8080` listener. MySQL and MariaDB are **alternatives**: the default is
+MySQL; select MariaDB or an external database when preparing the configuration.
+
+The repository's default branch is `main`. Each successful release pipeline for
+`main` creates the next patch release, starting at **0.1.0**, after its required
+checks pass. Set `NEXT_RELEASE_VERSION` before a merge for a deliberate minor or major release. Backend
+release versions are separate from the **2.0.0 API contract version**. Badges
+link to live results; CI / CLI includes the quality suite and CLI database/queue
+proofs. A green build does not replace a server acceptance or restore rehearsal.
+
+- [Production deployment](docs/deployment/production.md): HTTPS, bootstrap, storage, operations and recovery.
+- [Environment reference](docs/deployment/environment-reference.md): every production Compose setting, defaults and secrets.
+- [Architecture and scaling](docs/deployment/architecture-and-scaling.md): process roles, separate servers and current limits.
+- [Releases and registries](docs/deployment/release-process.md): image URLs, tags, automatic versions, PHP support and Docker Hub.
 
 ## Automated contributor environment
 
