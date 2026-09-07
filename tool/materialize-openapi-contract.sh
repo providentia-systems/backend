@@ -40,7 +40,7 @@ node -e '
   );
   if (contract.info?.version !== "2.0.0"
       || Object.keys(contract.paths ?? {}).length !== 174
-      || operations !== 207
+      || operations !== 208
       || Object.keys(contract.components?.schemas ?? {}).length !== 239
       || contract.paths?.["/api/v1/auth/email-codes/verify"]?.post?.operationId
           !== "verifyEmailCode"
