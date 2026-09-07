@@ -516,7 +516,7 @@ assert_json 'The homeowner bootstrap was not one private home without administra
 http_json GET '/api/v1/admin/accounts?limit=1&offset=0' 403 "$homeowner_access_token"
 assert_problem_json
 http_json GET '/api/v1/catalog-contributions/review?status=pending&limit=50&offset=0' \
-    404 "$homeowner_access_token"
+    403 "$homeowner_access_token"
 assert_problem_json
 http_json GET "/api/v1/homes/${home_id}/products" 404 "$admin_access_token"
 assert_problem_json
@@ -1531,8 +1531,8 @@ assert_json 'The explicit human count did not commit the inventory balance.' '
     .data | any(.homeProductId == $productId and (.quantity | tonumber) == 7)
 ' --arg productId "$home_product_id"
 
-# Admin can inspect account metadata and suspend/reactivate the account without
-# gaining access to its household data. Suspension invalidates every session.
+# Authorized operators inspect account metadata and suspend/reactivate accounts.
+# Dedicated home inspection was verified above; suspension invalidates every session.
 http_json GET "/api/v1/admin/accounts/${homeowner_user_id}" 200 "$admin_access_token"
 assert_json 'Admin account detail exposed no revision for controlled mutation.' \
     '.userId == $userId and .status == "active" and .revision >= 1' \
