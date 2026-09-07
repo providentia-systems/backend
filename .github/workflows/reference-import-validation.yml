@@ -1,0 +1,131 @@
+name: Temporary reference import validation
+
+on:
+  push:
+    branches: ['agent/complete-platform-access']
+    paths: ['.github/workflows/reference-import-validation.yml']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Backend revision to validate
+        required: true
+        default: agent/complete-platform-access
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  upstream-reference-import:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      APP_ENV: development
+      APP_DEBUG: '0'
+      DATABASE_URL: sqlite:///var/reference-validation.sqlite
+      COMPOSER_NO_INTERACTION: '1'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: gd, intl, json, mbstring, pdo_sqlite, pdo_mysql, redis
+          coverage: none
+          tools: composer:2.10.2
+      - name: Install the locked backend dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Migrate an isolated empty SQLite database
+        run: |
+          mkdir -p var
+          php bin/doctrine-migrations migrations:migrate --no-interaction
+          php bin/doctrine-migrations migrations:up-to-date --no-interaction
+      - name: Verify initial publication and queued bootstrap job
+        run: |
+          php <<'PHP'
+          <?php
+          declare(strict_types=1);
+          require 'vendor/autoload.php';
+          $container = require 'config/container.php';
+          $db = $container->get(Doctrine\DBAL\Connection::class);
+          $published = $db->fetchFirstColumn(
+              'SELECT country_code FROM country_settings WHERE published = 1 ORDER BY country_code',
+          );
+          if ($published !== ['NA']) {
+              throw new RuntimeException('Only Namibia must be published on a clean installation.');
+          }
+          if ((int) $db->fetchOne("SELECT COUNT(*) FROM reference_update_jobs WHERE status = 'queued'") !== 1) {
+              throw new RuntimeException('A clean installation must queue exactly one initial reference update.');
+          }
+          file_put_contents('var/reference-settings-before.json', json_encode(
+              $db->fetchAllAssociative('SELECT * FROM country_settings ORDER BY country_code'),
+              JSON_THROW_ON_ERROR,
+          ));
+          PHP
+      - name: Run the real upstream download and import worker
+        run: php -d memory_limit=512M bin/providentia reference:update
+      - name: Assert completed import and preserve country configuration
+        run: |
+          php <<'PHP'
+          <?php
+          declare(strict_types=1);
+          require 'vendor/autoload.php';
+          $container = require 'config/container.php';
+          $db = $container->get(Doctrine\DBAL\Connection::class);
+          $jobs = $db->fetchAllAssociative('SELECT * FROM reference_update_jobs ORDER BY created_at, id');
+          if (count($jobs) !== 1 || $jobs[0]['status'] !== 'completed') {
+              throw new RuntimeException('The real reference worker did not complete its bootstrap job.');
+          }
+          $job = $jobs[0];
+          if (!is_string($job['source_version']) || $job['source_version'] === '') {
+              throw new RuntimeException('The imported upstream release must be recorded.');
+          }
+          $minimums = ['countries' => 200, 'states' => 1000, 'cities' => 100000];
+          $counts = [];
+          foreach ($minimums as $kind => $minimum) {
+              $counts[$kind] = (int) $db->fetchOne('SELECT COUNT(*) FROM reference_' . $kind . ' WHERE active = 1');
+              if ($counts[$kind] <= $minimum) {
+                  throw new RuntimeException('Incomplete active reference records: ' . $kind);
+              }
+              if ((int) $db->fetchOne(
+                  'SELECT COUNT(*) FROM reference_' . $kind . ' WHERE active = 1 AND source_version <> ?',
+                  [$job['source_version']],
+              ) !== 0) {
+                  throw new RuntimeException('Active records must match the imported release: ' . $kind);
+              }
+          }
+          $published = $db->fetchFirstColumn(
+              'SELECT country_code FROM country_settings WHERE published = 1 ORDER BY country_code',
+          );
+          if ($published !== ['NA']) {
+              throw new RuntimeException('Reference updates must not publish other countries.');
+          }
+          $before = json_decode((string) file_get_contents('var/reference-settings-before.json'), true, 512, JSON_THROW_ON_ERROR);
+          foreach ($before as $setting) {
+              $after = $db->fetchAssociative('SELECT * FROM country_settings WHERE country_code = ?', [$setting['country_code']]);
+              if ($after !== $setting) {
+                  throw new RuntimeException('Reference import changed local configuration for ' . $setting['country_code']);
+              }
+          }
+          if ((int) $db->fetchOne("SELECT COUNT(*) FROM reference_cities WHERE country_code = 'NA' AND active = 1") < 1) {
+              throw new RuntimeException('Namibia must have selectable cities after the update.');
+          }
+          $report = [
+              'sourceVersion' => $job['source_version'],
+              'status' => $job['status'],
+              'processedCount' => (int) $job['processed_count'],
+              'activeCounts' => $counts,
+              'publishedCountries' => $published,
+              'localCountryConfigurationPreserved' => true,
+          ];
+          $json = json_encode($report, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . PHP_EOL;
+          file_put_contents('var/reference-import-validation.json', $json);
+          echo $json;
+          PHP
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reference-import-validation
+          path: var/reference-import-validation.json
+          if-no-files-found: error
+          retention-days: 7

@@ -373,19 +373,6 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      reference-mysql:
-    <<: *app
-    profiles: [mysql]
-    environment:
-      <<: *app-environment
-      DATABASE_URL: mysql://providentia:${MYSQL_PASSWORD:-providentia-local-only}@mysql:3306/providentia?charset=utf8mb4
-      QUEUE_DSN: redis+phpredis://redis:6379
-    command: [php, bin/providentia, reference:update, --watch, --recover]
-    healthcheck:
-      disable: true
-    depends_on:
-      mysql:
-        condition: service_healthy
       mailpit:
         condition: service_healthy
 
@@ -420,6 +407,51 @@ services:
       mariadb:
         condition: service_healthy
       mailpit:
+        condition: service_healthy
+
+  reference-mysql:
+    <<: *app
+    profiles: [mysql]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: mysql://providentia:${MYSQL_PASSWORD:-providentia-local-only}@mysql:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://redis:6379
+    command: [php, bin/providentia, reference:update, --watch, --recover]
+    healthcheck:
+      disable: true
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  reference-sqlite:
+    <<: *app
+    profiles: [sqlite]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: sqlite:///var/providentia.sqlite
+      QUEUE_DSN: redis+phpredis://valkey:6379
+      QUEUE_REQUIRED: "0"
+    command: [php, bin/providentia, reference:update, --watch, --recover]
+    healthcheck:
+      disable: true
+    volumes:
+      - sqlite-data:/app/var
+    depends_on:
+      api-sqlite:
+        condition: service_healthy
+
+  reference-mariadb:
+    <<: *app
+    profiles: [mariadb]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: mysql://providentia:${MARIADB_PASSWORD:-providentia-local-only}@mariadb:3306/providentia?charset=utf8mb4
+      QUEUE_DSN: redis+phpredis://valkey:6379
+    command: [php, bin/providentia, reference:update, --watch, --recover]
+    healthcheck:
+      disable: true
+    depends_on:
+      mariadb:
         condition: service_healthy
 
   mailpit:

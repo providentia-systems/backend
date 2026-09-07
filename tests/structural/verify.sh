@@ -116,6 +116,9 @@ for worker_compose in compose.yaml compose.prebuilt.yaml compose.production.yaml
   grep -Fq 'reference:update, --watch, --recover' "$worker_compose" \
     || fail "$worker_compose must process administrator-requested reference updates"
 done
+[[ "$(grep -Fc -- '-e MAIL_DSN -e MAIL_FROM -e PUBLIC_BASE_URL -e CORS_ALLOWED_ORIGINS' \
+    .github/workflows/production-image.yml)" -eq 2 ]] \
+  || fail 'both production container smoke lanes must forward SMTP and API origin configuration'
 for caddyfile in infrastructure/caddy/Caddyfile infrastructure/caddy/Caddyfile.production; do
   for header in X-Content-Type-Options Referrer-Policy Permissions-Policy Content-Security-Policy; do
     grep -Fq "?$header" "$caddyfile" \
