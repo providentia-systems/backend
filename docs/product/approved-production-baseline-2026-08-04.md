@@ -1,3 +1,6 @@
+> Historical record. The [September 2026 pre-release decisions](../unification-decision-record.md)
+> supersede earlier login-link, fixed-role, automatic-home and operator-visibility descriptions.
+
 # Approved production baseline — 4 August 2026
 
 Status: **approved product direction**  

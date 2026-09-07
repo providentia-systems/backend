@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Identity\Infrastructure\Doctrine;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\ParameterType;
 use Providentia\Identity\Application\EmailCodeStore;
 
 final class DbalEmailCodeStore implements EmailCodeStore
@@ -78,11 +79,26 @@ final class DbalEmailCodeStore implements EmailCodeStore
         );
     }
 
-    public function purge(string $before): int
+    public function purge(string $before, int $limit = 1000): int
     {
-        return (int) $this->connection->executeStatement(
-            'DELETE FROM email_code_challenges WHERE expires_at < ?',
-            [$before],
+        $ids = $this->connection->fetchFirstColumn(
+            'SELECT id FROM email_code_challenges
+             WHERE expires_at <= :before
+             ORDER BY expires_at, id
+             LIMIT :limit',
+            ['before' => $before, 'limit' => max(1, min(10000, $limit))],
+            ['limit' => ParameterType::INTEGER],
         );
+        $deleted = 0;
+        foreach ($ids as $id) {
+            // Recheck expiry at deletion so a concurrent maintenance pass or
+            // changed challenge cannot remove a row outside this cutoff.
+            $deleted += (int) $this->connection->executeStatement(
+                'DELETE FROM email_code_challenges WHERE id = :id AND expires_at <= :before',
+                ['id' => (string) $id, 'before' => $before],
+            );
+        }
+
+        return $deleted;
     }
 }

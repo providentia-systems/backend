@@ -1,3 +1,6 @@
+> Current product authority: [pre-release decisions](../unification-decision-record.md).
+> Phase documents and the original handover retain historical evidence.
+
 # Providentia product implementation
 
 This directory is the ordered, human-readable implementation record for the

@@ -3,28 +3,27 @@
 > **Proprietary software.** Copyright (c) 2026 Vast Development Method Trading
 > Pty Ltd. All rights reserved. No licence is granted; see [LICENSE](LICENSE).
 
-Providentia is a headless API for household stock control. Its only browser
-HTML surface is a narrow, unauthenticated login-link approval ceremony that
-never signs the browser in. It serves no homeowner or administrative user
-interface. Homeowners use the separate [Flutter Client](https://github.com/providentia-systems/client),
-while authorized platform staff use the separate Linux
-[Flutter Admin](https://github.com/providentia-systems/admin) application. The
-backend is a modular monolith built with Mezzio, selected Laminas components,
-Doctrine ORM/DBAL/Migrations, and a project-owned asynchronous messaging boundary
-backed by Enqueue Redis.
+Providentia is a headless API for household stock control. Homeowners use the
+separate [Flutter Client](https://github.com/providentia-systems/client), while
+authorized staff use the Linux [Flutter Admin](https://github.com/providentia-systems/admin).
+The backend serves JSON APIs and authorized media, with no browser sign-in or
+management interface. It is a modular monolith built with Mezzio, selected
+Laminas components, Doctrine ORM/DBAL/Migrations and an asynchronous messaging
+boundary backed by Enqueue Redis.
 
-The repository includes the Phase 1 production foundation, Phase 2
-identity/home/catalog increment, Phase 4 home-scoped synchronization protocol,
-Phase 5 ledger-backed household operations, Phase 6 privacy-controlled AI,
-Phase 7 governed catalog administration, and Phase 8 deterministic shopping
-intelligence and reporting. The generic protocol-v1 synchronization allowlist
-remains limited to `home-preference` and `private-note`; API 1.19.0 publishes
-typed protocol-v2 pantry commands, home-private taxonomy, privacy-safe operator
-account controls, app-bound account links, reviewed AI quantity ranges,
-compare-and-swap stock-count lines, and an attribution-free projection of
-moderator-approved catalog contributions. API 1.19.0 also removes every human
-password surface: the email login-link exchange is the only human
-authentication.
+API **2.0.0** provides email-code authentication, verified email aliases,
+account and home profiles, invitation acceptance, configurable access groups,
+country-specific onboarding and administrator approval. Account, home and admin
+groups are separate: the backend enforces their features, limits and permissions.
+The system owner can inspect all application data and delegate operator access
+through administrator groups. Household access stays isolated by membership;
+public catalog sharing is separate from internal operator inspection.
+
+The stock engine includes inventory movements, physical counts, purchases,
+shopping lists, reviewed imports, synchronization, catalog contributions and
+optional AI intake. This is a pre-release alignment with no live customers to
+migrate. Paid plans and platform-funded AI billing are future work; administrators
+assign groups manually now. See the [current decisions](docs/unification-decision-record.md).
 
 ## Automated contributor environment
 
@@ -43,7 +42,7 @@ contract validation; `--check` remains non-mutating. The contract includes all
 required network endpoints and the complete local quality/build lane. See
 [agent development](docs/deployment/agent-development.md).
 
-The separate Linux Flutter operator application and its privacy-safe API
+The separate Linux Flutter operator application and its permission-controlled API
 boundary are defined in the
 [administrator control-plane architecture](docs/architecture/admin-control-plane.md).
 
@@ -81,7 +80,8 @@ bash scripts/setup-prebuilt.sh
 
 This pulls the production API, web, and media-worker images, starts MySQL,
 Redis, Mailpit, migrations, and all long-running workers, proves the live HTTP
-runtime, provisions a verified local account/home, and writes the protected
+runtime, verifies a local account through Mailpit, accepts the current country
+policy for that test account, explicitly creates its home, and writes the protected
 `.providentia-development.json` handoff for Flutter.
 
 - API: `http://127.0.0.1:8080`
@@ -93,7 +93,7 @@ GHCR login, immutable tags, Flutter emulator/device URLs, updates, logs, reset,
 and the production boundary.
 
 For the complete account handoff, first-home ownership, ordinary test users,
-household roles, explicit platform-administrator grant, and Flutter login, use
+household roles, the initial system-owner command, and Flutter login, use
 [Client login, users, homes, and administrator testing](docs/deployment/client-user-testing.md).
 
 ## Golden development environment
@@ -130,7 +130,6 @@ composer install
 export DATABASE_URL=sqlite:///var/providentia.sqlite
 export APP_ENV=development
 export AUTH_TOKEN_PEPPER="$(openssl rand -hex 32)"
-export EXPOSE_DEVELOPMENT_TOKENS=1
 export SYNC_CURSOR_SECRET="$(openssl rand -hex 32)"
 php bin/doctrine-migrations migrations:migrate --no-interaction
 composer serve
@@ -142,17 +141,14 @@ Then open:
 - readiness: `http://127.0.0.1:8080/health/ready`
 - system information: `http://127.0.0.1:8080/api/v1/system/info`
 
-`EXPOSE_DEVELOPMENT_TOKENS=1` makes the login-link start response include
-`developmentApprovalToken`, so local tooling can approve and exchange its own
-login link without a mailbox. Never enable it outside isolated development;
-production startup rejects it.
+This lightweight command starts the API. Interactive login additionally needs
+mail transport and a running `notification:deliver` worker; use the complete
+Compose setup above for a working local Mailpit mailbox. Verification codes are
+never returned by the API, including in development.
 
-The root deliberately returns JSON `404`; the backend has no general-purpose
-interactive web surface. Only emailed `/login-links/...` URLs render the
-approval/denial ceremony. `/metrics` also returns `404` unless
-`METRICS_ENABLED=1` and a
-dedicated `METRICS_BEARER_TOKEN` are configured, after which it additionally
-requires that bearer credential and a private network/edge policy.
+The root returns JSON `404`. `/metrics` also returns `404` unless
+`METRICS_ENABLED=1` and a dedicated `METRICS_BEARER_TOKEN` are configured, after
+which it requires that bearer credential and a private network/edge policy.
 
 ## Source-build Compose profiles
 
@@ -183,16 +179,18 @@ queue message is never represented as equivalent to the database commit.
 
 ## Product surface
 
-- Email-only login-link onboarding with explicit browser approval bound to the
-  Client/Admin request, origin-client polling and PKCE exchange, automatic first-home ownership,
-  refresh rotation, logout, device sessions, and secure-cookie/bearer
-  transports. The approval browser never receives the originating application session.
-- No password surface anywhere. Development and acceptance environments set
-  `EXPOSE_DEVELOPMENT_TOKENS=1` so the login-link start response returns the
-  emailed approval token and scripts complete the flow non-interactively;
-  production never exposes it.
-- Home creation/switching, roles, invitations, membership lifecycle, explicit
-  ownership transfer, tenant authorization, and audit records.
+- Eight-digit email codes entered in the originating client, with installation
+  binding, ten-minute expiry, five attempts and a sixty-second resend cooldown;
+  refresh rotation, logout, device sessions and cookie/bearer transports.
+- Names, avatars, verified email aliases and country privacy-policy acceptance;
+  home descriptions, images, optional coordinates, currency and timezone.
+- Explicit home creation, invitation acceptance and decline, multiple owners,
+  role defaults and individual permission overrides bounded by home groups.
+- Separate account, home and administrator groups; configurable quotas preserve
+  existing data after reductions while blocking further additions over the limit.
+- CLI-authorized first system owner, administrator application approval,
+  delegated operator access, audited data inspection, country publication and
+  official country/state/city reference updates.
 - Reconciled global catalog seed and public product search.
 - Home/device-bound offline push, pull, bootstrap, optimistic revisions,
   immutable operation receipts, signed cursors, tombstones, outbox events, and

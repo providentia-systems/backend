@@ -20,7 +20,6 @@ final class HomeHandler implements RequestHandlerInterface
     public function __construct(
         private readonly HomeService $homes,
         private readonly string $action,
-        private readonly bool $exposeDevelopmentTokens,
     ) {
     }
 
@@ -241,9 +240,6 @@ final class HomeHandler implements RequestHandlerInterface
             'revision' => $invitation['revision'],
             'delivery' => 'transactional-email',
         ];
-        if ($this->exposeDevelopmentTokens) {
-            $response['developmentInvitationToken'] = $invitation['invitationToken'];
-        }
         return new JsonResponse($response, 201);
     }
 

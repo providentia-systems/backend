@@ -297,6 +297,11 @@ return static function (Application $app): void {
         ],
         'api.access.update',
     );
+    $app->get(
+        '/api/v1/admin/access/{scope}/{subjectId}',
+        [BearerAuthenticationMiddleware::class, 'access.get'],
+        'api.access.get',
+    );
     $app->put(
         '/api/v1/admin/access/{scope}/{subjectId}',
         [

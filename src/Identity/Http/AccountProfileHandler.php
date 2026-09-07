@@ -33,7 +33,11 @@ final class AccountProfileHandler implements RequestHandlerInterface
             'update', 'onboard' => $this->profiles->save($identity, $body, $this->action === 'onboard'),
             'email-request' => $this->profiles->requestEmail($identity, (string) ($body['email'] ?? ''), $ip),
             'email-verify' => $this->profiles->verifyEmail($identity, $body, $ip),
-            'security-request' => $this->profiles->requestSecurityCode($identity, (string) ($body['action'] ?? ''), $ip),
+            'security-request' => $this->profiles->requestSecurityCode(
+                $identity,
+                (string) ($body['action'] ?? ''),
+                $ip,
+            ),
             'security-verify' => $this->profiles->verifySecurityCode($identity, $body, $ip),
             'email-primary', 'email-remove' => $this->changeEmail($request, $body),
             default => throw new \LogicException('Unknown profile action.'),

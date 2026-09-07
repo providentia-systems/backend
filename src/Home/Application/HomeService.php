@@ -534,7 +534,12 @@ final class HomeService
         }
         $pending = [];
         foreach ($this->profiles->emails($identity->userId) as $email) {
-            foreach ($this->homes->pendingInvitationsForEmail((string) $email['email'], $this->clock->now()) as $invitation) {
+            foreach (
+                $this->homes->pendingInvitationsForEmail(
+                    (string) $email['email'],
+                    $this->clock->now(),
+                ) as $invitation
+            ) {
                 $pending[(string) $invitation['id']] = $invitation;
             }
         }
@@ -633,7 +638,8 @@ final class HomeService
                                 'The account or home group does not permit adding this membership.',
                             );
                         }
-                        $owner = ($this->homes->membership($homeId, $identity->userId)['role'] ?? '') === HomeAuthorization::OWNER;
+                        $membership = $this->homes->membership($homeId, $identity->userId);
+                        $owner = ($membership['role'] ?? '') === HomeAuthorization::OWNER;
                         $this->access->requireCapacity(
                             FeatureCatalog::ACCOUNT,
                             $identity->userId,
@@ -754,42 +760,45 @@ final class HomeService
         string $userId,
         array $input,
     ): void {
-        $actor = $this->authorization->requirePermission(
-            $identity,
-            $homeId,
-            HomePermission::PERMISSIONS_MANAGE,
-        );
-        $this->memberPermissions($identity, $homeId, $userId);
-        $target = $this->homes->membership($homeId, $userId);
-        if (($target['role'] ?? null) === HomeAuthorization::OWNER || $identity->userId === $userId) {
-            throw new Problem(
-                403,
-                'Protected membership',
-                'Owners inherit home capabilities; members cannot edit their own permissions.',
+        $this->transactions->transactional(function () use ($identity, $homeId, $userId, $input): void {
+            $this->access->serialize(FeatureCatalog::HOME, $homeId);
+            $actor = $this->authorization->requirePermission(
+                $identity,
+                $homeId,
+                HomePermission::PERMISSIONS_MANAGE,
             );
-        }
-        $permissions = $input['permissions'] ?? [];
-        if (!is_array($permissions)) {
-            throw new Problem(
-                422,
-                'Invalid permissions',
-                'Supply a permission map; omit a permission to inherit.',
-            );
-        }
-        if ($actor['role'] !== HomeAuthorization::OWNER) {
-            foreach ($permissions as $permission => $enabled) {
-                if ($enabled === true) {
-                    $this->authorization->requirePermission($identity, $homeId, (string) $permission);
+            $this->memberPermissions($identity, $homeId, $userId);
+            $target = $this->homes->membership($homeId, $userId);
+            if (($target['role'] ?? null) === HomeAuthorization::OWNER || $identity->userId === $userId) {
+                throw new Problem(
+                    403,
+                    'Protected membership',
+                    'Owners inherit home capabilities; members cannot edit their own permissions.',
+                );
+            }
+            $permissions = $input['permissions'] ?? [];
+            if (!is_array($permissions)) {
+                throw new Problem(
+                    422,
+                    'Invalid permissions',
+                    'Supply a permission map; omit a permission to inherit.',
+                );
+            }
+            if ($actor['role'] !== HomeAuthorization::OWNER) {
+                foreach ($permissions as $permission => $enabled) {
+                    if ($enabled === true) {
+                        $this->authorization->requirePermission($identity, $homeId, (string) $permission);
+                    }
                 }
             }
-        }
-        $this->access->saveMemberPolicy(
-            $identity,
-            $homeId,
-            $userId,
-            $permissions,
-            (int) ($input['expectedRevision'] ?? 0),
-        );
+            $this->access->saveMemberPolicy(
+                $identity,
+                $homeId,
+                $userId,
+                $permissions,
+                (int) ($input['expectedRevision'] ?? 0),
+            );
+        });
     }
 
     /**
@@ -810,7 +819,8 @@ final class HomeService
         return array_values(
             array_filter(
                 $invitations,
-                static fn(array $invitation): bool => (string) ($invitation['inviterUserId'] ?? '') === $identity->userId
+                static fn(array $invitation): bool =>
+                    (string) ($invitation['inviterUserId'] ?? '') === $identity->userId
                     && (string) ($invitation['role'] ?? '') !== HomeAuthorization::MANAGER,
             ),
         );
@@ -1061,8 +1071,12 @@ final class HomeService
     ): void {
         $this->transactions->transactional(
             function () use ($homeId, $identity): void {
+                $this->access->serialize(FeatureCatalog::HOME, $homeId);
                 $membership = $this->authorization->requireMember($identity, $homeId);
-                if ((string) $membership['role'] === HomeAuthorization::OWNER) {
+                if (
+                    (string) $membership['role'] === HomeAuthorization::OWNER
+                    && $this->homes->ownerCount($homeId) <= 1
+                ) {
                     throw new Problem(
                         409,
                         'Ownership safeguard',

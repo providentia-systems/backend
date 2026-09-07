@@ -451,7 +451,8 @@ foreach (
     $stockCountStatus,
     ]
 ) {
-    $responseReference = $contract['paths'][$stockCountPath][$stockCountMethod]['responses'][$stockCountStatus]['content']['application/json']['schema']['$ref']
+    $responseReference = $contract['paths'][$stockCountPath][$stockCountMethod]
+        ['responses'][$stockCountStatus]['content']['application/json']['schema']['$ref']
         ?? null;
     if ($responseReference !== $stockCountSessionReference) {
         throw new RuntimeException(
@@ -463,7 +464,8 @@ foreach (
         );
     }
 }
-$stockCountListReference = $contract['paths']['/api/v1/homes/{homeId}/stock-count-sessions']['get']['responses']['200']['content']['application/json']['schema']['properties']['data']['items']['$ref']
+$stockCountListReference = $contract['paths']['/api/v1/homes/{homeId}/stock-count-sessions']['get']
+    ['responses']['200']['content']['application/json']['schema']['properties']['data']['items']['$ref']
     ?? null;
 if ($stockCountListReference !== $stockCountSessionReference) {
     throw new RuntimeException(
@@ -577,7 +579,8 @@ foreach (
     $branches = array_values(
         array_filter(
             $syncCommands['allOf'] ?? [],
-            static fn(array $branch): bool => ($branch['if']['properties']['commandType']['const'] ?? null) === $commandType,
+            static fn(array $branch): bool =>
+                ($branch['if']['properties']['commandType']['const'] ?? null) === $commandType,
         ),
     );
     if (
@@ -602,7 +605,10 @@ foreach (
     'SyncCountLineUpsertPayload',
     ] as $countSchema
 ) {
-    if (($contract['components']['schemas'][$countSchema]['properties']['source']['enum'] ?? null) !== $supportedCountSources) {
+    if (
+        ($contract['components']['schemas'][$countSchema]['properties']['source']['enum'] ?? null)
+        !== $supportedCountSources
+    ) {
         throw new RuntimeException(
             $countSchema . ' must preserve the supported stock-count source mapping.',
         );
@@ -644,7 +650,8 @@ foreach (
         );
     }
 }
-$directExtractionMultipart = $contract['paths']['/api/v1/homes/{homeId}/ai/extractions']['post']['requestBody']['content']['multipart/form-data']['schema']
+$directExtractionMultipart = $contract['paths']['/api/v1/homes/{homeId}/ai/extractions']['post']['requestBody']
+    ['content']['multipart/form-data']['schema']
     ?? [];
 $storedExtraction = $contract['components']['schemas']['CreateStoredMediaExtractionRequest'] ?? [];
 if (
@@ -817,7 +824,8 @@ if (
         $bootstrap['required'] ?? [],
         true,
     )
-    || ($bootstrap['properties']['pendingInvitations']['items']['$ref'] ?? null) !== '#/components/schemas/RecipientHomeInvitation'
+    || ($bootstrap['properties']['pendingInvitations']['items']['$ref'] ?? null)
+        !== '#/components/schemas/RecipientHomeInvitation'
 ) {
     throw new RuntimeException(
         'CurrentUserBootstrap must include pending recipient invitations.',
@@ -915,7 +923,8 @@ $aiSettings = $contract['components']['schemas']['AiSettings'] ?? [];
 $mediaHandling = $contract['components']['schemas']['AiMediaHandling'] ?? [];
 $aiCredential = $contract['components']['schemas']['PutAiCredentialRequest']['properties']['credential']
     ?? [];
-$directExtraction = $contract['paths']['/api/v1/homes/{homeId}/ai/extractions']['post']['requestBody']['content']['multipart/form-data']['schema']
+$directExtraction = $contract['paths']['/api/v1/homes/{homeId}/ai/extractions']['post']['requestBody']
+    ['content']['multipart/form-data']['schema']
     ?? [];
 $storedExtraction = $contract['components']['schemas']['CreateStoredMediaExtractionRequest'] ?? [];
 $extractionCreated = $contract['components']['schemas']['AiExtractionCreated'] ?? [];
@@ -1274,7 +1283,8 @@ foreach ($homeAuthorizedAiAndShoppingOperations as [$path, $method]) {
         }
     }
 }
-$unresolvedReceiptPath = $contract['paths']['/api/v1/homes/{homeId}/receipts/{receiptId}/lines/{lineId}/unresolve']['post']
+$unresolvedReceiptPath = $contract['paths']['/api/v1/homes/{homeId}/receipts/{receiptId}/lines/{lineId}/unresolve']
+    ['post']
     ?? [];
 $receiptLineSchema = $contract['components']['schemas']['ReceiptLine'] ?? [];
 $unresolvedDecisionSchema = $contract['components']['schemas']['ReceiptLineDecisionResult'] ?? [];
@@ -1310,7 +1320,8 @@ if (
     )
     || count($unresolvedCommandBranch) !== 1
     || ($unresolvedCommandBranch[0]['then']['required'] ?? null) !== ['baseRevision']
-    || ($unresolvedCommandBranch[0]['then']['properties']['payload']['$ref'] ?? null) !== '#/components/schemas/SyncReceiptLineUnresolvePayload'
+    || ($unresolvedCommandBranch[0]['then']['properties']['payload']['$ref'] ?? null)
+        !== '#/components/schemas/SyncReceiptLineUnresolvePayload'
 ) {
     throw new RuntimeException(
         'The durable unresolved receipt-line contract is incomplete.',

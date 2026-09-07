@@ -1,3 +1,6 @@
+> Historical record. The [September 2026 pre-release decisions](unification-decision-record.md)
+> supersede earlier login-link, fixed-role, automatic-home and operator-visibility descriptions.
+
 # Inventory integration roadmap — P0 through P3
 
 This roadmap is the shared implementation contract for

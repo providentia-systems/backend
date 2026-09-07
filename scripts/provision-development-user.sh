@@ -3,6 +3,8 @@
 set -Eeuo pipefail
 
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/development-email-code.sh
+source "${root_dir}/scripts/lib/development-email-code.sh"
 handoff_file="${PROVIDENTIA_DEVELOPMENT_HANDOFF:-${root_dir}/.providentia-development.json}"
 test_email="${PROVIDENTIA_TEST_EMAIL:-test-user@providentia.local}"
 display_name="${PROVIDENTIA_TEST_DISPLAY_NAME:-Providentia Test User}"
@@ -22,9 +24,10 @@ Options:
   --role ROLE          manager, member, viewer, or none (default: member)
   --help               Show this help
 
-Accounts are provisioned through development login links that the script
-approves itself, so the API must expose development tokens
-(EXPOSE_DEVELOPMENT_TOKENS=1; the loopback development profiles enable this).
+Accounts use the real email code delivered to loopback Mailpit. Setup accepts
+the current Namibia privacy policy for the local test account. To invite it,
+enable members.invite and sufficient quotas on the bootstrap home group in Admin.
+Use --role none to create an account without a home invitation.
 
 The "none" role provisions the account without creating or changing a home
 membership. It does not remove a membership created by an earlier run.
@@ -47,16 +50,12 @@ fail() {
     exit 1
 }
 
-for command_name in curl jq openssl; do
+for command_name in curl jq; do
     command -v "$command_name" >/dev/null 2>&1 \
         || fail "required command is unavailable: ${command_name}"
 done
 command -v uuidgen >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1 \
     || fail 'required command is unavailable: uuidgen (or python3)'
-
-base64url_encode() {
-    tr -d '=\n' | tr '+/' '-_'
-}
 
 generate_uuid() {
     if command -v uuidgen >/dev/null 2>&1; then
@@ -66,13 +65,6 @@ generate_uuid() {
     fi
 }
 
-generate_login_secret() {
-    openssl rand -base64 32 | base64url_encode
-}
-
-s256_challenge() {
-    printf '%s' "$1" | openssl dgst -sha256 -binary | openssl base64 | base64url_encode
-}
 
 [[ -f "$handoff_file" ]] \
     || fail "handoff not found: ${handoff_file}. Run setup-development.sh or setup-prebuilt.sh first."
@@ -81,6 +73,8 @@ jq -e 'type == "object"' "$handoff_file" >/dev/null 2>&1 \
 
 api_base="$(jq -er '.apiBaseUrl | select(type == "string" and length > 0)' "$handoff_file")" \
     || fail 'handoff is missing apiBaseUrl.'
+mailpit_base="$(jq -r '.mailpitBaseUrl // "http://127.0.0.1:8025"' "$handoff_file")"
+development_require_loopback "$mailpit_base" || fail 'handoff Mailpit origin must be loopback.'
 bootstrap_home_id="$(jq -er '.homeId | select(type == "string" and length > 0)' "$handoff_file")" \
     || fail 'handoff is missing homeId.'
 bootstrap_email="$(jq -er '.email | select(type == "string" and length > 0)' "$handoff_file")" \
@@ -118,17 +112,6 @@ if [[ -z "$test_installation_id" ]]; then
 fi
 [[ "$test_installation_id" =~ $uuid_pattern ]] || fail 'stored test-user installationId is not a UUID.'
 
-post_json_exchange() {
-    local url="$1"
-    local payload="$2"
-    curl --silent --show-error --noproxy '*' --connect-timeout 5 --max-time 30 \
-        --write-out $'\n%{http_code}' \
-        -H 'Content-Type: application/json' \
-        -X POST "$url" \
-        --data "$payload" \
-        || fail "could not reach ${url}"
-}
-
 authorized_exchange() {
     local method="$1"
     local url="$2"
@@ -152,76 +135,8 @@ problem_summary() {
         || printf 'The response was not valid problem JSON.'
 }
 
-login_link_session() {
-    local label="$1"
-    local email="$2"
-    local installation_id="$3"
-    local device_name="$4"
-    local request_id poll_token code_verifier state_value
-    local exchange status response approval_token
-    request_id="$(generate_uuid)"
-    poll_token="$(generate_login_secret)"
-    code_verifier="$(generate_login_secret)"
-    state_value="$(generate_login_secret)"
-    exchange="$(post_json_exchange \
-        "${api_base}/api/v1/auth/login-links" \
-        "$(jq -n \
-            --arg requestId "$request_id" \
-            --arg email "$email" \
-            --arg pollChallenge "$(s256_challenge "$poll_token")" \
-            --arg codeChallenge "$(s256_challenge "$code_verifier")" \
-            --arg state "$state_value" \
-            --arg installationId "$installation_id" \
-            --arg deviceName "$device_name" \
-            '{
-                requestId:$requestId,
-                email:$email,
-                applicationKind:"homeowner",
-                pollChallenge:$pollChallenge,
-                codeChallenge:$codeChallenge,
-                codeChallengeMethod:"S256",
-                state:$state,
-                installationId:$installationId,
-                deviceName:$deviceName,
-                platform:"linux",
-                transport:"native"
-            }')")"
-    status="${exchange##*$'\n'}"
-    response="${exchange%$'\n'*}"
-    if [[ "$status" == '429' ]]; then
-        fail "${label} login-link request is rate-limited: $(problem_summary "$response")"
-    fi
-    [[ "$status" == '202' ]] \
-        || fail "${label} login-link request failed (HTTP ${status}): $(problem_summary "$response")"
-    approval_token="$(jq -r '.developmentApprovalToken // empty' <<<"$response")"
-    [[ -n "$approval_token" ]] \
-        || fail 'the API did not expose a development approval token; use the loopback development profile with EXPOSE_DEVELOPMENT_TOKENS=1.'
-    exchange="$(post_json_exchange \
-        "${api_base}/api/v1/auth/login-links/${request_id}/decision" \
-        "$(jq -n --arg approvalToken "$approval_token" \
-            '{applicationKind:"homeowner",approvalToken:$approvalToken,decision:"approve"}')")"
-    status="${exchange##*$'\n'}"
-    response="${exchange%$'\n'*}"
-    [[ "$status" == '202' ]] \
-        || fail "${label} login-link approval failed (HTTP ${status}): $(problem_summary "$response")"
-    exchange="$(post_json_exchange \
-        "${api_base}/api/v1/auth/login-links/${request_id}/exchange" \
-        "$(jq -n \
-            --arg pollToken "$poll_token" \
-            --arg codeVerifier "$code_verifier" \
-            --arg state "$state_value" \
-            '{pollToken:$pollToken,codeVerifier:$codeVerifier,state:$state}')")"
-    status="${exchange##*$'\n'}"
-    response="${exchange%$'\n'*}"
-    [[ "$status" == '200' ]] || fail \
-        "${label} login-link exchange failed (HTTP ${status}): $(problem_summary "$response"). The account may be deactivated."
-    jq -e '.accessToken and .userId' <<<"$response" >/dev/null \
-        || fail "${label} login-link exchange returned an invalid native-session response."
-    printf '%s' "$response"
-}
-
-bootstrap_login="$(login_link_session \
-    'bootstrap owner' \
+bootstrap_login="$(development_email_code_session \
+    "$api_base" "$mailpit_base" \
     "$bootstrap_email" \
     "$bootstrap_installation_id" \
     'Bootstrap owner provisioning')"
@@ -240,8 +155,8 @@ bootstrap_home_role="$(jq -r --arg home "$bootstrap_home_id" \
 [[ "$bootstrap_home_role" == 'owner' ]] \
     || fail "the handoff account is ${bootstrap_home_role}, not the bootstrap home owner."
 
-test_login="$(login_link_session \
-    'test user' \
+test_login="$(development_email_code_session \
+    "$api_base" "$mailpit_base" \
     "$test_email" \
     "$test_installation_id" \
     "$display_name")"
@@ -296,14 +211,14 @@ if [[ "$requested_role" != 'none' ]]; then
         invitation_response="${invitation_exchange%$'\n'*}"
         [[ "$invitation_status" == '201' ]] || fail \
             "could not invite test user (HTTP ${invitation_status}): $(problem_summary "$invitation_response")"
-        invitation_token="$(jq -r '.developmentInvitationToken // empty' <<<"$invitation_response")"
-        [[ -n "$invitation_token" ]] || fail \
-            'the API did not expose a development invitation token; use the loopback development profile.'
+        invitation_id="$(jq -er '.invitationId' <<<"$invitation_response")"
+        invitation_revision="$(jq -er '.revision' <<<"$invitation_response")"
+        development_complete_onboarding "$api_base" "$test_access_token" "$display_name"
         acceptance_exchange="$(authorized_exchange \
             POST \
-            "${api_base}/api/v1/home-invitations/accept" \
+            "${api_base}/api/v1/me/home-invitations/${invitation_id}/accept" \
             "$test_access_token" \
-            "$(jq -n --arg token "$invitation_token" '{token:$token}')")"
+            "$(jq -n --argjson revision "$invitation_revision" '{expectedRevision:$revision}')")"
         acceptance_status="${acceptance_exchange##*$'\n'}"
         acceptance_response="${acceptance_exchange%$'\n'*}"
         [[ "$acceptance_status" == '200' ]] || fail \
@@ -325,6 +240,8 @@ if [[ "$requested_role" != 'none' ]]; then
         || fail "home membership verification returned role '${verified_role:-missing}', expected '${requested_role}'."
     effective_role="$verified_role"
 fi
+
+development_complete_onboarding "$api_base" "$test_access_token" "$display_name"
 
 handoff_dir="$(cd -- "$(dirname -- "$handoff_file")" && pwd)"
 handoff_tmp="$(mktemp "${handoff_dir}/.providentia-development.XXXXXX")"

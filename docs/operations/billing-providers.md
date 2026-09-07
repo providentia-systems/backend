@@ -61,11 +61,14 @@ neutral event envelope.
 
 ## Operator access
 
-Plan management requires the existing `platform_administrator` role or a
-`billing_operator` row in `user_platform_roles`. Home owners receive
-`billing.read` and `billing.manage`; managers receive `billing.read`; both can
-read billing by default, while only owners manage it by default. Non-owner
-defaults can be changed through the normal versioned home permission policy;
-an owner always retains both billing permissions. Run a sandbox checkout,
-signed webhook replay, duplicate delivery, cancellation, and provider settlement
-reconciliation rehearsal before enabling live traffic.
+Plan inspection and management use independent administrator-group
+`billing.read` and `billing.manage` permissions. Household billing operations
+also require their corresponding home-group feature and effective home
+permission. The initial home group leaves billing management disabled; owners
+cannot enable a feature beyond the administrator's ceiling. Billing and checkout
+enforcement remain disabled during the current stabilization phase.
+
+Before enabling live payments, run a sandbox checkout, signed webhook replay,
+duplicate delivery, cancellation and provider settlement reconciliation
+rehearsal. Paid-plan activation is future work and must not be inferred from
+manual group assignment.

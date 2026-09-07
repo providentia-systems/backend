@@ -7,9 +7,9 @@ compile PHP, Composer dependencies, Caddy, or FFmpeg on the workstation.
 
 The local profile runs those immutable application images with MySQL 8.4,
 Redis 8.2, Mailpit, migrations, the API, queue worker, outbox relay,
-notification worker, data-governance worker, synchronization compactor, and
-video worker. Development-only login-link approval tokens
-(`EXPOSE_DEVELOPMENT_TOKENS=1`) are enabled only in this loopback profile.
+notification worker, reference-update worker, data-governance worker,
+synchronization compactor and video worker. Email codes are delivered to Mailpit
+and verified through the same API used by clients.
 
 ## Published packages and tags
 
@@ -34,8 +34,8 @@ no explicit version was supplied, it selects the checkout's own
 on all three pulled images before starting anything. This makes a pre-merge
 test exercise the checked-out code rather than the older `edge` build.
 
-The repository is private, so the packages normally require GitHub Container
-Registry authentication. Use a token that can read the repository packages:
+If the selected packages are private, authenticate to GitHub Container Registry
+with a token that can read those packages:
 
 ```bash
 printf '%s' "$GHCR_TOKEN" | docker login ghcr.io \
@@ -78,7 +78,8 @@ The script:
    no dataset is available;
 6. starts every long-running application process and waits for readiness;
 7. proves liveness, readiness, and system information over HTTP;
-8. creates or reuses a verified developer account and active home; and
+8. verifies the local developer account using a newly delivered Mailpit code,
+   accepts its current Namibia privacy policy and explicitly creates or reuses a home; and
 9. writes `.providentia-development.json` with the API URL, home, device, and
    protected development credentials.
 
@@ -109,7 +110,7 @@ bash scripts/setup-prebuilt.sh \
 `PROVIDENTIA_REGISTRY` and `PROVIDENTIA_IMAGE_NAMESPACE` provide the equivalent
 environment-variable overrides. Command-line values take precedence.
 
-For additional users, role testing, the first platform-administrator grant,
+For additional users, role testing, the first system-owner authorization,
 and the exact client login commands, follow
 [Client login, users, homes, and administrator testing](client-user-testing.md).
 
@@ -141,11 +142,11 @@ tag is promoted.
 ## Point Flutter at it
 
 Use the development email address from `.providentia-development.json`, choose
-**Send login link** in Flutter, open the message from Mailpit in a browser,
-explicitly approve it there, and return to the originating client. The browser
-does not receive a session. The handoff stores setup session
-tokens, never a password; do not use those saved setup-session bearer tokens
-as Flutter launch arguments.
+**Send code** in Flutter, read the newest message in Mailpit and enter its eight
+digits into the client. The handoff stores setup session tokens; do not use
+those tokens as Flutter launch arguments. Each client requests and maintains its
+own installation-bound session. Complete name, country and policy acceptance for
+new accounts; onboarding does not automatically create a home.
 
 | Flutter target | API base URL |
 |---|---|
@@ -161,8 +162,8 @@ development origin `http://localhost:8081` is allowed by default; a custom web
 port must be added to `CORS_ALLOWED_ORIGINS` explicitly. Credentialed CORS
 cannot use a wildcard.
 
-Plain HTTP and exposed development tokens in this profile are for loopback
-testing only. The current client rejects non-loopback plain HTTP,
+Plain HTTP and the Mailpit mailbox in this profile are for loopback testing
+only. The current client rejects non-loopback plain HTTP,
 so a USB-debuggable physical device needs the same `adb reverse` tunnel; an
 untethered device needs a trusted HTTPS development endpoint. Never expose
 `compose.prebuilt.yaml` to the internet or reuse its secrets in staging or

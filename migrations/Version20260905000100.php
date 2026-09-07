@@ -456,6 +456,14 @@ final class Version20260905000100 extends AbstractMigration
         } finally {
             fclose($stream);
         }
+        $this->connection->insert('reference_update_jobs', [
+            'id' => 'a1000000-0000-4000-8000-000000000005',
+            'requested_by_user_id' => 'system-bootstrap',
+            'status' => 'queued',
+            'processed_count' => 0,
+            'safe_message' => 'Initial country, region and city synchronization',
+            'created_at' => gmdate('Y-m-d H:i:s'),
+        ]);
     }
 
     public function down(Schema $schema): void

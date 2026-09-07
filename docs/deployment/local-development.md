@@ -58,15 +58,15 @@ The script:
    directory;
 2. verifies their two fixed Phase 0 SHA-256 digests;
 3. creates `.env.development.local` with mode `0600`, independent random
-   secrets, random MySQL passwords, a stable local device ID, and
-   `EXPOSE_DEVELOPMENT_TOKENS=1` only for this development profile;
-4. starts MySQL 8.4, Redis 8.2, Mailpit, the HTTP API, worker, and outbox relay;
+   secrets, random MySQL passwords and a stable local installation ID;
+4. starts MySQL 8.4, Redis 8.2, Mailpit, the API and its queue, notification,
+   reference-update and maintenance workers;
 5. applies all pending Doctrine migrations through the container entrypoint;
 6. runs the catalog reconciliation dry run, committed import, and a second
    zero-delta import proof;
-7. provisions the developer account through the passwordless login-link flow —
-   start, development-token approval, and PKCE exchange — and creates or
-   reuses a home;
+7. requests an email code, reads the newly delivered message from local Mailpit,
+   verifies the requesting installation, accepts the current Namibia privacy
+   policy for this development test account, then explicitly creates or reuses a home;
 8. writes `.providentia-development.json` with mode `0600` for the local client.
 
 The handoff contains loopback development credentials and must never be
@@ -74,15 +74,16 @@ committed, shared, or reused outside the local workstation. The setup is
 repeatable: subsequent runs reuse the local device/account and do not duplicate
 catalog identities.
 
-Setup never overwrites an existing account. A rate-limited login-link request
-stops with an actionable message; it does not blindly retry or delete local
-data. The `developmentApprovalToken` is included in the login-link start
-response only because the isolated development profile explicitly sets
-`EXPOSE_DEVELOPMENT_TOKENS=1`; production startup forbids that setting.
+Setup never overwrites an existing account. A rate-limited code request stops
+with an actionable message. It does not blindly retry or delete local data.
+The shared `scripts/lib/development-email-code.sh` helper uses the same API and
+email-delivery path as clients. It ignores old Mailpit messages, retains binding
+proofs only for the request and never prints codes or session credentials.
+No authentication bypass or development code response is enabled.
 
 To create additional verified accounts and exercise `manager`, `member`, or
-`viewer` household membership, or to grant the separate initial platform
-administrator role, follow
+`viewer` household membership, or to grant the separate initial system
+owner, follow
 [Client login, users, homes, and administrator testing](client-user-testing.md).
 
 Default endpoints:
@@ -160,13 +161,11 @@ client configuration.
 The bundled database passwords are known local-development defaults. Override
 all password variables before using a shared host.
 
-Human sign-in is the email login-link exchange only. The generated
-`.env.development.local` sets `EXPOSE_DEVELOPMENT_TOKENS=1` so setup tooling
-can approve its own login link; `.env.example`, production Compose, and
-`.env.production.example` keep it `0`, and production startup rejects it.
-`PUBLIC_BASE_URL` is the backend origin used in emailed browser approval links;
-production requires HTTPS. The homeowner and Admin application-link settings
-remain in use for application-owned step-up confirmations.
+Human sign-in uses the eight-digit email code in both clients. `PUBLIC_BASE_URL`
+is the backend origin used by deployment and security configuration; no browser
+approval or application-link URL is needed. A first administrator is authorized
+with `system:owner EMAIL`, then verifies their mailbox through Admin. Follow
+[the testing runbook](client-user-testing.md) for the exact Compose commands.
 
 ## Production configuration fail-closed rules
 
@@ -174,7 +173,6 @@ Start from `.env.production.example` and inject values from the deployment
 secret manager. With `APP_ENV=production`, startup rejects:
 
 - placeholder, short, or identical authentication/cursor secrets;
-- exposed development tokens;
 - non-`smtps://` mail transport (verified STARTTLS is not implemented by this
   minimal SMTP adapter);
 - a non-HTTPS public base URL.

@@ -59,6 +59,11 @@ final class AccessHandler implements RequestHandlerInterface
         }
         return new JsonResponse(
             match ($this->action) {
+                'get' => $this->access->assignment(
+                    $identity,
+                    (string) $request->getAttribute('scope', ''),
+                    (string) $request->getAttribute('subjectId', ''),
+                ),
                 'list' => [
                     'data' => $this->access->groups(
                         $identity,

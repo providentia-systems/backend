@@ -14,6 +14,8 @@ use Providentia\Identity\Application\ProfileMediaStore;
 use Providentia\Identity\Infrastructure\Doctrine\DbalProfileMediaStore;
 use Providentia\Identity\Http\ProfileMediaHandler;
 use Providentia\Identity\Infrastructure\Cli\SystemOwnerCommand;
+use Providentia\Identity\Infrastructure\Cli\EmailCodePurgeCommand;
+use Providentia\Identity\Application\AuthenticationRateLimitStore;
 use Providentia\Geography\Infrastructure\Cli\ReferenceUpdateCommand;
 use Providentia\Catalog\Application\CatalogImageSanitizer;
 use Providentia\Home\Application\HomeAuthorization;
@@ -52,15 +54,23 @@ final class AccessFactory
         ContainerInterface $container,
         string $name,
     ): object {
-        /** @var array{identity: array{web_idle_ttl_seconds: int, native_idle_ttl_seconds: int, cookie_secure: bool}} $config */
+        /** @var array{identity: array{web_idle_ttl_seconds: int, native_idle_ttl_seconds: int, cookie_secure: bool, rate_limit_retention_days: int}} $config */
         $config = $container->get('config');
         return match (true) {
+            $name === EmailCodePurgeCommand::class => new EmailCodePurgeCommand(
+                $container->get(EmailCodeStore::class),
+                $container->get(AuthenticationRateLimitStore::class),
+                $container->get(Clock::class),
+                $config['identity']['rate_limit_retention_days'],
+            ),
             $name === SystemOwnerCommand::class => new SystemOwnerCommand(
                 $container->get(Connection::class),
                 $container->get(Clock::class),
             ),
             $name === ReferenceUpdateCommand::class => new ReferenceUpdateCommand($container->get(Connection::class)),
-            $name === DbalOperatorWorkspaceStore::class => new DbalOperatorWorkspaceStore($container->get(Connection::class)),
+            $name === DbalOperatorWorkspaceStore::class => new DbalOperatorWorkspaceStore(
+                $container->get(Connection::class),
+            ),
             $name === DbalProfileMediaStore::class => new DbalProfileMediaStore($container->get(Connection::class)),
             $name === OperatorWorkspaceService::class => new OperatorWorkspaceService(
                 $container->get(OperatorWorkspaceStore::class),

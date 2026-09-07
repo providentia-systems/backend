@@ -1,67 +1,55 @@
-# Linux administrator control plane
+# Administrator control plane
 
-Providentia has three separately released repositories. The backend owns domain
-rules, persistence, authorization, deployment and the authoritative OpenAPI
-contract. `providentia-systems/client` is the homeowner Flutter application for
-the supported mobile and desktop platforms. `providentia-systems/admin` is a
-separate Flutter application initially packaged only for Linux desktop. The
-backend provides no public site, authenticated browser login, household GUI,
-or operator GUI. Its only HTML exception is the unauthenticated browser
-approval/denial ceremony for emailed login links; that browser never receives
-a session. Owner-only recovery or bootstrap work remains a narrow CLI concern.
+The backend owns domain rules, persistence, authorization, deployment and the
+canonical API 2.0.0 contract. The homeowner and administrator Flutter clients
+remain separate applications, installations and protected credential stores.
+Authentication is numeric email OTP entered in the requesting app. The backend
+serves no login page or application management UI.
 
-Both clients use the same login-link and bearer/session protocol, but they are
-different security principals at the installation boundary. The Admin package
-uses its own application identifier, installation UUID, device/session, keyring
-entry and data directory. It must never import or reuse homeowner tokens,
-offline databases or keyring material. A platform role grants no implicit home
-membership and no household-content endpoint.
+## Operator identity and delegation
 
-## Operator account boundary
-
-The Linux Admin account view uses only these operations:
-
-- `GET /api/v1/admin/accounts`
-- `GET /api/v1/admin/accounts/{userId}`
-- `PATCH /api/v1/admin/accounts/{userId}/status`
-- `PUT /api/v1/admin/accounts/{userId}/roles/{role}`
-- `DELETE /api/v1/admin/accounts/{userId}/roles/{role}`
-
-They require `platform_administrator`. Their allowlist is identity metadata,
-account status/revision/timestamps, active-session and home counts, platform
-roles, and home name plus membership role/status. A home may include only a
-small subscription status/plan/cycle/period summary. Stock, products, counts,
-receipts, purchases, locations, prices, notes, reports, AI media, credentials
-and provider references are excluded. Status and role mutations are audited,
-revision-bound and serialized; suspension/closure revokes sessions, closure is
-terminal, and the last active administrator cannot be removed or disabled.
-Actual grants, reactivations, and revocations advance the same account revision
-regardless of entry point; an idempotent request leaves both revision and audit
-history unchanged.
-
-`POST /api/v1/platform/administrators` is the invitation-by-email surface. It
-creates a pending invitation for an address without a verified account and
-activates the administrator role when that account is verified. The account
-role operation above addresses an existing account by UUID and expected
-account revision. These are two workflows over the same canonical
-`user_platform_roles` state, not parallel role stores; accepting, granting,
-reactivating, or revoking through either workflow invalidates stale account
-snapshots used by the other.
-
-After the intended owner has an active verified account, the narrow audited
-owner path is:
+Bootstrap the first owner before signing in:
 
 ```bash
-php bin/providentia platform:role \
-  --email owner@example.test \
-  --role platform_administrator
+php bin/providentia system:owner owner@example.test
 ```
 
-`PLATFORM_BOOTSTRAP_ADMIN_EMAILS` remains a deployment bootstrap alternative:
-a matching verified account receives the administrator grant during a
-successful login-link approval. Subsequent delegation should use Admin. The
-owner CLI does not create pending invitations and the account control-plane
-role operation does not resolve accounts by email.
+The owner must still verify the emailed code. The CLI is idempotent for the same
+address and refuses to replace an existing system owner. Other administrator
+sign-ins create pending requests. An approved administrator belongs to one
+administrator group. The protected owner group carries every administrator
+permission; ordinary groups explicitly list their permitted operations.
+
+`GET /api/v1/admin/administrators` requires administrator-list access. Reviewing
+`POST /api/v1/admin/administrators/{userId}/review` requires approval authority
+and current revisions. Group definition management, account/home assignments,
+people visibility and administrator approval are independent permissions.
+Suspension revokes sessions and denies further authenticated work. The system
+owner cannot be removed, suspended or reassigned through delegated operations.
+
+## Data inspection
+
+Authorized staff can inspect stored application data to operate and improve the
+service. Homeowner public-sharing switches do not block authorized internal
+inspection. Operator routes are dedicated and audited; they do not fabricate a
+home membership or let a household request cross the active-home boundary.
+
+| Endpoint area | Permission boundary |
+| --- | --- |
+| `/api/v1/admin/accounts` | `accounts.read`; personal details also require `people.read` |
+| Account status changes | `accounts.manage` with expected revision |
+| `/api/v1/admin/homes` and home records | `homes.read`; people fields gated separately |
+| Access-group definitions | `groups.manage` |
+| Account/home assignments | `accounts.assign` / `homes.assign` |
+| Administrator review | `administrators.approve` |
+| Country/reference configuration | `countries.manage` |
+| Privacy notice editing | `policies.manage` |
+| Audit inspection | `audit.read` |
+
+Records include stock and home catalog data, with public-sharing state shown
+separately. Secret credentials, session proofs and encryption material remain
+excluded. Operators without a required permission receive a server rejection,
+even if they construct a request outside the Admin interface.
 
 ## Global catalog and contribution flow
 
@@ -96,16 +84,13 @@ is an attribution-free moderated public fact. Later consent withdrawal does not
 retroactively delete that canonical record or its non-household audit/revision
 history; erasure must not recreate a contributor/home link in operator output.
 
-## Billing posture and release order
+## Billing and synchronization
 
-The stabilization default is `BILLING_ENABLED=0`. The client is not blocked by
-subscription state, checkout providers remain disabled, and the operator
-subscription summary is informational only. PayPal, cards, price enforcement,
-discount tokens and paid activation are future slices and must not be implied
-by this control plane.
+Billing enforcement remains disabled. Manual scoped group assignments control
+features today and form the future mapping point for paid plans. A plan or
+subscription display does not itself grant access.
 
-Contract changes ship in one direction: implement backend runtime, migration,
-OpenAPI, lock and tests; publish the backend contract; copy the exact contract
-and lock bytes into both client repositories and regenerate; then release
-compatible clients. Neither Flutter repository owns a divergent handwritten
-API model.
+The backend publishes the canonical contract and lock; both Flutter clients
+copy those exact artifacts and regenerate. See the controlling
+[pre-release decisions](../unification-decision-record.md) for registration,
+quota downgrade, home delegation and country policy semantics.

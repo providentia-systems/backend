@@ -6,7 +6,7 @@ cd "$repo_root"
 bash tool/materialize-openapi-contract.sh
 
 modules=(
-  SharedKernel Identity Home Catalog Inventory Purchasing Shopping
+  SharedKernel Access Identity Home Catalog Inventory Purchasing Shopping
   Synchronization AiIntegration Billing DataGovernance Administration Reporting
 )
 layers=(Domain Application Infrastructure Http)
@@ -61,8 +61,9 @@ for file in composer.json compose.yaml contracts/openapi/providentia-v1.json \
   tools/agent-requirements.json infrastructure/agent/Dockerfile \
   infrastructure/agent/Dockerfile.dockerignore \
   docs/deployment/agent-development.md AGENTS.md \
-  src/Identity/Http/LoginLinkApprovalHandler.php \
-  tests/Unit/Identity/LoginLinkApprovalHandlerTest.php \
+  src/Identity/Http/EmailLoginHandler.php \
+  tests/Integration/Platform/PlatformAccessWorkflowTest.php \
+  tests/fixtures/email-code-smtp.py \
   tests/Acceptance/compose.headless-platform-acceptance.yaml \
   tests/Acceptance/headless-platform-acceptance.sh \
   tests/fixtures/ai-provider-router.php \
@@ -70,14 +71,20 @@ for file in composer.json compose.yaml contracts/openapi/providentia-v1.json \
   test -s "$file" || fail "$file is missing or empty"
 done
 
-grep -Fq '/login-links/%s/%s#approval=%s' \
+grep -Fq 'Your Providentia verification code' \
   src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
-  || fail "login-link email must target the browser ceremony with only the approval capability in its fragment"
-for application_fragment in \
-  '#action=step-up&token='; do
-  grep -Fq "$application_fragment" src/Identity/Infrastructure/Notification/SmtpAccountNotificationSender.php \
-    || fail "account capability must use the configured application fragment: $application_fragment"
+  || fail 'authentication email must contain the numeric verification code'
+for code_guard in 'PT10M' 'hashToken($id' "'binding_hash'" 'assertCodeResendAllowed'; do
+  grep -Fq "$code_guard" src/Identity/Application/EmailCodeService.php \
+    || fail "email code issuance is missing its $code_guard safeguard"
 done
+for code_guard in 'attempts < 5' 'consumed_at IS NULL' 'expires_at > :now' 'hash_equals'; do
+  grep -Fq "$code_guard" src/Identity/Infrastructure/Doctrine/DbalEmailCodeStore.php \
+    || fail "email code consumption is missing its $code_guard safeguard"
+done
+assert_no_matches 'retired browser-login capabilities remain in runtime configuration' \
+  -n 'HOMEOWNER_APP_LINK_BASE|ADMIN_APP_LINK_BASE|AUTH_APP_LINK_ALLOWED_HOSTS|LoginLinkApprovalHandler' \
+  src config compose.yaml compose.prebuilt.yaml compose.production.yaml .env.production.example
 assert_no_matches "human-account password authentication must not return" \
   -in 'AUTH_PASSWORD_LOGIN_ENABLED|password_login_enabled|hashPassword|verifyPassword|password_hash|passwordHash' \
   --glob '!tests/structural/verify.sh' \
@@ -88,38 +95,26 @@ assert_no_matches "human-account password authentication must not return" \
 assert_no_matches "account capability can leak through a query string" \
   -n '\?(approval|token)=' src docs config
 grep -Fxq 'PUBLIC_BASE_URL=https://api.example.net' .env.production.example \
-  || fail 'production example must target the HTTPS backend approval origin'
+  || fail 'production example must declare its HTTPS API origin'
 for development_compose in compose.yaml compose.prebuilt.yaml; do
   grep -Fq 'PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:${PROVIDENTIA_HTTP_PORT:-8080}}' \
-    "$development_compose" \
-    || fail "$development_compose must allow an externally reachable browser approval origin"
+    "$development_compose" || fail "$development_compose must configure the API origin"
 done
-[[ "$(grep -Fc 'PUBLIC_BASE_URL: https://api.example.invalid' \
-    .github/workflows/production-image.yml)" -eq 3 ]] \
-  || fail 'production image validation must configure the browser approval origin in every lane'
-grep -Fxq 'HOMEOWNER_APP_LINK_BASE=https://client.example.net/homeowner' .env.production.example \
-  || fail 'production example must target the homeowner application route'
-grep -Fxq 'ADMIN_APP_LINK_BASE=providentia-admin://login-link/admin' .env.production.example \
-  || fail 'production example must target the Linux Admin application route'
-[[ "$(grep -Fc 'HOMEOWNER_APP_LINK_BASE: https://app.example.invalid/homeowner' \
-    .github/workflows/production-image.yml)" -eq 3 ]] \
-  || fail 'production image validation must use the homeowner application route in every lane'
-[[ "$(grep -Fc 'ADMIN_APP_LINK_BASE: providentia-admin://login-link/admin' \
-    .github/workflows/production-image.yml)" -eq 3 ]] \
-  || fail 'production image validation must use the Linux Admin application route in every lane'
-[[ "$(grep -Fc 'AUTH_APP_LINK_ALLOWED_HOSTS: app.example.invalid,login-link' \
-    .github/workflows/production-image.yml)" -eq 3 ]] \
-  || fail 'production image validation must allow exactly the configured application-link hosts'
-assert_no_matches "stale generic auth application-link path remains configured" \
-  -n '(HOMEOWNER|ADMIN)_APP_LINK_BASE[=:][^#[:space:]]*/auth([[:space:]]|$)' \
-  .env.production.example .github/workflows/production-image.yml \
-  tests/Acceptance/compose.headless-platform-acceptance.yaml
-for provisioning_script in \
-  scripts/setup-prebuilt.sh \
-  scripts/setup-development.sh \
-  scripts/provision-development-user.sh; do
-  grep -Fq '{applicationKind:"homeowner",approvalToken:$approvalToken,decision:"approve"}' "$provisioning_script" \
-    || fail "$provisioning_script must bind login-link approval to the homeowner application"
+for provisioning_script in scripts/setup-development.sh scripts/setup-prebuilt.sh scripts/provision-development-user.sh; do
+  grep -Fq 'scripts/lib/development-email-code.sh' "$provisioning_script" \
+    || fail "$provisioning_script must use the shared real-email development flow"
+done
+for code_route in '/api/v1/auth/email-codes' '/api/v1/auth/email-codes/verify' '/api/v1/me/onboarding'; do
+  grep -Fq "$code_route" scripts/lib/development-email-code.sh \
+    || fail "development provisioning is missing $code_route"
+done
+assert_no_matches 'development provisioning bypasses email-code delivery' \
+  -n 'developmentApprovalToken|EXPOSE_DEVELOPMENT_TOKENS|/auth/login-links' \
+  scripts/setup-development.sh scripts/setup-prebuilt.sh scripts/provision-development-user.sh \
+  scripts/lib/development-email-code.sh
+for worker_compose in compose.yaml compose.prebuilt.yaml compose.production.yaml; do
+  grep -Fq 'reference:update, --watch, --recover' "$worker_compose" \
+    || fail "$worker_compose must process administrator-requested reference updates"
 done
 for caddyfile in infrastructure/caddy/Caddyfile infrastructure/caddy/Caddyfile.production; do
   for header in X-Content-Type-Options Referrer-Policy Permissions-Policy Content-Security-Policy; do
@@ -133,26 +128,10 @@ assert_no_matches "edge proxy must not overwrite application-owned dynamic secur
 legacy_login_segment='magic''-links'
 assert_no_matches "legacy raw-token email login route remains reachable" \
   -n -F "/api/v1/auth/${legacy_login_segment}" config/routes.php
-grep -Fq '$this->requests->find($requestId) !== null' src/Identity/Http/LoginLinkProofRateLimitMiddleware.php \
-  || fail "request-scoped login-link rate limits must be created only for existing requests"
 assert_no_matches "general-purpose backend UI files remain reachable or configured" \
-  -n 'PublicSite|TemplateRendererInterface|public-site::' src config
-for browser_action in launch capture review approve deny; do
-  grep -Fq "identity.login-link-browser-${browser_action}" src/Identity/ConfigProvider.php \
-    || fail "the ${browser_action} browser approval handler is not registered"
-done
-for browser_security_control in \
-  'window.history.replaceState' \
-  'HttpOnly; SameSite=Strict' \
-  'hash_equals($cookieCsrf, $submittedCsrf)' \
-  "frame-ancestors 'none'" \
-  "->withHeader('Cache-Control', 'no-store')"; do
-  grep -Fq -- "$browser_security_control" src/Identity/Http/LoginLinkApprovalHandler.php \
-    || fail "browser approval is missing its ${browser_security_control} safeguard"
-done
-assert_no_matches "browser approval can create or return an authenticated browser session" \
-  -n 'SessionResponseFactory|AccessToken|RefreshToken|identity\.refresh' \
-  src/Identity/Http/LoginLinkApprovalHandler.php
+  -n 'PublicSite|TemplateRendererInterface|public-site::|LoginLinkApprovalHandler' src config
+assert_no_matches 'browser login routes remain registered' \
+  -n '/login-links/|auth/login-links|auth/step-up-links' config/routes.php
 node <<'NODE'
 const fs = require('node:fs');
 const root = JSON.parse(fs.readFileSync('composer.json', 'utf8'));
@@ -278,21 +257,16 @@ const expected = {
   '/health/ready': {get: 'getReadiness'},
   '/api/v1/system/info': {get: 'getSystemInfo'},
   '/metrics': {get: 'getMetrics'},
-  '/api/v1/auth/login-links': {post: 'startLoginLink'},
-  '/api/v1/auth/login-links/{requestId}/proof': {post: 'proveLoginLinkApproval'},
-  '/api/v1/auth/login-links/{requestId}/review': {post: 'reviewLoginLinkApproval'},
-  '/api/v1/auth/login-links/{requestId}/decision': {post: 'decideLoginLinkApproval'},
-  '/api/v1/auth/login-links/{requestId}/status': {post: 'getLoginLinkStatus'},
-  '/api/v1/auth/login-links/{requestId}/exchange': {post: 'exchangeLoginLink'},
-  '/api/v1/auth/login-links/{requestId}/cancel': {post: 'cancelLoginLink'},
+  '/api/v1/auth/email-codes': {post: 'requestEmailCode'},
+  '/api/v1/auth/email-codes/verify': {post: 'verifyEmailCode'},
+  '/api/v1/me/onboarding': {post: 'completeAccountOnboarding'},
+  '/api/v1/admin/access/groups': {get: 'listAccessGroups', post: 'createAccessGroup'},
+  '/api/v1/admin/access/{scope}/{subjectId}': {get: 'getAccessAssignment', put: 'assignAccessGroup'},
+  '/api/v1/admin/administrators': {get: 'listAdministrators'},
   '/api/v1/me': {get: 'getCurrentUser'},
   '/api/v1/me/home-invitations': {get: 'listPendingHomeInvitations'},
   '/api/v1/me/home-invitations/{invitationId}/accept': {post: 'acceptHomeInvitationById'},
-  '/api/v1/platform/administrators': {
-    get: 'listPlatformAdministrators', post: 'grantPlatformAdministrator',
-  },
-  '/api/v1/platform/administrators/{administratorId}/revoke': {post: 'revokePlatformAdministrator'},
-  '/api/v1/homes': {get: 'listHomes'},
+  '/api/v1/homes': {get: 'listHomes', post: 'createHome'},
   '/api/v1/homes/{homeId}': {get: 'getHome', patch: 'updateHome'},
   '/api/v1/homes/{homeId}/ownership-transfer': {post: 'transferHomeOwnership'},
   '/api/v1/catalog/products': {get: 'searchCatalogProducts'},
@@ -320,12 +294,10 @@ for (const [path, methods] of Object.entries(expected)) {
 }
 for (const schema of [
   'HealthStatus', 'ReadinessStatus', 'SystemInfo', 'ProblemDetails',
-  'LoginLinkStartRequest', 'LoginLinkStarted',
-  'LoginApplicationKind', 'LoginLinkApprovalProof', 'LoginLinkApprovalValidity',
-  'LoginLinkApprovalReview', 'LoginLinkDecisionRequest', 'LoginLinkDecisionReceived',
-  'LoginLinkRequestProof', 'LoginLinkStatus', 'LoginLinkExchangeRequest',
+  'EmailCodeRequest', 'EmailCodeChallenge', 'EmailCodeVerification',
+  'AccountProfile', 'AccountProfileRequest', 'AccessGroup', 'EffectiveAccess',
   'SessionCredentials', 'DeviceSession', 'CurrentUserBootstrap',
-  'PlatformAdministrator', 'RecipientHomeInvitation',
+  'AdministratorReviewRequest', 'RecipientHomeInvitation',
   'HomeInvitationAcceptance', 'Home', 'UpdateHomeRequest', 'HomeMembership', 'SyncPushRequest',
   'SyncPrivateNotePayload', 'SyncHomePreferencePayload', 'SyncPushResponse',
   'SyncPullResponse', 'SyncBootstrapResponse', 'ConsumptionEstimate',
@@ -342,37 +314,23 @@ for (const credential of ['accessToken', 'refreshToken', 'csrfToken']) {
     throw new Error(`SessionCredentials.${credential} must be response-only`);
   }
 }
-for (const [schema, credential] of [
-  ['LoginLinkStarted', 'developmentApprovalToken'],
-  ['StepUpLinkAccepted', 'developmentStepUpToken'],
-  ['InvitationCreated', 'developmentInvitationToken'],
-]) {
-  const property = contract.components?.schemas?.[schema]?.properties?.[credential] ?? {};
-  if (property.readOnly !== true || 'writeOnly' in property) {
-    throw new Error(`${schema}.${credential} must be response-only`);
+for (const credential of ['bindingToken', 'code']) {
+  const property = contract.components.schemas.EmailCodeVerification.properties[credential];
+  if (property?.writeOnly !== true || property?.readOnly === true) {
+    throw new Error(`EmailCodeVerification.${credential} must be request-only`);
   }
 }
-for (const [schema, credential] of [
-  ['LoginLinkStartRequest', 'pollChallenge'],
-  ['LoginLinkStartRequest', 'codeChallenge'],
-  ['LoginLinkStartRequest', 'state'],
-  ['LoginLinkApprovalProof', 'approvalToken'],
-  ['LoginLinkDecisionRequest', 'approvalToken'],
-  ['LoginLinkRequestProof', 'pollToken'],
-  ['LoginLinkExchangeRequest', 'pollToken'],
-  ['LoginLinkExchangeRequest', 'codeVerifier'],
-  ['LoginLinkExchangeRequest', 'state'],
-]) {
-  const property = contract.components?.schemas?.[schema]?.properties?.[credential] ?? {};
-  if (property.writeOnly !== true || 'readOnly' in property) {
-    throw new Error(`${schema}.${credential} must be request-only`);
-  }
+const challenge = contract.components.schemas.EmailCodeChallenge;
+if (challenge.properties.bindingToken?.type !== 'string' || challenge.properties.bindingToken?.writeOnly === true) {
+  throw new Error('EmailCodeChallenge must return its string binding token');
 }
-const loginLinkStarted = contract.components?.schemas?.LoginLinkStarted ?? {};
-for (const secret of ['pollToken', 'pollSecret', 'codeVerifier', 'accessToken', 'refreshToken', 'csrfToken']) {
-  if (secret in (loginLinkStarted.properties ?? {})) {
-    throw new Error(`LoginLinkStarted must not return ${secret}`);
-  }
+const requestChallenge = contract.paths['/api/v1/auth/email-codes'].post;
+if (requestChallenge.responses['202'].content['application/json'].schema.$ref !== '#/components/schemas/EmailCodeChallenge'
+    || requestChallenge.requestBody.content['application/json'].schema.$ref === '#/components/schemas/EmailCodeChallenge') {
+  throw new Error('EmailCodeChallenge must remain a response schema');
+}
+for (const secret of ['code', 'accessToken', 'refreshToken', 'csrfToken', 'developmentApprovalToken']) {
+  if (secret in challenge.properties) throw new Error(`Email challenge must not return ${secret}`);
 }
 const currentUserBootstrap = contract.components?.schemas?.CurrentUserBootstrap ?? {};
 if (!(currentUserBootstrap.required ?? []).includes('pendingInvitations')
@@ -380,8 +338,8 @@ if (!(currentUserBootstrap.required ?? []).includes('pendingInvitations')
         !== '#/components/schemas/RecipientHomeInvitation') {
   throw new Error('CurrentUserBootstrap must include pending recipient invitations');
 }
-if (/magic-?link/i.test(contractSource)) {
-  throw new Error('The authoritative contract must expose login-link terminology only');
+if (/LoginLinkStart|LoginLinkApproval|StepUpLinkAccepted/.test(contractSource)) {
+  throw new Error('The authoritative contract must expose numeric code authentication only');
 }
 const refreshRequestToken = contract.paths?.['/api/v1/auth/refresh']?.post?.requestBody
   ?.content?.['application/json']?.schema?.properties?.refreshToken ?? {};
@@ -413,27 +371,14 @@ let routeMatch;
 while ((routeMatch = routePattern.exec(routeSource)) !== null) {
   (runtimeRoutes[routeMatch[2]] ??= []).push(routeMatch[1]);
 }
-const browserApprovalRoutes = {
-  '/login-links/{applicationKind}/{requestId}': ['get'],
-  '/login-links/{applicationKind}/{requestId}/capture': ['post'],
-  '/login-links/{applicationKind}/{requestId}/review': ['get'],
-  '/login-links/{applicationKind}/{requestId}/approve': ['post'],
-  '/login-links/{applicationKind}/{requestId}/deny': ['post'],
-};
 for (const [runtimePath, methods] of Object.entries(runtimeRoutes)) {
   for (const method of methods) {
-    if (browserApprovalRoutes[runtimePath]?.includes(method)) continue;
     if (!contract.paths?.[runtimePath]?.[method]) {
       throw new Error(`OpenAPI is missing ${method.toUpperCase()} ${runtimePath}`);
     }
   }
 }
-for (const [browserPath, methods] of Object.entries(browserApprovalRoutes)) {
-  if (JSON.stringify(runtimeRoutes[browserPath] ?? []) !== JSON.stringify(methods)) {
-    throw new Error(`Narrow browser approval route is missing or has the wrong method: ${browserPath}`);
-  }
-}
-for (const forbiddenPath of ['/']) {
+for (const forbiddenPath of ['/', '/api/v1/auth/login-links', '/login-links/{applicationKind}/{requestId}']) {
   if (runtimeRoutes[forbiddenPath]) {
     throw new Error(`Interactive backend route remains reachable: ${forbiddenPath}`);
   }
@@ -697,10 +642,11 @@ assert_no_matches "catalog governance transport imports household modules" \
   -n --glob 'src/Catalog/{Application,Http}/**/*.php' \
   'Providentia\\\\(Home|Inventory|Purchasing|Shopping|AiIntegration)\\\\'
 
-assert_no_matches "catalog role command bypasses safeguarded platform-administrator governance" \
-  -n --glob 'src/Catalog/Infrastructure/Cli/CatalogRoleCommand.php' \
-  'PLATFORM_ADMINISTRATOR|platform_administrator'
-
+for retired_command in \
+  src/Catalog/Infrastructure/Cli/CatalogRoleCommand.php \
+  src/Administration/Infrastructure/Cli/PlatformRoleCommand.php; do
+  [[ ! -e "$retired_command" ]] || fail 'Fixed operator role assignment must not bypass scoped groups'
+done
 assert_no_matches "catalog merge deletes canonical products or household history" \
   -ni --glob 'src/Catalog/Infrastructure/Doctrine/DbalCatalogGovernanceStore.php' \
   'DELETE FROM (products|home_products|stock_movements|receipts|receipt_lines|price_observations)'

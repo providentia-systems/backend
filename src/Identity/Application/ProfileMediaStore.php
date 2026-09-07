@@ -16,10 +16,11 @@ interface ProfileMediaStore
         array $values,
         int $revision,
     ): bool;
-    public function sharesHome(
+    /** @return list<string> */
+    public function sharedHomes(
         string $userId,
         string $otherUserId,
-    ): bool;
+    ): array;
     /**
      * @return array{bytes: string, digest: string}|null */
     public function image(string $scope, string $id): ?array;

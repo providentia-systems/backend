@@ -1,528 +1,210 @@
-# Client login-link, homes, invitations, and administrator testing
+# Client, home and administrator testing
 
-This is the canonical acceptance handoff between the Providentia backend and
-the Flutter client. It tests the production-shaped email-only **login-link**
-workflow on web, Android, iOS, Windows, macOS, and Linux. It also covers session
-restoration, multiple homes, invitations, and platform-administrator safety.
+This runbook tests the pre-release API 2.0.0 implementation. There are no live
+customers requiring compatibility with the retired authentication model. Both
+clients request a numeric email code, the backend emails it, and the person
+enters the eight digits in the requesting client. The backend has no browser
+login page and no account password surface.
 
-The API has no password registration, login, or reset surface; the email
-login-link exchange is the only human authentication. Do not enable exposed
-development tokens in staging or production to bypass a failed login-link
-test.
+## Start the matching backend
 
-The backend has no public site, authenticated browser login, or administration
-page. Its only HTML surface is the unauthenticated login-link approval/denial
-ceremony, which never receives a session. All signed-in account, home,
-invitation, device-session, and platform-admin actions below remain in the
-Flutter clients, subject to the current user's permissions.
-
-## 1. Acceptance invariants
-
-Every test run must preserve these boundaries:
-
-- the person enters their email address in the originating client;
-- the browser that opens the email may be on another device from the requesting application;
-- merely opening the emailed URL never approves a request;
-- the browser requires a deliberate **Approve** or **Deny** action;
-- the approval browser never receives the originating client's session;
-- the originating client owns the poll token and PKCE verifier, polls for the
-  result, and exchanges an approved request;
-- the configured backend HTTPS origin is the approval entry point, while polling
-  remains the authoritative handoff to the originating installation;
-- access, refresh, session, poll, and PKCE credentials never appear in an email
-  URL query, HTTP request target, analytics event, or application log;
-- the response to starting a request does not reveal whether the email is
-  already registered;
-- an unknown address is not provisioned just because a request was started;
-- approving the first request for an unknown address creates exactly one
-  editable `My home` with that person as its `owner`; the originating client's
-  successful exchange then selects it as the active home;
-- signing an existing person in never creates another default home; and
-- a global platform role never grants access to a home.
-
-Stop the test and record a defect if any invariant fails, even if the client
-eventually displays its home screen.
-
-## 2. Start the complete backend and email delivery
-
-### Published images
-
-This path needs Docker Compose v2, `curl`, `jq`, `openssl`, and access to the
-three GHCR packages. It does not build PHP or FFmpeg locally.
+From the backend checkout:
 
 ```bash
-git clone https://github.com/providentia-systems/backend.git
-cd backend
-bash scripts/setup-prebuilt.sh
+bash scripts/setup-prebuilt.sh \
+  --handover /absolute/path/Pantry_Stock_Project_Handover_2026-07-29.zip \
+  --dev-email developer@providentia.local
 ```
 
-If GHCR requires authentication, follow
-[Run the published backend images locally](prebuilt-images.md).
+The prebuilt script selects the immutable candidate image for an `agent/*`
+checkout unless an explicit version is supplied. It checks image revision labels,
+starts the database and workers, applies migrations, verifies catalog import
+replay and proves HTTP health. Supply the authorized handover for the approved
+starter catalog. Without it the script reports that the catalog was not seeded.
 
-### Source checkout with the verified pantry baseline
+For a source build use `scripts/setup-development.sh --handover PATH` instead.
+It also imports the authorized inventory baseline into the development home;
+ordinary new homes do not inherit those quantities or history.
 
-This path builds the application image and imports the checksum-pinned handover
-data:
+Default local endpoints:
+
+| Purpose | URL |
+| --- | --- |
+| API | `http://127.0.0.1:8080` |
+| Readiness | `http://127.0.0.1:8080/health/ready` |
+| Mailpit | `http://127.0.0.1:8025` |
+
+`.providentia-development.json` contains the developer email, API/Mailpit origins,
+installation, home and session credentials. It has mode `0600`; do not commit it
+or pass its tokens to Flutter. The setup tooling reads the actual newly delivered
+Mailpit code and accepts the current Namibia privacy policy for the local test
+account. Ordinary users read and accept the policy themselves in the client.
+
+## Sign in using the household client
+
+From the client checkout:
 
 ```bash
-git clone https://github.com/providentia-systems/backend.git
-cd backend
-bash scripts/setup-development.sh \
-  --handover "$HOME/Downloads/Pantry_Stock_Project_Handover_2026-07-29.zip"
+bash tools/agent-setup.sh
+source .agent-env
+flutter run -d linux \
+  --dart-define=PROVIDENTIA_API_BASE_URL=http://127.0.0.1:8080 \
+  --dart-define=PROVIDENTIA_ENVIRONMENT=development
 ```
 
-It needs Docker Compose v2, `unzip`, `sha256sum`, `curl`, `jq`, and `openssl`.
-The archive is protected external evidence and is not downloaded by cloning
-the repository. See
-[Obtain or create the development handover](local-development.md#obtain-or-create-the-development-handover)
-for its owner-controlled location, required internal paths, verified checksums,
-and the helper that builds a minimal setup archive from authorized exports.
-That guide also documents database profiles and the destructive reset boundary.
+Enter an email, request the code, read the newest matching email in Mailpit and
+enter the code. Repeating setup or requesting another code within sixty seconds
+may return `429`; respect the cooldown. Codes expire after ten minutes and allow
+at most five incorrect attempts. A code issued to another client/installation
+cannot be used with the current request's binding proof. Successful verification
+consumes the code once.
 
-Both setup paths start the HTTP API, database, queue, migrations, Mailpit, and
-the notification-delivery worker. The default local endpoints are:
+A new person enters their name, selects Namibia and accepts the current policy.
+Namibia is initially the only published country. An uninvited account receives
+the starter group allowing one owned home. An invited account receives the
+invited group, initially allowing no owned home. Home creation is an explicit
+choice where the account allowance permits it. Pending invitations can be
+accepted or declined in the invitation area.
 
-- API: `http://127.0.0.1:8080`
-- readiness: `http://127.0.0.1:8080/health/ready`
-- Mailpit: `http://127.0.0.1:8025`
+For Chrome use a consistent hostname for the API and web origin, for example
+`http://localhost:8080` and `http://localhost:8081`. Add custom web origins to
+`CORS_ALLOWED_ORIGINS`; credentialed CORS cannot use a wildcard. For a USB Android
+device run `adb reverse tcp:8080 tcp:8080` and use the loopback API URL. Other
+remote devices need a trusted HTTPS endpoint. Clients have a fixed API origin
+compiled at build time.
 
-The acceptance policy is controlled by these backend settings. Keep the
-defaults unless the specific test is verifying a shorter deployment policy:
+## Authorize the system owner and run Admin
 
-| Setting | Product default |
-|---|---:|
-| `AUTH_ACCESS_TTL_SECONDS` | `900` (15 minutes) |
-| `AUTH_LOGIN_LINK_TTL_SECONDS` | `900` (15 minutes to approve) |
-| `AUTH_LOGIN_LINK_EXCHANGE_TTL_SECONDS` | `120` (2 minutes to exchange after approval) |
-| `AUTH_LOGIN_LINK_POLL_INTERVAL_SECONDS` | `3` |
-| `AUTH_LOGIN_LINK_RETENTION_DAYS` | `30` (terminal request metadata; no usable capabilities) |
-| `AUTH_RATE_LIMIT_RETENTION_DAYS` | `2` (inactive hashed throttling buckets) |
-| `PUBLIC_BASE_URL` | Backend origin for emailed browser approval links; HTTPS in production |
-| `AUTH_WEB_IDLE_TTL_SECONDS` | `0` (no idle ceiling; signed in until explicit revocation) |
-| `AUTH_NATIVE_IDLE_TTL_SECONDS` | `0` (no idle ceiling; signed in until explicit revocation) |
-| `ONBOARDING_HOME_NAME` | `My home` |
-| `ONBOARDING_HOME_LOCALE` | `en-NA` |
-| `ONBOARDING_HOME_CURRENCY` | `NAD` |
-| `ONBOARDING_HOME_TIMEZONE` | `Africa/Windhoek` |
-| `PLATFORM_BOOTSTRAP_ADMIN_EMAILS` | Empty, or a comma-separated exact-email list |
-
-Before opening Flutter, prove that the root remains non-interactive and only a
-valid-shaped login-link route exposes the browser ceremony:
+For the prebuilt stack, run from the backend checkout:
 
 ```bash
-test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
-  http://127.0.0.1:8080/)" = 404
-test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
-  http://127.0.0.1:8080/login-links/homeowner/01912345-6789-7abc-8def-0123456789ab)" = 200
+docker compose --env-file .env.prebuilt.local -f compose.prebuilt.yaml \
+  exec -T api php bin/providentia system:owner owner@example.test
 ```
 
-Both commands must succeed. The second response is a scanner-safe launch page:
-it must not set a cookie, inspect request state, or approve anything. Every
-other signed-in browser UI remains a release-blocking boundary violation.
-
-`AUTH_REFRESH_TTL_SECONDS` is a legacy compatibility setting; it does not
-replace the transport-specific idle limits above.
-
-Confirm all three before launching a client:
+For the source stack use its actual service name:
 
 ```bash
-curl --fail-with-body http://127.0.0.1:8080/health/live
-curl --fail-with-body http://127.0.0.1:8080/health/ready
-curl --fail-with-body http://127.0.0.1:8080/api/v1/system/info
+docker compose --env-file .env.development.local \
+  exec -T api-mysql php bin/providentia system:owner owner@example.test
 ```
 
-Open Mailpit and leave it visible. Starting a login link writes an encrypted
-outbox record; the notification worker leases it, sends it through SMTP, and
-records delivery or retry state. An API `202` without an email is not a
-successful end-to-end result. Check the notification worker and Mailpit before
-diagnosing the client.
+The email is a positional argument. The command authorizes the first system
+owner but does not create a session or bypass mailbox verification. Repeating it
+for the same address is idempotent; it cannot replace an existing system owner.
 
-For source MySQL logs:
+From the Admin checkout:
 
 ```bash
-docker compose --env-file .env.development.local logs -f notification-mysql
+bash tools/agent-setup.sh
+source .agent-env
+flutter run -d linux \
+  --dart-define=PROVIDENTIA_API_BASE_URL=http://127.0.0.1:8080
 ```
 
+Sign in using the authorized owner address and the email code, then complete the
+profile. The protected system-owner group has every administrator permission.
+Other applicants sign in normally and await approval. Create an administrator
+group, select the applicant's group and approve them. Approval, group management,
+people inspection, home inspection, catalog work and country configuration are
+separate permissions. Privileged `401`/`403` responses clear Admin's displayed
+and cached privileged state immediately.
+
+## Configure groups and test invitations
+
+Each account, home and administrator has one group in its own scope. Assigning
+a home to a group controls its features, quotas, role defaults and the permissions
+owners may delegate. Account groups separately control owned-home allowances.
+Owners cannot grant a permission outside their home's feature/delegation ceiling.
+
+The default home group has `members.invite` disabled. Before inviting a tester,
+use Admin to enable that feature in a suitable home group and assign the home.
+Set total and role quotas explicitly. Additional owners require an owner quota
+above one and an account allowance for the recipient to own that home.
+
+The helper provisions local accounts through email delivery and the same
+invitation API, without changing administrator policy:
+
+```bash
+bash scripts/provision-development-user.sh \
+  --email member@example.test --display-name 'Test Member' --role member
+bash scripts/provision-development-user.sh \
+  --email manager@example.test --display-name 'Test Manager' --role manager
+bash scripts/provision-development-user.sh \
+  --email standalone@example.test --display-name 'Standalone Tester' --role none
+```
+
+For a newly invited account, the helper creates the pending invitation before
+completing country onboarding so the invited-account default is selected.
+Acceptance uses the authenticated recipient, invitation ID and revision. It does
+not require an invitation token from a development API response. `--role none`
+creates no invitation and removes no existing membership.
+
+## Verify the agreed behavior
+
+| Journey | Expected result |
+| --- | --- |
+| Restart a signed-in client | The trusted installation restores its session; sign-out or revocation invalidates it. |
+| Wrong, expired or replayed code | No new session is issued. Starting a new request requires its own binding proof. |
+| Uninvited signup | One home may be created under initial country/account defaults. |
+| Invited signup | Invitations appear; no owned home is created automatically. |
+| Switch homes | Each home's features, permissions and records are evaluated independently. |
+| Individual permission override | Inherit uses role defaults; allow/deny remains bounded by home policy. |
+| Disable invitations | Existing memberships continue; further invitations are refused. |
+| Reduce category/member quota | Existing records remain; additions above the new allowance are refused. |
+| Disable an operational feature | Its API operation is denied and its client controls become unavailable. |
+| Add and verify email alias | Either verified address signs into the same account; no merge with another account occurs. |
+| Remove primary/last address | Choose another verified primary first; the final verified address cannot be removed. |
+| Edit profile/home | Names, descriptions, uploaded cropped avatars/images and country/location settings persist. |
+| Operator inspection | Authorized administrator groups can inspect home records independently of public sharing. |
+| Unrelated homeowner | Another home's records remain inaccessible. |
+| Public catalog contribution | Only approved shared metadata is reusable by other homes; quantities stay home data. |
+| Lower administrator access | Server authorization and the client workspace both reflect the new permissions. |
+
+The operator policy explains staff access to application data and use of that
+data to improve the system. It does not promise that the system owner cannot
+inspect the database. Public sharing and internal operator access remain separate.
+Stored authentication proofs and AI provider credentials are never displayed.
+
+## Countries, policies and reference updates
+
+In Admin, configure country publication, default account/invited/home groups,
+currency, timezone and privacy-policy version. Request a geography update through
+the reference-data workspace. The backend imports the official dr5hn dataset;
+local publication, agreements and group assignments remain administrator-owned.
+Only Namibia starts published.
+
+The long-running worker is `reference-update` in prebuilt/production Compose and
+`reference-mysql`, `reference-mariadb` or `reference-sqlite` in source profiles.
+It runs `php bin/providentia reference:update --watch --recover`. The Admin update
+status shows queued, running and terminal results; inspect worker logs if a job
+fails. Existing country policy acceptance records retain their accepted revision.
+
+Billing plans and paid platform AI remain future features. Manual groups and
+limits work without payment; do not enable billing enforcement for this rollout.
+
+## Troubleshooting and validation
+
+A missing code usually indicates a stopped notification worker or SMTP failure.
 For the prebuilt stack:
 
 ```bash
 docker compose --env-file .env.prebuilt.local -f compose.prebuilt.yaml \
-  logs -f notification
+  ps
+docker compose --env-file .env.prebuilt.local -f compose.prebuilt.yaml \
+  logs --tail=100 notification reference-update api web
 ```
 
-### Real SMTP acceptance
+Check the actual requested recipient and newest message in Mailpit. Do not print
+codes, binding proofs, access tokens or refresh tokens in diagnostics. A `403`
+on invitation or home creation means the relevant group/role allowance must be
+reviewed. A revision conflict requires a canonical reload before retrying.
 
-Run the same workflow at least once against the deployment's real transactional
-SMTP service. Configure the production profile from `.env.production.example`
-using secrets supplied by the deployment secret manager. At minimum, verify
-the `smtps://` mail transport, sender address, HTTPS `PUBLIC_BASE_URL`,
-step-up-only `HOMEOWNER_APP_LINK_BASE` and `ADMIN_APP_LINK_BASE`, and running
-notification worker. Never paste SMTP credentials into test notes or client
-configuration.
-
-The delivered message must:
-
-- use the same neutral wording for registered and unregistered addresses;
-- call the feature a **login link**;
-- point at `PUBLIC_BASE_URL` with the request's `applicationKind` in the path;
-- contain no access, refresh, session, poll, or PKCE credential; and
-- expire and become unusable after its one permitted approval decision.
-
-Mailpit is appropriate only for isolated local development. A local Mailpit
-delivery does not prove DNS, TLS, sender reputation, or real mailbox delivery.
-
-## 3. Client and browser-approval protocol reference
-
-The generated client contract is authoritative. The behavioral responsibilities
-below help testers distinguish a UI problem from a contract or security defect.
-
-### Originating-client API
-
-| Operation | Request proof | Expected result |
-|---|---|---|
-| `POST /api/v1/auth/login-links` | Client-generated `requestId`, email, SHA-256 `pollChallenge`, PKCE S256 `codeChallenge`, `state`, `installationId`, device name, platform, `transport`, and optional shorter `requestedSessionIdleSeconds` | Generic `202` with `requestId`, expiry, and polling interval; never returns the poll token |
-| `POST /api/v1/auth/login-links/{requestId}/status` | Private `pollToken` in the JSON body | Only `pending`, `approved`, `denied`, `expired`, `cancelled`, or `exchanged`, with no session secret |
-| `POST /api/v1/auth/login-links/{requestId}/exchange` | Private `pollToken`, PKCE `codeVerifier`, and original `state` in the JSON body | Session for the originating installation only |
-| `POST /api/v1/auth/login-links/{requestId}/cancel` | Private `pollToken` in the JSON body | Cancels a pending request without revealing account existence |
-| `GET /api/v1/me` | Current authenticated session | Verified profile, current session, `activeHomeId`, and every home membership/role required to restore the client |
-
-Before the start request, the client generates and retains:
-
-- a fresh request ID;
-- a high-entropy poll token and only sends its SHA-256 challenge;
-- an RFC 7636 PKCE verifier and only sends its S256 challenge; and
-- a fresh state value bound to that pending request.
-
-The client stores those private values only in its protected, short-lived
-pending-login state. It never puts them in query parameters, logs, analytics,
-the clipboard, or unprotected browser storage. A web client may use encrypted,
-origin-bound storage solely so the pending request survives an ordinary page
-reload; it must erase that state on success, cancellation, or expiry. Multiple
-installations and concurrent requests must have independent values; starting
-one request must not invalidate another.
-
-### Browser approval
-
-The email opens the configured backend origin in a normal browser. The
-application kind and request identifier are path data; the single-use approval
-credential remains after `#`, so it is not sent in the initial HTTP request
-target or ordinary access log:
-
-```text
-<PUBLIC_BASE_URL>/login-links/<homeowner|admin>/<uuid>#approval=<single-use-credential>
-```
-
-The launch page immediately removes the fragment from the address bar and posts
-the capability to a clean same-origin capture path. The backend stores it only
-in a short-lived, request-scoped `HttpOnly`, `SameSite=Strict` cookie. The review
-shows request device/platform metadata but no account identity. **Approve** and
-**Deny** are exact-origin, CSRF-protected POSTs and perform one atomic terminal
-decision. Reopening or replaying a handled link cannot create another decision.
-
-The result page does not redirect to either Flutter application, set a login
-session, or return a credential. The originating installation alone keeps the
-poll token, state, and PKCE verifier, observes the terminal decision, and
-performs the exchange. Production `PUBLIC_BASE_URL` must be HTTPS. Application
-links remain configured only for step-up confirmations.
-
-## 4. New-person cross-device acceptance
-
-Use a mailbox address that has never appeared in this environment. Use a
-unique suffix for every clean run.
-
-1. Launch the client on device A and choose **Sign in with email**.
-2. Enter the new email address. The client must ask for nothing else; no
-   display-name or password entry exists anywhere.
-3. Confirm the client shows a pending-login screen, persists its protected
-   pending state, and polls no faster than `pollIntervalSeconds`.
-4. Confirm Mailpit or the real mailbox receives one login-link message.
-5. Before approving, confirm polling remains `pending`. Where database-level
-   acceptance access is available, also confirm no account or `My home` has
-   been created yet.
-6. Open the email on device B in any normal browser. Confirm the backend review
-   identifies the requesting application/device, clears the fragment before
-   the clean review URL, and does not approve the request merely by opening it.
-7. Choose **Approve** once. Confirm the browser says the request is approved,
-   does not redirect to an app, and creates no authenticated browser session.
-8. Return to device A. It must observe `approved` through polling and exchange
-   its own poll token, state, and PKCE verifier.
-9. Confirm the client calls `GET /api/v1/me` and displays the new account with
-   exactly one home named `My home`, role `owner`, and that home selected.
-10. Rename `My home` through `PATCH /api/v1/homes/{homeId}` with its current
-    expected revision, close the client, and launch it again. The client must
-    restore the same session, account, renamed home, and active-home choice
-    without asking for email again.
-
-Repeat once with the email opened on the same device and once with it opened on
-a genuinely separate device. Both runs must enforce the same application-kind
-binding and expose no backend UI beyond the approval ceremony.
-
-## 5. Existing-person and concurrent-device acceptance
-
-Sign in with the same verified email from a second client installation:
-
-1. record the person's existing home IDs and roles;
-2. start and approve a new login-link request;
-3. confirm the new installation receives its own session and device record;
-4. confirm `GET /api/v1/me` returns the same account and memberships; and
-5. confirm no new `My home` was created.
-
-Then start two requests for the same email from two independent installations.
-Approve both messages in either order. Each installation must exchange only its
-own request and receive its own device session. A poll token, state, or verifier
-from one request must never complete the other.
-
-## 6. Session restoration, duration, and revocation
-
-The backend, not the client, enforces the maximum session policy:
-
-| Credential/session | Backend policy | Client acceptance |
-|---|---|---|
-| Access credential | Approximately 15 minutes | Refresh before/after expiry without exposing the refresh credential |
-| Web | Until explicit invalidation | Secure persistent cookies survive normal browser restart; the browser's 400-day cookie cap only bounds the cookie, which every rotation re-issues |
-| Android/iOS native | Until explicit invalidation | Refresh credential stays in OS secure storage and survives normal app restart |
-| Windows/macOS/Linux native | Until explicit invalidation | Refresh credential stays in platform-protected storage and survives normal app restart |
-
-By default a trusted installation stays signed in until sign-out, device or
-session revocation, account disablement, credential-rotation failure, or a
-named security invalidation — there is no inactivity deadline. A client may
-still request a finite idle period with `requestedSessionIdleSeconds`
-(900 to 5184000 seconds), and a deployment may impose a deliberate finite
-ceiling through the environment settings above; when either applies,
-successful use/refresh extends the sliding deadline and `idleExpiresAt`
-reports it. When no ceiling applies, `idleExpiresAt` and
-`refreshIdleTtlSeconds` are null. Logout, explicit revocation, refresh
-replay, or an account/security action ends the session in every mode.
-
-Web cookies are host-only and `SameSite=Strict`. A deployed Flutter web client
-and API must therefore use HTTPS origins on the same site, normally sibling
-subdomains under one registrable domain; a CORS allowlist alone does not make
-unrelated sites cookie-compatible. `localhost:8081` and `localhost:8080` are
-same-site for local testing.
-
-After signing in on at least two installations:
-
-1. call `GET /api/v1/auth/sessions` through the client and verify each row has
-   the expected device name, platform, `transport`, `current`, `lastSeenAt`,
-   `accessExpiresAt`, `refreshExpiresAt`, and `idleExpiresAt` values but no
-   credential material;
-2. revoke the non-current session using
-   `DELETE /api/v1/auth/sessions/{sessionId}`;
-3. confirm that installation can no longer refresh or call an authenticated
-   endpoint;
-4. confirm the current installation remains usable; and
-5. log out the current installation and confirm its local secrets are removed
-   and its server session is revoked.
-
-For web, close every browser window and reopen the application before testing
-restore. For native, terminate the process rather than merely navigating away.
-Do not simulate persistence by copying a refresh token between installations.
-
-## 7. Homes, roles, invitations, and switching
-
-Household roles are scoped independently to each home:
-
-| Role | Expected boundary |
-|---|---|
-| `owner` | Full home governance, role policy, and ownership-transfer authority |
-| `manager` | Broad household operation and invitation authority below the owner ceiling |
-| `member` | Ordinary inventory, purchasing, and shopping work |
-| `viewer` | Read-only household access |
-
-There is no global `homeowner` or `stockkeeper` account type. A person is an
-`owner`, `manager`, `member`, or `viewer` of a specific home and can have a
-different role in every other home.
-
-### Invite a new person
-
-1. Sign in as the owner of home A and invite a never-used email as `member`.
-2. Confirm an invitation email is delivered, but do not copy an invitation
-   token into the client.
-3. On the invitee's client, complete the ordinary login-link workflow with the
-   exact invited email. As a new person, the invitee first owns their own
-   `My home`.
-4. Confirm `GET /api/v1/me/home-invitations` lists only the invite addressed to
-   that verified email, including its ID, home, proposed role, expiry, and
-   revision.
-5. Accept it deliberately with
-   `POST /api/v1/me/home-invitations/{invitationId}/accept`, sending the current
-   expected revision.
-6. Confirm the invite disappears from pending invitations and the invitee now
-   owns `My home` and is a `member` of home A.
-
-An invitation email may guide the recipient back to the client, but possession
-of its URL is not a substitute for signing in as the exact verified recipient.
-
-### Prove multiple homes and role isolation
-
-Build this minimum matrix for one person:
-
-- owner of their `My home`;
-- manager of home A; and
-- viewer of home B.
-
-Confirm `GET /api/v1/me` and `GET /api/v1/homes` return the same three home IDs
-and roles. Switch using `POST /api/v1/homes/{homeId}/switch`, then restore the
-client and confirm the chosen `activeHomeId` persists. Verify manager actions
-work only in home A, viewer mutations fail in home B, and data from one home is
-never displayed or synchronized under another home's active context.
-
-Also verify:
-
-- a revoked invitation cannot be accepted;
-- an expired invitation reports expiry rather than creating membership;
-- a different verified email cannot list or accept the invitation;
-- accepting twice is safe and does not duplicate or silently change a current
-  membership;
-- leaving or losing access to the active home selects a valid fallback or no
-  active home, never a stale unauthorized ID; and
-- accepting an invitation never changes ownership of the invitee's `My home`.
-
-## 8. Platform-administrator bootstrap and delegation
-
-Platform administration is global and is separate from home membership. The
-bootstrap configuration is a comma-separated list of exact email addresses:
-
-```text
-PLATFORM_BOOTSTRAP_ADMIN_EMAILS=admin1@example.test,admin2@example.test
-```
-
-The deployment validates and normalizes the list at startup. An address in the
-list does not become an active administrator until that person successfully
-verifies it through the ordinary login-link workflow. The grant is idempotent
-and audited. It grants no membership in another person's home; a new account
-may still receive its own normal `My home` through onboarding.
-
-Administrator APIs require an authenticated active platform administrator.
-Web mutations also require the session's CSRF protection; native clients use
-their bearer session. The v1.11 administrator grant/revoke contract does not
-claim a separate step-up flow.
-
-Test bootstrap and delegated administration as follows:
-
-1. configure one unused bootstrap address and restart the backend;
-2. complete login-link onboarding for that exact address;
-3. confirm `GET /api/v1/platform/administrators` lists the active grant with
-   `id`, email, status, revision, and audit timestamps;
-4. use `POST /api/v1/platform/administrators` to add an unused second email;
-5. confirm that entry is pending, the exact address receives a non-token email
-   telling them to open Providentia, and repeating the same grant is idempotent
-   without sending another email;
-6. complete login-link onboarding for the second email and confirm its pending
-   grant becomes active;
-7. use `POST /api/v1/platform/administrators/{administratorId}/revoke` with its
-   `expectedRevision` to revoke one administrator;
-8. confirm a stale revision fails without changing the grant;
-9. attempt to revoke the final active administrator and confirm the backend
-   rejects it; and
-10. confirm the revoked administrator immediately loses platform-administrator
-    API access but retains only their legitimate home memberships.
-
-Every grant and revoke must record the acting administrator, target email/grant,
-revision, action, and time. Direct database edits and the legacy catalog-role
-CLI are not product acceptance paths.
-
-To prove no-home-access, create a home owned by an ordinary person and do not
-invite the platform administrator. Platform-administrator listing and grant
-operations may succeed, while every attempt to read or mutate that unrelated
-home must fail. A platform role is never a tenancy bypass.
-
-## 9. Denial, expiry, replay, and recovery cases
-
-Run at least the following negative cases. Responses must be generic where a
-more specific response would reveal account existence or secret validity.
-
-| Case | Expected result |
-|---|---|
-| Email link fetched by a preview/scanner | The fragment is not sent to the server; the launch GET alone cannot review or decide |
-| Approval browser chooses **Deny** | Origin observes `denied`; exchange cannot create an account or session |
-| Origin chooses cancel | Request becomes `cancelled`; later browser approval and exchange fail safely |
-| Request expires before approval | Review and polling report expiry; no account, home, or session is created |
-| Approval is replayed | No second decision or session is created |
-| Wrong poll token | Status, cancel, and exchange fail without revealing the real state |
-| Wrong state or PKCE verifier | Exchange fails; attacker receives no session; correct proof remains subject to single-use policy |
-| Exchange repeated after success | No additional session, account, or home is created |
-| Exchange response is lost or ambiguous | Client discards the pending proof and starts a fresh login-link request; backend never reconstructs or replays a native credential grant |
-| Client restarts while request is pending | Protected pending state resumes polling until terminal state or expiry |
-| Polling exceeds advised cadence | Backend throttles without disclosing account state; client backs off |
-| Notification delivery temporarily fails | Outbox retries; starting the request still does not disclose account existence |
-| Refresh credential is replayed | Compromised session is revoked and both installations are required to sign in again as policy dictates |
-| Revoked device tries to restore | Refresh and authenticated requests fail; other devices remain valid |
-| Expired web/native idle deadline | Restore fails and the client returns to email entry |
-| Logout after access expiry | Native sends its current refresh token; web sends the refresh cookie plus matching CSRF proof; the proven session is revoked and local cookies are cleared |
-
-Inspect API, edge, worker, browser, and client logs after the run. Email
-addresses may be redacted according to operational policy; raw approval
-credentials, poll tokens, PKCE verifiers, access tokens, refresh tokens, and
-cookies must be absent.
-
-Run `php bin/providentia login-link:purge` from scheduled maintenance at least
-daily. It expires stale pending requests and removes terminal records older
-than `AUTH_LOGIN_LINK_RETENTION_DAYS`, and removes inactive authentication
-throttling buckets older than `AUTH_RATE_LIMIT_RETENTION_DAYS`; use
-`--limit=1000` for bounded catch-up batches.
-
-## 10. Flutter launch notes
-
-Clone the client separately and use its current generated contract:
+Run the backend doctor and each client's canonical checks before merge:
 
 ```bash
-git clone https://github.com/providentia-systems/client.git
-cd client
-flutter pub get --enforce-lockfile
-dart run build_runner build --delete-conflicting-outputs
+bash tools/agent-setup.sh --doctor
 ```
 
-For Chrome, use the fixed development origin and the same `localhost` site as
-the API:
-
-```bash
-flutter run -d chrome \
-  --web-hostname=localhost \
-  --web-port=8081 \
-  --web-header=Cross-Origin-Opener-Policy=same-origin \
-  --web-header=Cross-Origin-Embedder-Policy=require-corp \
-  --dart-define=PROVIDENTIA_ENVIRONMENT=development \
-  --dart-define=PROVIDENTIA_API_BASE_URL=http://localhost:8080
-```
-
-Do not mix a `localhost` browser origin with a `127.0.0.1` API URL. The exact
-web origin is allowlisted, and credentialed CORS must never use a wildcard.
-
-For Linux desktop on the backend host, use
-`PROVIDENTIA_API_BASE_URL=http://127.0.0.1:8080`. For Android debug, forward the
-emulator or USB device loopback port first:
-
-```bash
-adb reverse tcp:8080 tcp:8080
-```
-
-An untethered/LAN device cannot reach a workstation through its own loopback.
-Use a trusted HTTPS development deployment for genuine cross-device email and
-browser testing. Release builds remain HTTPS-only.
-
-Record a separate pass for Chrome/web, Android, iOS, Windows, macOS, and Linux.
-For every platform, capture the client version, backend contract version,
-transport (`web` or `native`), originating device, email-opening device,
-expected/actual session expiry fields, home/role matrix, and result. Redact all
-credentials from screenshots and reports.
-
-## 11. Development-token boundary
-
-The setup scripts (`setup-development.sh`, `setup-prebuilt.sh`, and
-`scripts/provision-development-user.sh`) complete the login-link flow
-non-interactively on loopback: with `EXPOSE_DEVELOPMENT_TOKENS=1`, the start
-response includes `developmentApprovalToken`, which the script uses to approve
-and exchange its own request. The resulting session material lives in the
-mode-`0600` `.providentia-development.json` handoff. Those are isolated
-tooling aids only.
-
-They must not be used to sign off any item in Sections 4–9. Production keeps
-`EXPOSE_DEVELOPMENT_TOKENS=0` and its startup rejects exposed development
-tokens. If a product test cannot proceed without changing that value, record
-the login-link flow as failed and fix that flow.
-
-The OpenAPI document in `contracts/openapi/providentia-v1.json` is the backend
-contract. Publish its new version and regenerate/pin the Flutter client before
-cross-repository acceptance; handwritten endpoint substitutions are not valid
-evidence.
+See each client repository's `AGENTS.md` for its required test, package and launch
+lane. Local health checks alone do not prove all release checks pass.

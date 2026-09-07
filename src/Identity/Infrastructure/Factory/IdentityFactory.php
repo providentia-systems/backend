@@ -56,7 +56,6 @@ final class IdentityFactory
          *     application_links: array{homeowner: string, admin: string},
          *     onboarding_home: array{name: string, locale: string, currency: string, timezone: string},
          *     token_pepper: string,
-         *     expose_development_tokens: bool,
          *     cookie_secure: bool
          *   },
          *   mail: array{

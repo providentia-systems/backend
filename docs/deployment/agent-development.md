@@ -81,6 +81,9 @@ honestly when neither is available.
 
 After the contributor toolchain passes, use
 [`local-development.md`](local-development.md) for the repeatable application
-stack, verified handover import, developer account, Mailpit, and client handoff.
+stack, verified handover import, email-code developer account, Mailpit and
+client handoff. The country-reference worker imports geography separately from
+local publication, policy and starter-group settings. The first system owner
+is authorized through `php bin/providentia system:owner EMAIL`.
 Handover files, generated secrets, household media, and `.agent-env` never
 belong in Git.

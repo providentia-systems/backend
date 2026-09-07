@@ -255,6 +255,22 @@ final class AccessService
         return $group;
     }
 
+    /** @return array<string, mixed> */
+    public function assignment(
+        AuthenticatedIdentity $identity,
+        string $scope,
+        string $subjectId,
+    ): array {
+        $permission = match ($scope) {
+            FeatureCatalog::ACCOUNT => 'accounts.assign',
+            FeatureCatalog::HOME => 'homes.assign',
+            FeatureCatalog::ADMIN => 'administrators.manage',
+            default => throw new Problem(422, 'Invalid scope', 'The group scope is not supported.'),
+        };
+        $this->requireAdmin($identity, $permission);
+        return $this->effective($scope, $subjectId);
+    }
+
     public function assign(
         AuthenticatedIdentity $identity,
         string $scope,
@@ -340,6 +356,17 @@ final class AccessService
                 'This subject already has a group.',
             );
         }
+    }
+
+    public function recordOperatorRead(
+        AuthenticatedIdentity $identity,
+        string $permission,
+        string $scope,
+        string $subjectId,
+        string $area,
+    ): void {
+        $this->requireAdmin($identity, $permission);
+        $this->store->audit($identity->userId, 'operator.' . $area . '.viewed', $scope, $subjectId, []);
     }
 
     public function serialize(
