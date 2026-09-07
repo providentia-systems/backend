@@ -188,6 +188,7 @@ jobs:
             -e APP_ENV -e APP_VERSION -e APP_DEBUG -e DATABASE_URL -e QUEUE_DSN
             -e QUEUE_NAME -e QUEUE_REQUIRED -e AUTH_TOKEN_PEPPER -e NOTIFICATION_PAYLOAD_KEK
             -e SYNC_CURSOR_SECRET -e AI_MEDIA_KEK -e CATALOG_IMAGE_KEK -e DATA_EXPORT_KEK
+            -e MAIL_DSN -e MAIL_FROM -e PUBLIC_BASE_URL -e CORS_ALLOWED_ORIGINS
           )
           docker run --rm --network providentia-smoke -v providentia-smoke-var:/app/var \
             "${COMMON_ENV[@]}" providentia:production-ci \
@@ -488,6 +489,7 @@ jobs:
             -e APP_ENV -e APP_VERSION -e APP_DEBUG -e DATABASE_URL -e QUEUE_DSN
             -e QUEUE_NAME -e QUEUE_REQUIRED -e AUTH_TOKEN_PEPPER -e NOTIFICATION_PAYLOAD_KEK
             -e SYNC_CURSOR_SECRET -e AI_MEDIA_KEK -e CATALOG_IMAGE_KEK -e DATA_EXPORT_KEK
+            -e MAIL_DSN -e MAIL_FROM -e PUBLIC_BASE_URL -e CORS_ALLOWED_ORIGINS
           )
           docker run --rm --network providentia-published -v providentia-published-var:/app/var \
             "${COMMON_ENV[@]}" "$RUNTIME_IMAGE" \
