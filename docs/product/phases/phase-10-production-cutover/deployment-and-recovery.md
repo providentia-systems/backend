@@ -1,5 +1,11 @@
 # Phase 9–10 production deployment and recovery
 
+> Historical phase evidence. For the current operator procedure, use
+> [Production Docker deployment](../../../deployment/production.md) and
+> [Backend releases and images](../../../deployment/release-process.md).
+> The current release automation and email-code authentication supersede this
+> runbook's earlier manual-tag and browser-approval instructions.
+
 This runbook describes the backend release topology. Flutter installers,
 signing, PWA packaging, and store publication remain in the Flutter repository.
 

@@ -13,6 +13,8 @@ x-app-environment: &app-environment
   AUTH_REFRESH_TTL_SECONDS: ${AUTH_REFRESH_TTL_SECONDS:-2592000}
   AUTH_WEB_IDLE_TTL_SECONDS: ${AUTH_WEB_IDLE_TTL_SECONDS:-0}
   AUTH_NATIVE_IDLE_TTL_SECONDS: ${AUTH_NATIVE_IDLE_TTL_SECONDS:-0}
+  AUTH_RATE_LIMIT_RETENTION_DAYS: ${AUTH_RATE_LIMIT_RETENTION_DAYS:-2}
+  AUTH_COOKIE_SECURE: "1"
   NOTIFICATION_PAYLOAD_KEK: ${NOTIFICATION_PAYLOAD_KEK:?NOTIFICATION_PAYLOAD_KEK is required}
   NOTIFICATION_KEY_VERSION: ${NOTIFICATION_KEY_VERSION:-1}
   NOTIFICATION_BATCH_SIZE: ${NOTIFICATION_BATCH_SIZE:-100}
@@ -24,7 +26,7 @@ x-app-environment: &app-environment
   MAIL_DSN: ${MAIL_DSN:?MAIL_DSN is required}
   MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
   PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
-  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}}
   TRUSTED_PROXY_CIDRS: ${PROVIDENTIA_TRUSTED_PROXY_CIDRS:?PROVIDENTIA_TRUSTED_PROXY_CIDRS is required}
   METRICS_ENABLED: "1"
   METRICS_BEARER_TOKEN: ${PROVIDENTIA_METRICS_TOKEN:?PROVIDENTIA_METRICS_TOKEN is required}
@@ -35,6 +37,7 @@ x-app-environment: &app-environment
   AI_COMPATIBLE_ENDPOINT: ${AI_COMPATIBLE_ENDPOINT:-}
   AI_OLLAMA_ENDPOINT: ${AI_OLLAMA_ENDPOINT:-}
   AI_ALLOW_PRIVATE_ENDPOINTS: ${AI_ALLOW_PRIVATE_ENDPOINTS:-0}
+  AI_ALLOW_PRIVATE_NETWORK_ENDPOINTS: ${AI_ALLOW_PRIVATE_NETWORK_ENDPOINTS:-0}
   AI_MAX_IMAGE_BYTES: ${AI_MAX_IMAGE_BYTES:-8388608}
   AI_MAX_IMAGES: ${AI_MAX_IMAGES:-8}
   AI_MEDIA_ROOT: ${AI_MEDIA_ROOT:-var/private-media}
@@ -78,7 +81,7 @@ x-app-environment: &app-environment
 
 x-cli: &cli
   image: ${PROVIDENTIA_IMAGE:?PROVIDENTIA_IMAGE is required}
-  pull_policy: always
+  pull_policy: missing
   restart: unless-stopped
   init: true
   read_only: true
@@ -92,6 +95,26 @@ x-cli: &cli
   networks: [backend]
 
 services:
+  # Initialize only an empty mount root. Existing data is never recursively
+  # chowned; restore its original numeric ownership before starting instead.
+  volume-init:
+    <<: *cli
+    profiles: [tools]
+    user: "0:0"
+    restart: "no"
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$$(stat -c '%u:%g' /app/var)" = '82:82' ]; then exit 0; fi
+        if [ -n "$$(find /app/var -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+          echo 'Existing app-var must retain application ownership 82:82; fix ownership deliberately before retrying.' >&2
+          exit 1
+        fi
+        chown 82:82 /app/var
+        chmod 0700 /app/var
+
   migrate:
     <<: *cli
     profiles: [tools]
@@ -136,6 +159,7 @@ services:
     ports:
       - "${PROVIDENTIA_BIND_ADDRESS:-127.0.0.1}:${PROVIDENTIA_HTTP_PORT:-8080}:8080"
     environment:
+      PROVIDENTIA_FPM_UPSTREAM: ${PROVIDENTIA_FPM_UPSTREAM:-api:9000}
       PROVIDENTIA_TRUSTED_PROXY_CIDRS: ${PROVIDENTIA_TRUSTED_PROXY_CIDRS:?PROVIDENTIA_TRUSTED_PROXY_CIDRS is required}
       PROVIDENTIA_METRICS_TOKEN: ${PROVIDENTIA_METRICS_TOKEN:?PROVIDENTIA_METRICS_TOKEN is required}
     expose: ["9090"]
@@ -190,6 +214,8 @@ services:
   ai-video-worker:
     <<: *cli
     image: ${PROVIDENTIA_MEDIA_IMAGE:?PROVIDENTIA_MEDIA_IMAGE is required}
+    tmpfs:
+      - /tmp:size=${AI_VIDEO_TMPFS_SIZE:-512m},mode=1777
     stop_grace_period: 60s
     command: ["php", "bin/providentia", "ai:video:process"]
 
@@ -200,8 +226,8 @@ services:
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-providentia}
       MYSQL_USER: ${MYSQL_USER:-providentia}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required for the mysql profile}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required for the mysql profile}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-}
     command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
     healthcheck:
       test:
@@ -224,8 +250,8 @@ services:
     environment:
       MARIADB_DATABASE: ${MARIADB_DATABASE:-providentia}
       MARIADB_USER: ${MARIADB_USER:-providentia}
-      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required for the mariadb profile}
-      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required for the mariadb profile}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-}
     command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
@@ -240,22 +266,18 @@ services:
     profiles: [redis]
     restart: unless-stopped
     command:
-      - redis-server
-      - --appendonly
-      - "yes"
-      - --appendfsync
-      - everysec
-      - --maxmemory-policy
-      - noeviction
-      - --requirepass
-      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required for the redis profile}
+      - /bin/sh
+      - -ec
+      - |
+        : "$${REDIS_PASSWORD:?Set REDIS_PASSWORD before enabling the redis profile}"
+        exec redis-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction --requirepass "$${REDIS_PASSWORD}"
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 20
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required for the redis profile}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     volumes: ["redis-data:/data"]
     networks: [backend]
 
@@ -264,13 +286,18 @@ services:
     profiles: [backup]
     restart: "no"
     environment:
-      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:?RESTIC_REPOSITORY is required}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
       RESTIC_PASSWORD_FILE: /run/secrets/restic_password
       AWS_ACCESS_KEY_ID: ${RESTIC_AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${RESTIC_AWS_SECRET_ACCESS_KEY:-}
     secrets: [restic_password]
     volumes:
-      - ${BACKUP_STAGING_DIRECTORY:?BACKUP_STAGING_DIRECTORY is required}:/backup-source:ro
+      - type: bind
+        source: ${BACKUP_STAGING_DIRECTORY:-/nonexistent/providentia-backup-staging}
+        target: /backup-source
+        read_only: true
+        bind:
+          create_host_path: false
     command: ["backup", "--host", "${BACKUP_HOST:-providentia}", "/backup-source"]
 
 networks:
@@ -285,4 +312,4 @@ volumes:
 
 secrets:
   restic_password:
-    file: ${RESTIC_PASSWORD_FILE:?RESTIC_PASSWORD_FILE is required}
+    file: ${RESTIC_PASSWORD_FILE:-/nonexistent/providentia-restic-password}

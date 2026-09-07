@@ -6,4 +6,5 @@ tests
 var/*
 vendor
 .env*
-
+**/__pycache__
+**/*.pyc

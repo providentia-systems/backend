@@ -30,8 +30,9 @@
     file_server @static
 
     @php path /*
-    php_fastcgi @php api:9000 {
+    php_fastcgi @php {$PROVIDENTIA_FPM_UPSTREAM:api:9000} {
         root /app/public
+        env REMOTE_ADDR {http.request.client_ip}
         capture_stderr
     }
 
@@ -60,8 +61,9 @@
         path /metrics
         header Authorization "Bearer {$PROVIDENTIA_METRICS_TOKEN}"
     }
-    php_fastcgi @metrics api:9000 {
+    php_fastcgi @metrics {$PROVIDENTIA_FPM_UPSTREAM:api:9000} {
         root /app/public
+        env REMOTE_ADDR {http.request.client_ip}
         capture_stderr
     }
     respond 404

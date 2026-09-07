@@ -4,6 +4,10 @@
 
 - [Pre-release product and access decisions](unification-decision-record.md) — controlling current requirements.
 - [Scoped access and operator architecture](architecture/admin-control-plane.md)
+- [Production Docker deployment](deployment/production.md) — server setup, HTTPS, storage, upgrades and recovery.
+- [Production environment reference](deployment/environment-reference.md) — configuration values and service selection.
+- [Deployment architecture and scaling](deployment/architecture-and-scaling.md) — process roles, shared state and multiple servers.
+- [Backend releases and container images](deployment/release-process.md) — versions, immutable images and optional Docker Hub publishing.
 
 The phase reports below are historical evidence. Current decisions override
 older login-link, fixed-role and administrator-visibility descriptions.

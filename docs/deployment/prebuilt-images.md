@@ -5,7 +5,7 @@ Providentia backend. It pulls the same production runtime, Caddy edge, and
 media-worker targets that the repository builds and smoke-tests. It does not
 compile PHP, Composer dependencies, Caddy, or FFmpeg on the workstation.
 
-The local profile runs those immutable application images with MySQL 8.4,
+The local profile runs those published application images with MySQL 8.4,
 Redis 8.2, Mailpit, migrations, the API, queue worker, outbox relay,
 notification worker, reference-update worker, data-governance worker,
 synchronization compactor and video worker. Email codes are delivered to Mailpit
@@ -19,20 +19,25 @@ and verified through the same API used by clients.
 | Caddy public edge and immutable public files | `ghcr.io/providentia-systems/backend-web` |
 | Isolated FFmpeg/FFprobe video worker | `ghcr.io/providentia-systems/backend-media-worker` |
 
-Every publication first produces `sha-<12-character-commit>` candidate tags.
-The workflow scans both published platforms and exercises the exact registry
-digests before a merge to `main` may update `edge`, or a `vX.Y.Z` tag may
-update `X.Y.Z` and `latest`. A failed candidate can therefore retain a `sha-*`
-tag for investigation but is never promoted. Production deployments must pin
-the three recorded successful digests; `edge` and `latest` are convenience
-tags, not immutable release identities.
+Every publication first produces a unique candidate tag containing the full
+commit, workflow run and attempt. The workflow scans both published platforms
+and exercises their exact registry digests before promotion. Accepted builds
+also publish a `sha-<12-character-commit>` convenience alias for testing.
+Candidates from a failed scan can remain available for investigation; they
+are not accepted releases.
 
-Trusted `agent/*` branches publish the same scanned immutable candidate tags
-without promoting `edge`. When this script runs from an `agent/*` checkout and
-no explicit version was supplied, it selects the checkout's own
-`sha-<12-character-commit>` tag automatically and verifies the revision label
-on all three pulled images before starting anything. This makes a pre-merge
-test exercise the checked-out code rather than the older `edge` build.
+Successful release runs on `main` automatically create backend versions,
+starting at `0.1.0`, then incrementing the patch. They publish `X.Y.Z`, `latest`
+and `edge`; production deployments use the matching release's digest-pinned
+`images.env`. Tags identify convenient release/commit names, while digests pin
+exact image bytes. See [release automation](release-process.md).
+
+Trusted `agent/*` branches publish accepted commit aliases without promoting
+`edge`. When this script runs from an `agent/*` checkout and no explicit version
+was supplied, it selects the checkout's own `sha-<12-character-commit>` tag
+automatically and verifies the revision label on all three pulled images before
+starting anything. This makes a pre-merge test exercise the checked-out code
+rather than the older `edge` build.
 
 If the selected packages are private, authenticate to GitHub Container Registry
 with a token that can read those packages:
@@ -93,7 +98,8 @@ bash scripts/setup-prebuilt.sh \
   --mailpit-port 18025
 ```
 
-Use an immutable `sha-*` or `X.Y.Z` tag when reproducing a defect. Running the
+Use the exact `sha-<12-character-commit>` or `X.Y.Z` tag when reproducing a
+defect, and record the pulled digests when exact image-byte reproduction matters. Running the
 script again is safe: it pulls the selected tag, reapplies only pending
 migrations, reuses the account/home, and waits for the complete stack.
 
@@ -214,4 +220,4 @@ it is intentionally a development configuration. Production uses
 `compose.production.yaml`, `.env.production.example`, TLS at the trusted edge,
 real SMTP, external secret management, digest-pinned images, backups, and the
 Phase 10 operator acceptance gates. Follow the
-[production deployment and recovery runbook](../product/phases/phase-10-production-cutover/deployment-and-recovery.md).
+[production deployment and recovery runbook](production.md).
