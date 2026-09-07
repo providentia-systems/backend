@@ -61,6 +61,10 @@ WORKDIR /app
 COPY --from=dependencies /app /app
 COPY infrastructure/php/request-limits.ini /usr/local/etc/php/conf.d/zz-providentia-request-limits.ini
 COPY infrastructure/php/production.ini /usr/local/etc/php/conf.d/zz-providentia-production.ini
+# Keep cached PHP layers from retaining curl packages with known fixed vulnerabilities.
+# Alpine 3.23 security fixes: https://pkgs.alpinelinux.org/package/v3.23/main/x86_64/curl
+RUN apk add --no-cache --upgrade 'curl>=8.22.0-r0' 'libcurl>=8.22.0-r0'
+
 RUN chmod +x bin/doctrine-migrations bin/providentia tool/*.sh \
     && mkdir -p var/cache var/log \
     && chown -R www-data:www-data var

@@ -20,6 +20,10 @@ COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --classmap-authoritative
 
 COPY . .
+# Keep cached PHP layers from retaining curl packages with known fixed vulnerabilities.
+# Alpine 3.23 security fixes: https://pkgs.alpinelinux.org/package/v3.23/main/x86_64/curl
+RUN apk add --no-cache --upgrade 'curl>=8.22.0-r0' 'libcurl>=8.22.0-r0'
+
 RUN composer dump-autoload --no-dev --classmap-authoritative --no-interaction \
     && chmod +x bin/doctrine-migrations bin/providentia infrastructure/compose/entrypoint.sh tool/*.sh \
     && mkdir -p var \
