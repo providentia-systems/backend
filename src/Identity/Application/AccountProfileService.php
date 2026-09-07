@@ -158,7 +158,12 @@ final class AccountProfileService
                 if ($onboarding) {
                     $invited = false;
                     foreach ($this->profiles->emails($identity->userId) as $email) {
-                        if ($this->homes->pendingInvitationsForEmail((string) $email['email'], $this->clock->now()) !== []) {
+                        if (
+                            $this->homes->pendingInvitationsForEmail(
+                                (string) $email['email'],
+                                $this->clock->now(),
+                            ) !== []
+                        ) {
                             $invited = true;
                         }
                     }

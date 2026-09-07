@@ -115,6 +115,11 @@ final class InventoryService implements InventoryMovementGateway
                 $expectedRevision,
                 $at,
             ): array {
+                $this->access->serialize('home', $homeId);
+                $current = $this->inventory->homeCategory($homeId, $categoryId);
+                if ($status === 'active' && $current !== null && $current['status'] !== 'active') {
+                    $this->access->requireCapacity('home', $homeId, 'categories.total');
+                }
                 $result = $this->inventory->updateHomeCategory(
                     $homeId,
                     $categoryId,
@@ -404,6 +409,11 @@ final class InventoryService implements InventoryMovementGateway
             $expectedRevision,
             $at,
         ): array {
+            $this->access->serialize('home', $homeId);
+            $current = $this->inventory->homeProduct($homeId, $homeProductId, true);
+            if ($status === 'active' && $current !== null && $current['status'] !== 'active') {
+                $this->access->requireCapacity('home', $homeId, 'products.total');
+            }
             $result = $this->inventory->updateHomeProduct(
                 $homeId,
                 $homeProductId,

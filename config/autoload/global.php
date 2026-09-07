@@ -56,10 +56,6 @@ $corsAllowedOrigins = array_values(array_unique(array_filter(array_map(
 ))));
 $corsAllowedOrigins[] = $publicOrigin;
 $corsAllowedOrigins = array_values(array_unique($corsAllowedOrigins));
-$exposeDevelopmentTokens = filter_var(
-    $env('EXPOSE_DEVELOPMENT_TOKENS', '0'),
-    FILTER_VALIDATE_BOOL,
-);
 $metricsEnabled = filter_var($env('METRICS_ENABLED', '0'), FILTER_VALIDATE_BOOL);
 $metricsBearerToken = $env('METRICS_BEARER_TOKEN', '');
 if ($metricsEnabled && strlen($metricsBearerToken) < 32) {
@@ -189,9 +185,6 @@ if ($environment === 'production') {
             'Production requires two independent, non-placeholder authentication and cursor secrets.',
         );
     }
-    if ($exposeDevelopmentTokens) {
-        throw new RuntimeException('EXPOSE_DEVELOPMENT_TOKENS cannot be enabled in production.');
-    }
     if (! $cookieSecure) {
         throw new RuntimeException('AUTH_COOKIE_SECURE must be enabled in production.');
     }
@@ -292,7 +285,6 @@ return [
             '2',
         ))),
         'token_pepper' => $tokenPepper,
-        'expose_development_tokens' => $exposeDevelopmentTokens,
         'cookie_secure' => $cookieSecure,
     ],
     'mail' => [

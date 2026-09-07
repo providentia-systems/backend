@@ -18,7 +18,6 @@ final class ProductionConfigurationTest extends TestCase
             'APP_ENV',
             'AUTH_TOKEN_PEPPER',
             'SYNC_CURSOR_SECRET',
-            'EXPOSE_DEVELOPMENT_TOKENS',
             'MAIL_DSN',
             'PUBLIC_BASE_URL',
             'HOMEOWNER_APP_LINK_BASE',
@@ -92,7 +91,7 @@ final class ProductionConfigurationTest extends TestCase
          * @var array{
          *   app: array{environment: string},
          *   mail: array{dsn: string, public_base_url: string, public_origin: string},
-         *   identity: array{expose_development_tokens: bool},
+         *   identity: array<string, mixed>,
          *   http: array{allowed_origins: list<string>}
          * } $config
          */
@@ -110,7 +109,7 @@ final class ProductionConfigurationTest extends TestCase
             'https://api.example.net',
             $config['mail']['public_origin'],
         );
-        self::assertFalse($config['identity']['expose_development_tokens']);
+        self::assertArrayNotHasKey('expose_development_tokens', $config['identity']);
         self::assertArrayNotHasKey('password_login_enabled', $config['identity']);
         self::assertSame(
             [
@@ -270,7 +269,6 @@ final class ProductionConfigurationTest extends TestCase
         putenv('APP_ENV=production');
         putenv('AUTH_TOKEN_PEPPER=' . str_repeat('a', 32));
         putenv('SYNC_CURSOR_SECRET=' . str_repeat('b', 32));
-        putenv('EXPOSE_DEVELOPMENT_TOKENS=0');
         putenv('MAIL_DSN=smtps://smtp.example.net:465');
         putenv('PUBLIC_BASE_URL=https://api.example.net');
         putenv(

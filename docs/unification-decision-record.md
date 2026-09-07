@@ -1,99 +1,142 @@
-# Providentia unification decision record
+# Providentia pre-release product and access decisions
 
-**Status:** Adopted 2026-08-26 · **Round:** Usable Pilot 0.1 convergence
-**Scope:** This record is the shared product/decision baseline for the
-`providentia-systems/backend`, `providentia-systems/client`, and
-`providentia-systems/admin` repositories. The same record is synchronized into
-all three repositories; the backend copy is canonical when they diverge.
+**Adopted:** 2026-09-05. **Scope:** backend, homeowner client and administrator
+client. **Contract:** API 2.0.0; exact artifacts are pinned by each repository's
+contract lock. This record supersedes the August pilot decisions wherever
+identity, permissions, administrator visibility, profiles or onboarding differ.
+The system has no deployed clients or live user data. Code may be aligned
+directly; production database migrations and future release discipline remain.
 
-Where an older document, comment, or implementation conflicts with this record,
-this record controls. Conflicts are resolved in this order: (1) the owner's
-latest explicit product decisions recorded here, (2) an approved acceptance
-criterion implementing them, (3) the pinned API contract and cross-repository
-privacy/authorization invariants, (4) the master implementation prompt and the
-July 29 migration handover, (5) existing implementation details, which are
-evidence of work — not authority to preserve a superseded decision.
+## Identity and registration
 
-## 1. Integration manifest (round baseline)
+Both clients request an eight-digit email code from the backend. The user enters
+that number in the requesting client; no login URL, browser approval, polling,
+password or development authentication bypass is part of the protocol. A code
+expires after ten minutes, permits at most five guesses, and is single-use.
+Requests have a sixty-second resend cooldown. Keyed hashes protect the code and
+request binding; the encrypted notification outbox delivers the email. The
+request fixes the application kind, installation UUID and session transport.
+Native clients retain credentials in protected storage. Browser refresh
+credentials remain in hardened cookies with CSRF protection. Email access is
+the account recovery boundary; email OTP is not phishing-resistant MFA.
 
-| Repository | Merged `main` baseline for this round |
-| --- | --- |
-| backend | `a64fac766daa8ca4811f7c9d6dbbef936154f65c` |
-| client | `b21e93e7d8de6e16bc92275b46bd5f02e83f6b37` |
-| admin | `3c532282557e8f311219fb8ce2e4f830eddc4620` |
+After verifying email, a new user supplies a name, published country and current
+privacy-notice acceptance; region and city are optional. No home is silently
+created. Country settings select the account's starter group: standalone new
+accounts can own one home by default, while accounts with pending invitations
+receive the invited group, initially allowing home membership and zero owned
+homes. Administrators can change these assignments. Existing group membership
+does not change simply because another home invites an established account.
 
-Contract at baseline: **API 1.18.0**, canonical OpenAPI JSON SHA-256
-`fb7f18cc8d2e0f7aaf3ec9f1bd3039316c6f44af0023110936778a8d616a6759`,
-deterministic gzip SHA-256
-`b17569f05e8384416498254e882c7e790399a4cde8677439a3efa52c74181d25`.
+One immutable account can have multiple verified email addresses. Adding an
+address requires a code to that address; primary-address changes and removal
+require fresh security confirmation. At least one verified primary address must
+remain. Verification never merges separate accounts. Invitations are matched
+against all the account's verified addresses.
 
-This round changes the contract **once**: the backend removes and adds the
-operations listed in §4, publishes the updated contract, and both Flutter
-clients repin and regenerate from that single publication. Repeated generated
-code churn while the contract is moving is explicitly avoided.
+People can edit their name and choose a default avatar, opt-in Gravatar based
+on a verified address, or a cropped uploaded image. A home has a name,
+description, image/default icon, optional map location, country/place, currency
+and timezone. Household image access follows home membership and feature
+permissions; operator access follows administrator permissions.
 
-## 2. Settled decision register
+## Scoped groups and home permissions
 
-| Decision | State |
-| --- | --- |
-| Person identity | **Settled.** One immutable user identity resolved through a verified, normalized email. The email string is not a home or membership identifier. |
-| Sign-in | **Settled.** Email login-link only. Zero human-account password artifacts anywhere: no password field, hash, route, DTO, service branch, environment toggle, setup-script provisioning, or hidden development path, in any repository. Mailbox ownership is proved only through the one-time, application-bound login-link exchange. |
-| Trusted-device session | **Settled.** A trusted installation remains signed in until explicit sign-out, device/session revocation, global account disablement, credential-rotation failure, or a named account-level security invalidation. There is **no finite inactivity ceiling**. Losing membership in one home revokes and purges only that home's permissions and private local state. |
-| Tenant and roles | **Settled.** The tenant is `Home`. Roles are `owner`, `manager`, `member`, `viewer`; permissions are server-authoritative and revisioned at role level. |
-| Multi-home behavior | **Settled.** One identity can create, join, switch between, and hold different roles in multiple isolated homes. Owners retain ultimate membership, role, and ownership-transfer authority, including owner-driven member removal. |
-| Invitee onboarding | **Settled.** A first-time login-link account with pending invitations is shown those invitations plus an explicit "Create a home" choice. No automatic `My home` is created without the person choosing it. |
-| Product visibility | **Settled.** Home-private by default. Global catalog entry happens only through explicit, sanitized, consent-bound contribution and moderation — never as a side effect. |
-| Starter experience | **Settled.** A fresh deployment bootstraps the approved starter categories/products automatically and idempotently. No home inherits another household's private stock or history. |
-| Data intake | **Settled.** Desktop spreadsheet import (stage → map → review → confirm), receipt/document capture, and storeroom stock-photo counting are pilot-critical. Manual stock control must work fully with no AI provider configured. |
-| AI review boundary | **Settled.** AI output is a proposal. A human must review and explicitly commit any inventory-changing result. |
-| AI billing/credentials | **Settled.** Bring-your-own-key. No silent platform-funded key for household AI use. Endpoint and token are supplied at the same ownership scope. |
-| AI credential owner scope | **Settled (adopted per handover recommendation).** The default is a **private per-person provider profile** used for that person's scans. An explicitly authorized home-shared profile is a later, deliberate owner choice — sharing is never inferred from storage scope. |
-| Custom AI endpoints | **Settled.** OpenAI-compatible and Ollama endpoints are owned at the same scope as the credential (person/home), not deployment-wide, with HTTPS/allowlist/SSRF validation and a deliberately separate policy for user-controlled LAN/Ollama endpoints. |
-| Client-to-backend binding | **Settled.** The backend URL is compiled into each client at build time (`PROVIDENTIA_API_BASE_URL` dart-define, HTTPS-only outside loopback development, origin-only). There is no end-user UI to change it: one backend, multiple fixed-aim clients. |
-| Backend surface | **Settled.** The backend has no public site, authenticated browser login, household UI, or administrative UI. Its only HTML surface is the non-privileged login-link approval/denial ceremony; it never issues a browser session, and the originating app alone polls and exchanges the result. |
-| Admin boundary | **Settled.** Admin receives only sanitized, consent-bound, attribution-free global-catalog projections and privacy-safe account metadata. It never gains household access. |
-| Billing | **Settled.** Deliberately disabled during the free stabilization phase; not represented as complete. |
-| Optional MFA | Later roadmap; not a Pilot 0.1 gate. |
-| Home description/image | Preserved roadmap outcome; home name is the pilot minimum. |
+| Scope | Single assignment | Controls |
+| --- | --- | --- |
+| Account | One account group per person | Home creation/joining and owned/joined home limits |
+| Home | One home group per home | Available functions, resource limits, role defaults and owner delegation ceiling |
+| Administrator | One administrator group per approved operator | Administrative areas, data inspection, approvals and management actions |
 
-## 3. Superseded decisions (labelled per Gate 0)
+A person may be an owner in one home, manager in another and member in a third.
+Each home evaluates its own group and the person's membership role. More
+permissive rules in one home never grant access in another home. All co-owners
+share the same home's group. Account-level allowances remain independent of
+which home is open.
 
-The following remain visible in history but are **superseded** and are being
-removed or corrected in this round:
+Home groups define owner capabilities and manager/member/viewer defaults.
+Owners may choose individual `inherit`, `allow` or `deny` overrides only for
+permissions the administrator makes delegable. An explicit allow cannot enable
+a feature disabled by the home group. The backend computes effective
+permissions and returns them to the client; hiding a button is not the
+authorization boundary. Role, group and override changes are revisioned and
+audited.
 
-- Any human-account password or password-reset capability (backend service
-  branches and routes, client development-password transport/UI, admin
-  reset/verification operations and UI, setup-script password provisioning,
-  and the hidden random password hash minted for login-link users).
-- Finite session idle ceilings (30-day web / 60-day native) as an accidental
-  default.
-- Deployment-wide OpenAI-compatible/Ollama endpoint configuration as the only
-  endpoint mechanism.
-- Automatic `My home` creation for first-time invitees.
-- Old public-site language and API 1.13.2 references in permanent documents.
+Inviting additional owners/managers/members is an explicit home feature,
+disabled in the initial starter group. Administrators set total and per-role
+limits. A recipient must explicitly accept an invitation in the client;
+acceptance rechecks current inviter authority and available account/home quota.
+Invitation decline, revocation, expiry and repeated acceptance are bounded
+server operations. Ownership transfer requires fresh security confirmation.
 
-## 4. Round scope (Usable Pilot 0.1)
+Reducing a limit preserves existing records. For example, a home with twenty
+categories moved to a limit of ten retains all twenty, can edit/remove them,
+and cannot create another until below ten. Existing members keep working when
+invitations are disabled. Removing an operation feature, such as AI use or
+credential management, immediately prevents that operation. No automatic
+trimming, account deletion or stock loss occurs on downgrade.
 
-Backend, in order: zero-password removal with negative contract tests;
-durable trusted-device session policy; owner-driven member removal; explicit
-invitee onboarding; person-scoped BYOK provider profiles with owned endpoints
-and SSRF policy; automatic starter-catalog bootstrap for prebuilt/production;
-then one contract publication.
+## Administrator authority and public sharing
 
-Client, after the contract lands: repin/regenerate; remove development-password
-artifacts; ownership-transfer and member-removal UI; invitation-first
-onboarding; desktop CSV/XLSX import over the existing stage/review/confirm API;
-BYOK endpoint/token settings; receipt and stock-photo journey closure.
+The first system owner is authorized with `php bin/providentia system:owner
+owner@example.test`, then signs in through the normal email-code flow. The
+system-owner group is protected and contains all administrator permissions.
+Other Admin sign-ins create pending access requests. An operator with approval
+authority approves a request into an unprotected administrator group; permission
+to list administrators does not imply permission to approve or manage them.
 
-Admin, after the contract lands: repin/regenerate; remove password-reset and
-standalone verification operations and UI while keeping the generic
-session/keyring purge boundaries.
+The system owner can inspect all application data and delegate the relevant
+areas to authorized staff. Dedicated audited operator endpoints expose account
+and home information, stock, products, categories and other operational records
+according to granular administrator permissions. People visibility is separately
+gated. Credential values, verification codes, session proofs and encryption keys
+are never returned by these inspection endpoints. Internal staff agreements are
+an organizational responsibility; the product enforces the assigned access.
 
-Definition of done for the round: every workflow green in all three
-repositories at the final heads, one integration manifest pinning those heads,
-and an owner-facing runbook for spinning up the backend and aiming both clients
-at it for real testing.
+Public sharing is a different decision. Homeowners control contributions of
+catalog metadata for other homes, with field-specific consent and moderation.
+Starter categories and product definitions contain no household quantities.
+Private quantities, locations, purchases and notes are not published through
+the global catalog. Other homeowners only see homes in which they have an
+active permitted membership. The privacy notice accurately explains authorized
+internal use of application data to operate and improve the product; it must
+not promise that the platform operator can never see stored household data.
 
-Out of scope unless explicitly promoted: full Admin catalog CRUD workbench,
-advanced/cross-home reporting, MFA, store signing, billing enforcement,
-production cutover.
+## Countries and privacy notices
+
+The official `dr5hn/countries-states-cities-database` source supplies country,
+region and city reference data. A background updater validates downloads before
+publishing an import, retains source identifiers and records job status.
+Administrators request updates from the country administration area. Updates
+must preserve local publication decisions, groups and privacy configuration.
+Only Namibia is initially published. Country settings select default account,
+invited-account and home groups, currency, timezone and a published privacy
+notice. Policy versions and each user's acceptance are recorded. The bundled
+policy is an editable starting notice, not a representation that country-specific
+legal review is already complete.
+
+## Inventory, AI and later billing
+
+Manual inventory, categories/products, quantities, purchases, shopping and
+synchronization remain usable without AI. AI extraction produces reviewable
+proposals and never silently changes stock. Source images can stay on the
+client and be deleted there; optional backend media paths remain separately
+permissioned and quota controlled. Structured confirmed inventory data is
+stored on the backend.
+
+Bring-your-own AI credentials and future platform-provided AI are separate
+features. Credentials are encrypted, write-only and scoped to their configured
+owner. Platform AI and query billing are future commercial work. Billing
+enforcement and checkout remain disabled during stabilization. Administrators
+manually assign groups now; later paid plans can map to those same groups
+without making payments an authorization bypass.
+
+## Completion and release
+
+The three repositories share one coordinated branch name and linked pull
+requests because GitHub pull requests are repository-specific. Runtime, the
+canonical contract, generated clients, documentation and meaningful regression
+checks must agree. Required checks must pass on the published heads. Draft PRs
+or code coverage alone do not establish deployment readiness; actual deployed
+acceptance, backups, mail and the selected production environment must also be
+verified before launch.

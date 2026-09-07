@@ -38,6 +38,8 @@ final class ConfigProvider
                     \Providentia\Identity\Application\ProfileMediaService::class => AccessFactory::class,
                     \Providentia\Identity\Infrastructure\Doctrine\DbalProfileMediaStore::class
                         => AccessFactory::class,
+                    \Providentia\Identity\Infrastructure\Cli\EmailCodePurgeCommand::class
+                        => AccessFactory::class,
                     \Providentia\Identity\Infrastructure\Cli\SystemOwnerCommand::class
                         => AccessFactory::class,
                     \Providentia\Geography\Infrastructure\Cli\ReferenceUpdateCommand::class
@@ -80,6 +82,7 @@ final class ConfigProvider
                     'access.list' => AccessFactory::class,
                     'access.create' => AccessFactory::class,
                     'access.update' => AccessFactory::class,
+                    'access.get' => AccessFactory::class,
                     'access.assign' => AccessFactory::class,
                     'access.catalog' => AccessFactory::class,
                     'country.list' => AccessFactory::class,
@@ -100,6 +103,7 @@ final class ConfigProvider
                 => [
                 'commands'
                     => [
+                    'email-code:purge' => \Providentia\Identity\Infrastructure\Cli\EmailCodePurgeCommand::class,
                     'system:owner' => \Providentia\Identity\Infrastructure\Cli\SystemOwnerCommand::class,
                     'reference:update'
                         => \Providentia\Geography\Infrastructure\Cli\ReferenceUpdateCommand::class,

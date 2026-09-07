@@ -219,7 +219,8 @@ final class DbalAccessStore implements AccessStore
                 . '\'active\''),
             'members.members' => ('SELECT COUNT(*) FROM home_memberships WHERE home_id = :id AND status = '
                 . '\'active\' AND role IN (\'member\', \'viewer\')'),
-            'members.owners', 'members.managers' => ('SELECT COUNT(*) FROM home_memberships WHERE home_id = :id AND status = '
+            'members.owners', 'members.managers' =>
+                ('SELECT COUNT(*) FROM home_memberships WHERE home_id = :id AND status = '
                 . '\'active\' AND role = :role'),
             'categories.total' => "SELECT COUNT(*) FROM home_categories WHERE home_id = :id AND status = 'active'",
             'products.total' => "SELECT COUNT(*) FROM home_products WHERE home_id = :id AND status = 'active'",

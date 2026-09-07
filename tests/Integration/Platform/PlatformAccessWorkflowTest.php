@@ -17,15 +17,17 @@ use PHPUnit\Framework\TestCase;
 use Providentia\Access\Application\AccessService;
 use Providentia\Access\Domain\FeatureCatalog;
 use Providentia\Administration\Application\OperatorWorkspaceService;
+use Providentia\Catalog\Application\CatalogContributionService;
 use Providentia\Geography\Application\CountryService;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeService;
 use Providentia\Identity\Application\AccountProfileService;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Identity\Application\AuthenticationService;
-use Providentia\Identity\Application\EmailCodeService;
 use Providentia\Identity\Application\EmailLoginService;
 use Providentia\Identity\Application\NotificationOutbox;
+use Providentia\Identity\Application\ProfileMediaService;
+use Providentia\Inventory\Application\InventoryService;
 use Providentia\Identity\Infrastructure\Cli\SystemOwnerCommand;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
@@ -399,6 +401,279 @@ final class PlatformAccessWorkflowTest extends TestCase
             ),
         );
         self::assertCount(1, $profiles->get($identity)['emails']);
+    }
+
+    public function testCategoryReactivationRespectsReducedAllowanceWithoutDeletingExistingRecords(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('categories@example.test');
+        $homeId = $home['id'];
+        $inventory = $this->container->get(InventoryService::class);
+        $first = $inventory->createHomeCategory($owner, $homeId, 'First');
+        $archived = $inventory->createHomeCategory($owner, $homeId, 'Archived');
+        $inventory->updateHomeCategory($owner, $homeId, $archived['id'], null, 'archived', 1);
+        $second = $inventory->createHomeCategory($owner, $homeId, 'Second');
+        $group = $this->homeGroup($admin, false, 3);
+        $group['limits']['categories.total'] = 1;
+        $group['expectedRevision'] = $group['revision'];
+        $this->access()->saveGroup($admin, $group['id'], $group);
+        $this->access()->assign($admin, 'home', $homeId, $group['id'], 1);
+
+        $edited = $inventory->updateHomeCategory($owner, $homeId, $first['id'], 'Renamed', 'active', 1);
+        self::assertSame('Renamed', $edited['name']);
+        $this->problem(409, fn() => $inventory->createHomeCategory($owner, $homeId, 'Over limit'));
+        $this->problem(
+            409,
+            fn() => $inventory->updateHomeCategory($owner, $homeId, $archived['id'], null, 'active', 2),
+        );
+        self::assertCount(3, $inventory->categories($owner, $homeId, true));
+        self::assertCount(2, $inventory->categories($owner, $homeId));
+        $inventory->updateHomeCategory($owner, $homeId, $first['id'], null, 'archived', 2);
+        $inventory->updateHomeCategory($owner, $homeId, $second['id'], null, 'archived', 1);
+        $restored = $inventory->updateHomeCategory($owner, $homeId, $archived['id'], null, 'active', 2);
+        self::assertSame('active', $restored['status']);
+        self::assertCount(1, $inventory->categories($owner, $homeId));
+    }
+
+    public function testProductReactivationCountsCapacityButEditingGrandfatheredProductsDoesNot(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('products@example.test');
+        $homeId = $home['id'];
+        $inventory = $this->container->get(InventoryService::class);
+        $first = $inventory->addHomeProduct($owner, $homeId, null, null, 'First product', null);
+        $archived = $inventory->addHomeProduct($owner, $homeId, null, null, 'Archived product', null);
+        $this->productStatus($owner, $homeId, $archived['id'], 'archived', 1);
+        $second = $inventory->addHomeProduct($owner, $homeId, null, null, 'Second product', null);
+        $group = $this->homeGroup($admin, false, 3);
+        $group['limits']['products.total'] = 1;
+        $group['expectedRevision'] = $group['revision'];
+        $this->access()->saveGroup($admin, $group['id'], $group);
+        $this->access()->assign($admin, 'home', $homeId, $group['id'], 1);
+
+        $inventory->updateHomeProduct(
+            $owner,
+            $homeId,
+            $first['id'],
+            true,
+            'Renamed product',
+            false,
+            null,
+            false,
+            null,
+            'active',
+            1,
+        );
+        $this->problem(
+            409,
+            fn() => $inventory->addHomeProduct($owner, $homeId, null, null, 'Over limit', null),
+        );
+        $this->problem(409, fn() => $this->productStatus($owner, $homeId, $archived['id'], 'active', 2));
+        self::assertSame('Renamed product', $this->db->fetchOne(
+            'SELECT private_name FROM home_products WHERE id = ?',
+            [$first['id']],
+        ));
+        self::assertSame(3, (int) $this->db->fetchOne(
+            'SELECT COUNT(*) FROM home_products WHERE home_id = ?',
+            [$homeId],
+        ));
+        $this->productStatus($owner, $homeId, $first['id'], 'archived', 2);
+        $this->productStatus($owner, $homeId, $second['id'], 'archived', 1);
+        $restored = $this->productStatus($owner, $homeId, $archived['id'], 'active', 2);
+        self::assertSame('active', $restored['status']);
+        self::assertSame(1, (int) $this->db->fetchOne(
+            "SELECT COUNT(*) FROM home_products WHERE home_id = ? AND status = 'active'",
+            [$homeId],
+        ));
+    }
+
+    public function testAssignmentReadsRequireScopedAdministratorAuthorityAndExposeCurrentRevision(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('assignment@example.test');
+        $homeId = $home['id'];
+        $this->problem(403, fn() => $this->access()->assignment($owner, 'home', $homeId));
+        $this->problem(403, fn() => $this->access()->assignment($owner, 'account', $owner->userId));
+        $before = $this->access()->assignment($admin, 'home', $homeId);
+        self::assertSame(FeatureCatalog::STARTER_HOME, $before['groupId']);
+        self::assertSame(1, $before['revision']);
+        $group = $this->homeGroup($admin, true, 3);
+        $this->access()->assign($admin, 'home', $homeId, $group['id'], $before['revision']);
+        $scoped = $this->approvedAdministrator($admin, 'assigner@example.test', ['homes.assign']);
+        $after = $this->access()->assignment($scoped, 'home', $homeId);
+        self::assertSame($group['id'], $after['groupId']);
+        self::assertSame(2, $after['revision']);
+        self::assertSame($group['revision'], $after['groupRevision']);
+        $this->problem(403, fn() => $this->access()->assignment($scoped, 'account', $owner->userId));
+        $this->problem(403, fn() => $this->access()->assignment($scoped, 'admin', $scoped->userId));
+        $this->problem(422, fn() => $this->access()->assignment($admin, 'unknown', $homeId));
+        $this->problem(409, fn() => $this->access()->assign($scoped, 'home', $homeId, $group['id'], 1));
+        self::assertSame(2, $this->access()->assignment($admin, 'home', $homeId)['revision']);
+    }
+
+    public function testProfileImagesRequireSharedHomePeoplePermissionAndAuditOperatorReads(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('photo-owner@example.test');
+        $homeId = $home['id'];
+        $group = $this->homeGroup($admin, true, 3);
+        $this->access()->assign($admin, 'home', $homeId, $group['id'], 1);
+        $invitation = $this->homes()->invite($owner, $homeId, 'photo-manager@example.test', 'manager');
+        $manager = $this->login('photo-manager@example.test');
+        $this->onboard($manager);
+        $this->homes()->acceptInvitationById($manager, $invitation['invitationId'], 1);
+        $media = $this->container->get(ProfileMediaService::class);
+        $image = imagecreatetruecolor(16, 16);
+        self::assertInstanceOf(\GdImage::class, $image);
+        ob_start();
+        imagepng($image);
+        $png = ob_get_clean();
+        self::assertIsString($png);
+        $media->saveImage($owner, 'account', $owner->userId, $png, 0);
+        $media->saveImage($owner, 'home', $homeId, $png, 0);
+        $avatar = $media->image($manager, 'account', $owner->userId);
+        self::assertNotNull($avatar);
+        self::assertSame(hash('sha256', $avatar['bytes']), $avatar['digest']);
+        self::assertStringStartsWith('RIFF', $avatar['bytes']);
+        $this->homes()->saveMemberPermissions($owner, $homeId, $manager->userId, [
+            'permissions' => ['members.read' => false],
+            'expectedRevision' => 0,
+        ]);
+        $this->problem(404, fn() => $media->image($manager, 'account', $owner->userId));
+        self::assertNotNull($media->image($manager, 'home', $homeId));
+        $stranger = $this->login('photo-stranger@example.test');
+        $this->problem(404, fn() => $media->image($stranger, 'account', $owner->userId));
+        $this->problem(404, fn() => $media->image($stranger, 'home', $homeId));
+
+        $homeReader = $this->approvedAdministrator($admin, 'home-reader@example.test', ['homes.read']);
+        self::assertNotNull($media->image($homeReader, 'home', $homeId, true));
+        $this->problem(403, fn() => $media->image($homeReader, 'account', $owner->userId, true));
+        $peopleReader = $this->approvedAdministrator($admin, 'people-reader@example.test', ['people.read']);
+        self::assertSame($avatar, $media->image($peopleReader, 'account', $owner->userId, true));
+        $this->problem(403, fn() => $media->image($peopleReader, 'home', $homeId, true));
+        $events = $this->db->fetchAllAssociative(
+            "SELECT actor_user_id, scope, subject_id, details_json FROM platform_audit_events "
+            . "WHERE action = 'operator.profile-image.viewed' ORDER BY scope",
+        );
+        self::assertCount(2, $events);
+        self::assertSame($peopleReader->userId, $events[0]['actor_user_id']);
+        self::assertSame($owner->userId, $events[0]['subject_id']);
+        self::assertSame($homeReader->userId, $events[1]['actor_user_id']);
+        self::assertSame($homeId, $events[1]['subject_id']);
+        self::assertSame('[]', $events[0]['details_json']);
+        self::assertSame('[]', $events[1]['details_json']);
+    }
+
+    public function testOperatorSharingRecordsRemainVisibleIndependentlyOfCurrentPublicConsent(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('sharing-owner@example.test');
+        $homeId = $home['id'];
+        $catalog = $this->container->get(CatalogContributionService::class);
+        $catalog->configureConsent($owner, $homeId, true, false, false, CatalogContributionService::NOTICE_VERSION, 0);
+        $product = $this->container->get(InventoryService::class)
+            ->addHomeProduct($owner, $homeId, null, null, 'Private beans', null);
+        $submissionId = '55555555-5555-4555-8555-555555555555';
+        $catalog->submit($owner, $homeId, $submissionId, 'product_identity', $product['id'], 1, [
+            'canonicalName' => 'Beans',
+            'categoryLabel' => 'Groceries',
+        ]);
+        $catalog->configureConsent($owner, $homeId, false, false, false, CatalogContributionService::NOTICE_VERSION, 1);
+        $workspace = $this->container->get(OperatorWorkspaceService::class);
+        $view = $workspace->home($admin, $homeId);
+        self::assertSame(0, (int) $view['sharingConsent']['share_product_identity']);
+        $rows = $workspace->records($admin, $homeId, 'sharing', 0);
+        self::assertCount(1, $rows);
+        self::assertSame($submissionId, $rows[0]['id']);
+        self::assertSame('product_identity', $rows[0]['contribution_type']);
+        self::assertArrayNotHasKey('payload_json', $rows[0]);
+        self::assertArrayNotHasKey('submitted_by_user_id', $rows[0]);
+        $this->problem(403, fn() => $workspace->records($owner, $homeId, 'sharing', 0));
+        self::assertSame(1, (int) $this->db->fetchOne(
+            "SELECT COUNT(*) FROM platform_audit_events WHERE action = 'operator.home.records.viewed' "
+            . 'AND subject_id = ?',
+            [$homeId],
+        ));
+    }
+
+    public function testCoOwnerMayLeaveWhileTheFinalOwnerMustRemain(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('first-owner@example.test');
+        $homeId = $home['id'];
+        $group = $this->homeGroup($admin, true, 3);
+        $group['limits']['members.owners'] = 2;
+        $group['expectedRevision'] = $group['revision'];
+        $this->access()->saveGroup($admin, $group['id'], $group);
+        $this->access()->assign($admin, 'home', $homeId, $group['id'], 1);
+        [$coOwner] = $this->ownedHome('second-owner@example.test', false);
+        $invitation = $this->homes()->invite($owner, $homeId, 'second-owner@example.test', 'owner');
+        $this->homes()->acceptInvitationById($coOwner, $invitation['invitationId'], 1);
+        self::assertSame('owner', $this->homes()->get($coOwner, $homeId)['role']);
+        $this->homes()->leave($coOwner, $homeId);
+        $this->problem(404, fn() => $this->homes()->get($coOwner, $homeId));
+        $this->problem(409, fn() => $this->homes()->leave($owner, $homeId));
+        self::assertSame(1, (int) $this->db->fetchOne(
+            "SELECT COUNT(*) FROM home_memberships WHERE home_id = ? AND role = 'owner' AND status = 'active'",
+            [$homeId],
+        ));
+    }
+
+    /** @return array{AuthenticatedIdentity, array<string, mixed>} */
+    private function ownedHome(string $email, bool $create = true): array
+    {
+        $owner = $this->login($email);
+        $this->onboard($owner);
+        $home = $create ? $this->homes()->create($owner, 'Test home', 'en', 'NAD', 'Africa/Windhoek') : [];
+        return [$owner, $home];
+    }
+
+    /** @return array<string, mixed> */
+    private function productStatus(
+        AuthenticatedIdentity $owner,
+        string $homeId,
+        string $productId,
+        string $status,
+        int $revision,
+    ): array {
+        return $this->container->get(InventoryService::class)->updateHomeProduct(
+            $owner,
+            $homeId,
+            $productId,
+            false,
+            null,
+            false,
+            null,
+            false,
+            null,
+            $status,
+            $revision,
+        );
+    }
+
+    /** @param list<string> $permissions */
+    private function approvedAdministrator(
+        AuthenticatedIdentity $owner,
+        string $email,
+        array $permissions,
+    ): AuthenticatedIdentity {
+        $candidate = $this->login($email, 'admin');
+        $group = $this->access()->saveGroup($owner, null, [
+            'scope' => 'admin',
+            'name' => $email,
+            'features' => array_fill_keys($permissions, true),
+            'limits' => [],
+            'delegablePermissions' => [],
+            'rolePermissions' => [],
+            'expectedRevision' => 0,
+        ]);
+        $this->container->get(OperatorWorkspaceService::class)->reviewAdministrator($owner, $candidate->userId, [
+            'status' => 'approved',
+            'groupId' => $group['id'],
+            'expectedRevision' => 1,
+            'assignmentRevision' => 0,
+        ]);
+        return $candidate;
     }
 
     private function systemOwner(): AuthenticatedIdentity

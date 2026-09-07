@@ -19,5 +19,6 @@ interface EmailCodeStore
      */
     public function consume(string $id, string $codeHash, string $bindingHash, string $purpose, string $now): ?array;
 
-    public function purge(string $before): int;
+    /** Delete at most 10,000 challenges whose expiry is at or before the UTC cutoff. */
+    public function purge(string $before, int $limit = 1000): int;
 }

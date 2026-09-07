@@ -13,7 +13,10 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
-#[AsCommand(name: 'system:owner', description: 'Authorize the first system owner; email-code verification is still required.')]
+#[AsCommand(
+    name: 'system:owner',
+    description: 'Authorize the first system owner; email-code verification is still required.',
+)]
 final class SystemOwnerCommand extends Command
 {
     public function __construct(

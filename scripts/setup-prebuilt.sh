@@ -3,6 +3,8 @@
 set -Eeuo pipefail
 
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/development-email-code.sh
+source "${root_dir}/scripts/lib/development-email-code.sh"
 compose_file="${root_dir}/compose.prebuilt.yaml"
 env_file="${PROVIDENTIA_PREBUILT_ENV_FILE:-${root_dir}/.env.prebuilt.local}"
 handoff_file="${root_dir}/.providentia-development.json"
@@ -84,15 +86,15 @@ Options:
   --reset-data          Delete this prebuilt stack's containers and named volumes
   --help                Show this help
 
+Provisioning reads the actual email code from local Mailpit and accepts the
+current Namibia privacy policy for the development test account.
+
 When the verified handover archive is available (via --handover, the
 PROVIDENTIA_HANDOVER_ZIP environment variable, or the known local paths), the
 approved starter catalog is seeded automatically and idempotently right after
 the database migrations. Without it the stack still starts, with an explicit
 warning that the starter catalog is empty.
 
-The development account is provisioned through a passwordless login link that
-the script approves itself; the prebuilt Compose profile exposes the required
-development approval token (EXPOSE_DEVELOPMENT_TOKENS).
 EOF
 }
 
@@ -128,10 +130,6 @@ docker compose version >/dev/null 2>&1 || {
     exit 1
 }
 
-base64url_encode() {
-    tr -d '=\n' | tr '+/' '-_'
-}
-
 generate_uuid() {
     if command -v uuidgen >/dev/null 2>&1; then
         uuidgen | tr '[:upper:]' '[:lower:]'
@@ -140,13 +138,6 @@ generate_uuid() {
     fi
 }
 
-generate_login_secret() {
-    openssl rand -base64 32 | base64url_encode
-}
-
-s256_challenge() {
-    printf '%s' "$1" | openssl dgst -sha256 -binary | openssl base64 | base64url_encode
-}
 
 existing_volume="$(docker volume ls --quiet \
     --filter label=com.docker.compose.project=providentia-prebuilt | sed -n '1p')"
@@ -291,7 +282,7 @@ diagnostics() {
         printf '\nProvidentia startup failed. Container state and bounded logs follow.\n' >&2
         "${compose[@]}" ps >&2 || true
         "${compose[@]}" logs --tail=100 \
-            api web worker outbox notification data-governance sync-compactor ai-video-worker \
+            api web worker outbox notification reference-update data-governance sync-compactor ai-video-worker \
             mysql redis mailpit >&2 || true
     fi
     exit "$status"
@@ -399,7 +390,7 @@ Re-run with --handover /absolute/path/Pantry_Stock_Project_Handover_2026-07-29.z
 SEEDWARN
 fi
 "${compose[@]}" up -d --wait \
-    api web worker outbox notification data-governance sync-compactor ai-video-worker
+    api web worker outbox notification reference-update data-governance sync-compactor ai-video-worker
 
 api_base="http://127.0.0.1:${PROVIDENTIA_HTTP_PORT}"
 curl --fail-with-body --silent --show-error "${api_base}/health/live" >/dev/null
@@ -407,80 +398,12 @@ curl --fail-with-body --silent --show-error "${api_base}/health/ready" >/dev/nul
 curl --fail-with-body --silent --show-error "${api_base}/api/v1/system/info" >/dev/null
 
 if ((skip_provision == 0)); then
-    post_json_exchange() {
-        local url="$1"
-        local payload="$2"
-        curl --silent --show-error --write-out $'\n%{http_code}' \
-            -H 'Content-Type: application/json' \
-            -X POST "$url" \
-            --data "$payload"
-    }
-
-    problem_summary() {
-        local response="$1"
-        jq -r '.detail // .title // "No problem detail was returned."' <<<"$response" 2>/dev/null \
-            || printf 'The response was not valid problem JSON.'
-    }
-
-    login_request_id="$(generate_uuid)"
-    login_poll_token="$(generate_login_secret)"
-    login_code_verifier="$(generate_login_secret)"
-    login_state="$(generate_login_secret)"
-    start_payload="$(jq -n \
-        --arg requestId "$login_request_id" \
-        --arg email "$PROVIDENTIA_DEV_EMAIL" \
-        --arg pollChallenge "$(s256_challenge "$login_poll_token")" \
-        --arg codeChallenge "$(s256_challenge "$login_code_verifier")" \
-        --arg state "$login_state" \
-        --arg installationId "$PROVIDENTIA_DEV_INSTALLATION_ID" \
-        '{requestId:$requestId,email:$email,applicationKind:"homeowner",pollChallenge:$pollChallenge,codeChallenge:$codeChallenge,codeChallengeMethod:"S256",state:$state,installationId:$installationId,deviceName:"Providentia prebuilt",platform:"linux",transport:"native"}')"
-    start_exchange="$(post_json_exchange "${api_base}/api/v1/auth/login-links" "$start_payload")"
-    start_status="${start_exchange##*$'\n'}"
-    start_response="${start_exchange%$'\n'*}"
-    if [[ "$start_status" == '429' ]]; then
-        printf 'Development login-link requests are rate-limited: %s\n' \
-            "$(problem_summary "$start_response")" >&2
-        printf 'Wait for the stated window or choose a different --dev-email.\n' >&2
-        exit 1
-    elif [[ "$start_status" != '202' ]]; then
-        printf 'Development login-link request failed (HTTP %s): %s\n' \
-            "$start_status" "$(problem_summary "$start_response")" >&2
-        exit 1
-    fi
-    approval_token="$(jq -r '.developmentApprovalToken // empty' <<<"$start_response")"
-    [[ -n "$approval_token" ]] || {
-        printf 'The API did not expose a development approval token for the login link.\n' >&2
-        printf 'The prebuilt Compose profile must keep EXPOSE_DEVELOPMENT_TOKENS enabled.\n' >&2
-        exit 1
-    }
-    decision_exchange="$(post_json_exchange \
-        "${api_base}/api/v1/auth/login-links/${login_request_id}/decision" \
-        "$(jq -n --arg approvalToken "$approval_token" \
-            '{applicationKind:"homeowner",approvalToken:$approvalToken,decision:"approve"}')")"
-    decision_status="${decision_exchange##*$'\n'}"
-    decision_response="${decision_exchange%$'\n'*}"
-    if [[ "$decision_status" != '202' ]]; then
-        printf 'Development login-link approval failed (HTTP %s): %s\n' \
-            "$decision_status" "$(problem_summary "$decision_response")" >&2
-        exit 1
-    fi
-    session_exchange="$(post_json_exchange \
-        "${api_base}/api/v1/auth/login-links/${login_request_id}/exchange" \
-        "$(jq -n \
-            --arg pollToken "$login_poll_token" \
-            --arg codeVerifier "$login_code_verifier" \
-            --arg state "$login_state" \
-            '{pollToken:$pollToken,codeVerifier:$codeVerifier,state:$state}')")"
-    session_status="${session_exchange##*$'\n'}"
-    session_response="${session_exchange%$'\n'*}"
-    if [[ "$session_status" != '200' ]]; then
-        printf 'Development login-link exchange failed (HTTP %s): %s\n' \
-            "$session_status" "$(problem_summary "$session_response")" >&2
-        exit 1
-    fi
-
+    session_response="$(development_email_code_session \
+        "$api_base" "http://127.0.0.1:${PROVIDENTIA_MAILPIT_PORT}" "$PROVIDENTIA_DEV_EMAIL" \
+        "$PROVIDENTIA_DEV_INSTALLATION_ID" 'Providentia prebuilt')"
     access_token="$(jq -er '.accessToken' <<<"$session_response")"
     actor_user_id="$(jq -er '.userId' <<<"$session_response")"
+    development_complete_onboarding "$api_base" "$access_token" 'Providentia Developer'
     homes="$(curl --fail-with-body --silent --show-error \
         -H "Authorization: Bearer ${access_token}" \
         "${api_base}/api/v1/homes")"
@@ -500,6 +423,7 @@ if ((skip_provision == 0)); then
     umask 077
     jq -n \
         --arg apiBaseUrl "$api_base" \
+        --arg mailpitBaseUrl "http://127.0.0.1:${PROVIDENTIA_MAILPIT_PORT}" \
         --arg homeId "$home_id" \
         --arg userId "$actor_user_id" \
         --arg email "$PROVIDENTIA_DEV_EMAIL" \
@@ -508,7 +432,7 @@ if ((skip_provision == 0)); then
         --arg accessToken "$access_token" \
         --arg refreshToken "$(jq -er '.refreshToken' <<<"$session_response")" \
         --arg sessionId "$(jq -er '.sessionId' <<<"$session_response")" \
-        '{apiBaseUrl:$apiBaseUrl,homeId:$homeId,userId:$userId,email:$email,installationId:$installationId,deviceId:$deviceId,session:{accessToken:$accessToken,refreshToken:$refreshToken,sessionId:$sessionId}}' \
+        '{apiBaseUrl:$apiBaseUrl,mailpitBaseUrl:$mailpitBaseUrl,homeId:$homeId,userId:$userId,email:$email,installationId:$installationId,deviceId:$deviceId,session:{accessToken:$accessToken,refreshToken:$refreshToken,sessionId:$sessionId}}' \
         >"$handoff_file"
     chmod 0600 "$handoff_file"
 fi
@@ -522,7 +446,7 @@ printf 'Readiness:         %s/health/ready\n' "$api_base"
 printf 'Mailpit:           http://127.0.0.1:%s\n' "$PROVIDENTIA_MAILPIT_PORT"
 if ((skip_provision == 0)); then
     printf 'Developer email:   %s\n' "$PROVIDENTIA_DEV_EMAIL"
-    printf 'Developer login:   passwordless login link (session tokens in the handoff)\n'
+    printf 'Developer login:   email code (session tokens in the handoff)\n'
     printf 'Flutter handoff:   %s (mode 0600; local development only)\n' "$handoff_file"
 fi
 printf 'Local secrets:     %s (mode 0600; never commit)\n' "$env_file"

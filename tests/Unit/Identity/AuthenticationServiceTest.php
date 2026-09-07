@@ -38,10 +38,12 @@ final class AuthenticationServiceTest extends TestCase
                 'hash:refresh-token',
                 'hash:csrf-token',
                 self::callback(
-                    static fn(DateTimeImmutable $date): bool => $date->format(DATE_ATOM) === '2026-07-30T12:15:00+00:00',
+                    static fn(DateTimeImmutable $date): bool =>
+                        $date->format(DATE_ATOM) === '2026-07-30T12:15:00+00:00',
                 ),
                 self::callback(
-                    static fn(DateTimeImmutable $date): bool => $date->format(DATE_ATOM) === '2026-09-28T12:00:00+00:00',
+                    static fn(DateTimeImmutable $date): bool =>
+                        $date->format(DATE_ATOM) === '2026-09-28T12:00:00+00:00',
                 ),
                 self::isInstanceOf(DateTimeImmutable::class),
                 'native',

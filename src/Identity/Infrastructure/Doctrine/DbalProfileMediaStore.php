@@ -41,17 +41,17 @@ final class DbalProfileMediaStore implements ProfileMediaStore
         ) === 1;
     }
 
-    public function sharesHome(
+    public function sharedHomes(
         string $userId,
         string $otherUserId,
-    ): bool {
-        return $this->connection->fetchOne(
+    ): array {
+        return array_map(strval(...), $this->connection->fetchFirstColumn(
             ('SELECT a.home_id FROM home_memberships a INNER JOIN home_memberships b '
                 . 'ON b.home_id = a.home_id
             WHERE a.user_id = ? AND b.user_id ='
-                . ' ? AND a.status = \'active\' AND b.status = \'active\' LIMIT 1'),
+                . ' ? AND a.status = \'active\' AND b.status = \'active\''),
             [$userId, $otherUserId],
-        ) !== false;
+        ));
     }
 
     public function image(string $scope, string $id): ?array

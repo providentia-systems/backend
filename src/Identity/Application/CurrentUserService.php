@@ -64,7 +64,12 @@ final class CurrentUserService
         }
         $pendingInvitations = [];
         foreach ($this->profileStore->emails($identity->userId) as $email) {
-            foreach ($this->homes->pendingInvitationsForEmail((string) $email['email'], $this->clock->now()) as $invitation) {
+            foreach (
+                $this->homes->pendingInvitationsForEmail(
+                    (string) $email['email'],
+                    $this->clock->now(),
+                ) as $invitation
+            ) {
                 $pendingInvitations[(string) $invitation['id']] = $invitation;
             }
         }

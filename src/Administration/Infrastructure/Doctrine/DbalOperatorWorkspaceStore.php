@@ -39,9 +39,14 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
     public function home(string $id): ?array
     {
         $row = $this->connection->fetchAssociative('SELECT * FROM homes WHERE id = ?', [$id]);
-        return $row === false
-            ? null
-            : $row;
+        if ($row === false) {
+            return null;
+        }
+        $row['sharingConsent'] = $this->connection->fetchAssociative(
+            'SELECT * FROM catalog_contribution_consents WHERE home_id = ?',
+            [$id],
+        ) ?: null;
+        return $row;
     }
 
     public function records(
@@ -49,6 +54,13 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
         string $collection,
         int $offset,
     ): array {
+        if ($collection === 'sharing') {
+            return $this->connection->fetchAllAssociative(
+                'SELECT id, contribution_type, moderation_status, revision, created_at, updated_at '
+                . 'FROM catalog_contributions WHERE home_id = ? ORDER BY id LIMIT 100 OFFSET ' . max(0, $offset),
+                [$homeId],
+            );
+        }
         // Enumerated tables only: no arbitrary SQL, token or credential access.
         $table = match ($collection) {
             'categories' => 'home_categories',

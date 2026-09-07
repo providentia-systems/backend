@@ -27,9 +27,6 @@ final class HomeFactory
 {
     public function __invoke(ContainerInterface $container, string $requestedName): object
     {
-        /** @var array{identity: array{expose_development_tokens: bool}} $config */
-        $config = $container->get('config');
-
         return match (true) {
             $requestedName === DbalHomeStore::class => new DbalHomeStore($container->get(Connection::class)),
             $requestedName === HomeAuthorization::class => new HomeAuthorization(
@@ -60,7 +57,6 @@ final class HomeFactory
             str_starts_with($requestedName, 'home.') => new HomeHandler(
                 $container->get(HomeService::class),
                 substr($requestedName, strlen('home.')),
-                $config['identity']['expose_development_tokens'],
             ),
             default => throw new \LogicException('Unsupported home service: ' . $requestedName),
         };

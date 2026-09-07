@@ -1,6 +1,14 @@
 # Providentia backend documentation
 
-## Current phase
+## Current implementation
+
+- [Pre-release product and access decisions](unification-decision-record.md) — controlling current requirements.
+- [Scoped access and operator architecture](architecture/admin-control-plane.md)
+
+The phase reports below are historical evidence. Current decisions override
+older login-link, fixed-role and administrator-visibility descriptions.
+
+## Historical phase evidence
 
 - [License](../LICENSE) — proprietary terms and rights expressly reserved by Vast Development Method Trading Pty Ltd.
 - [Backend/client/Admin inventory integration roadmap — P0–P3](inventory-integration-roadmap.md)

@@ -12,8 +12,10 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
-#[AsCommand(name: 'reference:update', description: ('Process queued country, region and city updates from the upstream GitHub'
-    . ' release.'))]
+#[AsCommand(
+    name: 'reference:update',
+    description: 'Process queued country, region and city updates from the upstream GitHub release.',
+)]
 final class ReferenceUpdateCommand extends Command
 {
     private const REPOSITORY = 'dr5hn/countries-states-cities-database';
@@ -25,6 +27,7 @@ final class ReferenceUpdateCommand extends Command
 
     protected function configure(): void
     {
+        $this->addOption('watch', null, InputOption::VALUE_NONE, 'Continuously process queued reference updates.');
         $this->addOption(
             'recover',
             null,
@@ -37,6 +40,17 @@ final class ReferenceUpdateCommand extends Command
         InputInterface $input,
         OutputInterface $output,
     ): int {
+        do {
+            $status = $this->processJob($input, $output);
+            if (!$input->getOption('watch')) {
+                return $status;
+            }
+            sleep(15);
+        } while (true);
+    }
+
+    private function processJob(InputInterface $input, OutputInterface $output): int
+    {
         if ($input->getOption('recover')) {
             $this->connection->executeStatement(
                 ('UPDATE reference_update_jobs SET status = \'queued\' WHERE status = '

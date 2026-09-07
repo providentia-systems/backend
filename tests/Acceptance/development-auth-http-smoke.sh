@@ -8,8 +8,17 @@ base_url="http://127.0.0.1:${port}"
 stdout_log="${repo_root}/var/development-auth-http-smoke.stdout.log"
 stderr_log="${repo_root}/var/development-auth-http-smoke.stderr.log"
 server_pid=''
+smtp_pid=''
+email="development-auth-smoke-$(date +%s)-$$@example.test"
+smtp_dir="$(mktemp -d)"
+chmod 700 "$smtp_dir"
 
 cleanup() {
+    if [[ -n "$smtp_pid" ]]; then
+        kill "$smtp_pid" >/dev/null 2>&1 || true
+        wait "$smtp_pid" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$smtp_dir"
     if [[ -n "$server_pid" ]]; then
         kill "$server_pid" >/dev/null 2>&1 || true
         wait "$server_pid" >/dev/null 2>&1 || true
@@ -21,11 +30,17 @@ mkdir -p "${repo_root}/var"
 : >"$stdout_log"
 : >"$stderr_log"
 
-APP_ENV=development \
-APP_DEBUG=1 \
-EXPOSE_DEVELOPMENT_TOKENS=1 \
-AUTH_TOKEN_PEPPER=acceptance-authentication-pepper-at-least-32-bytes \
-NOTIFICATION_PAYLOAD_KEK=Y2ktbm90aWZpY2F0aW9uLWtleS0zMi1ieXRlcy1vayE= \
+python3 "${repo_root}/tests/fixtures/email-code-smtp.py" "$smtp_dir" "$email" &
+smtp_pid=$!
+for attempt in $(seq 1 50); do
+    [[ -s "$smtp_dir/port" ]] && break
+    sleep 0.1
+done
+[[ -s "$smtp_dir/port" ]] || { printf 'The local SMTP fixture did not start.\n' >&2; exit 1; }
+export APP_ENV=development APP_DEBUG=1
+export AUTH_TOKEN_PEPPER=acceptance-authentication-pepper-at-least-32-bytes
+export NOTIFICATION_PAYLOAD_KEK=Y2ktbm90aWZpY2F0aW9uLWtleS0zMi1ieXRlcy1vayE=
+export MAIL_DSN="smtp://127.0.0.1:$(cat "$smtp_dir/port")"
 php -S "127.0.0.1:${port}" -t "${repo_root}/public" "${repo_root}/public/index.php" \
     >"$stdout_log" 2>"$stderr_log" &
 server_pid=$!
@@ -48,7 +63,7 @@ fi
 fail() {
     printf '%s\n' "$1" >&2
     if [[ -n "${reply_body:-}" ]]; then
-        printf '%s\n' "$reply_body" >&2
+        jq -c '{status,title,detail}' <<<"$reply_body" >&2 || true
     fi
     cat "$stderr_log" >&2
     exit 1
@@ -75,39 +90,6 @@ uuid4() {
     python3 -c 'import uuid; print(uuid.uuid4())'
 }
 
-url_token() {
-    python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
-}
-
-s256() {
-    python3 -c 'import base64, hashlib, sys
-digest = hashlib.sha256(sys.argv[1].encode("ascii")).digest()
-print(base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii"))' "$1"
-}
-
-start_body() {
-    jq -n \
-        --arg requestId "$1" \
-        --arg email "$2" \
-        --arg pollChallenge "$3" \
-        --arg codeChallenge "$4" \
-        --arg state "$5" \
-        --arg installationId "$6" \
-        '{
-            requestId: $requestId,
-            email: $email,
-            applicationKind: "homeowner",
-            pollChallenge: $pollChallenge,
-            codeChallenge: $codeChallenge,
-            codeChallengeMethod: "S256",
-            state: $state,
-            installationId: $installationId,
-            deviceName: "Acceptance",
-            platform: "linux",
-            transport: "native"
-        }'
-}
-
 root_body="${repo_root}/var/development-auth-root.json"
 root_status="$(curl --silent --show-error --output "$root_body" \
     --write-out '%{http_code}' "${base_url}/")"
@@ -129,82 +111,38 @@ if grep -Eiq '<(!doctype|html|form|script)' "$root_body"; then
     exit 1
 fi
 
-email='development-auth-smoke@example.test'
-request_id="$(uuid4)"
 installation_id="$(uuid4)"
-poll_token="$(url_token)"
-code_verifier="$(url_token)"
-state="$(url_token)"
-
-post_json '/api/v1/auth/login-links' \
-    "$(start_body "$request_id" "$email" "$(s256 "$poll_token")" \
-        "$(s256 "$code_verifier")" "$state" "$installation_id")"
-if [[ "$reply_status" != '202' ]]; then
-    fail "Starting the login link failed (HTTP ${reply_status})."
-fi
-jq -e --arg requestId "$request_id" '
-    .accepted == true
-    and .requestId == $requestId
-    and (.pollIntervalSeconds | type == "number")
-    and (.developmentApprovalToken | type == "string" and (length >= 40 and length <= 128))
-' <<<"$reply_body" >/dev/null
-approval_token="$(jq -er '.developmentApprovalToken' <<<"$reply_body")"
-
-post_json "/api/v1/auth/login-links/${request_id}/proof" \
-    "$(jq -n --arg token "$approval_token" \
-        '{applicationKind: "homeowner", approvalToken: $token}')"
-if [[ "$reply_status" != '200' ]]; then
-    fail "The login-link proof failed (HTTP ${reply_status})."
-fi
-jq -e --arg requestId "$request_id" '
-    .valid == true and .requestId == $requestId and .applicationKind == "homeowner"
-' <<<"$reply_body" >/dev/null
-
-post_json "/api/v1/auth/login-links/${request_id}/review" \
-    "$(jq -n --arg token "$approval_token" \
-        '{applicationKind: "homeowner", approvalToken: $token}')"
-if [[ "$reply_status" != '200' ]]; then
-    fail "The login-link review failed (HTTP ${reply_status})."
-fi
-jq -e --arg requestId "$request_id" '
-    .requestId == $requestId and .deviceName == "Acceptance" and .platform == "linux"
-' <<<"$reply_body" >/dev/null
-
-post_json "/api/v1/auth/login-links/${request_id}/decision" \
-    "$(jq -n --arg token "$approval_token" \
-        '{applicationKind: "homeowner", approvalToken: $token, decision: "approve"}')"
-if [[ "$reply_status" != '202' ]]; then
-    fail "The login-link approval failed (HTTP ${reply_status})."
-fi
-jq -e --arg requestId "$request_id" '
-    .requestId == $requestId and .status == "received"
-' <<<"$reply_body" >/dev/null
-
-post_json "/api/v1/auth/login-links/${request_id}/status" \
-    "$(jq -n --arg pollToken "$poll_token" '{pollToken: $pollToken}')"
-if [[ "$reply_status" != '200' ]]; then
-    fail "The login-link status poll failed (HTTP ${reply_status})."
-fi
-jq -e --arg requestId "$request_id" '
-    .requestId == $requestId and .status == "approved" and (.approvedAt | type == "string")
-' <<<"$reply_body" >/dev/null
-
-post_json "/api/v1/auth/login-links/${request_id}/exchange" \
-    "$(jq -n --arg pollToken "$poll_token" --arg codeVerifier "$code_verifier" \
-        --arg state "$state" \
-        '{pollToken: $pollToken, codeVerifier: $codeVerifier, state: $state}')"
-if [[ "$reply_status" != '200' ]]; then
-    fail "The login-link exchange failed (HTTP ${reply_status})."
-fi
+start_payload="$(jq -cn --arg email "$email" --arg installationId "$installation_id" '
+    {email:$email,applicationKind:"homeowner",installationId:$installationId,
+     deviceName:"Acceptance",platform:"linux",transport:"native"}')"
+post_json '/api/v1/auth/email-codes' "$start_payload"
+[[ "$reply_status" == '202' ]] || fail "Requesting an email code failed (HTTP ${reply_status})."
 jq -e '
-    .transport == "native"
+    (.challengeId | type == "string") and (.bindingToken | type == "string" and length >= 40)
+    and .resendAfterSeconds == 60 and (has("code") | not) and (has("accessToken") | not)
+' <<<"$reply_body" >/dev/null
+challenge_id="$(jq -er '.challengeId' <<<"$reply_body")"
+binding_token="$(jq -er '.bindingToken' <<<"$reply_body")"
+post_json '/api/v1/auth/email-codes' "$start_payload"
+[[ "$reply_status" == '429' ]] || fail 'The immediate resend was not rate limited.'
+php "${repo_root}/bin/providentia" notification:deliver --once >/dev/null
+[[ -s "$smtp_dir/code" ]] || fail 'Real SMTP delivery did not contain one numeric verification code.'
+email_code="$(cat "$smtp_dir/code")"
+verify_payload="$(jq -cn --arg challengeId "$challenge_id" --arg bindingToken "$binding_token" \
+    --arg code "$email_code" '{challengeId:$challengeId,bindingToken:$bindingToken,code:$code}')"
+post_json '/api/v1/auth/email-codes/verify' \
+    "$(jq '.bindingToken = "wrong-requesting-installation"' <<<"$verify_payload")"
+[[ "$reply_status" == '422' ]] || fail 'An incorrect installation binding was accepted.'
+post_json '/api/v1/auth/email-codes/verify' "$verify_payload"
+[[ "$reply_status" == '200' ]] || fail "Email code verification failed (HTTP ${reply_status})."
+jq -e --arg installationId "$installation_id" '
+    .transport == "native" and .installationId == $installationId
     and (.accessToken | type == "string" and length >= 40)
     and (.refreshToken | type == "string" and length >= 40)
     and (.csrfToken | type == "string" and length >= 40)
-    and .idleExpiresAt == null
-    and .refreshIdleTtlSeconds == null
-    and (.sessionId | type == "string")
-    and (.userId | type == "string")
+    and .idleExpiresAt == null and .refreshIdleTtlSeconds == null
+    and (.sessionId | type == "string") and (.userId | type == "string")
+    and .activeHomeId == null
 ' <<<"$reply_body" >/dev/null
 access_token="$(jq -er '.accessToken' <<<"$reply_body")"
 refresh_token="$(jq -er '.refreshToken' <<<"$reply_body")"
@@ -252,6 +190,7 @@ if [[ "$reply_status" != '204' ]]; then
 fi
 
 for removed_path in \
+    /api/v1/auth/login-links \
     /api/v1/auth/register \
     /api/v1/auth/login \
     /api/v1/auth/password-reset/request \
@@ -284,36 +223,11 @@ for removed_path in \
     ' <"$removed_body" >/dev/null
 done
 
-second_request_id="$(uuid4)"
-second_installation_id="$(uuid4)"
-second_poll_token="$(url_token)"
-second_code_verifier="$(url_token)"
-second_state="$(url_token)"
-
-post_json '/api/v1/auth/login-links' \
-    "$(start_body "$second_request_id" "$email" "$(s256 "$second_poll_token")" \
-        "$(s256 "$second_code_verifier")" "$second_state" "$second_installation_id")"
-if [[ "$reply_status" != '202' ]]; then
-    fail "Starting the second login link failed (HTTP ${reply_status})."
+post_json '/api/v1/auth/email-codes/verify' "$verify_payload"
+[[ "$reply_status" == '422' ]] || fail 'A consumed verification code was reusable.'
+if grep -Fq "$email_code" "$stdout_log" "$stderr_log"; then
+    fail 'A numeric verification code leaked to application logs.'
 fi
-second_approval_token="$(jq -er '.developmentApprovalToken' <<<"$reply_body")"
-
-post_json "/api/v1/auth/login-links/${second_request_id}/decision" \
-    "$(jq -n --arg token "$second_approval_token" \
-        '{applicationKind: "homeowner", approvalToken: $token, decision: "approve"}')"
-if [[ "$reply_status" != '202' ]]; then
-    fail "Approving the second login link failed (HTTP ${reply_status})."
-fi
-
-post_json "/api/v1/auth/login-links/${second_request_id}/exchange" \
-    "$(jq -n --arg pollToken "$second_poll_token" \
-        --arg codeVerifier "$second_code_verifier" --arg state "$second_state" \
-        '{pollToken: $pollToken, codeVerifier: $codeVerifier, state: $state}')"
-if [[ "$reply_status" != '200' ]]; then
-    fail "The second login-link exchange failed (HTTP ${reply_status})."
-fi
-jq -e --arg userId "$user_id" '
-    .userId == $userId and (.accessToken | type == "string" and length >= 40)
-' <<<"$reply_body" >/dev/null
+unset email_code binding_token verify_payload
 
 printf 'Development authentication HTTP smoke passed.\n'

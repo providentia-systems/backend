@@ -110,20 +110,26 @@ final class ProfileMediaService
         bool $operator = false,
     ): ?array {
         if ($operator) {
-            $this->access->requireAdmin(
+            $this->access->recordOperatorRead(
                 $identity,
-                $scope === 'account'
-                    ? 'people.read'
-                    : 'homes.read',
+                $scope === 'account' ? 'people.read' : 'homes.read',
+                $scope,
+                $id,
+                'profile-image',
             );
         } elseif ($scope === 'home') {
             $this->homes->requirePermission($identity, $id, 'home.read');
-        } elseif ($identity->userId !== $id && !$this->store->sharesHome($identity->userId, $id)) {
-            throw new Problem(
-                404,
-                'Image unavailable',
-                'This profile image is unavailable.',
-            );
+        } elseif ($identity->userId !== $id) {
+            $allowed = false;
+            foreach ($this->store->sharedHomes($identity->userId, $id) as $homeId) {
+                if (in_array('members.read', $this->homes->effectivePermissions($identity, $homeId), true)) {
+                    $allowed = true;
+                    break;
+                }
+            }
+            if (!$allowed) {
+                throw new Problem(404, 'Image unavailable', 'This profile image is unavailable.');
+            }
         }
         return $this->store->image($scope, $id);
     }

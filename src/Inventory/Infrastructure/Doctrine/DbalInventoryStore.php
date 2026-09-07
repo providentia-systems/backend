@@ -41,6 +41,15 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         return array_map(fn (array $row): array => $this->categoryRecord($row), $rows);
     }
 
+    public function homeCategory(string $homeId, string $categoryId): ?array
+    {
+        $row = $this->connection->fetchAssociative(
+            'SELECT id, name, status, revision FROM home_categories WHERE home_id = ? AND id = ?',
+            [$homeId, $categoryId],
+        );
+        return $row === false ? null : $row;
+    }
+
     public function createHomeCategory(
         string $id,
         string $homeId,
@@ -466,7 +475,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         );
     }
 
-    public function homeProduct(string $homeId, string $homeProductId): ?array
+    public function homeProduct(string $homeId, string $homeProductId, bool $includeArchived = false): ?array
     {
         return $this->one(
             'SELECT hp.id, hp.home_id AS homeId, hp.product_id AS productId,
@@ -476,8 +485,9 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                     COALESCE(p.canonical_name, hp.private_name) AS productName
              FROM home_products hp
              LEFT JOIN products p ON p.id = hp.product_id
-             WHERE hp.home_id = :home AND hp.id = :id AND hp.status = :status',
-            ['home' => $homeId, 'id' => $homeProductId, 'status' => 'active'],
+             WHERE hp.home_id = :home AND hp.id = :id'
+                . ($includeArchived ? '' : ' AND hp.status = :status'),
+            ['home' => $homeId, 'id' => $homeProductId, ...($includeArchived ? [] : ['status' => 'active'])],
         );
     }
 

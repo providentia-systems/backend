@@ -59,7 +59,8 @@ final class CatalogContributionImageServiceTest extends TestCase
                 self::callback(
                     static fn(array $payload): bool => $payload['sourceDigest'] === hash('sha256', self::RAW)
                     && $payload['assetDigest'] === hash('sha256', self::SANITIZED)
-                    && $payload['rightsDeclarationVersion'] === CatalogContributionImageService::RIGHTS_DECLARATION_VERSION,
+                    && $payload['rightsDeclarationVersion']
+                        === CatalogContributionImageService::RIGHTS_DECLARATION_VERSION,
                 ),
                 self::USER_ID,
                 self::isInstanceOf(DateTimeImmutable::class),
@@ -592,7 +593,8 @@ final class CatalogContributionImageServiceTest extends TestCase
                 self::ICON_ID,
                 null,
                 self::callback(
-                    static fn(string $details): bool => str_contains($details, self::CONTRIBUTION_ID) && str_contains($details, self::PRODUCT_ID)
+                    static fn(string $details): bool => str_contains($details, self::CONTRIBUTION_ID)
+                        && str_contains($details, self::PRODUCT_ID)
                     && str_contains($details, self::ASSET_ID),
                 ),
                 self::isInstanceOf(DateTimeImmutable::class),

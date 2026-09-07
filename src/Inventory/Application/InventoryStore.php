@@ -11,6 +11,9 @@ interface InventoryStore
     /** @return list<array<string, mixed>> */
     public function categories(string $homeId, bool $includeArchived): array;
 
+    /** @return array<string, mixed>|null */
+    public function homeCategory(string $homeId, string $categoryId): ?array;
+
     public function createHomeCategory(
         string $id,
         string $homeId,
@@ -66,7 +69,7 @@ interface InventoryStore
     ): array;
 
     /** @return array<string, mixed>|null */
-    public function homeProduct(string $homeId, string $homeProductId): ?array;
+    public function homeProduct(string $homeId, string $homeProductId, bool $includeArchived = false): ?array;
 
     public function createHomeProduct(
         string $id,
