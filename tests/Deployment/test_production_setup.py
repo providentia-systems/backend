@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -76,12 +77,21 @@ if os.environ.get("MOCK_MIGRATE_FAIL") == "1" and "run" in sys.argv and sys.argv
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
     def test_prepare_preserves_secrets_and_never_contacts_docker(self):
-        self.prepare()
+        self.prepare(
+            "--bind-address", "10.20.30.40",
+            "--http-port", "18080",
+            "--cors-origins", "https://app.example.net,https://admin.example.net",
+        )
         values = self.values()
         self.assertEqual(self.env_file.stat().st_mode & 0o777, 0o600)
         self.assertEqual(values["COMPOSE_PROFILES"], "mysql,redis")
         self.assertEqual(values["MARIADB_PASSWORD"], "")
-        self.assertEqual(values["CORS_ALLOWED_ORIGINS"], values["PUBLIC_BASE_URL"])
+        self.assertEqual(values["PROVIDENTIA_BIND_ADDRESS"], "10.20.30.40")
+        self.assertEqual(values["PROVIDENTIA_HTTP_PORT"], "18080")
+        self.assertEqual(
+            values["CORS_ALLOWED_ORIGINS"],
+            "https://app.example.net,https://admin.example.net",
+        )
         keys = [values[key] for key in production_env.KEYS_HEX + production_env.KEYS_BASE64]
         self.assertEqual(len(set(keys)), len(keys))
         for key in production_env.KEYS_BASE64:
@@ -90,6 +100,60 @@ if os.environ.get("MOCK_MIGRATE_FAIL") == "1" and "run" in sys.argv and sys.argv
         self.run_script("--prepare-only")
         self.assertEqual(self.env_file.read_bytes(), before)
         self.assertFalse(self.log.exists())
+
+    def test_default_listener_and_native_only_cors_are_explicit(self):
+        self.prepare()
+        values = self.values()
+        self.assertEqual(values["PROVIDENTIA_BIND_ADDRESS"], "127.0.0.1")
+        self.assertEqual(values["PROVIDENTIA_HTTP_PORT"], "8080")
+        self.assertEqual(values["CORS_ALLOWED_ORIGINS"], values["PUBLIC_BASE_URL"])
+
+    def test_malformed_origins_ports_wildcards_and_bind_addresses_are_rejected_cleanly(self):
+        cases = (
+            (("--public-url", "https://[broken"), "valid HTTPS origin"),
+            (("--public-url", "https://api.providentia.test:70000"), "valid host and port"),
+            (("--cors-origins", "*"), "wildcards"),
+            (("--cors-origins", "https://[broken"), "valid HTTPS origin"),
+            (("--cors-origins", "https://app.providentia.test:70000"), "valid host and port"),
+            (("--http-port", "0"), "1 through 65535"),
+            (("--http-port", "65536"), "1 through 65535"),
+            (("--bind-address", "api.providentia.test"), "explicit IPv4"),
+            (("--bind-address", "::1"), "explicit IPv4"),
+        )
+        for index, (arguments, message) in enumerate(cases):
+            with self.subTest(arguments=arguments):
+                self.env_file = self.path / f"invalid-{index}.env"
+                result = self.run_script(
+                    "--prepare-only", "--version", "1.2.3",
+                    "--public-url", "https://api.providentia.test",
+                    "--mail-from", "no-reply@providentia.test",
+                    "--trusted-proxies", "172.30.0.1/32",
+                    *arguments,
+                    success=False,
+                )
+                self.assertIn(message, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertFalse(self.env_file.exists())
+
+    def test_deployment_revalidates_manually_edited_public_listener_and_cors(self):
+        self.prepare()
+        self.configure_mail()
+        invalid_values = (
+            ("PUBLIC_BASE_URL", "https://[broken"),
+            ("CORS_ALLOWED_ORIGINS", "https://*.providentia.test"),
+            ("PROVIDENTIA_BIND_ADDRESS", "0.0.0.0:8080"),
+            ("PROVIDENTIA_HTTP_PORT", "eighty"),
+        )
+        baseline = self.values()
+        for key, value in invalid_values:
+            with self.subTest(key=key):
+                changed = dict(baseline)
+                changed[key] = value
+                production_env.write_env(self.env_file, changed)
+                result = self.run_script(success=False)
+                self.assertIn("Production configuration error", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertFalse(self.log.exists())
 
     def test_missing_smtp_blocks_before_any_docker_operation(self):
         self.prepare()
@@ -224,7 +288,37 @@ if os.environ.get("MOCK_MIGRATE_FAIL") == "1" and "run" in sys.argv and sys.argv
                 self.assertEqual(services["api"]["environment"]["AI_ALLOW_PRIVATE_NETWORK_ENDPOINTS"], "0")
                 self.assertEqual(services["api"]["environment"]["CORS_ALLOWED_ORIGINS"], "https://api.providentia.test")
                 self.assertEqual(services["ai-video-worker"]["tmpfs"], ["/tmp:size=512m,mode=1777"])
+                self.assertEqual(services["ai-video-worker"]["stop_grace_period"], "4m0s")
+                for service in (
+                    "worker", "outbox", "notification", "reference-update",
+                    "data-governance", "sync-compactor", "ai-video-worker",
+                ):
+                    self.assertTrue(services[service]["healthcheck"]["disable"])
+                for service in services.values():
+                    self.assertEqual(service["logging"]["driver"], "json-file")
+                    self.assertEqual(service["logging"]["options"]["max-size"], "10m")
+                    self.assertEqual(service["logging"]["options"]["max-file"], "5")
                 self.assertEqual(model["volumes"]["app-var"]["driver_opts"]["device"], str(self.path / database / "app-var"))
+
+    def test_compose_text_disables_inherited_pid_checks_and_bounds_logs(self):
+        text = (ROOT / "compose.production.yaml").read_text()
+
+        def service_block(name):
+            start = text.index(f"  {name}:\n")
+            following = text[start + 3:]
+            next_service = re.search(r"(?m)^  \S", following)
+            end = len(text) if next_service is None else start + 3 + next_service.start()
+            return text[start:end]
+
+        self.assertIn("x-json-logging: &json-logging", text)
+        self.assertIn('max-size: "10m"', text)
+        self.assertIn('max-file: "5"', text)
+        for service in (
+            "worker", "outbox", "notification", "reference-update",
+            "data-governance", "sync-compactor", "ai-video-worker",
+        ):
+            self.assertIn("healthcheck:\n      disable: true", service_block(service))
+        self.assertIn("stop_grace_period: 240s", service_block("ai-video-worker"))
 
 
 if __name__ == "__main__":

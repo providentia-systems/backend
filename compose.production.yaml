@@ -1,5 +1,11 @@
 name: providentia-production
 
+x-json-logging: &json-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 x-app-environment: &app-environment
   APP_ENV: production
   APP_VERSION: ${APP_VERSION:?APP_VERSION is required}
@@ -93,6 +99,7 @@ x-cli: &cli
     - app-var:/app/var
   environment: *app-environment
   networks: [backend]
+  logging: *json-logging
 
 services:
   # Initialize only an empty mount root. Existing data is never recursively
@@ -167,6 +174,7 @@ services:
       api:
         condition: service_healthy
     networks: [frontend, backend]
+    logging: *json-logging
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health/ready"]
       interval: 30s
@@ -178,6 +186,8 @@ services:
     <<: *cli
     stop_grace_period: 30s
     command: ["php", "bin/providentia", "queue:consume"]
+    healthcheck:
+      disable: true
 
   outbox:
     <<: *cli
@@ -190,34 +200,46 @@ services:
           php bin/providentia outbox:relay --once
           sleep "${OUTBOX_POLL_SECONDS:-2}"
         done
+    healthcheck:
+      disable: true
 
   notification:
     <<: *cli
     stop_grace_period: 30s
     command: ["php", "bin/providentia", "notification:deliver"]
+    healthcheck:
+      disable: true
 
   reference-update:
     <<: *cli
     stop_grace_period: 30s
     command: [php, bin/providentia, reference:update, --watch, --recover]
+    healthcheck:
+      disable: true
 
   data-governance:
     <<: *cli
     stop_grace_period: 30s
     command: ["php", "bin/providentia", "data-governance:process"]
+    healthcheck:
+      disable: true
 
   sync-compactor:
     <<: *cli
     stop_grace_period: 30s
     command: ["php", "bin/providentia", "sync:compact", "--interval=3600"]
+    healthcheck:
+      disable: true
 
   ai-video-worker:
     <<: *cli
     image: ${PROVIDENTIA_MEDIA_IMAGE:?PROVIDENTIA_MEDIA_IMAGE is required}
     tmpfs:
       - /tmp:size=${AI_VIDEO_TMPFS_SIZE:-512m},mode=1777
-    stop_grace_period: 60s
+    stop_grace_period: 240s
     command: ["php", "bin/providentia", "ai:video:process"]
+    healthcheck:
+      disable: true
 
   mysql:
     image: mysql:8.4.6
@@ -242,6 +264,7 @@ services:
       retries: 20
     volumes: ["mysql-data:/var/lib/mysql"]
     networks: [backend]
+    logging: *json-logging
 
   mariadb:
     image: mariadb:11.8.3
@@ -260,6 +283,7 @@ services:
       retries: 20
     volumes: ["mariadb-data:/var/lib/mysql"]
     networks: [backend]
+    logging: *json-logging
 
   redis:
     image: redis:8.2.1-alpine
@@ -280,6 +304,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     volumes: ["redis-data:/data"]
     networks: [backend]
+    logging: *json-logging
 
   backup:
     image: restic/restic:0.18.1
@@ -299,6 +324,7 @@ services:
         bind:
           create_host_path: false
     command: ["backup", "--host", "${BACKUP_HOST:-providentia}", "/backup-source"]
+    logging: *json-logging
 
 networks:
   frontend:

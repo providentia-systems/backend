@@ -5,6 +5,9 @@ a running local system. The project has no live users or deployed data to migrat
 this release aligns the code directly with the current platform decisions.
 Use the coordinated PR branches until they are merged and their release checks
 have passed. A running development stack is not a substitute for those checks.
+After publication, run the
+[post-release acceptance checklist](post-release-acceptance.md) against the
+released backend, Client and Admin artifacts.
 
 ## Start the backend
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ProvidentiaTest\Unit\Home;
 
 use PHPUnit\Framework\TestCase;
+use Providentia\Access\Domain\FeatureCatalog;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomePermission;
 use Providentia\Home\Application\HomeStore;
@@ -13,6 +14,46 @@ use Providentia\SharedKernel\Application\Problem;
 
 final class HomeAuthorizationTest extends TestCase
 {
+    public function testPermissionCatalogAndRoleDefaultsContainNoDuplicates(): void
+    {
+        $catalog = HomePermission::all();
+        self::assertSame(array_values(array_unique($catalog)), $catalog);
+        self::assertSame(
+            FeatureCatalog::features(FeatureCatalog::HOME),
+            $catalog,
+        );
+
+        foreach (
+            [
+            HomeAuthorization::OWNER,
+            HomeAuthorization::MANAGER,
+            HomeAuthorization::MEMBER,
+            HomeAuthorization::VIEWER,
+            ] as $role
+        ) {
+            $defaults = HomePermission::defaultsForRole($role);
+            self::assertSame(
+                array_values(array_unique($defaults)),
+                $defaults,
+                sprintf('%s permissions must be unique.', $role),
+            );
+        }
+
+        foreach ([HomeAuthorization::MANAGER, HomeAuthorization::MEMBER] as $role) {
+            self::assertSame(
+                1,
+                count(
+                    array_keys(
+                        HomePermission::defaultsForRole($role),
+                        HomePermission::AI_CREDENTIALS_USE,
+                        true,
+                    ),
+                ),
+                sprintf('%s must retain AI credential use.', $role),
+            );
+        }
+    }
+
     public function testActiveMemberCanReadOnlyTheRequestedHomeMembership(): void
     {
         $store = $this->createMock(HomeStore::class);

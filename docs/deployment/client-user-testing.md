@@ -6,6 +6,11 @@ clients request a numeric email code, the backend emails it, and the person
 enters the eight digits in the requesting client. The backend has no browser
 login page and no account password surface.
 
+For the mandatory published-artifact owner → preassigned invitee → manager
+journey and the location/private-cache/Admin proof, use the exact
+[post-release acceptance checklist](post-release-acceptance.md). This document
+provides the local/development preparation behind those roles.
+
 ## Start the matching backend
 
 From the backend checkout:
@@ -140,6 +145,12 @@ Acceptance uses the authenticated recipient, invitation ID and revision. It does
 not require an invitation token from a development API response. `--role none`
 creates no invitation and removes no existing membership.
 
+To test an administrator-preassigned account group, let the new user verify an
+email code and stop on **Set up your account**. Assign the account-level group
+in Admin, record its revision, then submit onboarding in the Client. The existing
+assignment and revision must remain unchanged; the separate home invitation may
+still grant the manager/member role when accepted.
+
 ## Verify the agreed behavior
 
 | Journey | Expected result |
@@ -156,6 +167,8 @@ creates no invitation and removes no existing membership.
 | Add and verify email alias | Either verified address signs into the same account; no merge with another account occurs. |
 | Remove primary/last address | Choose another verified primary first; the final verified address cannot be removed. |
 | Edit profile/home | Names, descriptions, uploaded cropped avatars/images and country/location settings persist. |
+| Optional profile location | Region/city may be omitted or cleared; selected names survive save, restart and read-back. |
+| Preassigned account group | Onboarding preserves the Admin-selected account group and assignment revision. |
 | Operator inspection | Authorized administrator groups can inspect home records independently of public sharing. |
 | Unrelated homeowner | Another home's records remain inaccessible. |
 | Public catalog contribution | Only approved shared metadata is reusable by other homes; quantities stay home data. |

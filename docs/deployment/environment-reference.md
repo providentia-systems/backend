@@ -52,11 +52,11 @@ precedence, where exported shell variables can override an env file. The app's w
 | Variable | Default / required | Meaning |
 |---|---|---|
 | `PUBLIC_BASE_URL` | Required | Public HTTPS origin, e.g. `https://api.example.net`; no path, credentials, query or fragment |
-| `PROVIDENTIA_BIND_ADDRESS` | `127.0.0.1` | Host address for Caddy's HTTP port; bind to a private interface only when your TLS proxy runs elsewhere |
-| `PROVIDENTIA_HTTP_PORT` | `8080` | Host HTTP port forwarded to Caddy port 8080 |
+| `PROVIDENTIA_BIND_ADDRESS` | `127.0.0.1` | Explicit host IPv4 address for Caddy's HTTP port; use `--bind-address` during preparation and bind to a private interface only when the TLS proxy runs elsewhere |
+| `PROVIDENTIA_HTTP_PORT` | `8080` | Host TCP port from 1 through 65535 forwarded to Caddy port 8080; use `--http-port` during preparation |
 | `PROVIDENTIA_FPM_UPSTREAM` | `api:9000` | Caddy's private PHP-FPM upstream; use private routing if separating Caddy and API hosts |
 | `PROVIDENTIA_TRUSTED_PROXY_CIDRS` | Required | Space-separated proxy IP/CIDR allowlist for forwarded-client-IP handling; include only actual trusted proxy hops |
-| `CORS_ALLOWED_ORIGINS` | `PUBLIC_BASE_URL` | Comma-separated exact browser origins; native applications do not need entries; backend public origin is also allowed by application configuration |
+| `CORS_ALLOWED_ORIGINS` | `PUBLIC_BASE_URL` | Comma-separated exact HTTPS browser origins, set with `--cors-origins`; wildcards, credentials, paths, queries and fragments are rejected; native applications do not need entries; the backend public origin is also allowed by application configuration |
 | `PROVIDENTIA_METRICS_TOKEN` | Required; independent random secret | At least 32 characters; protects `web:9090/metrics` using `Authorization: Bearer ...` |
 
 Compose maps `PROVIDENTIA_TRUSTED_PROXY_CIDRS` into the app's
@@ -67,6 +67,13 @@ matching credential. Port 9090 is internal and is not published on the host;
 appropriate private network and retain both the token and network boundary.
 
 ## Database and queue
+
+The production database choices are the bundled **MySQL 8.4** profile, the
+bundled **MariaDB 11.8** profile, or an external MySQL/MariaDB service using the
+same PDO MySQL connection boundary. PostgreSQL is not supported by the runtime
+image, connection factory, migration/SQL implementation, setup helper or CI
+matrix. A PostgreSQL DSN is rejected; changing that would require a separately
+implemented and tested database adapter, not an env-file substitution.
 
 | Variable | Default / required | Meaning |
 |---|---|---|
@@ -91,6 +98,23 @@ Editing them does not change accounts in an existing database. Coordinate SQL
 credential changes with the secret and `DATABASE_URL`; preserve existing
 secrets during upgrades. The generated configuration supplies the selected
 profile; values for unused database/backup services do not have to be invented.
+
+## Container lifecycle and local logging
+
+Production Compose uses Docker's `json-file` log driver with `max-size=10m`
+and `max-file=5` for every enabled service. This bounds local container log
+files; forward required operational and audit events to controlled external
+storage before the local rotation window expires. Application logging remains
+content-safe and must not be changed to include provider credentials or
+household media.
+
+The API and web services have readiness health checks. Long-running workers
+explicitly disable the runtime image's process-only health check because a live
+PID does not prove queue, SMTP, database, or job progress. Monitor worker error
+rates, lease/job age, queue/outbox lag and last-success timestamps externally.
+The AI video worker has a 240-second stop grace period so an ordinary deployment
+can finish or safely interrupt work within its configured processing timeout;
+container termination is still not a completion guarantee.
 
 ## Authentication, email and synchronization
 
@@ -121,7 +145,8 @@ revocation, account disablement or refresh-rotation security checks.
 
 AI server proxying defaults off. The existence of configuration does not enable
 platform-funded AI or billing. Stored person/home provider credentials remain
-private and encrypted.
+private and encrypted. Follow the current
+[AI BYOK setup and provider acceptance runbook](ai-byok.md) before enabling it.
 
 | Variable | Default / required | Meaning |
 |---|---|---|

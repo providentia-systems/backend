@@ -244,7 +244,9 @@ class RecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for filename in ("compose.production.yaml", "compose.production.bind.yaml", ".env.production.example", "scripts/setup-production.sh",
-                             "scripts/lib/production-env.py", "LICENSE", "README.md", "docs/deployment/production.md"):
+                             "scripts/lib/production-env.py", "LICENSE", "README.md",
+                             "docs/deployment/production.md", "docs/deployment/server-quick-start.md",
+                             "docs/deployment/post-release-acceptance.md", "docs/deployment/ai-byok.md"):
                 path = root / filename
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("checked-in fixture")
@@ -258,6 +260,11 @@ class RecoveryTests(unittest.TestCase):
             with tarfile.open(paths[2]) as archive:
                 self.assertTrue(all(name.startswith("providentia-backend-v0.1.0/") for name in archive.getnames()))
                 self.assertNotIn("providentia-backend-v0.1.0/.env.production", archive.getnames())
+                for document in ("server-quick-start.md", "post-release-acceptance.md", "ai-byok.md"):
+                    self.assertIn(
+                        f"providentia-backend-v0.1.0/docs/deployment/{document}",
+                        archive.getnames(),
+                    )
                 lock = archive.extractfile("providentia-backend-v0.1.0/images.env").read().decode()
                 self.assertIn("APP_VERSION=0.1.0\n", lock)
                 self.assertIn(IMAGES["runtime"], lock)

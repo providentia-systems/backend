@@ -546,7 +546,7 @@ assert_json 'The Admin billing-plan read was unavailable during the free phase.'
 # Country defaults and group downgrades remain authoritative over invitations.
 http_json POST '/api/v1/homes' 409 "$homeowner_access_token" '{"name":"Over allowance"}'
 assert_problem_json
-invite_payload='{"email":"acceptance-member@example.test","role":"member"}'
+invite_payload='{"email":"acceptance-member@example.test","role":"manager"}'
 http_json POST "/api/v1/homes/${home_id}/invitations" 404 "$homeowner_access_token" "$invite_payload"
 assert_problem_json
 http_json GET '/api/v1/admin/access/groups?scope=home' 200 "$admin_access_token"
@@ -581,6 +581,14 @@ http_json GET "/api/v1/homes/${home_id}/memberships" 200 "$homeowner_access_toke
 assert_json 'The downgrade removed an existing active home member.' \
     '.data | any(.userId == $userId and .status == "active")' --arg userId "$member_user_id"
 http_json GET "/api/v1/homes/${home_id}" 200 "$member_access_token"
+assert_json 'The invited manager could not open the existing home with safe permissions.' '
+    .id == $homeId
+    and .role == "manager"
+    and .access.groupId == "a1000000-0000-4000-8000-000000000003"
+    and (.effectivePermissions | index("home.read")) != null
+    and ([.effectivePermissions[] | select(. == "ai.credentials.use")] | length) == 1
+    and (.effectivePermissions | length) == (.effectivePermissions | unique | length)
+' --arg homeId "$home_id"
 http_json POST "/api/v1/homes/${home_id}/invitations" 404 "$homeowner_access_token" \
     '{"email":"another-member@example.test","role":"member"}'
 assert_problem_json

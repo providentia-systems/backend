@@ -1,5 +1,9 @@
 # Phase 6 provider configuration and operations
 
+The current operator-facing setup and deployed acceptance path is
+[AI bring-your-own-key setup](../../../deployment/ai-byok.md). This phase record
+retains the lower-level provider and rotation detail.
+
 ## Deployment gate
 
 AI is disabled twice by default: the deployment has
@@ -21,9 +25,12 @@ support bundle, or committed `.env` file.
 
 | Provider ID | Environment | Notes |
 |---|---|---|
-| `openai` | fixed endpoint, no base URL setting | Uses the Responses API and `store: false` |
+| `openai` | fixed endpoint, no base URL setting | Credential required; uses the Responses API and `store: false` |
+| `anthropic` | fixed endpoint, no base URL setting | Credential required; uses the Messages API |
+| `gemini` | fixed endpoint template, no base URL setting | Credential required; uses `generateContent` for the selected model |
+| `xai` | fixed endpoint, no base URL setting | Credential required; uses the Chat Completions API |
 | `openai-compatible` | optional `AI_COMPATIBLE_ENDPOINT=https://host/base` | The server appends `/v1/chat/completions`; the deployment endpoint is only a legacy fallback — provider profiles own their endpoints |
-| `ollama` | optional `AI_OLLAMA_ENDPOINT=http://host:11434` | The server appends `/api/chat`; a private deployment endpoint also requires `AI_ALLOW_PRIVATE_ENDPOINTS=1` |
+| `ollama` | optional `AI_OLLAMA_ENDPOINT=http://host:11434` | No credential; the server appends `/api/chat`; a private deployment endpoint also requires `AI_ALLOW_PRIVATE_ENDPOINTS=1` |
 
 Set `AI_SERVER_PROXY_ENABLED=1`, `AI_CREDENTIAL_KEY_VERSION=1`, and an
 appropriate `AI_MAX_IMAGE_BYTES` between 1 MiB and 16 MiB. Public provider

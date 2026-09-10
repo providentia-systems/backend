@@ -55,7 +55,7 @@ final class HomePermission
             self::SHOPPING_WRITE,
             self::SHOPPING_MANAGE,
             self::AI_READ,
-            self::AI_USE, self::AI_CREDENTIALS_USE,
+            self::AI_USE,
             self::AI_MANAGE,
             self::AI_CREDENTIALS_USE,
             self::AI_PLATFORM_USE,

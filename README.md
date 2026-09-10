@@ -45,6 +45,11 @@ configured as an additional mirror. The production host needs Docker Engine and
 Compose v2, Bash, Python 3, `flock`, a stable HTTPS domain and an SMTP service.
 It does not need PHP or Composer installed.
 
+New operators should start with the
+[Ubuntu production server quick start](docs/deployment/server-quick-start.md).
+It covers release download, generated credentials, MySQL/MariaDB selection,
+OPNsense/HAProxy, firewall boundaries, SMTP, CORS and first-owner setup.
+
 | Image | Role |
 |---|---|
 | `ghcr.io/providentia-systems/backend` | PHP API, CLI, migrations and ordinary workers |
@@ -55,12 +60,17 @@ Start with a [published release](https://github.com/providentia-systems/backend/
 extract its deployment bundle, and prepare the configuration:
 
 ```bash
+sudo install -d -m 0700 -o "$USER" -g "$(id -gn)" /etc/providentia /srv/providentia
 bash scripts/setup-production.sh \
   --env-file /etc/providentia/production.env \
   --image-env images.env \
   --public-url https://api.example.net \
   --mail-from no-reply@example.net \
-  --trusted-proxies 192.0.2.10/32 \
+  --trusted-proxies 127.0.0.1/32 \
+  --bind-address 127.0.0.1 \
+  --http-port 8080 \
+  --cors-origins https://api.example.net \
+  --database mysql \
   --data-directory /srv/providentia \
   --prepare-only
 ```
@@ -77,7 +87,9 @@ chosen database and Redis, runs migrations once, starts the application
 processes and checks readiness. The release's `images.env` pins all three
 images by digest. Put your TLS reverse proxy in front of the default
 `127.0.0.1:8080` listener. MySQL and MariaDB are **alternatives**: the default is
-MySQL; select MariaDB or an external database when preparing the configuration.
+MySQL 8.4; select MariaDB 11.8 or an external MySQL/MariaDB service when
+preparing the configuration. PostgreSQL is not supported by the current image,
+connection/migration implementation, helper or CI matrix.
 
 The repository's default branch is `main`. Each successful release pipeline for
 `main` creates the next patch release, starting at **0.1.0**, after its required
@@ -87,6 +99,8 @@ link to live results; CI / CLI includes the quality suite and CLI database/queue
 proofs. A green build does not replace a server acceptance or restore rehearsal.
 
 - [Production deployment](docs/deployment/production.md): HTTPS, bootstrap, storage, operations and recovery.
+- [Post-release acceptance](docs/deployment/post-release-acceptance.md): exact owner/invitee, location, private-sync, Admin and AI release proof.
+- [AI BYOK](docs/deployment/ai-byok.md): provider, permission, endpoint, privacy and acceptance setup.
 - [Environment reference](docs/deployment/environment-reference.md): every production Compose setting, defaults and secrets.
 - [Architecture and scaling](docs/deployment/architecture-and-scaling.md): process roles, separate servers and current limits.
 - [Releases and registries](docs/deployment/release-process.md): image URLs, tags, automatic versions, PHP support and Docker Hub.

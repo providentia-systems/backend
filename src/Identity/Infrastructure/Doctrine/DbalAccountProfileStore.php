@@ -19,7 +19,14 @@ final class DbalAccountProfileStore implements AccountProfileStore
     public function profile(string $userId): array
     {
         $row = $this->connection->fetchAssociative(
-            'SELECT * FROM user_profiles WHERE user_id = ?',
+            ('SELECT p.*, s.name AS state_name, c.name AS city_name
+             FROM user_profiles p
+             LEFT JOIN reference_states s ON s.source_id = p.state_id
+                AND s.country_code = p.country_code
+             LEFT JOIN reference_cities c ON c.source_id = p.city_id
+                AND c.country_code = p.country_code
+                AND (p.state_id IS NULL OR c.state_id = p.state_id)
+             WHERE p.user_id = ?'),
             [$userId],
         );
         return $row === false

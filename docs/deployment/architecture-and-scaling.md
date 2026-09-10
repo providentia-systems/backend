@@ -56,6 +56,11 @@ not combine the two databases or replicate between them. The production helper
 selects exactly one of `mysql`, `mariadb`, or `external`. Changing that selection
 after loading data is a database migration project, not a container toggle.
 
+The pinned production profiles are MySQL 8.4 and MariaDB 11.8; an external SQL
+service must still be MySQL/MariaDB-compatible through PDO MySQL. PostgreSQL is
+not an implemented connection/migration/CI target and cannot be selected as an
+external service by changing only the DSN.
+
 The queue adapter is Enqueue Redis. Redis and the tested Redis-compatible
 Valkey backend are supported by the queue boundary; this configuration does
 not implement RabbitMQ. A remote broker must be reachable privately from all
