@@ -62,10 +62,11 @@ trusted server administrators.
 
 Choose an existing `vX.Y.Z` from
 [GitHub Releases](https://github.com/providentia-systems/backend/releases), then
-set that version in this complete example:
+replace `X.Y.Z` below with the first released version that contains the required
+fixes (without the leading `v`):
 
 ```bash
-PROVIDENTIA_RELEASE_VERSION=0.1.0
+PROVIDENTIA_RELEASE_VERSION=X.Y.Z
 PROVIDENTIA_RELEASE_URL="https://github.com/providentia-systems/backend/releases/download/v${PROVIDENTIA_RELEASE_VERSION}"
 PROVIDENTIA_RELEASE_PARENT="/opt/providentia/releases/v${PROVIDENTIA_RELEASE_VERSION}"
 sudo install -d -m 0755 -o "$USER" -g "$(id -gn)" "$PROVIDENTIA_RELEASE_PARENT"
