@@ -59,14 +59,15 @@ server moves should happen behind that same hostname. See
 
 Choose an actual backend `vX.Y.Z` release from
 [GitHub Releases](https://github.com/providentia-systems/backend/releases).
-The first automated version will be `v0.1.0`; use that example only once it
-exists. Keep each release's files in its own directory. Do not combine a
-release image lock with unrelated deployment files from a later `main`.
+Use the first release whose notes include the required access and onboarding
+fixes. Keep each release's files in its own directory. Do not combine a release
+image lock with unrelated deployment files from a later `main`.
 
 ```bash
-release_version=0.1.0
+release_version=X.Y.Z
 release_url="https://github.com/providentia-systems/backend/releases/download/v${release_version}"
-mkdir -p "/opt/providentia/releases/v${release_version}"
+sudo install -d -m 0750 -o "$USER" -g "$(id -gn)" \
+  "/opt/providentia/releases/v${release_version}"
 cd "/opt/providentia/releases/v${release_version}"
 for asset in "providentia-backend-v${release_version}.tar.gz" images.env release-manifest.json SHA256SUMS; do
   curl --fail --location --output "$asset" "$release_url/$asset"
