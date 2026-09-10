@@ -9,9 +9,19 @@ use Psr\Container\ContainerInterface;
 $root = dirname(__DIR__, 2);
 require $root . '/vendor/autoload.php';
 
-if (count($argv) !== 3) {
+$arguments = $_SERVER['argv'] ?? [];
+if (
+    !is_array($arguments)
+    || count($arguments) !== 3
+    || !isset($arguments[1], $arguments[2])
+    || !is_string($arguments[1])
+    || !is_string($arguments[2])
+) {
     throw new RuntimeException('Expected a group ID and user ID.');
 }
+
+$groupId = $arguments[1];
+$userId = $arguments[2];
 
 /** @var ContainerInterface $container */
 $container = require $root . '/config/container.php';
@@ -19,21 +29,21 @@ $container = require $root . '/config/container.php';
 $store = $container->get(AccessStore::class);
 $group = $store->group(FeatureCatalog::STARTER_ACCOUNT)
     ?? throw new RuntimeException('Starter account group is unavailable.');
-$group['id'] = $argv[1];
+$group['id'] = $groupId;
 $group['name'] = 'HTTP smoke preassigned account';
 $group['protected'] = false;
 
 if (
     !$store->saveGroup($group, 0)
-    || !$store->assign(FeatureCatalog::ACCOUNT, $argv[2], $argv[1], 0)
-    || !$store->assign(FeatureCatalog::ACCOUNT, $argv[2], $argv[1], 1)
+    || !$store->assign(FeatureCatalog::ACCOUNT, $userId, $groupId, 0)
+    || !$store->assign(FeatureCatalog::ACCOUNT, $userId, $groupId, 1)
 ) {
     throw new RuntimeException('Could not arrange the preassigned account group.');
 }
 
-$assignment = $store->assignment(FeatureCatalog::ACCOUNT, $argv[2]);
+$assignment = $store->assignment(FeatureCatalog::ACCOUNT, $userId);
 if (
-    ($assignment['groupId'] ?? null) !== $argv[1]
+    ($assignment['groupId'] ?? null) !== $groupId
     || ($assignment['revision'] ?? null) !== 2
 ) {
     throw new RuntimeException('The preassigned account group was not revisioned.');
