@@ -50,9 +50,11 @@ final class AccountProfileService
             'stateId' => isset($profile['state_id'])
                 ? (int) $profile['state_id']
                 : null,
+            'stateName' => $profile['state_name'] ?? null,
             'cityId' => isset($profile['city_id'])
                 ? (int) $profile['city_id']
                 : null,
+            'cityName' => $profile['city_name'] ?? null,
             'revision' => (int) ($profile['revision'] ?? 1),
             'onboardingComplete' => ($profile['onboarding_completed_at'] ?? null) !== null,
             'avatarSource' => $profile['avatar_source'] ?? 'default',
@@ -123,6 +125,13 @@ final class AccountProfileService
                 $onboarding,
             ): void {
                 $this->accessStore->lockSubject(FeatureCatalog::ACCOUNT, $identity->userId);
+                $accountAssignment = $onboarding
+                    ? $this->accessStore->assignment(
+                        FeatureCatalog::ACCOUNT,
+                        $identity->userId,
+                        true,
+                    )
+                    : null;
                 if ($requiresAcceptance) {
                     $this->countries->accept(
                         $identity->userId,
@@ -155,7 +164,7 @@ final class AccountProfileService
                         'Reload your profile before saving.',
                     );
                 }
-                if ($onboarding) {
+                if ($onboarding && $accountAssignment === null) {
                     $invited = false;
                     foreach ($this->profiles->emails($identity->userId) as $email) {
                         if (

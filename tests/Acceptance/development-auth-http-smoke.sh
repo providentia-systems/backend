@@ -71,8 +71,12 @@ fail() {
 
 post_json() {
     local response
+    local -a headers=(-H 'Content-Type: application/json')
+    if [[ -n "${3:-}" ]]; then
+        headers+=(-H "Authorization: Bearer $3")
+    fi
     response="$(curl --silent --show-error --write-out $'\n%{http_code}' \
-        -H 'Content-Type: application/json' \
+        "${headers[@]}" \
         -X POST "${base_url}$1" --data "$2")"
     reply_status="${response##*$'\n'}"
     reply_body="${response%$'\n'*}"
@@ -158,6 +162,50 @@ jq -e --arg userId "$user_id" --arg email "$email" --arg sessionId "$session_id"
     and .email == $email
     and .emailVerified == true
     and .currentSession.id == $sessionId
+' <<<"$reply_body" >/dev/null
+
+account_group_id="$(uuid4)"
+php "${repo_root}/tests/Acceptance/preassign-account-group.php" \
+    "$account_group_id" "$user_id"
+get_bearer '/api/v1/me/profile' "$access_token"
+[[ "$reply_status" == '200' ]] \
+    || fail "Reading the unregistered profile failed (HTTP ${reply_status})."
+jq -e --arg groupId "$account_group_id" '
+    .onboardingComplete == false
+    and .revision == 1
+    and .accountAccess.groupId == $groupId
+    and .accountAccess.revision == 2
+' <<<"$reply_body" >/dev/null
+get_bearer '/api/v1/countries/NA/policy' "$access_token"
+[[ "$reply_status" == '200' ]] \
+    || fail "Reading the registration policy failed (HTTP ${reply_status})."
+policy_id="$(jq -er '.id' <<<"$reply_body")"
+policy_revision="$(jq -er '.revision' <<<"$reply_body")"
+onboarding_payload="$(jq -cn --arg policyId "$policy_id" \
+    --argjson policyRevision "$policy_revision" '
+    {displayName:"HTTP smoke user",countryCode:"NA",expectedRevision:0,
+     policyAccepted:true,policyId:$policyId,policyRevision:$policyRevision}')"
+post_json '/api/v1/me/onboarding' "$onboarding_payload" "$access_token"
+[[ "$reply_status" == '409' ]] || fail 'A stale onboarding revision was accepted.'
+get_bearer '/api/v1/me/profile' "$access_token"
+[[ "$reply_status" == '200' ]] \
+    || fail "Reloading the profile after a conflict failed (HTTP ${reply_status})."
+profile_revision="$(jq -er '.revision' <<<"$reply_body")"
+jq -e --arg groupId "$account_group_id" '
+    .onboardingComplete == false
+    and .accountAccess.groupId == $groupId
+    and .accountAccess.revision == 2
+' <<<"$reply_body" >/dev/null
+post_json '/api/v1/me/onboarding' \
+    "$(jq --argjson expectedRevision "$profile_revision" \
+        '.expectedRevision = $expectedRevision' <<<"$onboarding_payload")" \
+    "$access_token"
+[[ "$reply_status" == '200' ]] \
+    || fail "Retrying account setup failed (HTTP ${reply_status})."
+jq -e --arg groupId "$account_group_id" '
+    .onboardingComplete == true
+    and .accountAccess.groupId == $groupId
+    and .accountAccess.revision == 2
 ' <<<"$reply_body" >/dev/null
 
 get_bearer '/api/v1/auth/sessions' "$access_token"

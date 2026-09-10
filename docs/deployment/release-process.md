@@ -98,7 +98,11 @@ with the release for that evidence.
 
 Creating a release does not deploy or restart your server. Upgrades are an
 explicit operator action so you can take a backup, review migrations and choose
-the maintenance window. Follow [production deployment](production.md).
+the maintenance window. A release archive includes every current deployment
+document, including the [server quick start](server-quick-start.md),
+[AI BYOK runbook](ai-byok.md) and
+[post-release acceptance checklist](post-release-acceptance.md). Follow
+[production deployment](production.md) for ongoing operations.
 
 ## Pull access
 

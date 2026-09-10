@@ -106,7 +106,7 @@ final class CountryService
             throw new Problem(
                 422,
                 'Invalid location',
-                'Select a region and city belonging to this country.',
+                'If supplied, select a region and city belonging to this country.',
             );
         }
         return [

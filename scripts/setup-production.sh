@@ -21,6 +21,9 @@ Run --prepare-only, fill MAIL_DSN in that file, and rerun with --env-file.
   --mail-from EMAIL     Sender address verified by your SMTP provider
   --mail-dsn DSN        Authenticated smtps:// DSN; prefer editing the env file
   --trusted-proxies CIDRS  Space-separated exact TLS reverse-proxy networks
+  --bind-address IPV4   Host listener IPv4 (default: 127.0.0.1)
+  --http-port PORT      Host listener port from 1 through 65535 (default: 8080)
+  --cors-origins LIST   Comma-separated exact HTTPS browser origins; never '*'
   --database ENGINE    mysql (default), mariadb, or external on first setup
   --database-url DSN   Existing SQL endpoint; requires --database external
   --queue-dsn DSN      Existing Redis endpoint; disables the bundled Redis
@@ -38,7 +41,7 @@ EOF
 while (($#)); do
     case "$1" in
         --env-file) env_file="${2:?--env-file requires a path}"; shift 2 ;;
-        --version|--image-env|--public-url|--mail-from|--mail-dsn|--trusted-proxies|--database|--database-url|--queue-dsn|--data-directory)
+        --version|--image-env|--public-url|--mail-from|--mail-dsn|--trusted-proxies|--bind-address|--http-port|--cors-origins|--database|--database-url|--queue-dsn|--data-directory)
             options+=("$1" "${2:?The option requires a value}"); shift 2 ;;
         --prepare-only) prepare_only=1; shift ;;
         --help|-h) usage; exit 0 ;;

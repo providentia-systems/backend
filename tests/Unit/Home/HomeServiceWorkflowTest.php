@@ -6,7 +6,9 @@ namespace ProvidentiaTest\Unit\Home;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
+use Providentia\Access\Domain\FeatureCatalog;
 use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermission;
 use Providentia\Home\Application\HomeService;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AccountNotificationSender;
@@ -25,6 +27,50 @@ final class HomeServiceWorkflowTest extends TestCase
     private const DEVICE_ID = '01912345-6789-7abc-bdef-0123456789ab';
     private const AUDIT_ID = '01912345-6789-7abc-8def-1123456789ab';
     private const TARGET_ID = '01912345-6789-7abc-8def-2123456789ab';
+
+    public function testManagerCanOpenStarterHomeWithUniquePermissions(): void
+    {
+        $homes = $this->createStub(HomeStore::class);
+        $homes->method('membership')
+            ->willReturn(
+                [
+                'status' => 'active',
+                'role' => HomeAuthorization::MANAGER,
+                ],
+            );
+        $homes->method('findHome')
+            ->willReturn(
+                [
+                'id' => self::HOME_ID,
+                'name' => 'Starter home',
+                'revision' => 1,
+                ],
+            );
+
+        $home = $this->service($homes)
+            ->get($this->identity(), self::HOME_ID);
+        $permissions = $home['effectivePermissions'] ?? null;
+
+        self::assertSame(HomeAuthorization::MANAGER, $home['role']);
+        self::assertSame(FeatureCatalog::STARTER_HOME, $home['access']['groupId']);
+        self::assertIsArray($permissions);
+        self::assertContains(HomePermission::HOME_READ, $permissions);
+        self::assertSame(
+            array_values(array_unique($permissions)),
+            $permissions,
+        );
+        self::assertSame(
+            1,
+            count(
+                array_keys(
+                    $permissions,
+                    HomePermission::AI_CREDENTIALS_USE,
+                    true,
+                ),
+            ),
+        );
+    }
+
     public function testManagerCannotInviteAnotherManager(): void
     {
         $homes = $this->createMock(HomeStore::class);

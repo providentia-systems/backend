@@ -68,14 +68,66 @@ def version(value):
     return value
 
 
-def validate_url(value):
+def https_origin(value, label="PUBLIC_BASE_URL"):
+    """Return one normalized HTTPS origin, rejecting ambiguous URL syntax."""
+    if value != value.strip() or value == "" or "*" in value:
+        fail(f"{label} must contain exact HTTPS origins; wildcards and surrounding whitespace are not allowed.")
     try:
         parsed = urlsplit(value)
-        valid = parsed.scheme == "https" and parsed.hostname and parsed.port != 0
+        hostname = parsed.hostname
+        port = parsed.port
     except ValueError:
-        valid = False
-    if not valid or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/"):
-        fail("PUBLIC_BASE_URL must be an HTTPS origin without credentials, a path, query, or fragment.")
+        fail(f"{label} must be a valid HTTPS origin with a valid host and port.")
+    if (
+        parsed.scheme.lower() != "https"
+        or not hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in ("", "/")
+        or port == 0
+    ):
+        fail(f"{label} must be an HTTPS origin without credentials, a path, query, or fragment.")
+    host = hostname.lower()
+    if ":" in host:
+        host = f"[{host}]"
+    return f"https://{host}" + (f":{port}" if port not in (None, 443) else "")
+
+
+def cors_origins(value):
+    """Normalize a comma-separated allowlist of exact HTTPS browser origins."""
+    raw_origins = value.split(",")
+    if not raw_origins or any(origin.strip() == "" for origin in raw_origins):
+        fail("CORS_ALLOWED_ORIGINS must contain one or more comma-separated exact HTTPS origins.")
+    normalized = [
+        https_origin(origin.strip(), "CORS_ALLOWED_ORIGINS")
+        for origin in raw_origins
+    ]
+    if len(normalized) != len(set(normalized)):
+        fail("CORS_ALLOWED_ORIGINS must not contain duplicate browser origins.")
+    return ",".join(normalized)
+
+
+def bind_address(value):
+    """Validate the host listener as an explicit IPv4 address."""
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        fail("PROVIDENTIA_BIND_ADDRESS must be one explicit IPv4 address.")
+    if address.version != 4:
+        fail("PROVIDENTIA_BIND_ADDRESS must be one explicit IPv4 address.")
+    return str(address)
+
+
+def http_port(value):
+    """Validate a decimal TCP port without permitting Compose interpolation."""
+    if re.fullmatch(r"[0-9]+", value) is None:
+        fail("PROVIDENTIA_HTTP_PORT must be a decimal port from 1 through 65535.")
+    number = int(value)
+    if not 1 <= number <= 65535:
+        fail("PROVIDENTIA_HTTP_PORT must be a decimal port from 1 through 65535.")
+    return str(number)
 
 
 def write_env(path, values):
@@ -169,6 +221,9 @@ def prepare(args):
         "MAIL_FROM": args.mail_from,
         "MAIL_DSN": args.mail_dsn,
         "PROVIDENTIA_TRUSTED_PROXY_CIDRS": args.trusted_proxies,
+        "PROVIDENTIA_BIND_ADDRESS": args.bind_address,
+        "PROVIDENTIA_HTTP_PORT": args.http_port,
+        "CORS_ALLOWED_ORIGINS": args.cors_origins,
         "DATABASE_URL": args.database_url,
         "QUEUE_DSN": args.queue_dsn,
         "PROVIDENTIA_DATA_DIRECTORY": args.data_directory,
@@ -191,9 +246,18 @@ def prepare(args):
         profiles.append("redis")
     values["COMPOSE_PROFILES"] = ",".join(profiles)
     values["PROVIDENTIA_TRUSTED_PROXY_CIDRS"] = values.get("PROVIDENTIA_TRUSTED_PROXY_CIDRS", "").replace(",", " ")
-    validate_url(values["PUBLIC_BASE_URL"])
-    if placeholder(values.get("CORS_ALLOWED_ORIGINS", "")):
+    values["PUBLIC_BASE_URL"] = https_origin(values["PUBLIC_BASE_URL"])
+    if args.cors_origins is None and values.get("CORS_ALLOWED_ORIGINS", "") in (
+        "", "https://api.example.net",
+    ):
         values["CORS_ALLOWED_ORIGINS"] = values["PUBLIC_BASE_URL"]
+    values["CORS_ALLOWED_ORIGINS"] = cors_origins(values["CORS_ALLOWED_ORIGINS"])
+    values["PROVIDENTIA_BIND_ADDRESS"] = bind_address(
+        values.get("PROVIDENTIA_BIND_ADDRESS", "127.0.0.1"),
+    )
+    values["PROVIDENTIA_HTTP_PORT"] = http_port(
+        values.get("PROVIDENTIA_HTTP_PORT", "8080"),
+    )
     data_directory = values.get("PROVIDENTIA_DATA_DIRECTORY", "")
     if data_directory and (not Path(data_directory).is_absolute() or data_directory == "/" or any(c in data_directory for c in ("\n", "\r", "$", "'", ":"))):
         fail("PROVIDENTIA_DATA_DIRECTORY must be an absolute host directory other than /, without colon or shell expansion.")
@@ -212,7 +276,10 @@ def validate(args):
     for key in ("PUBLIC_BASE_URL", "MAIL_DSN", "MAIL_FROM", "DATABASE_URL", "QUEUE_DSN", "PROVIDENTIA_TRUSTED_PROXY_CIDRS", *KEYS_HEX, *KEYS_BASE64[:-1]):
         if placeholder(values.get(key, "")):
             fail(f"Configure a real, non-placeholder {key} in the protected env file before deployment.")
-    validate_url(values["PUBLIC_BASE_URL"])
+    https_origin(values["PUBLIC_BASE_URL"])
+    cors_origins(values.get("CORS_ALLOWED_ORIGINS", ""))
+    bind_address(values.get("PROVIDENTIA_BIND_ADDRESS", ""))
+    http_port(values.get("PROVIDENTIA_HTTP_PORT", ""))
     mail = urlsplit(values["MAIL_DSN"])
     if mail.scheme != "smtps" or not mail.hostname or not mail.username or not mail.password:
         fail("MAIL_DSN must be authenticated smtps:// with percent-encoded credentials and a real SMTP host.")
@@ -263,7 +330,11 @@ def main():
     parser.add_argument("action", choices=("prepare", "validate", "metadata", "directories", "keys", "mark-started"))
     parser.add_argument("--env-file", required=True)
     parser.add_argument("--example")
-    for name in ("version", "image-env", "public-url", "mail-from", "mail-dsn", "trusted-proxies", "database", "database-url", "queue-dsn", "data-directory"):
+    for name in (
+        "version", "image-env", "public-url", "mail-from", "mail-dsn",
+        "trusted-proxies", "bind-address", "http-port", "cors-origins",
+        "database", "database-url", "queue-dsn", "data-directory",
+    ):
         parser.add_argument("--" + name)
     args = parser.parse_args()
     if args.action == "prepare":

@@ -6,6 +6,15 @@ single Compose host, one SQL database (MySQL by default), Redis, Caddy, the PHP
 API and one process for each background role. External SQL/Redis services and
 host-mounted persistence are supported.
 
+For a shorter first installation, follow the
+[Ubuntu production server quick start](server-quick-start.md), then return here
+for operations and recovery.
+
+The supported production databases are bundled MySQL **8.4**, bundled MariaDB
+**11.8**, or an external MySQL/MariaDB service. PostgreSQL is not implemented in
+the runtime image, PDO connection boundary, SQL/migrations, setup helper or CI
+matrix and cannot be enabled by replacing a Compose DSN.
+
 For the image addresses and release policy, see
 [releases and registries](release-process.md). For each container's purpose
 and the limits on splitting hosts or adding replicas, see
@@ -32,6 +41,12 @@ private bind address and a firewall that admits the proxy. The external edge
 owns certificates and renewals. Set its request-body and timeout limits to
 support the intended media workload (bundled Caddy allows requests up to
 160 MB).
+
+OPNsense/HAProxy is a supported external edge: terminate public HTTPS there,
+forward only the API hostname to the backend's selected private IPv4/port, trust
+only the HAProxy address/CIDR, and use `/health/ready` for backend readiness.
+Allow that proxy-to-backend port only from OPNsense. Never publish SQL 3306,
+Redis 6379, PHP-FPM 9000 or metrics 9090 to the internet.
 
 Use `https://api.example.net` as `PUBLIC_BASE_URL` and as the compiled client
 API origin. It must be an origin only, with no `/api/v1` suffix. Set
@@ -67,16 +82,21 @@ and media-worker manifests by digest. If GHCR packages are private, perform
 
 ## 3. Generate and review the protected configuration
 
-Run this from the extracted release directory. Replace the example domain,
-mailbox and proxy address; `192.0.2.10/32` is documentation-only.
+Run this from the extracted release directory. This complete example assumes a
+TLS proxy on the same host; replace the domain and mailbox.
 
 ```bash
+sudo install -d -m 0700 -o "$USER" -g "$(id -gn)" /etc/providentia /srv/providentia
 bash scripts/setup-production.sh \
   --env-file /etc/providentia/production.env \
   --image-env images.env \
   --public-url https://api.example.net \
   --mail-from no-reply@example.net \
-  --trusted-proxies 192.0.2.10/32 \
+  --trusted-proxies 127.0.0.1/32 \
+  --bind-address 127.0.0.1 \
+  --http-port 8080 \
+  --cors-origins https://api.example.net \
+  --database mysql \
   --data-directory /srv/providentia \
   --prepare-only
 ```
@@ -101,21 +121,26 @@ guessing replacement keys. Restore the matching original env file and preserve
 its `PROVIDENTIA_SETUP_STARTED` marker.
 Review all fields in the [environment reference](environment-reference.md).
 For a native-only deployment, keep `CORS_ALLOWED_ORIGINS` equal to the public API
-origin; when deploying a browser client, add its exact HTTPS origin.
+origin; Android/iOS/desktop apps do not use CORS. When deploying a browser
+client, pass every exact HTTPS browser origin to `--cors-origins`, separated by
+commas. Wildcards, credentials, paths, queries, fragments, malformed brackets
+and invalid ports are rejected before Docker is contacted.
 
 ### Choose MySQL, MariaDB or an external database
 
-The default helper selection is **MySQL plus Redis**. To choose MariaDB, add
-`--database mariadb` during initial preparation; only that SQL engine is
-started. You do not need to supply credentials for an unused engine.
+The default helper selection is **MySQL plus Redis**. To choose MariaDB, use the
+complete initial preparation command in the
+[server quick start](server-quick-start.md#opnsensehaproxy-on-another-host-bundled-mariadb);
+only that SQL engine is started. You do not need to supply credentials for an
+unused engine.
 
-For an external database, use `--database external --database-url DSN` during
-preparation. Set `--queue-dsn DSN` to use an external Redis/Valkey service and
-omit the bundled Redis process. For credentials that must not appear in shell
-history, obtain the DSN through your protected deployment mechanism or edit the
-protected env file before deployment. Corresponding helper metadata is
-`PROVIDENTIA_DATABASE=external` and `PROVIDENTIA_MANAGED_REDIS=0`; the helper
-derives `COMPOSE_PROFILES` on its next run.
+For an external database, follow the complete
+[external-database preparation command](server-quick-start.md#3-generate-the-protected-configuration),
+then put the private MySQL/MariaDB DSN in the protected env file rather than
+shell history. To use an external Redis/Valkey service too, set its `QUEUE_DSN`,
+set `PROVIDENTIA_MANAGED_REDIS='0'`, and remove `redis` from
+`COMPOSE_PROFILES` in that same protected edit. The helper then omits the local
+services on its next run.
 
 All application roles must be able to reach the selected private SQL and Redis
 endpoints. Provision external schemas, least-privilege application credentials,
@@ -222,6 +247,12 @@ require the independent bearer token. Port 9090 is not published on the host,
 and public `/metrics` returns 404. The public listener, SQL, Redis and PHP-FPM
 ports should not be repurposed as monitoring shortcuts.
 
+Compose bounds every enabled container's local `json-file` logs to five 10 MB
+files. Forward the operational/audit events you need before rotation. Worker
+image health checks are deliberately disabled because a live PID does not prove
+queue, SMTP or job progress; alert on queue/outbox age, failures and worker
+last-success instead. The video worker receives 240 seconds to stop cleanly.
+
 ## Backups and restore
 
 Treat SQL, application artifacts, configuration/keys and release metadata as
@@ -301,9 +332,17 @@ an RPO or RTO. Historical acceptance detail remains in
 4. Verify HTTPS readiness, displayed version, login and application workflows;
    inspect worker errors and confirm retained artifacts remain accessible.
 
+5. Run the [post-release acceptance checklist](post-release-acceptance.md) with
+   the matching released Client and Admin builds before declaring completion.
+
 `--version X.Y.Z` is an alternative for selecting a release's three tags; the
 official `images.env` is preferred because it pins content exactly. Releases
 automatically published on GitHub do not automatically restart your server.
+
+When replacing a temporary source-file hotfix, deploy the release without the
+old override file. Do not copy PHP into the container, add a writable `/app`
+mount, modify the database by hand or build a one-off local image. The official
+application images stay read-only and only their documented data paths persist.
 
 Rollback to the prior application digest set only when the current schema is
 compatible with that older application. Do not blindly run the prior helper if

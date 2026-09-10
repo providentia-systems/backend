@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
-$path = dirname(__DIR__, 2) . '/contracts/openapi/providentia-v1.json';
+$root = dirname(__DIR__, 2);
+require_once $root . '/src/Home/Application/HomePermission.php';
+$path = $root . '/contracts/openapi/providentia-v1.json';
 $source = (string) file_get_contents($path);
 $contract = json_decode($source, true, 512, JSON_THROW_ON_ERROR);
 $expected = [
@@ -863,39 +865,40 @@ foreach (
         throw new RuntimeException('DeviceSession must require ' . $field . '.');
     }
 }
-$expectedHomePermissions = [
-    'home.read',
-    'home.manage',
-    'members.read',
-    'members.invite',
-    'members.manage',
-    'permissions.manage',
-    'ownership.transfer',
-    'inventory.read',
-    'inventory.write',
-    'inventory.manage',
-    'purchases.read',
-    'purchases.write',
-    'shopping.read',
-    'shopping.write',
-    'shopping.manage',
-    'ai.read',
-    'ai.use',
-    'ai.manage',
-    'reports.read',
-    'catalog.contribute',
-    'catalog.import',
-    'catalog.consent.manage',
-    'data.export',
-    'data.erasure',
-    'billing.read',
-    'billing.manage',
-];
+$expectedHomePermissions = \Providentia\Home\Application\HomePermission::all();
 $actualHomePermissions = $contract['components']['schemas']['HomePermission']['enum'] ?? [];
-if ($actualHomePermissions !== $expectedHomePermissions) {
+if (
+    !is_array($actualHomePermissions)
+    || $expectedHomePermissions !== array_values(array_unique($expectedHomePermissions))
+    || $actualHomePermissions !== array_values(array_unique($actualHomePermissions))
+    || $actualHomePermissions !== $expectedHomePermissions
+) {
     throw new RuntimeException(
-        'HomePermission must enumerate every implemented permission in stable order.',
+        'HomePermission must uniquely enumerate every implemented permission in stable order.',
     );
+}
+if (
+    ($contract['components']['schemas']['Home']['properties']['effectivePermissions']['uniqueItems']
+    ?? false) !== true
+) {
+    throw new RuntimeException('Home effective permissions must be unique.');
+}
+$accountProfile = $contract['components']['schemas']['AccountProfile'] ?? [];
+foreach (['stateName', 'cityName'] as $locationName) {
+    if (
+        ($accountProfile['properties'][$locationName]['type'] ?? null) !== ['string', 'null']
+    ) {
+        throw new RuntimeException(
+            'AccountProfile.' . $locationName . ' must be a nullable response field.',
+        );
+    }
+    foreach (['AccountProfileRequest', 'AccountOnboardingRequest'] as $requestSchema) {
+        if (isset($contract['components']['schemas'][$requestSchema]['properties'][$locationName])) {
+            throw new RuntimeException(
+                $requestSchema . ' must accept location identifiers rather than display names.',
+            );
+        }
+    }
 }
 $expectedPlatformRoles = [
     'platform_administrator',

@@ -127,6 +127,190 @@ final class PlatformAccessWorkflowTest extends TestCase
         );
     }
 
+    public function testOnboardingPreservesAPreassignedGroupBeforeAcceptingAManagerInvitation(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('preassigned-owner@example.test');
+        $homeGroup = $this->homeGroup($admin, true, 3);
+        $this->access()
+            ->assign($admin, FeatureCatalog::HOME, $home['id'], $homeGroup['id'], 1);
+        $invitation = $this->homes()
+            ->invite(
+                $owner,
+                $home['id'],
+                'preassigned-manager@example.test',
+                HomeAuthorization::MANAGER,
+            );
+
+        $manager = $this->login('preassigned-manager@example.test');
+        $accountGroupInput = FeatureCatalog::defaults()[0];
+        $accountGroupInput['name'] = 'Preassigned account group';
+        $accountGroupInput['expectedRevision'] = 0;
+        $accountGroup = $this->access()
+            ->saveGroup($admin, null, $accountGroupInput);
+        $this->access()
+            ->assign(
+                $admin,
+                FeatureCatalog::ACCOUNT,
+                $manager->userId,
+                $accountGroup['id'],
+                0,
+            );
+        $this->access()
+            ->assign(
+                $admin,
+                FeatureCatalog::ACCOUNT,
+                $manager->userId,
+                $accountGroup['id'],
+                1,
+            );
+        $assigned = $this->access()
+            ->assignment($admin, FeatureCatalog::ACCOUNT, $manager->userId);
+        self::assertSame($accountGroup['id'], $assigned['groupId']);
+        self::assertSame(2, $assigned['revision']);
+
+        $policy = $this->container->get(CountryService::class)
+            ->registrationPolicy('NA');
+        $profileInput = [
+            'displayName' => 'Preassigned manager',
+            'countryCode' => 'NA',
+            'expectedRevision' => 0,
+            'policyAccepted' => true,
+            'policyId' => $policy['id'],
+            'policyRevision' => $policy['revision'],
+        ];
+        $profiles = $this->container->get(AccountProfileService::class);
+        $this->problem(
+            409,
+            fn() => $profiles->save($manager, $profileInput, true),
+        );
+        self::assertFalse($profiles->get($manager)['onboardingComplete']);
+
+        $profile = $profiles->save(
+            $manager,
+            [...$profileInput, 'expectedRevision' => 1],
+            true,
+        );
+        self::assertTrue($profile['onboardingComplete']);
+        self::assertSame($accountGroup['id'], $profile['accountAccess']['groupId']);
+        self::assertSame(2, $profile['accountAccess']['revision']);
+        self::assertSame($accountGroup['revision'], $profile['accountAccess']['groupRevision']);
+        self::assertSame(
+            1,
+            (int) $this->db->fetchOne(
+                "SELECT COUNT(*) FROM platform_audit_events WHERE action = 'account.registered'"
+                    . ' AND actor_user_id = ?',
+                [$manager->userId],
+            ),
+        );
+
+        $this->homes()
+            ->acceptInvitationById($manager, $invitation['invitationId'], $invitation['revision']);
+        $opened = $this->homes()
+            ->get($manager, $home['id']);
+        $permissions = $opened['effectivePermissions'] ?? null;
+        self::assertSame(HomeAuthorization::MANAGER, $opened['role']);
+        self::assertIsArray($permissions);
+        self::assertSame(
+            array_values(array_unique($permissions)),
+            $permissions,
+        );
+        self::assertSame(
+            1,
+            count(array_keys($permissions, 'ai.credentials.use', true)),
+        );
+    }
+
+    public function testProfileLocationNamesSurviveReadBackAndOptionalFieldsCanBeCleared(): void
+    {
+        $this->db->insert(
+            'reference_cities',
+            [
+                'source_id' => 990000001,
+                'country_code' => 'NA',
+                'state_id' => 44,
+                'name' => 'Windhoek',
+                'source_version' => 'acceptance-fixture',
+                'active' => 1,
+            ],
+        );
+        $identity = $this->login('location-profile@example.test');
+        $profiles = $this->container->get(AccountProfileService::class);
+        $policy = $this->container->get(CountryService::class)
+            ->registrationPolicy('NA');
+        $profile = $profiles->save(
+            $identity,
+            [
+                'displayName' => 'Location profile',
+                'countryCode' => 'NA',
+                'stateId' => 44,
+                'cityId' => 990000001,
+                'expectedRevision' => 1,
+                'policyAccepted' => true,
+                'policyId' => $policy['id'],
+                'policyRevision' => $policy['revision'],
+            ],
+            true,
+        );
+        self::assertSame(44, $profile['stateId']);
+        self::assertSame('Khomas', $profile['stateName']);
+        self::assertSame(990000001, $profile['cityId']);
+        self::assertSame('Windhoek', $profile['cityName']);
+        self::assertSame($profile, $profiles->get($identity));
+
+        $cleared = $profiles->save(
+            $identity,
+            [
+                'displayName' => 'Location profile',
+                'countryCode' => 'NA',
+                'stateId' => null,
+                'cityId' => null,
+                'expectedRevision' => 2,
+            ],
+            false,
+        );
+        self::assertNull($cleared['stateId']);
+        self::assertNull($cleared['stateName']);
+        self::assertNull($cleared['cityId']);
+        self::assertNull($cleared['cityName']);
+
+        $this->db->update('country_settings', ['published' => 1], ['country_code' => 'ZA']);
+        $countryChange = [
+            'displayName' => 'Location profile',
+            'countryCode' => 'ZA',
+            'stateId' => null,
+            'cityId' => null,
+            'expectedRevision' => 3,
+        ];
+        $this->problem(
+            422,
+            fn() => $profiles->save($identity, $countryChange, false),
+        );
+        $changed = $profiles->save(
+            $identity,
+            [
+                ...$countryChange,
+                'policyAccepted' => true,
+                'policyId' => $policy['id'],
+                'policyRevision' => $policy['revision'],
+            ],
+            false,
+        );
+        self::assertSame('ZA', $changed['countryCode']);
+        self::assertNull($changed['stateId']);
+        self::assertNull($changed['stateName']);
+        self::assertNull($changed['cityId']);
+        self::assertNull($changed['cityName']);
+        self::assertSame($changed, $profiles->get($identity));
+        self::assertSame(
+            ['country_code' => 'ZA', 'state_id' => null, 'city_id' => null],
+            $this->db->fetchAssociative(
+                'SELECT country_code, state_id, city_id FROM user_profiles WHERE user_id = ?',
+                [$identity->userId],
+            ),
+        );
+    }
+
     public function testInvitationAllowanceDowngradesKeepMembershipAndBlockFurtherAdditions(): void
     {
         $admin = $this->systemOwner();
