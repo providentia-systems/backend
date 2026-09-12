@@ -58,8 +58,7 @@ final class ShoppingLifecycleTest extends TestCase
              reason TEXT, created_at TEXT)',
                 'CREATE TABLE audit_events (id TEXT PRIMARY KEY, home_id TEXT, actor_user_id TEXT, action TEXT,
              target_type TEXT, target_id TEXT, details TEXT, occurred_at TEXT)',
-            ]
-            as $sql
+            ] as $sql
         ) {
             $this->connection->executeStatement($sql);
         }
