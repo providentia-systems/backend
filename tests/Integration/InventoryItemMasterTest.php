@@ -244,6 +244,50 @@ final class InventoryItemMasterTest extends TestCase
         self::assertCount(1, $this->store->categories(self::HOME_ID, true));
     }
 
+    public function testRemovedCountAndReceiptLinesDoNotBlockProductArchival(): void
+    {
+        $this->insertPrivateCategory();
+        $this->insertPrivateProduct();
+        $this->connection->insert('stock_count_sessions', [
+            'id' => 'count', 'home_id' => self::HOME_ID, 'status' => 'open',
+        ]);
+        $this->connection->insert('stock_count_lines', [
+            'session_id' => 'count', 'home_id' => self::HOME_ID,
+            'home_product_id' => self::PRIVATE_PRODUCT_ID, 'status' => 'confirmed',
+        ]);
+        $archive = fn(): array => $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::PRIVATE_PRODUCT_ID,
+            false,
+            null,
+            null,
+            false,
+            null,
+            false,
+            null,
+            'archived',
+            1,
+            new DateTimeImmutable('2026-09-12T12:00:00Z'),
+        );
+        self::assertSame('product-in-use', $archive()['status']);
+        $this->connection->update('stock_count_lines', ['status' => 'removed'], ['session_id' => 'count']);
+        $this->connection->insert('receipts', [
+            'id' => 'receipt', 'home_id' => self::HOME_ID, 'status' => 'draft',
+        ]);
+        $this->connection->insert('receipt_lines', [
+            'receipt_id' => 'receipt', 'home_id' => self::HOME_ID,
+            'home_product_id' => self::PRIVATE_PRODUCT_ID, 'approval_status' => 'approved',
+        ]);
+        self::assertSame('product-in-use', $archive()['status']);
+        $this->connection->update('receipt_lines', ['approval_status' => 'removed'], ['receipt_id' => 'receipt']);
+        $saved = $archive();
+        self::assertSame('updated', $saved['status']);
+        self::assertSame('archived', $saved['record']['status']);
+        self::assertSame(2, $saved['record']['revision']);
+        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM stock_count_lines'));
+        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM receipt_lines'));
+    }
+
     public function testCategoryUniqueConstraintRaceIsTranslatedToADomainConflict(): void
     {
         $candidate = '01912345-6789-7abc-cdef-3123456789ab';
@@ -409,7 +453,8 @@ final class InventoryItemMasterTest extends TestCase
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, status TEXT NOT NULL
             )',
             'CREATE TABLE receipt_lines (
-                receipt_id TEXT NOT NULL, home_id TEXT NOT NULL, home_product_id TEXT NULL
+                receipt_id TEXT NOT NULL, home_id TEXT NOT NULL, home_product_id TEXT NULL,
+                approval_status TEXT NOT NULL DEFAULT \'pending\'
             )',
         ];
     }

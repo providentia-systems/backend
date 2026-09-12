@@ -75,7 +75,9 @@ final class HouseholdPlaceLifecycleTest extends TestCase
             $this->at,
         );
         self::assertSame('location-in-use', $blocked['status']);
-        self::assertSame(1, (int) $this->inventory->location('home', 'location')['revision']);
+        $location = $this->inventory->location('home', 'location');
+        self::assertNotNull($location);
+        self::assertSame(1, (int) $location['revision']);
         $this->connection->update('stock_count_sessions', ['status' => 'closed'], ['id' => 'count']);
         $removed = $this->inventory->updateLocation(
             'home',
@@ -104,6 +106,7 @@ final class HouseholdPlaceLifecycleTest extends TestCase
             2,
             $this->at,
         );
+        self::assertSame('updated', $restored['status']);
         self::assertSame('Cupboard', $restored['record']['name']);
         self::assertSame(3, $restored['record']['revision']);
         self::assertSame(
@@ -168,6 +171,7 @@ final class HouseholdPlaceLifecycleTest extends TestCase
             2,
             $this->at,
         );
+        self::assertSame('updated', $restored['status']);
         self::assertSame(3, $restored['record']['revision']);
         self::assertSame('City', $restored['record']['location']);
         self::assertSame(
@@ -206,7 +210,9 @@ final class HouseholdPlaceLifecycleTest extends TestCase
         $transactions = $this->createStub(TransactionManager::class);
         $transactions
             ->method('transactional')
-            ->willReturnCallback(fn(callable $work): mixed => $this->connection->transactional($work));
+            ->willReturnCallback(
+                fn(callable $work): mixed => $this->connection->transactional(static fn(): mixed => $work()),
+            );
         $changes = $this->createMock(ChangeFeedWriter::class);
         $changes
             ->expects(self::once())
