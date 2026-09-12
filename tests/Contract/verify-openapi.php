@@ -8,6 +8,8 @@ $path = $root . '/contracts/openapi/providentia-v1.json';
 $source = (string) file_get_contents($path);
 $contract = json_decode($source, true, 512, JSON_THROW_ON_ERROR);
 $expected = [
+    '/api/v1/catalog-admin/entities/{entityType}' => ['get' => 'listCatalogEntities'],
+    '/api/v1/catalog-admin/entities/{entityType}/{entityId}' => ['put' => 'saveCatalogEntity'],
     '/api/v1/auth/email-codes' => ['post' => 'requestEmailCode'],
     '/api/v1/auth/email-codes/verify' => ['post' => 'verifyEmailCode'],
     '/api/v1/me/profile' => [
@@ -318,9 +320,9 @@ foreach ($contract['paths'] as $pathTemplate => $pathItem) {
         }
     }
 }
-if (count($contract['paths']) !== 174 || $operationCount !== 208) {
+if (count($contract['paths']) !== 176 || $operationCount !== 210) {
     throw new RuntimeException(
-        'API 2.0 must expose exactly 174 paths and 208 operations.',
+        'API 2.0 must expose exactly 176 paths and 210 operations.',
     );
 }
 // Zero-password guarantee: no human-account password, registration, or
@@ -1337,7 +1339,7 @@ if (
     ?? null) !== 1
     || ($contract['components']['schemas']['SyncPushRequestV2']['properties']['protocolVersion']['const']
     ?? null) !== 2
-    || ($contract['info']['version'] ?? '') !== '2.0.0'
+    || ($contract['info']['version'] ?? '') !== '2.1.0'
     || stripos($source, 'magic-link') !== false
     || stripos($source, 'magiclink') !== false
     || isset($contract['paths']['/api/v1/auth/magic-links'])

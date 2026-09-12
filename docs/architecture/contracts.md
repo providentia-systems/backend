@@ -17,7 +17,7 @@ Every contract file has a SHA-256 lock manifest. Changing bytes requires:
    launch, deprecation and migration plans become explicit release requirements.
 
 Phase 1 introduced liveness, readiness, safe system information, and
-operational metrics. API 2.0.0 contains numeric email-code authentication, profiles, verified email
+operational metrics. API 2.1.0 contains numeric email-code authentication, profiles, verified email
 aliases, scoped groups, home membership and operator inspection alongside
 inventory, catalog and synchronization operations. RFC 9457 problem
 details include a request correlation ID. The implementation and contract must

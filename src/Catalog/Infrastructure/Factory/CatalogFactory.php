@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Providentia\Catalog\Infrastructure\Factory;
 
 use Doctrine\DBAL\Connection;
+use Providentia\Catalog\Application\CatalogMaintenanceService;
+use Providentia\Catalog\Http\CatalogMaintenanceHandler;
 use Providentia\Catalog\Application\CatalogAuthorization;
 use Providentia\Catalog\Application\CatalogGovernanceService;
 use Providentia\Catalog\Application\CatalogGovernanceStore;
@@ -29,6 +31,15 @@ final class CatalogFactory
     public function __invoke(ContainerInterface $container, string $requestedName): object
     {
         return match (true) {
+            $requestedName === CatalogMaintenanceService::class => new CatalogMaintenanceService(
+                $container->get(DbalCatalogGovernanceStore::class),
+                $container->get(CatalogAuthorization::class),
+                $container->get(Clock::class),
+                $container->get(TransactionManager::class),
+            ),
+            $requestedName === CatalogMaintenanceHandler::class => new CatalogMaintenanceHandler(
+                $container->get(CatalogMaintenanceService::class),
+            ),
             $requestedName === DbalCatalogStore::class => new DbalCatalogStore(
                 $container->get(Connection::class),
                 $container->get(UuidGenerator::class),

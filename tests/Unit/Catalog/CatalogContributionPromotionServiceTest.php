@@ -216,6 +216,8 @@ final class CatalogContributionPromotionServiceTest extends TestCase
                     'canonicalName' => 'Rolled oats',
                     'brand' => 'Example',
                     'categoryId' => self::CATEGORY,
+                    'packText' => null,
+                    'barcode' => null,
                 ])
                 ->willReturn(null);
             $store->expects(self::once())->method('createProposal');
