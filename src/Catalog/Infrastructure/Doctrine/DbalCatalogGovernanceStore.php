@@ -749,22 +749,21 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
                 throw new DomainException('A matching product was published concurrently.');
             }
 
-            if (array_key_exists('packText', $payload)) {
-                $packId = $this->ids->generate();
-                $this->saveEntity('pack', $packId, [
-                    'productId' => $entityId, 'variantId' => null, 'unitId' => null,
-                    'originalPackText' => trim((string) $payload['packText']) ?: 'Unspecified pack',
-                    'amount' => null, 'multiplicity' => '1',
-                ], 'published', 0, 'Pack from approved product contribution', $actorUserId, $at);
-                if (isset($payload['barcode']) && trim((string) $payload['barcode']) !== '') {
-                    $barcode = trim((string) $payload['barcode']);
-                    $kind = ctype_digit($barcode) && in_array(strlen($barcode), [8, 12, 13, 14], true)
-                        ? 'gtin-' . strlen($barcode) : 'other';
-                    $this->saveEntity('barcode', $this->ids->generate(), [
-                        'packId' => $packId, 'barcode' => $barcode, 'barcodeType' => $kind,
-                    ], 'published', 0, 'Barcode from approved product contribution', $actorUserId, $at);
-                }
+            $packId = $this->ids->generate();
+            $this->saveEntity('pack', $packId, [
+                'productId' => $entityId, 'variantId' => null, 'unitId' => null,
+                'originalPackText' => trim((string) ($payload['packText'] ?? null)) ?: 'Unspecified pack',
+                'amount' => null, 'multiplicity' => '1',
+            ], 'published', 0, 'Pack from approved product proposal', $actorUserId, $at);
+            if (isset($payload['barcode']) && trim((string) $payload['barcode']) !== '') {
+                $barcode = trim((string) $payload['barcode']);
+                $kind = ctype_digit($barcode) && in_array(strlen($barcode), [8, 12, 13, 14], true)
+                    ? 'gtin-' . strlen($barcode) : 'other';
+                $this->saveEntity('barcode', $this->ids->generate(), [
+                    'packId' => $packId, 'barcode' => $barcode, 'barcodeType' => $kind,
+                ], 'published', 0, 'Barcode from approved product proposal', $actorUserId, $at);
             }
+
             return ['entityType' => 'product', 'entityId' => $entityId];
         }
         if ($type === 'pack') {
