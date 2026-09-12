@@ -1,8 +1,10 @@
 # Product lifecycle integration — API 2.1.0
 
 This implementation coordinates `providentia-systems/backend`,
-`providentia-systems/client` and `providentia-systems/admin` on
-`feat/product-lifecycle-integration`. The product name is Providentia.
+`providentia-systems/client` and `providentia-systems/admin`. Backend PR #22 uses
+`feat/product-lifecycle-integration`; Client PR #18 and Admin PR #10 use
+`feat/complete-lifecycle-integration` after the earlier client branches merged.
+The product name is Providentia.
 
 This is a source contract and acceptance guide, not evidence about a particular
 running deployment. A healthy older image does not prove the new operations exist.

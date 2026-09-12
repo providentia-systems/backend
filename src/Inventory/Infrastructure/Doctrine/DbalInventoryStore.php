@@ -725,6 +725,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                      INNER JOIN receipts r
                        ON r.id = rl.receipt_id AND r.home_id = rl.home_id
                      WHERE rl.home_id = :home AND rl.home_product_id = :product
+                       AND rl.approval_status <> :removed
                        AND r.status NOT IN (:committed, :cancelled))',
                 [
                     'home' => $homeId,

@@ -1667,21 +1667,6 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
         );
     }
 
-    private function assertOptionalChild(string $table, mixed $id, string $productId): void
-    {
-        if ($id === null || $id === '') {
-            return;
-        }
-        $count = $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM ' . $table . '
-             WHERE id = :id AND product_id = :product AND status <> :archived',
-            ['id' => $id, 'product' => $productId, 'archived' => 'archived'],
-        );
-        if ((int) $count !== 1) {
-            throw new DomainException('The proposed catalog child does not belong to its product.');
-        }
-    }
-
     private function exists(string $table, string $id, string $status): bool
     {
         return (int) $this->connection->fetchOne(

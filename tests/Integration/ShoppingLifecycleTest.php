@@ -92,7 +92,9 @@ final class ShoppingLifecycleTest extends TestCase
         self::assertTrue($this->store->updateLine('home', 'list', 'line', 'Brown rice', '3.5', false, 3, $this->at));
         self::assertNull($this->store->lines('home', 'list')[0]['archivedAt']);
         self::assertSame('Added manually.', $this->store->lines('home', 'list')[0]['explanation']);
-        self::assertSame(5, (int) $this->store->shoppingList('home', 'list')['revision']);
+        $list = $this->store->shoppingList('home', 'list');
+        self::assertNotNull($list);
+        self::assertSame(5, (int) $list['revision']);
     }
 
     public function testServicePublishesLineAndParentRevisionInsideTheMutationTransaction(): void
@@ -103,7 +105,7 @@ final class ShoppingLifecycleTest extends TestCase
         $clock->method('now')->willReturn($this->at);
         $transactions = $this->createStub(TransactionManager::class);
         $transactions->method('transactional')->willReturnCallback(
-            fn(callable $operation): mixed => $this->connection->transactional($operation),
+            fn(callable $operation): mixed => $this->connection->transactional(static fn(): mixed => $operation()),
         );
         /** @var list<array{string, int, array<string, mixed>}> $published */
         $published = [];
@@ -175,7 +177,9 @@ final class ShoppingLifecycleTest extends TestCase
         $transactions = $this->createStub(TransactionManager::class);
         $transactions
             ->method('transactional')
-            ->willReturnCallback(fn(callable $operation): mixed => $this->connection->transactional($operation));
+            ->willReturnCallback(
+                fn(callable $operation): mixed => $this->connection->transactional(static fn(): mixed => $operation()),
+            );
         $ids = new SequenceUuidGenerator();
         $intelligence = new ShoppingIntelligenceService(
             new DbalShoppingIntelligenceStore($this->connection),
@@ -208,6 +212,7 @@ final class ShoppingLifecycleTest extends TestCase
         self::assertSame('active', $this->connection->fetchOne('SELECT status FROM shopping_suggestions'));
         $created = $service->addLine($identity, 'home', 'list', 1, 'product', 'Rice', '3', null, 'suggestion');
         $line = $this->store->line('home', 'list', $created['id']);
+        self::assertNotNull($line);
         self::assertSame('suggested', $line['source']);
         self::assertSame('suggestion', $line['suggestionId']);
         self::assertSame('pack', $line['selectedPackId']);
@@ -215,7 +220,9 @@ final class ShoppingLifecycleTest extends TestCase
         self::assertSame($created['id'], $this->connection->fetchOne('SELECT id FROM user_suggestion_feedback'));
         $service->updateLine($identity, 'home', 'list', $created['id'], 'Rice', '4', false, 1);
         self::assertSame(2, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM user_suggestion_feedback'));
-        self::assertSame('suggestion', $this->store->line('home', 'list', $created['id'])['suggestionId']);
+        $updatedLine = $this->store->line('home', 'list', $created['id']);
+        self::assertNotNull($updatedLine);
+        self::assertSame('suggestion', $updatedLine['suggestionId']);
     }
 
     public function testListLifecycleRequiresCurrentRevisionAndKeepsTenantBoundaries(): void
@@ -238,6 +245,8 @@ final class ShoppingLifecycleTest extends TestCase
         ));
         self::assertFalse($this->store->updateList('home', 'list', 'Stale', 'open', 1, $this->at));
         self::assertTrue($this->store->updateList('home', 'list', 'Month end', 'open', 2, $this->at));
-        self::assertSame('open', $this->store->shoppingList('home', 'list')['status']);
+        $list = $this->store->shoppingList('home', 'list');
+        self::assertNotNull($list);
+        self::assertSame('open', $list['status']);
     }
 }

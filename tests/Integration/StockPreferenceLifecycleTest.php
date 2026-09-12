@@ -69,7 +69,9 @@ final class StockPreferenceLifecycleTest extends TestCase
                     self::assertTrue($this->connection->isTransactionActive());
                     self::assertSame('shopping-stock-preference', $type);
                     self::assertSame('product', $fields['homeProductId']);
-                    self::assertSame($revision, (int) $this->store->preference($home, $id)['revision']);
+                    $stored = $this->store->preference($home, $id);
+                    self::assertNotNull($stored);
+                    self::assertSame($revision, (int) $stored['revision']);
                     return $revision;
                 },
             );
@@ -99,7 +101,9 @@ final class StockPreferenceLifecycleTest extends TestCase
         } catch (Problem $problem) {
             self::assertSame(409, $problem->status);
         }
-        self::assertNull($this->store->preference('home', 'product')['minimumQuantity']);
+        $stored = $this->store->preference('home', 'product');
+        self::assertNotNull($stored);
+        self::assertNull($stored['minimumQuantity']);
     }
 
     public function testRevokedShoppingPermissionPreventsEveryMutation(): void
@@ -130,7 +134,9 @@ final class StockPreferenceLifecycleTest extends TestCase
         $transactions = $this->createStub(TransactionManager::class);
         $transactions
             ->method('transactional')
-            ->willReturnCallback(fn(callable $operation): mixed => $this->connection->transactional($operation));
+            ->willReturnCallback(
+                fn(callable $operation): mixed => $this->connection->transactional(static fn(): mixed => $operation()),
+            );
         $ids = $this->createStub(UuidGenerator::class);
         $id = 0;
         $ids->method('generate')->willReturnCallback(static function () use (&$id): string {
