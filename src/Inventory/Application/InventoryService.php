@@ -8,7 +8,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use DomainException;
 use InvalidArgumentException;
-use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermissionAuthorizer;
 use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Domain\DecimalQuantity;
@@ -22,7 +22,7 @@ final class InventoryService implements InventoryMovementGateway
 {
     public function __construct(
         private readonly InventoryStore $inventory,
-        private readonly HomeAuthorization $authorization,
+        private readonly HomePermissionAuthorizer $authorization,
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
@@ -166,11 +166,108 @@ final class InventoryService implements InventoryMovementGateway
     }
 
     /** @return list<array<string, mixed>> */
-    public function locations(AuthenticatedIdentity $identity, string $homeId): array
-    {
+    public function locations(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        bool $includeArchived = false,
+    ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_READ);
 
-        return $this->inventory->locations($homeId);
+        return $this->inventory->locations($homeId, $includeArchived);
+    }
+
+    /** @return array<string, mixed> */
+    public function updateLocation(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $locationId,
+        ?string $name,
+        ?string $kind,
+        ?string $status,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
+        if ($expectedRevision < 1 || ($name === null && $kind === null && $status === null)) {
+            throw new Problem(
+                422,
+                'Invalid location',
+                'A positive revision and a metadata change are required.',
+            );
+        }
+        $name = $name === null ? null : trim($name);
+        if ($name !== null && ($name === '' || mb_strlen($name) > 120)) {
+            throw new Problem(422, 'Invalid location', 'Name must contain 1 to 120 characters.');
+        }
+        if (
+            $kind !== null &&
+            !in_array($kind, ['pantry', 'shelf', 'fridge', 'freezer', 'household', 'other'], true)
+        ) {
+            throw new Problem(422, 'Invalid location', 'Location kind is not supported.');
+        }
+        if ($status !== null && !in_array($status, ['active', 'archived'], true)) {
+            throw new Problem(422, 'Invalid location', 'Status must be active or archived.');
+        }
+        $at = $this->clock->now();
+        try {
+            $result = $this->transactions->transactional(function () use (
+                $identity,
+                $homeId,
+                $locationId,
+                $name,
+                $kind,
+                $status,
+                $expectedRevision,
+                $at,
+            ): array {
+                $this->access->serialize('home', $homeId);
+                $current = $this->inventory->location($homeId, $locationId);
+                if ($status === 'active' && $current !== null && $current['status'] !== 'active') {
+                    $this->access->requireCapacity('home', $homeId, 'locations.total');
+                }
+                $result = $this->inventory->updateLocation(
+                    $homeId,
+                    $locationId,
+                    $name,
+                    $name === null ? null : $this->normalize($name),
+                    $kind,
+                    $status,
+                    $expectedRevision,
+                    $at,
+                );
+                if ($result['status'] === 'updated') {
+                    $record = $result['record'];
+                    $this->changes?->put(
+                        $homeId,
+                        $identity->userId,
+                        'inventory-location',
+                        $locationId,
+                        (int) $record['revision'],
+                        ['name' => $record['name'], 'kind' => $record['kind'], 'status' => $record['status']],
+                        $at,
+                    );
+                }
+
+                return $result;
+            });
+        } catch (DomainException $error) {
+            throw new Problem(422, 'Invalid location', $error->getMessage());
+        }
+
+        return match ($result['status']) {
+            'updated' => $result['record'],
+            'not-found' => throw new Problem(404, 'Not found', 'The location is unavailable.'),
+            'revision-conflict' => throw new Problem(
+                409,
+                'Revision conflict',
+                'The location changed on another device.',
+            ),
+            'location-in-use' => throw new Problem(
+                409,
+                'Location in use',
+                'Close the open count before removing this location.',
+            ),
+            default => throw new \LogicException('Unknown location update result.'),
+        };
     }
 
     /** @return array{id: string} */
@@ -186,24 +283,35 @@ final class InventoryService implements InventoryMovementGateway
         if ($name === '' || mb_strlen($name) > 120) {
             throw new Problem(422, 'Invalid location', 'Location name must contain 1 to 120 characters.');
         }
-        if (! in_array($kind, ['pantry', 'shelf', 'fridge', 'freezer', 'household', 'other'], true)) {
+        if (!in_array($kind, ['pantry', 'shelf', 'fridge', 'freezer', 'household', 'other'], true)) {
             throw new Problem(422, 'Invalid location', 'Location kind is not supported.');
         }
         $id = $this->identifier($requestedId);
         $at = $this->clock->now();
-        $this->transactions->transactional(function () use ($id, $homeId, $name, $kind, $identity, $at): void {
-            $this->access->requireCapacity('home', $homeId, 'locations.total');
-                $this->inventory->createLocation($id, $homeId, $name, $this->normalize($name), $kind, $at);
-            $this->changes?->put(
-                $homeId,
-                $identity->userId,
-                'inventory-location',
+        try {
+            $this->transactions->transactional(function () use (
                 $id,
-                1,
-                ['name' => $name, 'kind' => $kind, 'status' => 'active'],
+                $homeId,
+                $name,
+                $kind,
+                $identity,
                 $at,
-            );
-        });
+            ): void {
+                $this->access->requireCapacity('home', $homeId, 'locations.total');
+                $this->inventory->createLocation($id, $homeId, $name, $this->normalize($name), $kind, $at);
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'inventory-location',
+                    $id,
+                    1,
+                    ['name' => $name, 'kind' => $kind, 'status' => 'active'],
+                    $at,
+                );
+            });
+        } catch (DomainException $error) {
+            throw new Problem(422, 'Invalid location', $error->getMessage());
+        }
 
         return ['id' => $id];
     }
@@ -712,12 +820,16 @@ final class InventoryService implements InventoryMovementGateway
                 ],
                 $this->clock->now(),
             );
+            $updatedSession = $this->inventory->countSession($homeId, $sessionId);
+            if ($updatedSession === null) {
+                throw new \LogicException('The updated count session is unavailable.');
+            }
             $this->changes?->put(
                 $homeId,
                 $identity->userId,
                 'inventory-count-session',
                 $sessionId,
-                (int) $session['revision'] + 1,
+                (int) $updatedSession['revision'],
                 [
                     'locationId' => $session['locationId'] ?? null,
                     'notes' => (string) ($session['notes'] ?? ''),
@@ -734,6 +846,83 @@ final class InventoryService implements InventoryMovementGateway
             }
 
             return $this->stockCountLine($line);
+        });
+    }
+
+    /** @return array{id: string, sessionId: string, revision: int, status: string} */
+    public function removeCountLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $sessionId,
+        string $lineId,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
+        if ($expectedRevision < 1) {
+            throw new Problem(422, 'Invalid count line', 'A positive expectedRevision is required.');
+        }
+        return $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $sessionId,
+            $lineId,
+            $expectedRevision,
+        ): array {
+            $line = $this->inventory->countLine($homeId, $sessionId, $lineId);
+            $session = $this->inventory->countSession($homeId, $sessionId);
+            if ($line === null || $session === null) {
+                throw new Problem(404, 'Not found', 'The count line is unavailable.');
+            }
+            if ((string) $session['status'] !== 'open') {
+                throw new Problem(409, 'Count session closed', 'Only an open count session can be changed.');
+            }
+            $result = [
+                'id' => $lineId,
+                'sessionId' => $sessionId,
+                'revision' => $expectedRevision + 1,
+                'status' => 'removed',
+            ];
+            if ((string) $line['status'] === 'removed' && (int) $line['revision'] === $expectedRevision + 1) {
+                return $result;
+            }
+            $at = $this->clock->now();
+            if (!$this->inventory->removeCountLine($homeId, $sessionId, $lineId, $expectedRevision, $at)) {
+                throw new Problem(
+                    409,
+                    'Revision conflict',
+                    'The count line or session changed on another device.',
+                );
+            }
+            unset($line['id'], $line['revision']);
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'inventory-count-line',
+                $lineId,
+                $expectedRevision + 1,
+                [...$line, 'sessionId' => $sessionId, 'status' => 'removed'],
+                $at,
+            );
+            $updated = $this->inventory->countSession($homeId, $sessionId);
+            if ($updated === null) {
+                throw new \LogicException('The updated count session is unavailable.');
+            }
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'inventory-count-session',
+                $sessionId,
+                (int) $updated['revision'],
+                [
+                    'locationId' => $updated['locationId'] ?? null,
+                    'notes' => (string) ($updated['notes'] ?? ''),
+                    'scopeComplete' => (bool) ($updated['scopeComplete'] ?? false),
+                    'reliability' => (string) ($updated['reliability'] ?? 'unassessed'),
+                    'status' => 'open',
+                ],
+                $at,
+            );
+            return $result;
         });
     }
 

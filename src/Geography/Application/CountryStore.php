@@ -36,6 +36,9 @@ interface CountryStore
      * @param array<string, mixed> $values */
     public function savePolicy(string $id, array $values, int $revision): bool;
 
+    /** @return array<string, mixed>|null Removed draft, or null when used/published/stale. */
+    public function deleteDraftPolicy(string $id, int $revision): ?array;
+
     public function acceptPolicy(string $userId, string $id, int $revision, string $country, string $now): void;
 
     /**

@@ -7,7 +7,7 @@ namespace Providentia\Purchasing\Application;
 use DateTimeImmutable;
 use DomainException;
 use InvalidArgumentException;
-use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermissionAuthorizer;
 use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Application\InventoryMovementGateway;
@@ -24,7 +24,7 @@ final class PurchasingService
     public function __construct(
         private readonly PurchasingStore $purchases,
         private readonly InventoryMovementGateway $inventory,
-        private readonly HomeAuthorization $authorization,
+        private readonly HomePermissionAuthorizer $authorization,
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
@@ -72,6 +72,108 @@ final class PurchasingService
         return $receipt;
     }
 
+    /** @return list<array<string, mixed>> */
+    public function stores(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        bool $includeArchived = false,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_READ);
+
+        return $this->purchases->stores($homeId, $includeArchived);
+    }
+
+    /** @return array<string, mixed> */
+    public function updateStore(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $storeId,
+        ?string $name,
+        ?string $location,
+        ?string $status,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
+        if ($expectedRevision < 1 || ($name === null && $location === null && $status === null)) {
+            throw new Problem(
+                422,
+                'Invalid store',
+                'A positive revision and a metadata change are required.',
+            );
+        }
+        $name = $name === null ? null : trim($name);
+        if ($name !== null && ($name === '' || mb_strlen($name) > 191)) {
+            throw new Problem(422, 'Invalid store', 'Name must contain 1 to 191 characters.');
+        }
+        $location = $location === null ? null : trim($location);
+        if ($location !== null && mb_strlen($location) > 191) {
+            throw new Problem(422, 'Invalid store', 'Store location exceeds 191 characters.');
+        }
+        if ($status !== null && !in_array($status, ['active', 'archived'], true)) {
+            throw new Problem(422, 'Invalid store', 'Status must be active or archived.');
+        }
+        $at = $this->clock->now();
+        try {
+            $result = $this->transactions->transactional(function () use (
+                $identity,
+                $homeId,
+                $storeId,
+                $name,
+                $location,
+                $status,
+                $expectedRevision,
+                $at,
+            ): array {
+                $result = $this->purchases->updateStore(
+                    $homeId,
+                    $storeId,
+                    $name,
+                    $name === null ? null : $this->normalize($name),
+                    $location,
+                    $status,
+                    $expectedRevision,
+                    $at,
+                );
+                if ($result['status'] === 'updated') {
+                    $record = $result['record'];
+                    $this->changes?->put(
+                        $homeId,
+                        $identity->userId,
+                        'purchasing-store',
+                        $storeId,
+                        (int) $record['revision'],
+                        [
+                            'name' => $record['name'],
+                            'location' => $record['location'],
+                            'status' => $record['status'],
+                        ],
+                        $at,
+                    );
+                }
+
+                return $result;
+            });
+        } catch (DomainException $error) {
+            throw new Problem(422, 'Invalid store', $error->getMessage());
+        }
+
+        return match ($result['status']) {
+            'updated' => $result['record'],
+            'not-found' => throw new Problem(404, 'Not found', 'The store is unavailable.'),
+            'revision-conflict' => throw new Problem(
+                409,
+                'Revision conflict',
+                'The store changed on another device.',
+            ),
+            'store-in-use' => throw new Problem(
+                409,
+                'Store in use',
+                'Finish or discard draft receipts before removing this store.',
+            ),
+            default => throw new \LogicException('Unknown store update result.'),
+        };
+    }
+
     /** @return array{id: string} */
     public function createStore(
         AuthenticatedIdentity $identity,
@@ -89,30 +191,37 @@ final class PurchasingService
         $normalized = $this->normalize($name);
         $existing = $this->purchases->storeByName($homeId, $normalized, $location);
         if ($existing !== null) {
+            if ($requestedId !== null && $requestedId !== (string) $existing['id']) {
+                throw new Problem(409, 'Store exists', 'Select the existing store after synchronization.');
+            }
             return ['id' => (string) $existing['id']];
         }
         $id = $this->identifier($requestedId);
         $at = $this->clock->now();
-        $this->transactions->transactional(function () use (
-            $id,
-            $homeId,
-            $name,
-            $normalized,
-            $location,
-            $identity,
-            $at,
-        ): void {
-            $this->purchases->createStore($id, $homeId, $name, $normalized, $location, $at);
-            $this->changes?->put(
-                $homeId,
-                $identity->userId,
-                'purchasing-store',
+        try {
+            $this->transactions->transactional(function () use (
                 $id,
-                1,
-                ['name' => $name, 'location' => $location, 'status' => 'active'],
+                $homeId,
+                $name,
+                $normalized,
+                $location,
+                $identity,
                 $at,
-            );
-        });
+            ): void {
+                $this->purchases->createStore($id, $homeId, $name, $normalized, $location, $at);
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'purchasing-store',
+                    $id,
+                    1,
+                    ['name' => $name, 'location' => $location, 'status' => 'active'],
+                    $at,
+                );
+            });
+        } catch (DomainException $error) {
+            throw new Problem(422, 'Invalid store', $error->getMessage());
+        }
 
         return ['id' => $id];
     }
@@ -465,6 +574,197 @@ final class PurchasingService
         });
     }
 
+    /**
+     * @param array<string, mixed> $fields
+     * @return array{id: string, revision: int}
+     */
+    public function updateReceipt(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        array $fields,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
+        $this->draftFields($fields, ['storeId', 'purchaseDate', 'currency', 'totalAmount', 'notes']);
+        if (! is_string($fields['purchaseDate'])
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/', $fields['purchaseDate']) !== 1
+            || ! is_string($fields['notes'])) {
+            throw new Problem(422, 'Invalid receipt', 'Provide a calendar date and text notes.');
+        }
+        $date = $this->date($fields['purchaseDate'])->format('Y-m-d');
+        $currency = (string) $fields['currency'];
+        $notes = trim((string) $fields['notes']);
+        if (preg_match('/^[A-Z]{3}$/', $currency) !== 1 || mb_strlen($notes) > 2000) {
+            throw new Problem(422, 'Invalid receipt', 'Provide a currency and notes of at most 2000 characters.');
+        }
+        $total = $this->money($fields['totalAmount'] === null ? null : (string) $fields['totalAmount'], true);
+        $storeId = $fields['storeId'] === null ? null : $this->identifier((string) $fields['storeId']);
+        return $this->changeDraftReceipt($identity, $homeId, $receiptId, [
+            'store_id' => $storeId,
+            'purchase_date' => $date,
+            'currency' => $currency,
+            'total_amount' => $total,
+            'notes' => $notes,
+        ], $expectedRevision);
+    }
+
+    /** @return array{id: string, revision: int} */
+    public function cancelReceipt(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
+        return $this->changeDraftReceipt($identity, $homeId, $receiptId, ['status' => 'cancelled'], $expectedRevision);
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     * @return array{id: string, revision: int}
+     */
+    public function updateLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        array $fields,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
+        $this->draftFields($fields, ['rawDescription', 'quantity', 'originalPackText', 'unitPrice', 'lineTotal']);
+        $description = trim((string) $fields['rawDescription']);
+        $pack = $fields['originalPackText'] === null ? null : trim((string) $fields['originalPackText']);
+        $quantity = $this->quantity((string) $fields['quantity']);
+        if ($description === '' || mb_strlen($description) > 500 || ($pack !== null && mb_strlen($pack) > 191)
+            || DecimalQuantity::quantity($quantity)->isZero()) {
+            throw new Problem(422, 'Invalid receipt line', 'Provide a description, positive quantity and pack text.');
+        }
+        $price = $this->money($fields['unitPrice'] === null ? null : (string) $fields['unitPrice'], true);
+        $total = $this->money($fields['lineTotal'] === null ? null : (string) $fields['lineTotal'], true);
+        if ($price === null && $total === null) {
+            throw new Problem(422, 'Invalid receipt line', 'A unit price or line total is required.');
+        }
+        return $this->changeDraftLine($identity, $homeId, $receiptId, $lineId, [
+            'raw_description' => $description,
+            'quantity' => $quantity,
+            'original_pack_text' => $pack,
+            'unit_price' => $price,
+            'line_total' => $total,
+            'approval_status' => 'unreviewed',
+        ], $expectedRevision);
+    }
+
+    /** @return array{id: string, revision: int} */
+    public function removeLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
+        return $this->changeDraftLine(
+            $identity, $homeId, $receiptId, $lineId, ['approval_status' => 'removed'], $expectedRevision,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     * @param list<string> $keys
+     */
+    private function draftFields(array $fields, array $keys): void
+    {
+        if (array_diff(array_keys($fields), $keys) !== [] || array_diff($keys, array_keys($fields)) !== []) {
+            throw new Problem(422, 'Invalid draft change', 'Provide exactly the editable draft fields.');
+        }
+        foreach ($fields as $value) {
+            if ($value !== null && ! is_string($value)) {
+                throw new Problem(422, 'Invalid draft change', 'Draft fields must be text or nullable values.');
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     * @return array{id: string, revision: int}
+     */
+    private function changeDraftReceipt(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        array $fields,
+        int $expectedRevision,
+    ): array {
+        try {
+            return $this->transactions->transactional(function () use (
+                $identity, $homeId, $receiptId, $fields, $expectedRevision,
+            ): array {
+                $this->requireDraft($homeId, $receiptId);
+                if ($expectedRevision < 1 || ! $this->purchases->updateDraftReceipt(
+                    $homeId, $receiptId, $fields, $expectedRevision, $this->clock->now(),
+                )) {
+                    throw new Problem(409, 'Revision conflict', 'Refresh this draft receipt before changing it.');
+                }
+                $this->publishDraftReceipt($identity, $homeId, $receiptId);
+                return ['id' => $receiptId, 'revision' => $expectedRevision + 1];
+            });
+        } catch (DomainException $error) {
+            throw new Problem(409, 'Draft receipt conflict', $error->getMessage());
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     * @return array{id: string, revision: int}
+     */
+    private function changeDraftLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        array $fields,
+        int $expectedRevision,
+    ): array {
+        return $this->transactions->transactional(function () use (
+            $identity, $homeId, $receiptId, $lineId, $fields, $expectedRevision,
+        ): array {
+            $this->requireDraft($homeId, $receiptId);
+            if ($expectedRevision < 1 || ! $this->purchases->updateDraftReceiptLine(
+                $homeId, $receiptId, $lineId, $fields, $expectedRevision, $this->clock->now(),
+            )) {
+                throw new Problem(409, 'Revision conflict', 'Refresh this draft receipt line before changing it.');
+            }
+            $line = $this->purchases->receiptLine($homeId, $receiptId, $lineId);
+            if ($line === null) {
+                throw new \RuntimeException('The updated receipt line is unavailable.');
+            }
+            $revision = (int) $line['revision'];
+            unset($line['id'], $line['revision']);
+            $this->changes?->put(
+                $homeId, $identity->userId, 'purchasing-receipt-line', $lineId, $revision, $line, $this->clock->now(),
+            );
+            $this->publishDraftReceipt($identity, $homeId, $receiptId);
+            return ['id' => $lineId, 'revision' => $revision];
+        });
+    }
+
+    private function publishDraftReceipt(AuthenticatedIdentity $identity, string $homeId, string $receiptId): void
+    {
+        $receipt = $this->purchases->receipt($homeId, $receiptId);
+        if ($receipt === null) {
+            throw new \RuntimeException('The updated receipt is unavailable.');
+        }
+        $fields = array_intersect_key($receipt, array_flip([
+            'storeId', 'purchaseDate', 'currency', 'totalAmount', 'status', 'source', 'sourceReference', 'notes',
+        ]));
+        $this->changes?->put(
+            $homeId, $identity->userId, 'purchasing-receipt', $receiptId,
+            (int) $receipt['revision'], $fields, $this->clock->now(),
+        );
+    }
+
     /** @return array{receiptId: string, movements: int} */
     public function commit(
         AuthenticatedIdentity $identity,
@@ -508,7 +808,10 @@ final class PurchasingService
                 ],
                 $this->clock->now(),
             );
-            $lines = $this->purchases->receiptLines($homeId, $receiptId);
+            $lines = array_values(array_filter(
+                $this->purchases->receiptLines($homeId, $receiptId),
+                static fn (array $line): bool => $line['approvalStatus'] !== 'removed',
+            ));
             if ($lines === []) {
                 throw new Problem(422, 'Empty receipt', 'At least one receipt line is required.');
             }

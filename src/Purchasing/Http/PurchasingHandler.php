@@ -30,6 +30,9 @@ final class PurchasingHandler implements RequestHandlerInterface
         /** @var array<string, mixed> $body */
         $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
         $query = $request->getQueryParams();
+        if ($this->action === 'stores.update') {
+            $this->validateStoreUpdate($body);
+        }
 
         return match ($this->action) {
             'history' => new JsonResponse(['data' => $this->purchases->history(
@@ -41,12 +44,29 @@ final class PurchasingHandler implements RequestHandlerInterface
                 (int) ($query['limit'] ?? 50),
                 (int) ($query['offset'] ?? 0),
             )]),
+            'update', 'cancel', 'lines.update', 'lines.remove' => $this->draftMutation(
+                $identity, $homeId, $receiptId, $request, $body,
+            ),
             'get' => new JsonResponse($this->purchases->receipt($identity, $homeId, $receiptId)),
             'summary' => new JsonResponse($this->purchases->summary(
                 $identity,
                 $homeId,
                 (int) ($query['recentDays'] ?? 90),
             )),
+            'stores.update' => new JsonResponse($this->purchases->updateStore(
+                $identity,
+                $homeId,
+                (string) $request->getAttribute('storeId', ''),
+                array_key_exists('name', $body) ? (string) $body['name'] : null,
+                array_key_exists('location', $body) ? (string) $body['location'] : null,
+                array_key_exists('status', $body) ? (string) $body['status'] : null,
+                (int) ($body['expectedRevision'] ?? 0),
+            )),
+            'stores.list' => new JsonResponse(['data' => $this->purchases->stores(
+                $identity,
+                $homeId,
+                filter_var($query['includeArchived'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            )]),
             'stores.create' => new JsonResponse($this->purchases->createStore(
                 $identity,
                 $homeId,
@@ -90,6 +110,32 @@ final class PurchasingHandler implements RequestHandlerInterface
             )),
             default => throw new \LogicException('Unknown purchasing action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function draftMutation(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        ServerRequestInterface $request,
+        array $body,
+    ): ResponseInterface {
+        $revision = $body['expectedRevision'] ?? null;
+        if (! is_int($revision) || $revision < 1) {
+            throw new HttpProblem(422, 'Invalid draft change', 'A positive expectedRevision is required.');
+        }
+        unset($body['expectedRevision']);
+        if (in_array($this->action, ['cancel', 'lines.remove'], true) && $body !== []) {
+            throw new HttpProblem(422, 'Invalid draft change', 'Only expectedRevision is accepted.');
+        }
+        $lineId = (string) $request->getAttribute('lineId', '');
+        return new JsonResponse(match ($this->action) {
+            'update' => $this->purchases->updateReceipt($identity, $homeId, $receiptId, $body, $revision),
+            'cancel' => $this->purchases->cancelReceipt($identity, $homeId, $receiptId, $revision),
+            'lines.update' => $this->purchases->updateLine($identity, $homeId, $receiptId, $lineId, $body, $revision),
+            'lines.remove' => $this->purchases->removeLine($identity, $homeId, $receiptId, $lineId, $revision),
+            default => throw new \LogicException('Unknown draft mutation.'),
+        });
     }
 
     /** @param array<string, mixed> $body */
@@ -140,6 +186,29 @@ final class PurchasingHandler implements RequestHandlerInterface
         );
 
         return new EmptyResponse(204);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function validateStoreUpdate(array $body): void
+    {
+        $fields = ['name', 'location', 'status'];
+        if (
+            !is_int($body['expectedRevision'] ?? null) ||
+            $body['expectedRevision'] < 1 ||
+            count($body) < 2 ||
+            array_diff(array_keys($body), [...$fields, 'expectedRevision']) !== []
+        ) {
+            throw new HttpProblem(
+                422,
+                'Invalid store',
+                'Provide only metadata and a positive expectedRevision.',
+            );
+        }
+        foreach ($fields as $field) {
+            if (array_key_exists($field, $body) && !is_string($body[$field])) {
+                throw new HttpProblem(422, 'Invalid store', 'Metadata values must be strings.');
+            }
+        }
     }
 
     private function identity(ServerRequestInterface $request): AuthenticatedIdentity

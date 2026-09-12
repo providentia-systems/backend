@@ -28,6 +28,9 @@ final class InventoryHandler implements RequestHandlerInterface
         /** @var array<string, mixed> $body */
         $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
         $query = $request->getQueryParams();
+        if ($this->action === 'locations.update') {
+            $this->validateLocationUpdate($body);
+        }
 
         return match ($this->action) {
             'categories.list' => new JsonResponse(['data' => $this->inventory->categories(
@@ -48,7 +51,20 @@ final class InventoryHandler implements RequestHandlerInterface
                 array_key_exists('status', $body) ? (string) $body['status'] : null,
                 (int) ($body['expectedRevision'] ?? 0),
             )),
-            'locations.list' => new JsonResponse(['data' => $this->inventory->locations($identity, $homeId)]),
+            'locations.list' => new JsonResponse(['data' => $this->inventory->locations(
+                $identity,
+                $homeId,
+                $this->booleanQuery($query, 'includeArchived'),
+            )]),
+            'locations.update' => new JsonResponse($this->inventory->updateLocation(
+                $identity,
+                $homeId,
+                (string) $request->getAttribute('locationId', ''),
+                array_key_exists('name', $body) ? (string) $body['name'] : null,
+                array_key_exists('kind', $body) ? (string) $body['kind'] : null,
+                array_key_exists('status', $body) ? (string) $body['status'] : null,
+                (int) ($body['expectedRevision'] ?? 0),
+            )),
             'locations.create' => new JsonResponse($this->inventory->createLocation(
                 $identity,
                 $homeId,
@@ -157,6 +173,7 @@ final class InventoryHandler implements RequestHandlerInterface
                 (string) ($body['notes'] ?? ''),
                 (int) ($body['expectedRevision'] ?? 0),
             )),
+            'counts.line.remove' => $this->removeCountLine($identity, $homeId, $request, $body),
             'counts.close' => new JsonResponse($this->inventory->closeCount(
                 $identity,
                 $homeId,
@@ -188,6 +205,54 @@ final class InventoryHandler implements RequestHandlerInterface
         $value = $query[$field] ?? false;
 
         return $value === true || $value === 1 || $value === '1' || $value === 'true';
+    }
+
+    /** @param array<string, mixed> $body */
+    private function removeCountLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        ServerRequestInterface $request,
+        array $body,
+    ): ResponseInterface {
+        if (
+            count($body) !== 1 ||
+            !is_int($body['expectedRevision'] ?? null) ||
+            $body['expectedRevision'] < 1
+        ) {
+            throw new HttpProblem(422, 'Invalid count line', 'Only a positive expectedRevision is accepted.');
+        }
+        return new JsonResponse(
+            $this->inventory->removeCountLine(
+                $identity,
+                $homeId,
+                (string) $request->getAttribute('sessionId', ''),
+                (string) $request->getAttribute('lineId', ''),
+                $body['expectedRevision'],
+            ),
+        );
+    }
+
+    /** @param array<string, mixed> $body */
+    private function validateLocationUpdate(array $body): void
+    {
+        $fields = ['name', 'kind', 'status'];
+        if (
+            !is_int($body['expectedRevision'] ?? null) ||
+            $body['expectedRevision'] < 1 ||
+            count($body) < 2 ||
+            array_diff(array_keys($body), [...$fields, 'expectedRevision']) !== []
+        ) {
+            throw new HttpProblem(
+                422,
+                'Invalid location',
+                'Provide only metadata and a positive expectedRevision.',
+            );
+        }
+        foreach ($fields as $field) {
+            if (array_key_exists($field, $body) && !is_string($body[$field])) {
+                throw new HttpProblem(422, 'Invalid location', 'Metadata values must be strings.');
+            }
+        }
     }
 
     private function identity(ServerRequestInterface $request): AuthenticatedIdentity

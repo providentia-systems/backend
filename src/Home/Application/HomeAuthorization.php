@@ -9,7 +9,7 @@ use Providentia\Access\Application\AccessService;
 use Providentia\Access\Domain\FeatureCatalog;
 use Providentia\SharedKernel\Application\Problem;
 
-final class HomeAuthorization
+final class HomeAuthorization implements HomePermissionAuthorizer
 {
     public const OWNER = 'owner';
     public const MANAGER = 'manager';

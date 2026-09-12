@@ -15,6 +15,8 @@ interface AccessStore
     /**
      * @param array<string, mixed> $group */
     public function saveGroup(array $group, int $expectedRevision): bool;
+    /** @return array<string, mixed>|null Removed snapshot, or null when referenced/protected/stale. */
+    public function deleteGroup(string $id, int $expectedRevision): ?array;
     /**
      * @return array<string, mixed>|null */
     public function assignment(string $scope, string $subjectId, bool $currentRead = false): ?array;

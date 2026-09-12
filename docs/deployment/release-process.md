@@ -77,7 +77,7 @@ selection. Commit text does not automatically classify breaking changes;
 coordinate API compatibility and store clients before choosing those changes.
 
 The backend binary release and the OpenAPI contract have different lifecycles.
-The current API contract version is **2.0.0**; it does not make the first
+The current API contract version is **2.1.0**; it does not make the first
 backend deployment release `2.0.0`. Existing API contract publication tags
 continue to belong to the Contracts workflow.
 

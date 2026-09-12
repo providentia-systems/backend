@@ -72,6 +72,9 @@ final class AccessHandler implements RequestHandlerInterface
                             : null,
                     ),
                 ],
+                'delete' => $this->access->deleteGroup(
+                    $identity, (string) $request->getAttribute('groupId', ''), $body,
+                ),
                 'create', 'update' => $this->access->saveGroup(
                     $identity,
                     $this->action === 'create'

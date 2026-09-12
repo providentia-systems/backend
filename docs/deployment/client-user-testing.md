@@ -1,8 +1,7 @@
 # Client, home and administrator testing
 
-This runbook tests the pre-release API 2.0.0 implementation. There are no live
-customers requiring compatibility with the retired authentication model. Both
-clients request a numeric email code, the backend emails it, and the person
+This runbook tests the pre-release API 2.1.0 implementation. Use matching
+backend, homeowner and administrator builds when testing. Both clients request a numeric email code, the backend emails it, and the person
 enters the eight digits in the requesting client. The backend has no browser
 login page and no account password surface.
 
@@ -13,23 +12,27 @@ provides the local/development preparation behind those roles.
 
 ## Start the matching backend
 
-From the backend checkout:
+For a review branch, build the matching source checkout:
 
 ```bash
-bash scripts/setup-prebuilt.sh \
+bash scripts/setup-development.sh \
   --handover /absolute/path/Pantry_Stock_Project_Handover_2026-07-29.zip \
   --dev-email developer@providentia.local
 ```
 
-The prebuilt script selects the immutable candidate image for an `agent/*`
-checkout unless an explicit version is supplied. It checks image revision labels,
-starts the database and workers, applies migrations, verifies catalog import
-replay and proves HTTP health. Supply the authorized handover for the approved
-starter catalog. Without it the script reports that the catalog was not seeded.
-
-For a source build use `scripts/setup-development.sh --handover PATH` instead.
+The source script starts the database and workers, applies migrations and proves
+HTTP health. Supply the authorized handover for the approved starter catalog.
 It also imports the authorized inventory baseline into the development home;
-ordinary new homes do not inherit those quantities or history.
+ordinary new homes do not inherit those quantities or history. Keep existing
+data when updating; `--reset-data` is a destructive reset, not an upgrade step.
+
+For an already published matching image, use `scripts/setup-prebuilt.sh` with
+an explicit `--version TAG` and the same handover/account options. Only `agent/*`
+checkouts automatically select a commit candidate and verify its revision labels;
+a `feat/*` checkout does not make the default `edge` image match its source.
+Pull-request image checks build and test images without publishing a release.
+Record the actual image revision/digest and compare `/api/v1/system/info` and
+the running OpenAPI artifact with the Client and Admin locks before acceptance.
 
 Default local endpoints:
 

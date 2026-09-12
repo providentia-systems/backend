@@ -160,15 +160,94 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         ];
     }
 
-    public function locations(string $homeId): array
+    public function locations(string $homeId, bool $includeArchived = false): array
     {
-        return $this->connection->fetchAllAssociative(
-            'SELECT id, name, kind, status, revision, created_at AS createdAt,
-                    updated_at AS updatedAt
-             FROM home_locations
-             WHERE home_id = :home AND status = :status
-             ORDER BY name, id',
-            ['home' => $homeId, 'status' => 'active'],
+        $sql = 'SELECT id, name, kind, status, revision, created_at AS createdAt,
+                       updated_at AS updatedAt FROM home_locations WHERE home_id = :home';
+        $parameters = ['home' => $homeId];
+        if (!$includeArchived) {
+            $sql .= ' AND status = :status';
+            $parameters['status'] = 'active';
+        }
+        $rows = $this->connection->fetchAllAssociative($sql . ' ORDER BY name, id', $parameters);
+        foreach ($rows as &$row) {
+            $row['revision'] = (int) $row['revision'];
+        }
+
+        return $rows;
+    }
+
+    public function updateLocation(
+        string $homeId,
+        string $locationId,
+        ?string $name,
+        ?string $normalizedName,
+        ?string $kind,
+        ?string $status,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): array {
+        $row = $this->one(
+            $this->forUpdate('SELECT id, name, normalized_name, kind, status, revision
+                FROM home_locations WHERE home_id = :home AND id = :id'),
+            ['home' => $homeId, 'id' => $locationId],
+        );
+        if ($row === null) {
+            return ['status' => 'not-found'];
+        }
+        if ((int) $row['revision'] !== $expectedRevision) {
+            return ['status' => 'revision-conflict'];
+        }
+        $nextStatus = $status ?? (string) $row['status'];
+        if ($nextStatus === 'archived' && (string) $row['status'] !== 'archived') {
+            $inUse = (int) $this->connection->fetchOne(
+                'SELECT COUNT(*) FROM stock_count_sessions
+                 WHERE home_id = :home AND location_id = :id AND status = :status',
+                ['home' => $homeId, 'id' => $locationId, 'status' => 'open'],
+            );
+            if ($inUse > 0) {
+                return ['status' => 'location-in-use'];
+            }
+        }
+        $nextName = $name ?? (string) $row['name'];
+        $nextDetail = $kind ?? (string) $row['kind'];
+        try {
+            $updated = $this->connection->update(
+                'home_locations',
+                [
+                    'name' => $nextName,
+                    'normalized_name' => $normalizedName ?? (string) $row['normalized_name'],
+                    'kind' => $nextDetail,
+                    'status' => $nextStatus,
+                    'revision' => $expectedRevision + 1,
+                    'updated_at' => $this->date($at),
+                ],
+                ['home_id' => $homeId, 'id' => $locationId, 'revision' => $expectedRevision],
+            );
+        } catch (UniqueConstraintViolationException) {
+            throw new \DomainException('A location with these details already exists in the home.');
+        }
+        if ($updated !== 1) {
+            return ['status' => 'revision-conflict'];
+        }
+
+        return [
+            'status' => 'updated',
+            'record' => [
+                'id' => $locationId,
+                'name' => $nextName,
+                'kind' => $nextDetail,
+                'status' => $nextStatus,
+                'revision' => $expectedRevision + 1,
+            ],
+        ];
+    }
+
+    public function location(string $homeId, string $locationId): ?array
+    {
+        return $this->one(
+            'SELECT id, name, kind, status, revision FROM home_locations WHERE home_id = :home AND id = :id',
+            ['home' => $homeId, 'id' => $locationId],
         );
     }
 
@@ -181,17 +260,21 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         DateTimeImmutable $at,
     ): void {
         $now = $this->date($at);
-        $this->connection->insert('home_locations', [
-            'id' => $id,
-            'home_id' => $homeId,
-            'name' => $name,
-            'normalized_name' => $normalizedName,
-            'kind' => $kind,
-            'status' => 'active',
-            'revision' => 1,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
+        try {
+            $this->connection->insert('home_locations', [
+                'id' => $id,
+                'home_id' => $homeId,
+                'name' => $name,
+                'normalized_name' => $normalizedName,
+                'kind' => $kind,
+                'status' => 'active',
+                'revision' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            throw new \DomainException('A location with these details already exists in the home.');
+        }
     }
 
     public function itemMaster(
@@ -204,7 +287,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     ): array {
         $pattern = '%' . mb_strtolower($query) . '%';
         $globalWhere = 'p.status = :published AND pk.status <> :archived
-            AND :home_category_empty = :empty
+            AND (:home_category_empty = :empty OR hc.id = :home_category)
             AND (:category_empty = :empty OR c.id = :category)
             AND (:query_empty = :empty OR p.normalized_name LIKE :pattern
                  OR p.normalized_brand LIKE :pattern
@@ -257,6 +340,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                         WHERE hp2.home_id = :home AND hp2.pack_id = pk.id
                           AND hp2.status = :home_product_status
                     )
+                  LEFT JOIN home_categories hc
+                    ON hc.id = hp.home_category_id AND hc.home_id = hp.home_id
                   LEFT JOIN inventory_balances ib
                     ON ib.home_id = :home AND ib.home_product_id = hp.id
                   WHERE ' . $globalWhere . '
@@ -381,10 +466,10 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                     COALESCE(p.canonical_name, hp.private_name) AS productName,
                     COALESCE(p.brand, :empty) AS brand,
                     c.id AS categoryId, hc.id AS homeCategoryId,
-                    COALESCE(c.canonical_name, hc.name) AS category,
-                    COALESCE(c.canonical_name, hc.name) AS categoryName,
-                    CASE WHEN c.id IS NOT NULL THEN :global_scope
-                         WHEN hc.id IS NOT NULL THEN :home_scope ELSE NULL END AS categorySource,
+                    COALESCE(hc.name, c.canonical_name) AS category,
+                    COALESCE(hc.name, c.canonical_name) AS categoryName,
+                    CASE WHEN hc.id IS NOT NULL THEN :home_scope
+                         WHEN c.id IS NOT NULL THEN :global_scope ELSE NULL END AS categorySource,
                     COALESCE(pk.original_pack_text, hp.original_pack_text, :empty) AS packText,
                     COALESCE(ib.quantity, 0) AS quantity,
                     COALESCE(ib.revision, 0) AS balanceRevision,
@@ -527,9 +612,6 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             $productId ??= (string) $catalogPack['product_id'];
         }
         if ($homeCategoryId !== null) {
-            if ($productId !== null || $packId !== null) {
-                throw new \DomainException('A private category can only be assigned to a private product.');
-            }
             $category = $this->one(
                 $this->forUpdate('SELECT id FROM home_categories
                  WHERE id = :category AND home_id = :home AND status = :active'),
@@ -638,7 +720,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                      INNER JOIN stock_count_sessions cs
                        ON cs.id = cl.session_id AND cs.home_id = cl.home_id
                      WHERE cl.home_id = :home AND cl.home_product_id = :product
-                       AND cs.status = :open)
+                       AND cs.status = :open AND cl.status <> :removed)
                   + (SELECT COUNT(*) FROM receipt_lines rl
                      INNER JOIN receipts r
                        ON r.id = rl.receipt_id AND r.home_id = rl.home_id
@@ -648,6 +730,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                     'home' => $homeId,
                     'product' => $homeProductId,
                     'open' => 'open',
+                    'removed' => 'removed',
                     'committed' => 'committed',
                     'cancelled' => 'cancelled',
                 ],
@@ -832,12 +915,12 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         DateTimeImmutable $at,
     ): void {
         if ($locationId !== null) {
-            $available = (int) $this->connection->fetchOne(
-                'SELECT COUNT(*) FROM home_locations
-                 WHERE id = :location AND home_id = :home AND status = :status',
+            $available = $this->connection->fetchOne(
+                $this->forUpdate('SELECT id FROM home_locations
+                 WHERE id = :location AND home_id = :home AND status = :status'),
                 ['location' => $locationId, 'home' => $homeId, 'status' => 'active'],
             );
-            if ($available !== 1) {
+            if ($available === false) {
                 throw new \DomainException('The selected location is unavailable.');
             }
         }
@@ -886,13 +969,14 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
              FROM stock_count_sessions s
              LEFT JOIN home_locations l ON l.id = s.location_id AND l.home_id = s.home_id
              LEFT JOIN stock_count_lines sl ON sl.session_id = s.id AND sl.home_id = s.home_id
+               AND sl.status <> :removed
              WHERE s.home_id = :home
              GROUP BY s.id, s.home_id, s.location_id, l.name, s.status, s.notes,
                       s.scope_complete, s.reliability, s.revision,
                       s.opened_at, s.closed_at
              ORDER BY s.opened_at DESC, s.id DESC
              LIMIT ' . $limit . ' OFFSET ' . $offset,
-            ['home' => $homeId],
+            ['home' => $homeId, 'removed' => 'removed'],
         );
     }
 
@@ -909,10 +993,11 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
              INNER JOIN home_products hp ON hp.id = sl.home_product_id AND hp.home_id = sl.home_id
              LEFT JOIN products p ON p.id = hp.product_id
              LEFT JOIN product_packs pk ON pk.id = hp.pack_id
-             WHERE sl.home_id = :home AND sl.session_id = :session
+             WHERE sl.home_id = :home AND sl.session_id = :session AND sl.status <> :removed
              ORDER BY CASE WHEN sl.status = :confirmed THEN 1 ELSE 0 END,
                       productName, sl.id',
-            ['empty' => '', 'home' => $homeId, 'session' => $sessionId, 'confirmed' => 'confirmed'],
+            ['empty' => '', 'home' => $homeId, 'session' => $sessionId,
+             'confirmed' => 'confirmed', 'removed' => 'removed'],
         );
     }
 
@@ -989,11 +1074,12 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             $updated = $this->connection->executeStatement(
                 'UPDATE stock_count_lines
                  SET quantity = :quantity, confidence = :confidence, source = :source,
-                     notes = :notes, counted_by_user_id = :actor,
+                     notes = :notes, counted_by_user_id = :actor, status = :confirmed,
                      revision = revision + 1, updated_at = :updated
                  WHERE id = :id AND home_id = :home AND session_id = :session
                    AND revision = :revision',
                 [
+                    'confirmed' => 'confirmed',
                     'quantity' => $quantity,
                     'confidence' => $confidence,
                     'source' => $source,
@@ -1018,6 +1104,45 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         );
 
         return $sessionUpdated === 1;
+    }
+
+    public function removeCountLine(
+        string $homeId,
+        string $sessionId,
+        string $lineId,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool {
+        $session = $this->one(
+            $this->forUpdate('SELECT id FROM stock_count_sessions
+             WHERE id = :session AND home_id = :home AND status = :status'),
+            ['session' => $sessionId, 'home' => $homeId, 'status' => 'open'],
+        );
+        if ($session === null) {
+            return false;
+        }
+        $changed = $this->connection->executeStatement(
+            'UPDATE stock_count_lines SET status = :removed, revision = revision + 1, updated_at = :updated
+             WHERE id = :id AND home_id = :home AND session_id = :session
+               AND revision = :revision AND status <> :removed',
+            [
+                'removed' => 'removed',
+                'updated' => $this->date($at),
+                'id' => $lineId,
+                'home' => $homeId,
+                'session' => $sessionId,
+                'revision' => $expectedRevision,
+            ],
+        );
+        if ($changed !== 1) {
+            return false;
+        }
+        $this->connection->executeStatement(
+            'UPDATE stock_count_sessions SET revision = revision + 1, updated_at = :updated
+             WHERE id = :session AND home_id = :home',
+            ['updated' => $this->date($at), 'session' => $sessionId, 'home' => $homeId],
+        );
+        return true;
     }
 
     public function closeCountSession(

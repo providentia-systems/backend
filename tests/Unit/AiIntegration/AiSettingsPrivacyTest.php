@@ -16,6 +16,7 @@ use Providentia\AiIntegration\Application\AiProviderException;
 use Providentia\AiIntegration\Application\AiProviderRegistry;
 use Providentia\AiIntegration\Application\AiService;
 use Providentia\AiIntegration\Application\AiStore;
+use Providentia\AiIntegration\Application\AiTransmissionPlan;
 use Providentia\AiIntegration\Application\CredentialCipher;
 use Providentia\AiIntegration\Application\ExtractionSchema;
 use Providentia\AiIntegration\Application\Media\MediaStorage;
@@ -62,6 +63,45 @@ final class AiSettingsPrivacyTest extends TestCase
             ],
             $settings['mediaHandling'],
         );
+    }
+
+    public function testTransmissionConsentIsBoundToPolicyRecipientAndTenantRevisions(): void
+    {
+        $profile = [
+            'id' => self::PROFILE_ID,
+            'revision' => 3,
+            'provider' => 'synthetic',
+            'model' => 'vision',
+            'endpoint' => 'https://vision.example.test/api',
+            'ciphertext' => 'must-not-be-disclosed',
+        ];
+        $original = new AiTransmissionPlan(self::HOME_ID, self::USER_ID, 2, 4, [$profile], null);
+        $view = $original->view();
+        self::assertStringNotContainsString('must-not-be-disclosed', json_encode($view, JSON_THROW_ON_ERROR));
+        $original->requireConsent((string) $view['sha256'], self::PROFILE_ID);
+        $changedPlans = [
+            new AiTransmissionPlan(self::HOME_ID, self::USER_ID, 3, 4, [$profile], null),
+            new AiTransmissionPlan(self::HOME_ID, self::USER_ID, 2, 5, [$profile], null),
+            new AiTransmissionPlan(self::HOME_ID, self::OTHER_USER_ID, 2, 4, [$profile], null),
+            new AiTransmissionPlan(self::OTHER_USER_ID, self::USER_ID, 2, 4, [$profile], null),
+            new AiTransmissionPlan(self::HOME_ID, self::USER_ID, 2, 4, [$profile], $profile),
+            new AiTransmissionPlan(
+                self::HOME_ID,
+                self::USER_ID,
+                2,
+                4,
+                [array_replace($profile, ['revision' => 4, 'endpoint' => 'https://changed.example.test/api'])],
+                null,
+            ),
+        ];
+        foreach ($changedPlans as $changed) {
+            try {
+                $changed->requireConsent((string) $view['sha256'], self::PROFILE_ID);
+                self::fail('Stale transmission consent was reused.');
+            } catch (Problem $problem) {
+                self::assertSame(409, $problem->status);
+            }
+        }
     }
 
     public function testPrivateMediaUploadRequiresAnExplicitRetentionChoice(): void
@@ -176,6 +216,8 @@ final class AiSettingsPrivacyTest extends TestCase
             true,
             'image/png',
             "\x89PNG\r\n\x1a\n" . str_repeat('x', 20),
+            transmissionPlanHash: (string) $service->settings($this->identity(), self::HOME_ID)
+                ['transmissionPlan']['sha256'],
         );
         self::assertSame('review_required', $result['status']);
         self::assertSame(0, $result['candidateCount']);
@@ -284,6 +326,8 @@ final class AiSettingsPrivacyTest extends TestCase
                 [
                 'kind' => 'receipt',
                 'transmissionConsent' => true,
+                'transmissionPlanHash' => (string) $service->settings($this->identity(), self::HOME_ID)
+                    ['transmissionPlan']['sha256'],
                 ],
             )
             ->withUploadedFiles(
@@ -403,7 +447,7 @@ final class AiSettingsPrivacyTest extends TestCase
                 $this->identity(),
             )
             ->withParsedBody(
-                ['kind' => 'stock', 'transmissionConsent' => true],
+                ['kind' => 'stock', 'transmissionConsent' => true, 'transmissionPlanHash' => str_repeat('a', 64)],
             )
             ->withUploadedFiles(
                 ['image' => $primary, 'images' => [$short]],
@@ -478,6 +522,7 @@ final class AiSettingsPrivacyTest extends TestCase
                 throw new AiProviderException('provider_refusal', 'The material was refused.');
             }
         };
+        $service = $this->directExtractionService($store, $maturity, $provider, $buffers);
         $primary = $this->pngUpload('p');
         $additional = $this->pngUpload('q');
         $request = new ServerRequest(
@@ -497,14 +542,19 @@ final class AiSettingsPrivacyTest extends TestCase
                 $this->identity(),
             )
             ->withParsedBody(
-                ['kind' => 'stock', 'transmissionConsent' => true],
+                [
+                    'kind' => 'stock',
+                    'transmissionConsent' => true,
+                    'transmissionPlanHash' => (string) $service->settings($this->identity(), self::HOME_ID)
+                        ['transmissionPlan']['sha256'],
+                ],
             )
             ->withUploadedFiles(
                 ['image' => $primary, 'images' => [$additional]],
             );
         try {
             new AiHandler(
-                $this->directExtractionService($store, $maturity, $provider, $buffers),
+                $service,
                 'extractions.create',
                 8388608,
                 $buffers,
@@ -624,6 +674,7 @@ final class AiSettingsPrivacyTest extends TestCase
                 [
                 'kind' => 'receipt',
                 'transmissionConsent' => 'yes',
+                'transmissionPlanHash' => str_repeat('a', 64),
                 'assetIds' => ['01912345-6789-7abc-ddef-0123456789ab'],
                 ],
             );
@@ -1290,6 +1341,27 @@ final class AiSettingsPrivacyTest extends TestCase
             8,
             new SodiumSensitiveBufferEraser(),
         );
+        $transmission = $service->settings($this->identity(), self::HOME_ID)['transmissionPlan'];
+        self::assertSame('private-profile', $transmission['extractionProfiles'][0]['profileId']);
+        foreach ([['wrong-hash', 'private-profile'], [$transmission['sha256'], 'shared-profile']] as $rejected) {
+            try {
+                $service->extract(
+                    $this->identity(),
+                    self::HOME_ID,
+                    'receipt',
+                    null,
+                    true,
+                    'image/png',
+                    "\x89PNG\r\n\x1a\n" . str_repeat('x', 20),
+                    transmissionPlanHash: (string) $rejected[0],
+                    selectedProfileId: (string) $rejected[1],
+                );
+                self::fail('An unreviewed provider plan was executed.');
+            } catch (Problem $problem) {
+                self::assertSame(409, $problem->status);
+            }
+            self::assertSame([], $provider->models);
+        }
         $result = $service->extract(
             $this->identity(),
             self::HOME_ID,
@@ -1298,6 +1370,8 @@ final class AiSettingsPrivacyTest extends TestCase
             true,
             'image/png',
             "\x89PNG\r\n\x1a\n" . str_repeat('x', 20),
+            transmissionPlanHash: (string) $transmission['sha256'],
+            selectedProfileId: 'private-profile',
         );
         self::assertSame('review_required', $result['status']);
         self::assertSame(['private-model'], $provider->models);

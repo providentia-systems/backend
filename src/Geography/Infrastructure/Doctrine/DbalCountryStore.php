@@ -101,6 +101,23 @@ final class DbalCountryStore implements CountryStore
         array $values,
         int $revision,
     ): bool {
+        $groups = [
+            (string) $values['account_group_id'], (string) $values['invited_group_id'],
+            (string) $values['home_group_id'],
+        ];
+        sort($groups);
+        $lock = $this->connection->getDatabasePlatform() instanceof \Doctrine\DBAL\Platforms\SQLitePlatform
+            ? '' : ' FOR UPDATE';
+        foreach (array_unique($groups) as $group) {
+            $this->connection->executeStatement('UPDATE access_groups SET id = id WHERE id = ?', [$group]);
+            if ($this->connection->fetchOne('SELECT id FROM access_groups WHERE id = ?' . $lock, [$group]) === false) {
+                return false;
+            }
+        }
+        $policy = $this->lockPolicy((string) $values['policy_id']);
+        if ($policy === null || $policy['status'] !== 'published') {
+            return false;
+        }
         return $this->connection->update(
             'country_settings',
             [...$values, 'revision' => $revision + 1],
@@ -155,6 +172,37 @@ final class DbalCountryStore implements CountryStore
         ) === 1;
     }
 
+    public function deleteDraftPolicy(string $id, int $revision): ?array
+    {
+        $policy = $this->lockPolicy($id);
+        if (
+            $policy === null || $policy['status'] !== 'draft'
+            || $policy['published_at'] !== null || (int) $policy['revision'] !== $revision
+        ) {
+            return null;
+        }
+        $deleted = $this->connection->executeStatement(
+            "DELETE FROM privacy_policies WHERE id = :id AND revision = :revision
+             AND status = 'draft' AND published_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM country_settings c WHERE c.policy_id = privacy_policies.id)
+             AND NOT EXISTS (SELECT 1 FROM policy_acceptances a WHERE a.policy_id = privacy_policies.id)",
+            ['id' => $id, 'revision' => $revision],
+        );
+
+        return $deleted === 1 ? $policy : null;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function lockPolicy(string $id): ?array
+    {
+        $this->connection->executeStatement('UPDATE privacy_policies SET id = id WHERE id = ?', [$id]);
+        $lock = $this->connection->getDatabasePlatform() instanceof \Doctrine\DBAL\Platforms\SQLitePlatform
+            ? '' : ' FOR UPDATE';
+        $row = $this->connection->fetchAssociative('SELECT * FROM privacy_policies WHERE id = ?' . $lock, [$id]);
+
+        return $row === false ? null : $row;
+    }
+
     public function acceptPolicy(
         string $userId,
         string $id,
@@ -162,6 +210,12 @@ final class DbalCountryStore implements CountryStore
         string $country,
         string $now,
     ): void {
+        $policy = $this->lockPolicy($id);
+        if ($policy === null || $policy['status'] !== 'published' || (int) $policy['revision'] !== $revision) {
+            throw new \Providentia\SharedKernel\Application\Problem(
+                409, 'Policy changed', 'Read and accept the current published privacy notice.',
+            );
+        }
         if (
             $this->connection->fetchOne(
                 'SELECT user_id FROM policy_acceptances WHERE user_id = ? AND policy_id = ?',

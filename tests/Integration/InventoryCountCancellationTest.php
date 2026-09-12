@@ -347,6 +347,121 @@ final class InventoryCountCancellationTest extends TestCase
         self::assertSame(0, $this->rowCount('stock_movements'));
     }
 
+    public function testRemovedCountLinesRetainHistoryAndDoNotReconcileStock(): void
+    {
+        $this->service->recordCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            self::LINE_ID,
+            self::PRODUCT_ID,
+            '5',
+            null,
+            'manual',
+            '',
+            0,
+        );
+        $removed = $this->service->removeCountLine(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            self::LINE_ID,
+            1,
+        );
+        self::assertSame('removed', $removed['status']);
+        self::assertSame(2, $removed['revision']);
+        self::assertSame(
+            $removed,
+            $this->service->removeCountLine(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                self::LINE_ID,
+                1,
+            ),
+        );
+        self::assertSame(4, $this->rowCount('change_log'));
+        self::assertSame(1, $this->rowCount('stock_count_lines'));
+        self::assertSame('removed', $this->connection->fetchOne('SELECT status FROM stock_count_lines'));
+        self::assertSame(0, $this->rowCount('stock_movements'));
+        self::assertSame(
+            [],
+            new DbalInventoryStore($this->connection)->countLines(self::HOME_ID, self::SESSION_ID),
+        );
+        try {
+            $this->service->closeCount($this->identity(), self::HOME_ID, self::SESSION_ID, 6);
+            self::fail('A removed count line must not contribute a physical count.');
+        } catch (Problem $error) {
+            self::assertSame(422, $error->status);
+            self::assertSame('Empty count', $error->title);
+        }
+        self::assertSame(0, $this->rowCount('stock_movements'));
+        try {
+            $this->service->removeCountLine(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                self::LINE_ID,
+                9,
+            );
+            self::fail('Stale count removal was accepted.');
+        } catch (Problem $error) {
+            self::assertSame(409, $error->status);
+        }
+        $restored = $this->service->recordCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            self::LINE_ID,
+            self::PRODUCT_ID,
+            '0',
+            null,
+            'manual',
+            'Recounted',
+            2,
+        );
+        self::assertSame('confirmed', $restored['status']);
+        self::assertSame(3, $restored['revision']);
+        self::assertSame(1, $this->rowCount('stock_count_lines'));
+        $this->service->closeCount($this->identity(), self::HOME_ID, self::SESSION_ID, 7);
+        self::assertSame(0, $this->rowCount('stock_movements'));
+        $this->expectException(Problem::class);
+        $this->expectExceptionMessage('Only an open count session');
+        $this->service->removeCountLine($this->identity(), self::HOME_ID, self::SESSION_ID, self::LINE_ID, 3);
+    }
+
+    public function testCountLineRemovalCannotCrossHomeBoundaryOrModifyCancelledCount(): void
+    {
+        $this->service->recordCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            self::LINE_ID,
+            self::PRODUCT_ID,
+            '5',
+            null,
+            'manual',
+            '',
+            0,
+        );
+        try {
+            $this->service->removeCountLine(
+                $this->identity(),
+                self::OTHER_HOME_ID,
+                self::SESSION_ID,
+                self::LINE_ID,
+                1,
+            );
+            self::fail('Cross-home count removal was accepted.');
+        } catch (Problem $error) {
+            self::assertSame(404, $error->status);
+        }
+        $this->service->cancelCount($this->identity(), self::HOME_ID, self::SESSION_ID, 5);
+        $this->expectException(Problem::class);
+        $this->expectExceptionMessage('Only an open count session');
+        $this->service->removeCountLine($this->identity(), self::HOME_ID, self::SESSION_ID, self::LINE_ID, 1);
+    }
+
     /** @return list<string> */
     private function schema(): array
     {

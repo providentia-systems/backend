@@ -8,6 +8,7 @@ use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Application\InventoryService;
 use Providentia\Purchasing\Application\PurchasingService;
 use Providentia\Shopping\Application\ShoppingService;
+use Providentia\Shopping\Application\ShoppingIntelligenceService;
 
 /**
  * Thin protocol adapter into the authoritative pantry application services.
@@ -18,6 +19,7 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
         private InventoryService $inventory,
         private PurchasingService $purchasing,
         private ShoppingService $shopping,
+        private ?ShoppingIntelligenceService $intelligence = null,
     ) {
     }
 
@@ -41,6 +43,15 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $command->entityId,
                 $this->string($payload, 'name'),
                 $this->string($payload, 'status'),
+                $this->revision($command),
+            ),
+            'inventory.location.update' => $this->inventory->updateLocation(
+                $identity,
+                $homeId,
+                $command->entityId,
+                $this->nullableString($payload, 'name'),
+                $this->nullableString($payload, 'kind'),
+                $this->nullableString($payload, 'status'),
                 $this->revision($command),
             ),
             'inventory.location.create' => $this->inventory->createLocation(
@@ -102,6 +113,10 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->string($payload, 'notes'),
                 $this->revision($command),
             ),
+            'inventory.count-line.remove' => $this->inventory->removeCountLine(
+                $identity, $homeId, $this->string($payload, 'sessionId'),
+                $command->entityId, $this->revision($command),
+            ),
             'inventory.count-session.close' => $this->inventory->closeCount(
                 $identity,
                 $homeId,
@@ -114,12 +129,34 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $command->entityId,
                 $this->revision($command),
             ),
+            'purchasing.store.update' => $this->purchasing->updateStore(
+                $identity,
+                $homeId,
+                $command->entityId,
+                $this->nullableString($payload, 'name'),
+                $this->nullableString($payload, 'location'),
+                $this->nullableString($payload, 'status'),
+                $this->revision($command),
+            ),
             'purchasing.store.create' => $this->purchasing->createStore(
                 $identity,
                 $homeId,
                 $this->string($payload, 'name'),
                 $this->string($payload, 'location'),
                 $command->entityId,
+            ),
+            'purchasing.receipt.update' => $this->purchasing->updateReceipt(
+                $identity, $homeId, $command->entityId, $payload, $this->revision($command),
+            ),
+            'purchasing.receipt.cancel' => $this->purchasing->cancelReceipt(
+                $identity, $homeId, $command->entityId, $this->revision($command),
+            ),
+            'purchasing.receipt-line.update' => $this->purchasing->updateLine(
+                $identity, $homeId, $this->string($payload, 'receiptId'), $command->entityId,
+                array_diff_key($payload, ['receiptId' => true]), $this->revision($command),
+            ),
+            'purchasing.receipt-line.remove' => $this->purchasing->removeLine(
+                $identity, $homeId, $this->string($payload, 'receiptId'), $command->entityId, $this->revision($command),
             ),
             'purchasing.receipt.create' => $this->purchasing->createReceipt(
                 $identity,
@@ -162,12 +199,43 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $command->entityId,
                 $this->revision($command),
             ),
+            'shopping.preference.put' => ($this->intelligence
+                ?? throw new \LogicException('Shopping intelligence is unavailable.'))->putPreference(
+                    $identity,
+                    $homeId,
+                    $command->entityId,
+                    $payload + ['expectedRevision' => $this->revision($command)],
+                ),
+            'shopping.suggestion-feedback.create' => ($this->intelligence
+                ?? throw new \LogicException('Shopping intelligence is not composed.'))->feedback(
+                    $identity, $homeId, $this->string($payload, 'suggestionId'),
+                    $this->string($payload, 'decision'), $this->nullableString($payload, 'resultQuantity'),
+                    $this->string($payload, 'reason'), $command->entityId,
+                ),
             'shopping.list.create' => $this->shopping->createList(
                 $identity,
                 $homeId,
                 $this->string($payload, 'name'),
                 $this->string($payload, 'kind'),
                 $command->entityId,
+            ),
+            'shopping.list.update' => $this->shopping->updateList(
+                $identity,
+                $homeId,
+                $command->entityId,
+                $this->string($payload, 'name'),
+                $this->string($payload, 'status'),
+                $this->revision($command),
+            ),
+            'shopping.list-line.update' => $this->shopping->updateLine(
+                $identity,
+                $homeId,
+                $this->string($payload, 'listId'),
+                $command->entityId,
+                $this->string($payload, 'description'),
+                $this->string($payload, 'quantity'),
+                $this->boolean($payload, 'archived'),
+                $this->revision($command),
             ),
             'shopping.list-line.create' => $this->shopping->addLine(
                 $identity,
@@ -178,6 +246,7 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->string($payload, 'description'),
                 $this->string($payload, 'quantity'),
                 $command->entityId,
+                $this->nullableString($payload, 'suggestionId'),
             ),
             'shopping.list-line.checked' => $this->checkShoppingLine(
                 $identity,

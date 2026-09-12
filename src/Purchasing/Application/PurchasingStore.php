@@ -27,6 +27,27 @@ interface PurchasingStore
     /** @return array<string, mixed>|null */
     public function receiptLine(string $homeId, string $receiptId, string $lineId): ?array;
 
+    /** @return list<array<string, mixed>> */
+    public function stores(string $homeId, bool $includeArchived = false): array;
+
+    /** @return array<string, mixed>|null */
+    public function store(string $homeId, string $storeId): ?array;
+
+    /**
+     * @return array{status: 'updated', record: array<string, mixed>}
+     *     |array{status: 'not-found'|'revision-conflict'|'store-in-use'}
+     */
+    public function updateStore(
+        string $homeId,
+        string $storeId,
+        ?string $name,
+        ?string $normalizedName,
+        ?string $location,
+        ?string $status,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): array;
+
     public function createStore(
         string $id,
         string $homeId,
@@ -52,6 +73,25 @@ interface PurchasingStore
         string $actorUserId,
         DateTimeImmutable $at,
     ): void;
+
+    /** @param array<string, mixed> $fields */
+    public function updateDraftReceipt(
+        string $homeId,
+        string $receiptId,
+        array $fields,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool;
+
+    /** @param array<string, mixed> $fields */
+    public function updateDraftReceiptLine(
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        array $fields,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool;
 
     public function addReceiptLine(
         string $id,

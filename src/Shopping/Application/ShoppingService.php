@@ -6,7 +6,7 @@ namespace Providentia\Shopping\Application;
 
 use DomainException;
 use InvalidArgumentException;
-use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermissionAuthorizer;
 use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Domain\DecimalQuantity;
@@ -21,12 +21,13 @@ final class ShoppingService
 {
     public function __construct(
         private readonly ShoppingStore $shopping,
-        private readonly HomeAuthorization $authorization,
+        private readonly HomePermissionAuthorizer $authorization,
         private readonly LegacySuggestionPolicy $legacyPolicy,
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
         private readonly ?ChangeFeedWriter $changes = null,
+        private readonly ?ShoppingIntelligenceService $intelligence = null,
     ) {
     }
 
@@ -98,6 +99,7 @@ final class ShoppingService
         string $description,
         string $quantity,
         ?string $requestedId = null,
+        ?string $suggestionId = null,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
         $list = $this->requireOpenList($homeId, $listId);
@@ -125,6 +127,7 @@ final class ShoppingService
                 $quantity,
                 $identity,
                 $list,
+                $suggestionId,
             ): void {
                 if (
                     ! $this->shopping->addLine(
@@ -139,29 +142,16 @@ final class ShoppingService
                         'Added manually.',
                         null,
                         $this->clock->now(),
+                        $suggestionId,
                     )
                 ) {
                     throw new Problem(409, 'Revision conflict', 'The shopping list changed on another device.');
                 }
                 $at = $this->clock->now();
-                $this->changes?->put(
-                    $homeId,
-                    $identity->userId,
-                    'shopping-list-line',
-                    $id,
-                    1,
-                    [
-                        'listId' => $listId,
-                        'homeProductId' => $homeProductId === '' ? null : $homeProductId,
-                        'description' => $description,
-                        'source' => 'manual',
-                        'quantityToBuy' => $quantity,
-                        'explanation' => 'Added manually.',
-                        'confidence' => null,
-                        'checked' => false,
-                    ],
-                    $at,
-                );
+                $this->publishLine($identity, $homeId, $listId, $id);
+                if ($suggestionId !== null) {
+                    $this->recordSuggestionOutcome($identity, $homeId, $suggestionId, $quantity, $id);
+                }
                 $this->changes?->put(
                     $homeId,
                     $identity->userId,
@@ -213,29 +203,172 @@ final class ShoppingService
             ) {
                 throw new Problem(409, 'Revision conflict', 'The shopping-list line changed on another device.');
             }
-            $line = null;
-            foreach ($this->shopping->lines($homeId, $listId) as $candidate) {
-                if ((string) ($candidate['id'] ?? '') === $lineId) {
-                    $line = $candidate;
-                    break;
-                }
-            }
-            if ($line === null) {
-                throw new \RuntimeException('The updated shopping-list line is unavailable.');
-            }
-            unset($line['id'], $line['revision']);
-            $line['listId'] = $listId;
-            $line['checked'] = $checked;
-            $this->changes?->put(
-                $homeId,
-                $identity->userId,
-                'shopping-list-line',
-                $lineId,
-                $expectedRevision + 1,
-                $line,
-                $this->clock->now(),
-            );
+            $this->publishLine($identity, $homeId, $listId, $lineId);
+            $this->publishList($identity, $homeId, $listId);
         });
+    }
+
+    /** @return array{id: string, revision: int} */
+    public function updateList(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $listId,
+        string $name,
+        string $status,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
+        $name = trim($name);
+        if ($name === '' || mb_strlen($name) > 120 || ! in_array($status, ['open', 'archived'], true)) {
+            throw new Problem(422, 'Invalid shopping list', 'Provide a name and an open or archived status.');
+        }
+        $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $listId,
+            $name,
+            $status,
+            $expectedRevision,
+        ): void {
+            if (
+                ! $this->shopping->updateList(
+                    $homeId,
+                    $listId,
+                    $name,
+                    $status,
+                    $expectedRevision,
+                    $this->clock->now(),
+                )
+            ) {
+                throw new Problem(409, 'Revision conflict', 'The shopping list changed on another device.');
+            }
+            $this->publishList($identity, $homeId, $listId);
+        });
+
+        return ['id' => $listId, 'revision' => $expectedRevision + 1];
+    }
+
+    /** @return array{id: string, revision: int} */
+    public function updateLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $listId,
+        string $lineId,
+        string $description,
+        string $quantity,
+        bool $archived,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
+        $this->requireOpenList($homeId, $listId);
+        $description = trim($description);
+        if ($description === '' || mb_strlen($description) > 191) {
+            throw new Problem(422, 'Invalid list line', 'Description must contain 1 to 191 characters.');
+        }
+        try {
+            $quantity = DecimalQuantity::quantity($quantity)->toString();
+        } catch (InvalidArgumentException $error) {
+            throw new Problem(422, 'Invalid quantity', $error->getMessage());
+        }
+        if ($quantity === '0') {
+            throw new Problem(422, 'Invalid quantity', 'Quantity to buy must be greater than zero.');
+        }
+        $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $listId,
+            $lineId,
+            $description,
+            $quantity,
+            $archived,
+            $expectedRevision,
+        ): void {
+            $previous = $this->shopping->line($homeId, $listId, $lineId);
+            if (
+                ! $this->shopping->updateLine(
+                    $homeId,
+                    $listId,
+                    $lineId,
+                    $description,
+                    $quantity,
+                    $archived,
+                    $expectedRevision,
+                    $this->clock->now(),
+                )
+            ) {
+                throw new Problem(409, 'Revision conflict', 'The shopping-list line changed on another device.');
+            }
+            if ($previous !== null && isset($previous['suggestionId'])
+                && DecimalQuantity::quantity((string) $previous['quantityToBuy'])->toString() !== $quantity
+            ) {
+                $this->recordSuggestionOutcome(
+                    $identity, $homeId, (string) $previous['suggestionId'], $quantity, null,
+                );
+            }
+            $this->publishLine($identity, $homeId, $listId, $lineId);
+            $this->publishList($identity, $homeId, $listId);
+        });
+
+        return ['id' => $lineId, 'revision' => $expectedRevision + 1];
+    }
+
+    private function recordSuggestionOutcome(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $suggestionId,
+        string $quantity,
+        ?string $feedbackId,
+    ): void {
+        if ($this->intelligence === null) {
+            throw new \LogicException('Suggestion feedback is not composed for this shopping service.');
+        }
+        $this->intelligence->feedback(
+            $identity, $homeId, $suggestionId, 'accepted', $quantity,
+            'Confirmed on the shopping list.', $feedbackId,
+        );
+    }
+
+    private function publishLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $listId,
+        string $lineId,
+    ): void {
+        $line = $this->shopping->line($homeId, $listId, $lineId);
+        if ($line === null) {
+            throw new \RuntimeException('The updated shopping-list line is unavailable.');
+        }
+        $revision = (int) $line['revision'];
+        unset($line['id'], $line['revision']);
+        $line['listId'] = $listId;
+        $line['checked'] = ($line['checkedAt'] ?? null) !== null;
+        $line['archived'] = ($line['archivedAt'] ?? null) !== null;
+        $this->changes?->put(
+            $homeId,
+            $identity->userId,
+            'shopping-list-line',
+            $lineId,
+            $revision,
+            $line,
+            $this->clock->now(),
+        );
+    }
+
+    private function publishList(AuthenticatedIdentity $identity, string $homeId, string $listId): void
+    {
+        $list = $this->shopping->shoppingList($homeId, $listId);
+        if ($list === null) {
+            throw new \RuntimeException('The updated shopping list is unavailable.');
+        }
+        $this->changes?->put(
+            $homeId,
+            $identity->userId,
+            'shopping-list',
+            $listId,
+            (int) $list['revision'],
+            ['name' => $list['name'], 'kind' => $list['kind'], 'status' => $list['status']],
+            $this->clock->now(),
+        );
     }
 
     /** @return list<array<string, mixed>> */

@@ -103,35 +103,49 @@ both apps expose the profile editor:
 6. [ ] Change country with region/city clear. Save must not require either
    optional field; old choices must not leak into the new country's lists.
 
-## Separate private-product cache investigation
+## Product, category and synchronization journey
 
-This is an investigation checklist, not evidence that the separately reported
-private-product cache defect has been diagnosed or resolved. The current Client
-does not expose private home-category lifecycle controls. Until that product
-surface exists, create and later tombstone the synthetic category/product only
-through the supported API with an authorized test fixture—never through a
-database edit, writable container or source hotfix. Do not count these steps as
-released-Client creation/deletion acceptance.
+Run these steps through the matching released Client and Admin. Source tests
+exercise these workflows, but are not evidence that the currently deployed
+backend or installed apps contain the changes. Use synthetic names and no
+private handover media.
 
-Use private test names and no handover media:
+1. [ ] In a disposable home, create a private category and product in the Client.
+   Choose that category, enter a pack description, and synchronize. An authorized
+   operator must see the same records and identifiers in Admin without a public
+   contribution or a fabricated membership in that home.
+2. [ ] Edit the private product name, pack description and category. Confirm the
+   quantity and movement history remain unchanged. Synchronize and reopen the
+   home; no item-master cache parsing error may occur.
+3. [ ] Sign into the same home on a second Client installation and synchronize.
+   Confirm the same identifiers and values arrive. Edit the same revision on
+   both devices and confirm the stale change is reported without overwriting
+   the accepted edit.
+4. [ ] Edit the home category and product through the authorized Admin controls
+   with an audit reason. Synchronize both Clients and verify convergence. Repeat
+   with an operator lacking management permission and confirm the write is denied.
+5. [ ] Try to archive a product with stock or an open count/draft-receipt reference.
+   Confirm the guard explains the conflict. Resolve the operational reference
+   through ordinary workflows, then archive the product. Both Clients must hide
+   it from active stock without a catalog-cache resurrection or lost history.
+6. [ ] Restore the product from Removed products and restore an archived category.
+   Confirm active-reference checks and resource quotas still apply. A lower quota
+   must retain existing data and refuse only additions/restoration above the limit.
+7. [ ] Select a public catalog product and set a household category override.
+   Verify that category appears in stock and category filtering while the global
+   identity remains unchanged. Public pack selection must still work normally.
+8. [ ] Start a public contribution while private edits are pending. The flow must
+   first synchronize and verify the selected source. Inspect and confirm the exact
+   allowlisted fields separately; closing the consent review must not publish them.
+9. [ ] Approve the contribution in Admin, then inspect the published product and
+   its selectable pack, measure and barcode where supplied. Other homes may reuse
+   the public identity, but must never receive private quantities or household data.
+10. [ ] Restart both Clients with pending offline changes and reconnect. Verify
+    durable commands are applied once, conflicts remain actionable, and signing
+    out/revoking home access purges the prior home's private projection.
 
-1. [ ] In a disposable manager-owned home, use the authorized API fixture to
-   create a private home category and a private home product assigned to it.
-   Confirm the API accepts both writes before opening the Client.
-2. [ ] Change its quantity through the ordinary stock flow, synchronize, close
-   the home and reopen it. The home, product, category and quantity must load
-   without an item-master cache parsing error.
-3. [ ] Sign into the same home on a second clean Client installation and
-   synchronize. Confirm the private product and category arrive from the
-   authoritative home synchronization stream with the same identifiers.
-4. [ ] Tombstone the private test product through the authorized API fixture,
-   synchronize both Client installations, close/reopen both homes and confirm
-   a stale catalog cache does not resurrect it.
-5. [ ] Confirm a public catalog item still opens and can be selected normally;
-   private rows must not corrupt the pack-backed public catalog cache.
-
-Record the original reproduction, server/client versions and sanitized sync
-evidence before specifying a permanent correction for this separate defect.
+Record image/build versions, contract hashes and sanitized reproduction details
+for failures. Do not repair acceptance through direct database edits.
 
 ## Admin usability journey
 

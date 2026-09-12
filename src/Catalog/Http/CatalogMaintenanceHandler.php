@@ -32,6 +32,8 @@ final readonly class CatalogMaintenanceHandler implements RequestHandlerInterfac
                     $identity,
                     $type,
                     (int) ($request->getQueryParams()['offset'] ?? 0),
+                    isset($request->getQueryParams()['productId'])
+                        ? (string) $request->getQueryParams()['productId'] : null,
                 ),
             ]);
         }

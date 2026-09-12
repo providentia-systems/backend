@@ -95,6 +95,83 @@ final class SyncCommandValidatorTest extends TestCase
         ));
     }
 
+    public function testShoppingLifecycleCommandsRequireClosedTypedRevisionedPayloads(): void
+    {
+        $validator = new SyncCommandValidator(65536);
+        $list = $validator->validate($this->command(
+            'shopping.list.update',
+            3,
+            ['name' => 'Month end', 'status' => 'archived'],
+        ));
+        $line = $validator->validate($this->command(
+            'shopping.list-line.update',
+            2,
+            [
+                'listId' => '01912345-6789-7abc-adef-0123456789ab',
+                'description' => 'Brown rice',
+                'quantity' => '3.5',
+                'archived' => true,
+            ],
+        ));
+        self::assertSame(3, $list->baseRevision);
+        self::assertTrue($line->payload['archived']);
+        $this->expectException(Problem::class);
+        $validator->validate($this->command('shopping.list.update', 3, ['name' => null, 'status' => 'open']));
+    }
+
+    public function testPlaceMetadataUpdatesRequireTypedValuesAndPositiveRevision(): void
+    {
+        $validator = new SyncCommandValidator(65536);
+        $command = $validator->validate(
+            $this->command('inventory.location.update', 3, [
+                'name' => 'Cupboard',
+                'kind' => 'shelf',
+                'status' => 'active',
+            ]),
+        );
+        self::assertSame(3, $command->baseRevision);
+        self::assertSame('Cupboard', $command->payload['name']);
+        $store = $validator->validate($this->command('purchasing.store.update', 1, ['location' => '']));
+        self::assertSame('', $store->payload['location']);
+        $this->expectException(Problem::class);
+        $validator->validate($this->command('purchasing.store.update', 1, ['name' => null]));
+    }
+
+    public function testPlaceMetadataUpdatesRejectMissingChanges(): void
+    {
+        $this->expectException(Problem::class);
+        new SyncCommandValidator(65536)->validate($this->command('inventory.location.update', 1, []));
+    }
+
+    public function testPlaceMetadataUpdatesRejectCreateRevision(): void
+    {
+        $this->expectException(Problem::class);
+        new SyncCommandValidator(65536)->validate(
+            $this->command('purchasing.store.update', 0, ['name' => 'Grocer']),
+        );
+    }
+
+    public function testStockPreferenceCommandPreservesTypedPolicyAndRevision(): void
+    {
+        $payload = [
+            'minimumQuantity' => '4.125',
+            'alwaysKeep' => true,
+            'neverSuggest' => false,
+            'preferredPackId' => null,
+            'leadTimeDays' => 2,
+            'targetCoverageDays' => 14,
+            'snoozeUntil' => null,
+        ];
+        $command = (new SyncCommandValidator(65536))->validate(
+            $this->command('shopping.preference.put', 4, $payload),
+        );
+        self::assertSame(4, $command->baseRevision);
+        self::assertSame($payload, $command->payload);
+        $payload['leadTimeDays'] = '2';
+        $this->expectException(Problem::class);
+        (new SyncCommandValidator(65536))->validate($this->command('shopping.preference.put', 4, $payload));
+    }
+
     /**
      * @param array<string, mixed> $payload
      * @return array<string, mixed>

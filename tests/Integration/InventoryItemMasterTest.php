@@ -148,6 +148,51 @@ final class InventoryItemMasterTest extends TestCase
         self::assertSame([], $private['aliases']);
     }
 
+    public function testHouseholdCategoryFiltersCatalogProductsWithoutReplacingCanonicalCacheLabels(): void
+    {
+        $this->insertPrivateCategory();
+        $at = new DateTimeImmutable('2026-09-12T10:00:00+00:00');
+        $saved = $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::HOME_PRODUCT_ID,
+            false,
+            null,
+            null,
+            false,
+            null,
+            true,
+            self::HOME_CATEGORY_ID,
+            null,
+            1,
+            $at,
+        );
+        self::assertSame('updated', $saved['status']);
+        $filtered = $this->store->itemMaster(self::HOME_ID, '', null, self::HOME_CATEGORY_ID, 100, 0);
+        self::assertSame(1, $filtered['total']);
+        $item = $filtered['items'][0];
+        self::assertSame(self::BEANS_PACK_ONE, $item['packId']);
+        self::assertSame(self::CATEGORY_ID, $item['categoryId']);
+        self::assertSame('Canned', $item['categoryName']);
+        self::assertSame('global', $item['categorySource']);
+        self::assertNull($item['homeCategoryId']);
+        self::assertSame(0, $this->store->itemMaster(
+            self::OTHER_HOME_ID, '', null, self::HOME_CATEGORY_ID, 100, 0,
+        )['total']);
+
+        $this->connection->executeStatement('ALTER TABLE inventory_balances ADD revision INTEGER NOT NULL DEFAULT 0');
+        $this->connection->executeStatement(
+            'CREATE TABLE stock_threshold_preferences (home_id TEXT, home_product_id TEXT, '
+            . 'minimum_quantity TEXT, always_keep INTEGER, never_suggest INTEGER)',
+        );
+        $stock = $this->store->stock(self::HOME_ID, '', null, self::HOME_CATEGORY_ID, 100, 0);
+        self::assertCount(1, $stock);
+        self::assertSame(self::HOME_CATEGORY_ID, $stock[0]['homeCategoryId']);
+        self::assertSame(self::CATEGORY_ID, $stock[0]['categoryId']);
+        self::assertSame('home', $stock[0]['categorySource']);
+        self::assertSame('Dry goods', $stock[0]['categoryName']);
+        self::assertSame('Dry goods', $stock[0]['category']);
+    }
+
     public function testCategoryAndPrivateProductArchiveSafeguardsAreRevisionBound(): void
     {
         $this->insertPrivateCategory();

@@ -73,6 +73,27 @@ final class AiService
             $this->maturity->providerProfiles($homeId, $identity->userId),
         );
         $settings['orchestrationPolicy'] = $this->maturity->orchestrationPolicy($homeId);
+        $settings['transmissionPlan'] = null;
+        if ((string) $settings['mode'] === AiMode::ServerProxy->value) {
+            try {
+                [$profiles, $validator] = $this->planProfiles(
+                    $homeId,
+                    $settings,
+                    $settings['orchestrationPolicy'],
+                    $identity->userId,
+                );
+                $settings['transmissionPlan'] = (new AiTransmissionPlan(
+                    $homeId,
+                    $identity->userId,
+                    (int) $settings['revision'],
+                    (int) ($settings['orchestrationPolicy']['revision'] ?? 0),
+                    $profiles,
+                    $validator,
+                ))->view();
+            } catch (Problem) {
+                // An unavailable plan must not prevent management of its settings.
+            }
+        }
 
         return $settings;
     }
@@ -592,6 +613,8 @@ final class AiService
         string $declaredMimeType,
         string $bytes,
         array $additionalImages = [],
+        ?string $transmissionPlanHash = null,
+        ?string $selectedProfileId = null,
     ): array {
         $sensitive = new SensitiveBufferScope($this->buffers);
         $sensitive->track($bytes);
@@ -613,6 +636,8 @@ final class AiService
                 $bytes,
                 $additionalImages,
                 $sensitive,
+                $transmissionPlanHash,
+                $selectedProfileId,
             );
         } finally {
             $sensitive->eraseAll();
@@ -635,6 +660,8 @@ final class AiService
         string &$bytes,
         array &$additionalImages,
         SensitiveBufferScope $sensitive,
+        ?string $transmissionPlanHash,
+        ?string $selectedProfileId,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_CREDENTIALS_USE);
         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_USE);
@@ -677,9 +704,18 @@ final class AiService
             );
         }
         $policy = $this->maturity->orchestrationPolicy($homeId);
+        [$profiles, $validationProfile] = $this->planProfiles($homeId, $settings, $policy, $identity->userId);
+        (new AiTransmissionPlan(
+            $homeId,
+            $identity->userId,
+            (int) $settings['revision'],
+            (int) ($policy['revision'] ?? 0),
+            $profiles,
+            $validationProfile,
+        ))->requireConsent($transmissionPlanHash, $selectedProfileId);
         [$plan, $validator, $credentials] = $policy === null
             ? $this->legacyPlan($homeId, $settings)
-            : $this->policyPlan($homeId, $policy, $identity->userId);
+            : $this->policyPlan($homeId, $profiles, $validationProfile);
         foreach ($credentials as &$credential) {
             $sensitive->track($credential);
         }
@@ -832,6 +868,8 @@ final class AiService
         ?string $targetId,
         bool $transmissionConsent,
         array $assetIds,
+        ?string $transmissionPlanHash = null,
+        ?string $selectedProfileId = null,
     ): array {
         $images = $this->media->extractionImages($identity, $homeId, $assetIds);
         $first = array_shift($images);
@@ -848,6 +886,8 @@ final class AiService
             $first['mimeType'],
             $first['bytes'],
             $images,
+            $transmissionPlanHash,
+            $selectedProfileId,
         );
     }
 
@@ -1018,35 +1058,58 @@ final class AiService
     }
 
     /**
+     * Resolve once, then use these same profile snapshots for disclosure and execution.
      *
-     * @param array<string, mixed> $policy
-     *
-     * @return array{0: non-empty-list<AiExecution>, 1: AiExecution|null, 2: list<string>}
+     * @param array<string, mixed> $settings
+     * @param array<string, mixed>|null $policy
+     * @return array{non-empty-list<array<string, mixed>>, array<string, mixed>|null}
      */
-    private function policyPlan(string $homeId, array $policy, string $userId): array
+    private function planProfiles(string $homeId, array $settings, ?array $policy, string $userId): array
     {
+        if ($policy === null) {
+            if (empty($settings['provider']) || empty($settings['model'])) {
+                throw new Problem(409, 'AI provider unavailable', 'Configure a provider before reviewing recipients.');
+            }
+            return [[[
+                'id' => null,
+                'revision' => (int) $settings['revision'],
+                'provider' => $settings['provider'] ?? '',
+                'model' => $settings['model'] ?? '',
+                'endpoint' => null,
+            ]], null];
+        }
         $profileIds = $policy['extractionProfileIds'] ?? null;
         if (! is_array($profileIds) || $profileIds === [] || count($profileIds) > (int) $policy['maxAttempts']) {
             throw new Problem(409, 'AI policy unavailable', 'The active AI orchestration policy is invalid.');
         }
         $visible = $this->visibleProfiles($homeId, $userId);
+        $profiles = [];
+        foreach ($profileIds as $profileId) {
+            $profiles[] = $this->resolveProfile($visible, (string) $profileId);
+        }
+        $validatorId = $policy['validationProfileId'] ?? null;
+        $validator = is_string($validatorId) && $validatorId !== ''
+            ? $this->resolveProfile($visible, $validatorId)
+            : null;
+
+        return [$profiles, $validator];
+    }
+
+    /**
+     * @param non-empty-list<array<string, mixed>> $profiles
+     * @param array<string, mixed>|null $validationProfile
+     * @return array{0: non-empty-list<AiExecution>, 1: AiExecution|null, 2: list<string>}
+     */
+    private function policyPlan(string $homeId, array $profiles, ?array $validationProfile): array
+    {
         $credentials = [];
         $plan = [];
-        foreach ($profileIds as $profileId) {
-            $plan[] = $this->executionForProfile(
-                $homeId,
-                $this->resolveProfile($visible, (string) $profileId),
-                $credentials,
-            );
+        foreach ($profiles as $profile) {
+            $plan[] = $this->executionForProfile($homeId, $profile, $credentials);
         }
-        $validator = null;
-        if (is_string($policy['validationProfileId'] ?? null) && $policy['validationProfileId'] !== '') {
-            $validator = $this->executionForProfile(
-                $homeId,
-                $this->resolveProfile($visible, $policy['validationProfileId']),
-                $credentials,
-            );
-        }
+        $validator = $validationProfile === null
+            ? null
+            : $this->executionForProfile($homeId, $validationProfile, $credentials);
 
         return [$plan, $validator, $credentials];
     }

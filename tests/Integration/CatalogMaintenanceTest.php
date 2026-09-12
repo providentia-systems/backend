@@ -133,6 +133,32 @@ final class CatalogMaintenanceTest extends TestCase
         self::assertNull($pack['normalized_base_amount']);
     }
 
+    public function testProductMasterFiltersRelatedPacksAndExcludesPrivateAliases(): void
+    {
+        $this->save('category', 'category', ['canonicalName' => 'Pantry']);
+        foreach (['rice', 'beans'] as $id) {
+            $this->save('product', $id, ['canonicalName' => $id, 'brand' => '', 'categoryId' => 'category']);
+        }
+        $packs = $this->store->entities('pack', 0, 'rice');
+        self::assertCount(1, $packs);
+        self::assertSame('rice', $packs[0]['fields']['productId']);
+        self::assertCount(1, $this->store->entities('category', 0, 'rice'));
+        $this->connection->executeStatement('CREATE TABLE product_aliases (id TEXT PRIMARY KEY,
+            scope TEXT, home_id TEXT, product_id TEXT, variant_id TEXT, pack_id TEXT,
+            raw_alias TEXT, status TEXT, revision INTEGER)');
+        foreach (['public' => null, 'private' => 'home'] as $id => $home) {
+            $this->connection->insert('product_aliases', [
+                'id' => $id, 'scope' => $home === null ? 'global' : 'home', 'home_id' => $home,
+                'product_id' => 'rice', 'raw_alias' => $id, 'status' => 'approved', 'revision' => 1,
+            ]);
+        }
+        $aliases = $this->store->entities('alias', 0, 'rice');
+        self::assertCount(1, $aliases);
+        self::assertSame('public', $aliases[0]['fields']['rawAlias']);
+        self::assertSame([], $this->store->entities('alias', 0, 'beans'));
+        self::assertSame([], $this->store->entities('pack', 100, 'rice'));
+    }
+
     public function testOperatorStockUsesTheActualTenantProductBalanceKey(): void
     {
         $this->connection->insert('inventory_balances', [

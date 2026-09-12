@@ -173,6 +173,7 @@ final class DbalCatalogStore implements CatalogStore, PublishedPackReader
      */
     public function importSeed(array $seed, DateTimeImmutable $at): array
     {
+        CatalogPublicationLock::aliases($this->connection);
         $now = $this->date($at);
         /** @var list<array<string, string>> $items */
         $items = $seed['items'];
@@ -283,7 +284,9 @@ final class DbalCatalogStore implements CatalogStore, PublishedPackReader
                 $normalized = $this->normalize($alias);
                 $exists = (int) $this->connection->fetchOne(
                     'SELECT COUNT(*) FROM product_aliases
-                     WHERE scope = :scope AND normalized_alias = :alias',
+                     WHERE scope = :scope AND normalized_alias = :alias'
+                        . ($this->connection->getDatabasePlatform() instanceof \Doctrine\DBAL\Platforms\SQLitePlatform
+                            ? '' : ' FOR UPDATE'),
                     ['scope' => 'global', 'alias' => $normalized],
                 );
                 if ($exists > 0) {

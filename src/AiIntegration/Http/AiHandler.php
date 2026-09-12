@@ -219,8 +219,8 @@ final readonly class AiHandler implements RequestHandlerInterface
         try {
             $this->requireExactKeys(
                 $body,
-                ['kind', 'targetId', 'transmissionConsent'],
-                ['kind', 'transmissionConsent'],
+                ['kind', 'targetId', 'transmissionConsent', 'transmissionPlanHash', 'selectedProfileId'],
+                ['kind', 'transmissionConsent', 'transmissionPlanHash'],
             );
             if (! $this->isExplicitTrue($body['transmissionConsent'])) {
                 throw new HttpProblem(
@@ -273,6 +273,8 @@ final readonly class AiHandler implements RequestHandlerInterface
                 (string) ($uploaded->getClientMediaType() ?? ''),
                 $bytes,
                 $additional,
+                $this->planHash($body),
+                $this->selectedProfileId($body),
             ), 201);
         } finally {
             try {
@@ -334,8 +336,8 @@ final readonly class AiHandler implements RequestHandlerInterface
     ): ResponseInterface {
         $this->requireExactKeys(
             $body,
-            ['assetIds', 'kind', 'targetId', 'transmissionConsent'],
-            ['assetIds', 'kind', 'transmissionConsent'],
+            ['assetIds', 'kind', 'targetId', 'transmissionConsent', 'transmissionPlanHash', 'selectedProfileId'],
+            ['assetIds', 'kind', 'transmissionConsent', 'transmissionPlanHash'],
         );
         if ($body['transmissionConsent'] !== true) {
             throw new HttpProblem(
@@ -352,7 +354,31 @@ final readonly class AiHandler implements RequestHandlerInterface
             isset($body['targetId']) ? (string) $body['targetId'] : null,
             true,
             $this->stringList($body['assetIds']),
+            $this->planHash($body),
+            $this->selectedProfileId($body),
         ), 201);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function planHash(array $body): string
+    {
+        $value = $body['transmissionPlanHash'] ?? null;
+        if (! is_string($value) || preg_match('/^[a-f0-9]{64}$/', $value) !== 1) {
+            throw new HttpProblem(422, 'Invalid transmission plan', 'A reviewed transmission plan is required.');
+        }
+
+        return $value;
+    }
+
+    /** @param array<string, mixed> $body */
+    private function selectedProfileId(array $body): ?string
+    {
+        $value = $body['selectedProfileId'] ?? null;
+        if ($value !== null && (! is_string($value) || preg_match('/^[A-Za-z0-9-]{1,36}$/', $value) !== 1)) {
+            throw new HttpProblem(422, 'Invalid selected profile', 'Choose a profile from the reviewed plan.');
+        }
+
+        return $value;
     }
 
     /**

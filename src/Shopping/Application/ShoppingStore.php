@@ -17,6 +17,9 @@ interface ShoppingStore
     /** @return list<array<string, mixed>> */
     public function lines(string $homeId, string $listId): array;
 
+    /** @return array<string, mixed>|null */
+    public function line(string $homeId, string $listId, string $lineId): ?array;
+
     public function createList(
         string $id,
         string $homeId,
@@ -38,6 +41,7 @@ interface ShoppingStore
         string $explanation,
         ?string $confidence,
         DateTimeImmutable $at,
+        ?string $suggestionId = null,
     ): bool;
 
     public function setChecked(
@@ -45,6 +49,26 @@ interface ShoppingStore
         string $listId,
         string $lineId,
         bool $checked,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool;
+
+    public function updateList(
+        string $homeId,
+        string $listId,
+        string $name,
+        string $status,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool;
+
+    public function updateLine(
+        string $homeId,
+        string $listId,
+        string $lineId,
+        string $description,
+        string $quantity,
+        bool $archived,
         int $expectedRevision,
         DateTimeImmutable $at,
     ): bool;

@@ -7,6 +7,7 @@ namespace Providentia\Shopping\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use DomainException;
 use Providentia\Shopping\Application\ShoppingIntelligenceStore;
 use Providentia\Shopping\Domain\ConsumptionEstimator;
@@ -483,7 +484,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
 
     public function preference(string $homeId, string $homeProductId): ?array
     {
-        return $this->one(
+        $row = $this->one(
             'SELECT home_product_id AS homeProductId, minimum_quantity AS minimumQuantity,
                     always_keep AS alwaysKeep, never_suggest AS neverSuggest,
                     preferred_pack_id AS preferredPackId, lead_time_days AS leadTimeDays,
@@ -493,6 +494,18 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
              WHERE home_id = :home AND home_product_id = :product',
             ['home' => $homeId, 'product' => $homeProductId],
         );
+        if ($row === null) {
+            return null;
+        }
+        $row['minimumQuantity'] = $this->nullableJsonString($row['minimumQuantity']);
+        $row['alwaysKeep'] = (bool) $row['alwaysKeep'];
+        $row['neverSuggest'] = (bool) $row['neverSuggest'];
+        $row['leadTimeDays'] = (int) $row['leadTimeDays'];
+        $row['targetCoverageDays'] = $row['targetCoverageDays'] === null
+            ? null : (int) $row['targetCoverageDays'];
+        $row['revision'] = (int) $row['revision'];
+
+        return $row;
     }
 
     public function savePreference(
@@ -505,9 +518,10 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         int $expectedRevision,
         DateTimeImmutable $at,
     ): bool {
+        $lock = $this->connection->getDatabasePlatform() instanceof SQLitePlatform ? '' : ' FOR UPDATE';
         $product = $this->one(
             'SELECT product_id AS productId FROM home_products
-             WHERE id = :id AND home_id = :home AND status = :status',
+             WHERE id = :id AND home_id = :home AND status = :status' . $lock,
             ['id' => $homeProductId, 'home' => $homeId, 'status' => 'active'],
         );
         if ($product === null) {

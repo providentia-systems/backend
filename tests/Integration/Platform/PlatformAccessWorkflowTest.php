@@ -17,7 +17,11 @@ use PHPUnit\Framework\TestCase;
 use Providentia\Access\Application\AccessService;
 use Providentia\Access\Domain\FeatureCatalog;
 use Providentia\Administration\Application\OperatorWorkspaceService;
+use Providentia\Administration\Application\OperatorInventoryService;
+use Providentia\Administration\Application\OperatorShoppingService;
+use Providentia\Administration\Application\OperatorStockPreferenceService;
 use Providentia\Catalog\Application\CatalogContributionService;
+use Providentia\Catalog\Application\CatalogMaintenanceService;
 use Providentia\Geography\Application\CountryService;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeService;
@@ -49,7 +53,7 @@ final class PlatformAccessWorkflowTest extends TestCase
             ->ensureInitialized();
         $plan = $migrations->getMigrationPlanCalculator()
             ->getPlanUntilVersion(
-                new Version('Providentia\Migrations\Version20260905000100'),
+                new Version('Providentia\Migrations\Version20260912000100'),
             );
         $migrations->getMigrator()
             ->migrate($plan, new MigratorConfiguration());
@@ -800,6 +804,371 @@ final class PlatformAccessWorkflowTest extends TestCase
         self::assertSame(1, (int) $this->db->fetchOne(
             "SELECT COUNT(*) FROM home_memberships WHERE home_id = ? AND role = 'owner' AND status = 'active'",
             [$homeId],
+        ));
+    }
+
+    public function testOperatorShoppingLifecycleIsAuditedAndPreservesHouseholdBoundaries(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('operator-shopping@example.test');
+        [, $otherHome] = $this->ownedHome('operator-shopping-other@example.test');
+        $reader = $this->approvedAdministrator($admin, 'shopping-reader@example.test', ['homes.read']);
+        $service = $this->container->get(OperatorShoppingService::class);
+        $homeId = $home['id'];
+        $listId = '55000000-0000-4000-8000-000000000001';
+        $lineId = '55000000-0000-4000-8000-000000000002';
+        $input = ['id' => $listId, 'name' => 'Weekly shop', 'expectedRevision' => 0, 'reason' => 'Household support'];
+        $this->problem(403, fn() => $service->saveList($owner, $homeId, $listId, $input, true));
+        $this->problem(403, fn() => $service->saveList($reader, $homeId, $listId, $input, true));
+        $created = $service->saveList($admin, $homeId, $listId, $input, true);
+        self::assertSame(1, $created['revision']);
+        self::assertSame($homeId, $created['homeId']);
+        $this->problem(409, fn() => $service->saveList($admin, $homeId, $listId, $input, true));
+        $line = $service->saveLine($admin, $homeId, $listId, $lineId, [
+            'id' => $lineId, 'description' => 'Oats', 'quantityToBuy' => '2.5',
+            'expectedRevision' => 0, 'expectedListRevision' => 1, 'reason' => 'Plan groceries',
+        ], true);
+        self::assertSame(1, $line['revision']);
+        self::assertFalse($line['checked']);
+        $edit = ['description' => 'Rolled oats', 'quantityToBuy' => '3.25',
+            'expectedRevision' => 1, 'reason' => 'Correct quantity'];
+        $this->problem(404, fn() => $service->saveLine(
+            $admin, $otherHome['id'], $listId, $lineId, $edit, false,
+        ));
+        $edited = $service->saveLine($admin, $homeId, $listId, $lineId, $edit, false);
+        self::assertSame('Rolled oats', $edited['description']);
+        self::assertSame('3.25', rtrim(rtrim((string) $edited['quantityToBuy'], '0'), '.'));
+        self::assertSame('manual', $edited['source']);
+        $this->problem(409, fn() => $service->saveLine($admin, $homeId, $listId, $lineId, $edit, false));
+        $checked = $service->checkLine($admin, $homeId, $listId, $lineId, [
+            'checked' => true, 'expectedRevision' => 2, 'reason' => 'Purchased',
+        ]);
+        self::assertTrue($checked['checked']);
+        foreach ([true, false] as $index => $archived) {
+            $saved = $service->saveLine($admin, $homeId, $listId, $lineId, [
+                'archived' => $archived, 'expectedRevision' => $index + 3, 'reason' => 'Correct list',
+            ], false);
+            self::assertSame($archived, $saved['archived']);
+            self::assertTrue($saved['checked']);
+        }
+        $revision = (int) $this->db->fetchOne('SELECT revision FROM shopping_lists WHERE id = ?', [$listId]);
+        $service->saveList($admin, $homeId, $listId, [
+            'status' => 'archived', 'expectedRevision' => $revision, 'reason' => 'Complete list',
+        ], false);
+        $this->problem(409, fn() => $service->saveLine($admin, $homeId, $listId, $lineId, [
+            'quantityToBuy' => '5', 'expectedRevision' => 5, 'reason' => 'Closed list attempt',
+        ], false));
+        $service->saveList($admin, $homeId, $listId, [
+            'status' => 'open', 'expectedRevision' => $revision + 1, 'reason' => 'Reopen list',
+        ], false);
+        $audit = $this->db->fetchOne(
+            "SELECT details_json FROM platform_audit_events WHERE action = 'operator.home.shopping-line.saved' "
+            . "AND details_json LIKE '%Correct quantity%'",
+        );
+        self::assertIsString($audit);
+        $details = json_decode($audit, true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('Oats', $details['before']['description']);
+        self::assertSame('Rolled oats', $details['after']['description']);
+        self::assertSame(0, (int) $this->db->fetchOne(
+            'SELECT COUNT(*) FROM home_memberships WHERE home_id = ? AND user_id = ?',
+            [$homeId, $admin->userId],
+        ));
+        self::assertSame(5, (int) $this->db->fetchOne(
+            'SELECT COUNT(*) FROM change_log WHERE home_id = ? AND entity_id = ?',
+            [$homeId, $lineId],
+        ));
+        $this->db->executeStatement(
+            "CREATE TRIGGER reject_shopping_audit BEFORE INSERT ON platform_audit_events "
+            . "WHEN NEW.action = 'operator.home.shopping-line.saved' "
+            . "BEGIN SELECT RAISE(ABORT, 'Audit unavailable'); END",
+        );
+        try {
+            $service->saveLine($admin, $homeId, $listId, $lineId, [
+                'description' => 'Uncommitted edit', 'expectedRevision' => 5, 'reason' => 'Atomicity check',
+            ], false);
+            self::fail('Audit failure must roll back the shopping edit.');
+        } catch (\Doctrine\DBAL\Exception) {
+            self::assertSame('Rolled oats', $this->db->fetchOne(
+                'SELECT description FROM shopping_list_lines WHERE id = ?', [$lineId],
+            ));
+            self::assertSame($revision + 2, (int) $this->db->fetchOne(
+                'SELECT revision FROM shopping_lists WHERE id = ?', [$listId],
+            ));
+        }
+    }
+
+    public function testOperatorPlacesAreRevisionBoundAuditedAndHomeScoped(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('operator-places@example.test');
+        [, $other] = $this->ownedHome('operator-places-other@example.test');
+        $reader = $this->approvedAdministrator($admin, 'places-reader@example.test', ['homes.read']);
+        $service = $this->container->get(OperatorInventoryService::class);
+        $homeId = $home['id'];
+        foreach (['Location', 'Store'] as $index => $kind) {
+            $id = '53000000-0000-4000-8000-00000000000' . ($index + 1);
+            $create = 'create' . $kind;
+            $update = 'update' . $kind;
+            $input = [
+                'id' => $id,
+                'name' => 'Original ' . $kind,
+                'reason' => 'Household support',
+                'expectedRevision' => 0,
+                ...($kind === 'Location' ? ['kind' => 'pantry'] : ['location' => 'Windhoek']),
+            ];
+            $this->problem(403, fn() => $service->$create($owner, $homeId, $input));
+            $this->problem(403, fn() => $service->$create($reader, $homeId, $input));
+            $created = $service->$create($admin, $homeId, $input);
+            self::assertSame($id, $created['id']);
+            self::assertSame('active', $created['status']);
+            self::assertSame(1, (int) $created['revision']);
+            $this->problem(409, fn() => $service->$create($admin, $homeId, $input));
+            $edit = ['name' => 'Corrected ' . $kind, 'reason' => 'Correct label', 'expectedRevision' => 1];
+            $this->problem(404, fn() => $service->$update($admin, $other['id'], $id, $edit));
+            $updated = $service->$update($admin, $homeId, $id, $edit);
+            self::assertSame('Corrected ' . $kind, $updated['name']);
+            self::assertSame(2, (int) $updated['revision']);
+            $this->problem(409, fn() => $service->$update($admin, $homeId, $id, $edit));
+            foreach (['archived', 'active'] as $revision => $status) {
+                $saved = $service->$update($admin, $homeId, $id, [
+                    'status' => $status, 'reason' => 'Lifecycle correction', 'expectedRevision' => $revision + 2,
+                ]);
+                self::assertSame($status, $saved['status']);
+            }
+            $audit = $this->db->fetchOne(
+                'SELECT details_json FROM platform_audit_events WHERE action = ? AND details_json LIKE ?',
+                ['operator.home.' . strtolower($kind) . '.saved', '%Correct label%'],
+            );
+            self::assertIsString($audit);
+            $details = json_decode($audit, true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame('Original ' . $kind, $details['before']['name']);
+            self::assertSame('Corrected ' . $kind, $details['after']['name']);
+            self::assertSame(4, (int) $this->db->fetchOne(
+                'SELECT COUNT(*) FROM change_log WHERE home_id = ? AND entity_id = ?',
+                [$homeId, $id],
+            ));
+        }
+        self::assertSame(0, (int) $this->db->fetchOne(
+            'SELECT COUNT(*) FROM home_memberships WHERE home_id = ? AND user_id = ?',
+            [$homeId, $admin->userId],
+        ));
+        $stores = $this->container->get(OperatorWorkspaceService::class)->records($admin, $homeId, 'stores', 0);
+        self::assertCount(1, $stores);
+    }
+
+    public function testOperatorInventoryUsesDomainGuardsAndAuditsWithoutCreatingMembership(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('operator-inventory-home@example.test');
+        $homeId = $home['id'];
+        $service = $this->container->get(OperatorInventoryService::class);
+        $categoryId = '50000000-0000-4000-8000-000000000001';
+        $productId = '50000000-0000-4000-8000-000000000002';
+        $category = $service->createCategory($admin, $homeId, [
+            'id' => $categoryId, 'name' => 'Pantry', 'reason' => 'Household support', 'expectedRevision' => 0,
+        ]);
+        self::assertSame(1, $category['revision']);
+        $created = $service->createProduct($admin, $homeId, [
+            'id' => $productId, 'privateName' => 'Beans', 'originalPackText' => '400 g',
+            'homeCategoryId' => $categoryId, 'reason' => 'Household support', 'expectedRevision' => 0,
+        ]);
+        self::assertSame($productId, $created['id']);
+        $this->problem(409, fn() => $service->createProduct($admin, $homeId, [
+            'id' => $productId, 'privateName' => 'Beans', 'reason' => 'Retry', 'expectedRevision' => 0,
+        ]));
+        $updated = $service->updateProduct($admin, $homeId, $productId, [
+            'privateName' => 'Red beans', 'originalPackText' => '500 g',
+            'reason' => 'Correct label', 'expectedRevision' => 1,
+        ]);
+        self::assertSame('Red beans', $updated['privateName']);
+        self::assertSame(2, $updated['revision']);
+        $this->problem(409, fn() => $service->updateProduct($admin, $homeId, $productId, [
+            'privateName' => 'Stale label', 'reason' => 'Stale edit', 'expectedRevision' => 1,
+        ]));
+        $this->problem(409, fn() => $service->updateCategory($admin, $homeId, $categoryId, [
+            'status' => 'archived', 'reason' => 'Retire category', 'expectedRevision' => 1,
+        ]));
+        $inventory = $this->container->get(InventoryService::class);
+        $inventory->manualAdjustment($owner, $homeId, $productId, '1', 'Counted stock', 'operator-test-stock');
+        $this->problem(409, fn() => $service->updateProduct($admin, $homeId, $productId, [
+            'status' => 'archived', 'reason' => 'Retire product', 'expectedRevision' => 2,
+        ]));
+        $inventory->manualAdjustment($owner, $homeId, $productId, '-1', 'Consumed stock', 'operator-test-consumed');
+        foreach (['archived', 'active'] as $index => $status) {
+            $saved = $service->updateProduct($admin, $homeId, $productId, [
+                'status' => $status, 'reason' => 'Lifecycle correction', 'expectedRevision' => $index + 2,
+            ]);
+            self::assertSame($status, $saved['status']);
+        }
+        self::assertSame(0, (int) $this->db->fetchOne(
+            'SELECT COUNT(*) FROM home_memberships WHERE home_id = ? AND user_id = ?',
+            [$homeId, $admin->userId],
+        ));
+        $this->problem(404, fn() => $inventory->categories($admin, $homeId));
+        self::assertSame(4, (int) $this->db->fetchOne(
+            "SELECT COUNT(*) FROM platform_audit_events WHERE action = 'operator.home.product.saved'",
+        ));
+        $changes = $this->db->fetchAllAssociative(
+            'SELECT revision, payload_json, changed_by_user_id FROM change_log '
+            . 'WHERE home_id = ? AND entity_id = ? ORDER BY revision',
+            [$homeId, $productId],
+        );
+        self::assertCount(4, $changes);
+        self::assertSame($admin->userId, $changes[3]['changed_by_user_id']);
+        self::assertSame('active', json_decode($changes[3]['payload_json'], true, 512, JSON_THROW_ON_ERROR)['status']);
+        $audit = $this->db->fetchOne(
+            "SELECT details_json FROM platform_audit_events WHERE action = 'operator.home.product.saved' "
+            . "AND details_json LIKE '%Correct label%'",
+        );
+        self::assertIsString($audit);
+        $details = json_decode($audit, true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('Beans', $details['before']['privateName']);
+        self::assertSame('Red beans', $details['after']['privateName']);
+    }
+
+    public function testOperatorInventoryRequiresManageAndHomeScopedIdentifiers(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('operator-isolation@example.test');
+        [, $otherHome] = $this->ownedHome('operator-other-home@example.test');
+        $reader = $this->approvedAdministrator($admin, 'inventory-reader@example.test', ['homes.read']);
+        $service = $this->container->get(OperatorInventoryService::class);
+        $input = [
+            'id' => '51000000-0000-4000-8000-000000000001', 'name' => 'Home category',
+            'reason' => 'Support edit', 'expectedRevision' => 0,
+        ];
+        $this->problem(403, fn() => $service->createCategory($owner, $home['id'], $input));
+        $this->problem(403, fn() => $service->createCategory($reader, $home['id'], $input));
+        $service->createCategory($admin, $home['id'], $input);
+        $this->problem(404, fn() => $service->updateCategory($admin, $otherHome['id'], $input['id'], [
+            'name' => 'Cross-home edit', 'reason' => 'Support edit', 'expectedRevision' => 1,
+        ]));
+        $this->problem(422, fn() => $service->updateCategory($admin, $home['id'], $input['id'], [
+            'name' => 'No audit reason', 'reason' => ' ', 'expectedRevision' => 1,
+        ]));
+        $this->problem(422, fn() => $service->updateCategory($admin, $home['id'], $input['id'], [
+            'name' => 'Unsupported', 'home_id' => $otherHome['id'], 'reason' => 'Support', 'expectedRevision' => 1,
+        ]));
+        self::assertSame('Home category', $this->db->fetchOne(
+            'SELECT name FROM home_categories WHERE id = ?',
+            [$input['id']],
+        ));
+    }
+
+    public function testOperatorInventoryAuditFailureRollsBackRecordAndChangeFeed(): void
+    {
+        $admin = $this->systemOwner();
+        [, $home] = $this->ownedHome('operator-atomicity@example.test');
+        $this->db->executeStatement(
+            "CREATE TRIGGER reject_operator_audit BEFORE INSERT ON platform_audit_events "
+            . "WHEN NEW.action = 'operator.home.category.saved' "
+            . "BEGIN SELECT RAISE(ABORT, 'Audit unavailable'); END",
+        );
+        $categoryId = '52000000-0000-4000-8000-000000000001';
+        try {
+            $this->container->get(OperatorInventoryService::class)->createCategory($admin, $home['id'], [
+                'id' => $categoryId, 'name' => 'Uncommitted', 'reason' => 'Atomicity check', 'expectedRevision' => 0,
+            ]);
+            self::fail('The audit failure should abort the mutation.');
+        } catch (\Doctrine\DBAL\Exception) {
+            self::assertFalse($this->db->fetchOne('SELECT id FROM home_categories WHERE id = ?', [$categoryId]));
+            self::assertSame(0, (int) $this->db->fetchOne(
+                'SELECT COUNT(*) FROM change_log WHERE entity_id = ?',
+                [$categoryId],
+            ));
+        }
+    }
+
+    public function testOperatorStockPreferencesKeepPolicyRevisionAuditAndHouseholdFeedTogether(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('operator-preferences@example.test');
+        [, $other] = $this->ownedHome('operator-preferences-other@example.test');
+        $reader = $this->approvedAdministrator($admin, 'preference-reader@example.test', ['homes.read']);
+        $product = $this->container->get(InventoryService::class)
+            ->addHomeProduct($owner, $home['id'], null, null, 'Beans', '400 g');
+        $service = $this->container->get(OperatorStockPreferenceService::class);
+        $initial = $service->get($reader, $home['id'], $product['id']);
+        self::assertSame(0, $initial['revision']);
+        self::assertSame([], $initial['packOptions']);
+        $input = [
+            'minimumQuantity' => '3.5', 'alwaysKeep' => true, 'neverSuggest' => false,
+            'preferredPackId' => null, 'leadTimeDays' => 2, 'targetCoverageDays' => 14,
+            'snoozeUntil' => null, 'expectedRevision' => 0, 'reason' => 'Set household stock minimum',
+        ];
+        $this->problem(403, fn() => $service->put($reader, $home['id'], $product['id'], $input));
+        $this->problem(403, fn() => $service->put($owner, $home['id'], $product['id'], $input));
+        $this->problem(404, fn() => $service->put($admin, $other['id'], $product['id'], $input));
+        $result = $service->put($admin, $home['id'], $product['id'], $input);
+        self::assertSame(1, $result['revision']);
+        $this->problem(409, fn() => $service->put($admin, $home['id'], $product['id'], $input));
+        $this->problem(422, fn() => $service->put($admin, $home['id'], $product['id'], [
+            ...$input, 'expectedRevision' => 1, 'alwaysKeep' => 'false',
+        ]));
+        $saved = $service->get($admin, $home['id'], $product['id']);
+        self::assertSame('3.5', $saved['minimumQuantity']);
+        self::assertTrue($saved['alwaysKeep']);
+        self::assertSame(1, $saved['revision']);
+        $change = $this->db->fetchAssociative(
+            "SELECT revision, changed_by_user_id, payload_json FROM change_log "
+            . "WHERE home_id = ? AND entity_id = ? AND entity_type = 'shopping-stock-preference'",
+            [$home['id'], $product['id']],
+        );
+        self::assertIsArray($change);
+        self::assertSame(1, (int) $change['revision']);
+        self::assertSame($admin->userId, $change['changed_by_user_id']);
+        $payload = json_decode($change['payload_json'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('3.5', $payload['minimumQuantity']);
+        self::assertSame(1, (int) $this->db->fetchOne(
+            "SELECT COUNT(*) FROM platform_audit_events WHERE action = 'operator.home.stock-preference.saved'",
+        ));
+        $service->put($admin, $home['id'], $product['id'], [
+            ...$input, 'minimumQuantity' => null, 'alwaysKeep' => false,
+            'leadTimeDays' => 0, 'targetCoverageDays' => null, 'expectedRevision' => 1, 'reason' => 'Reset to defaults',
+        ]);
+        self::assertNull($service->get($admin, $home['id'], $product['id'])['minimumQuantity']);
+    }
+
+    public function testCatalogBackedCreationAcceptsOnlyCategoriesFromTheSameHome(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('catalog-category-owner@example.test');
+        [$otherOwner, $otherHome] = $this->ownedHome('catalog-category-other@example.test');
+        $catalog = $this->container->get(CatalogMaintenanceService::class);
+        $globalCategoryId = '53000000-0000-4000-8000-000000000001';
+        $globalProductId = '53000000-0000-4000-8000-000000000002';
+        $base = ['status' => 'published', 'expectedRevision' => 0, 'reason' => 'Catalog fixture'];
+        $catalog->save($admin, 'category', $globalCategoryId, [
+            ...$base, 'fields' => ['canonicalName' => 'Groceries'],
+        ]);
+        $catalog->save($admin, 'product', $globalProductId, [
+            ...$base, 'fields' => ['canonicalName' => 'Beans', 'brand' => '', 'categoryId' => $globalCategoryId],
+        ]);
+        $inventory = $this->container->get(InventoryService::class);
+        $category = $inventory->createHomeCategory($owner, $home['id'], 'Pantry');
+        $otherCategory = $inventory->createHomeCategory($otherOwner, $otherHome['id'], 'Other pantry');
+        $created = $inventory->addHomeProduct(
+            $owner, $home['id'], $globalProductId, null, null, null, $category['id'],
+        );
+        self::assertSame($category['id'], $this->db->fetchOne(
+            'SELECT home_category_id FROM home_products WHERE id = ?',
+            [$created['id']],
+        ));
+        $this->problem(422, fn() => $inventory->addHomeProduct(
+            $owner, $home['id'], $globalProductId, null, null, null, $otherCategory['id'],
+        ));
+        $operator = $this->container->get(OperatorInventoryService::class);
+        $operator->createProduct($admin, $home['id'], [
+            'id' => '53000000-0000-4000-8000-000000000003', 'productId' => $globalProductId,
+            'homeCategoryId' => $category['id'], 'expectedRevision' => 0, 'reason' => 'Set household classification',
+        ]);
+        $this->problem(422, fn() => $operator->updateProduct($admin, $home['id'], $created['id'], [
+            'privateName' => 'Overwrite catalog name',
+            'reason' => 'Invalid global identity edit', 'expectedRevision' => 1,
+        ]));
+        self::assertSame('Beans', $this->db->fetchOne(
+            'SELECT canonical_name FROM products WHERE id = ?',
+            [$globalProductId],
         ));
     }
 

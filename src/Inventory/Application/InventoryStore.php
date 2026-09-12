@@ -37,7 +37,25 @@ interface InventoryStore
     ): array;
 
     /** @return list<array<string, mixed>> */
-    public function locations(string $homeId): array;
+    public function locations(string $homeId, bool $includeArchived = false): array;
+
+    /** @return array<string, mixed>|null */
+    public function location(string $homeId, string $locationId): ?array;
+
+    /**
+     * @return array{status: 'updated', record: array<string, mixed>}
+     *     |array{status: 'not-found'|'revision-conflict'|'location-in-use'}
+     */
+    public function updateLocation(
+        string $homeId,
+        string $locationId,
+        ?string $name,
+        ?string $normalizedName,
+        ?string $kind,
+        ?string $status,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): array;
 
     public function createLocation(
         string $id,
@@ -159,6 +177,14 @@ interface InventoryStore
         string $source,
         string $notes,
         string $actorUserId,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool;
+
+    public function removeCountLine(
+        string $homeId,
+        string $sessionId,
+        string $lineId,
         int $expectedRevision,
         DateTimeImmutable $at,
     ): bool;

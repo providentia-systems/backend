@@ -7,6 +7,7 @@ namespace Providentia\Purchasing\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Providentia\Purchasing\Application\PurchaseAnalyticsReader;
 use Providentia\Purchasing\Application\PurchaseSummaryReader;
@@ -32,7 +33,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
                     r.total_amount AS totalAmount, r.status, r.source,
                     r.source_reference AS sourceReference, r.notes, r.revision,
                     r.committed_at AS committedAt, r.created_at AS createdAt,
-                    COUNT(rl.id) AS lineCount
+                    COUNT(CASE WHEN rl.approval_status <> \'removed\' THEN rl.id END) AS lineCount
              FROM receipts r
              LEFT JOIN stores s ON s.id = r.store_id AND s.home_id = r.home_id
              LEFT JOIN receipt_lines rl ON rl.receipt_id = r.id AND rl.home_id = r.home_id
@@ -69,7 +70,8 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
                     COALESCE(
                         r.total_amount,
                         (SELECT SUM(rl.line_total) FROM receipt_lines rl
-                         WHERE rl.receipt_id = r.id AND rl.home_id = r.home_id)
+                         WHERE rl.receipt_id = r.id AND rl.home_id = r.home_id
+                           AND rl.approval_status <> \'removed\')
                     ) AS totalAmount
              FROM receipts r
              LEFT JOIN stores s ON s.id = r.store_id AND s.home_id = r.home_id
@@ -138,6 +140,97 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         );
     }
 
+    public function stores(string $homeId, bool $includeArchived = false): array
+    {
+        $sql = 'SELECT id, name, location, status, revision, created_at AS createdAt,
+                       updated_at AS updatedAt FROM stores WHERE home_id = :home';
+        $parameters = ['home' => $homeId];
+        if (!$includeArchived) {
+            $sql .= ' AND status = :status';
+            $parameters['status'] = 'active';
+        }
+        $rows = $this->connection->fetchAllAssociative($sql . ' ORDER BY name, id', $parameters);
+        foreach ($rows as &$row) {
+            $row['revision'] = (int) $row['revision'];
+        }
+
+        return $rows;
+    }
+
+    public function store(string $homeId, string $storeId): ?array
+    {
+        return $this->one(
+            'SELECT id, name, location, status, revision FROM stores WHERE home_id = :home AND id = :id',
+            ['home' => $homeId, 'id' => $storeId],
+        );
+    }
+
+    public function updateStore(
+        string $homeId,
+        string $storeId,
+        ?string $name,
+        ?string $normalizedName,
+        ?string $location,
+        ?string $status,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): array {
+        $row = $this->one(
+            $this->forUpdate('SELECT id, name, normalized_name, location, status, revision
+                FROM stores WHERE home_id = :home AND id = :id'),
+            ['home' => $homeId, 'id' => $storeId],
+        );
+        if ($row === null) {
+            return ['status' => 'not-found'];
+        }
+        if ((int) $row['revision'] !== $expectedRevision) {
+            return ['status' => 'revision-conflict'];
+        }
+        $nextStatus = $status ?? (string) $row['status'];
+        if ($nextStatus === 'archived' && (string) $row['status'] !== 'archived') {
+            $inUse = (int) $this->connection->fetchOne(
+                'SELECT COUNT(*) FROM receipts
+                 WHERE home_id = :home AND store_id = :id AND status = :status',
+                ['home' => $homeId, 'id' => $storeId, 'status' => 'draft'],
+            );
+            if ($inUse > 0) {
+                return ['status' => 'store-in-use'];
+            }
+        }
+        $nextName = $name ?? (string) $row['name'];
+        $nextDetail = $location ?? (string) $row['location'];
+        try {
+            $updated = $this->connection->update(
+                'stores',
+                [
+                    'name' => $nextName,
+                    'normalized_name' => $normalizedName ?? (string) $row['normalized_name'],
+                    'location' => $nextDetail,
+                    'status' => $nextStatus,
+                    'revision' => $expectedRevision + 1,
+                    'updated_at' => $this->date($at),
+                ],
+                ['home_id' => $homeId, 'id' => $storeId, 'revision' => $expectedRevision],
+            );
+        } catch (UniqueConstraintViolationException) {
+            throw new \DomainException('A store with these details already exists in the home.');
+        }
+        if ($updated !== 1) {
+            return ['status' => 'revision-conflict'];
+        }
+
+        return [
+            'status' => 'updated',
+            'record' => [
+                'id' => $storeId,
+                'name' => $nextName,
+                'location' => $nextDetail,
+                'status' => $nextStatus,
+                'revision' => $expectedRevision + 1,
+            ],
+        ];
+    }
+
     public function createStore(
         string $id,
         string $homeId,
@@ -147,17 +240,21 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         DateTimeImmutable $at,
     ): void {
         $now = $this->date($at);
-        $this->connection->insert('stores', [
-            'id' => $id,
-            'home_id' => $homeId,
-            'name' => $name,
-            'normalized_name' => $normalizedName,
-            'location' => $location,
-            'status' => 'active',
-            'revision' => 1,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
+        try {
+            $this->connection->insert('stores', [
+                'id' => $id,
+                'home_id' => $homeId,
+                'name' => $name,
+                'normalized_name' => $normalizedName,
+                'location' => $location,
+                'status' => 'active',
+                'revision' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            throw new \DomainException('A store with these details already exists in the home.');
+        }
     }
 
     public function storeByName(string $homeId, string $normalizedName, string $location): ?array
@@ -190,12 +287,12 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         DateTimeImmutable $at,
     ): void {
         if ($storeId !== null) {
-            $store = (int) $this->connection->fetchOne(
-                'SELECT COUNT(*) FROM stores
-                 WHERE id = :store AND home_id = :home AND status = :status',
+            $store = $this->connection->fetchOne(
+                $this->forUpdate('SELECT id FROM stores
+                 WHERE id = :store AND home_id = :home AND status = :status'),
                 ['store' => $storeId, 'home' => $homeId, 'status' => 'active'],
             );
-            if ($store !== 1) {
+            if ($store === false) {
                 throw new \DomainException('The selected store is unavailable.');
             }
         }
@@ -217,6 +314,72 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+    }
+
+    public function updateDraftReceipt(
+        string $homeId,
+        string $receiptId,
+        array $fields,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool {
+        if (isset($fields['store_id'])) {
+            $store = $this->connection->fetchOne(
+                $this->forUpdate('SELECT id FROM stores WHERE home_id = ? AND id = ? AND status = ?'),
+                [$homeId, $fields['store_id'], 'active'],
+            );
+            if ($store === false) {
+                throw new \DomainException('Choose an active store from this home.');
+            }
+        }
+        return $this->connection->update('receipts', [
+            ...$fields,
+            'revision' => $expectedRevision + 1,
+            'updated_at' => $this->date($at),
+        ], ['home_id' => $homeId, 'id' => $receiptId, 'status' => 'draft', 'revision' => $expectedRevision]) === 1;
+    }
+
+    public function updateDraftReceiptLine(
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        array $fields,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool {
+        $receipt = $this->connection->fetchAssociative(
+            $this->forUpdate('SELECT id FROM receipts WHERE home_id = ? AND id = ? AND status = ?'),
+            [$homeId, $receiptId, 'draft'],
+        );
+        if ($receipt === false) {
+            return false;
+        }
+        $line = $this->connection->fetchAssociative(
+            $this->forUpdate('SELECT revision, approval_status FROM receipt_lines
+             WHERE home_id = ? AND receipt_id = ? AND id = ?'),
+            [$homeId, $receiptId, $lineId],
+        );
+        if ($line === false || (int) $line['revision'] !== $expectedRevision || $line['approval_status'] === 'removed') {
+            return false;
+        }
+        $updated = $this->connection->update('receipt_lines', [
+            ...$fields,
+            'home_product_id' => null,
+            'revision' => $expectedRevision + 1,
+            'updated_at' => $this->date($at),
+        ], ['home_id' => $homeId, 'receipt_id' => $receiptId, 'id' => $lineId, 'revision' => $expectedRevision]);
+        if ($updated !== 1) {
+            return false;
+        }
+        $this->connection->executeStatement(
+            'UPDATE receipt_line_matches SET status = ? WHERE home_id = ? AND receipt_line_id = ? AND status = ?',
+            ['superseded', $homeId, $lineId, 'approved'],
+        );
+        $this->connection->executeStatement(
+            'UPDATE receipts SET revision = revision + 1, updated_at = ? WHERE home_id = ? AND id = ?',
+            [$this->date($at), $homeId, $receiptId],
+        );
+        return true;
     }
 
     public function addReceiptLine(
@@ -292,7 +455,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
              SET home_product_id = :product, approval_status = :approved,
                  revision = revision + 1, updated_at = :updated
              WHERE id = :id AND home_id = :home AND receipt_id = :receipt
-               AND revision = :revision
+               AND approval_status <> \'removed\' AND revision = :revision
                AND EXISTS (
                    SELECT 1 FROM receipts r
                    WHERE r.id = receipt_lines.receipt_id
@@ -368,7 +531,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
              SET home_product_id = NULL, approval_status = :unresolved,
                  revision = revision + 1, updated_at = :updated
              WHERE id = :id AND home_id = :home AND receipt_id = :receipt
-               AND revision = :revision
+               AND approval_status <> \'removed\' AND revision = :revision
                AND EXISTS (
                    SELECT 1 FROM receipts r
                    WHERE r.id = receipt_lines.receipt_id
@@ -481,8 +644,8 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
             ->format('Y-m-d');
         $row = $this->one(
             'SELECT COUNT(DISTINCT r.id) AS receiptCount,
-                    COUNT(rl.id) AS lineCount,
-                    COALESCE(SUM(rl.line_total), 0) AS spend
+                    COUNT(CASE WHEN rl.approval_status <> \'removed\' THEN rl.id END) AS lineCount,
+                    COALESCE(SUM(CASE WHEN rl.approval_status <> \'removed\' THEN rl.line_total END), 0) AS spend
              FROM receipts r
              LEFT JOIN receipt_lines rl ON rl.receipt_id = r.id AND rl.home_id = r.home_id
              WHERE r.home_id = :home AND r.purchase_date >= :cutoff

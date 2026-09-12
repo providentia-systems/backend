@@ -141,18 +141,32 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                         t.name, t.location, t.status
                  FROM stores t'
                 . $missing('purchasing-store') . 't.id)',
+            'shopping-stock-preference' =>
+                'SELECT t.home_id, t.home_product_id AS entity_id, t.revision,
+                        NULL AS actor_user_id, t.updated_at AS changed_at,
+                        t.minimum_quantity, t.always_keep, t.never_suggest,
+                        t.preferred_pack_id, t.lead_time_days,
+                        t.target_coverage_days, t.snooze_until
+                 FROM stock_threshold_preferences t'
+                . $missing('shopping-stock-preference') . 't.home_product_id)',
             'shopping-list' =>
                 'SELECT t.home_id, t.id AS entity_id, t.revision,
                         t.created_by_user_id AS actor_user_id, t.updated_at AS changed_at,
                         t.name, t.kind, t.status
                  FROM shopping_lists t'
                 . $missing('shopping-list') . 't.id)',
+            'shopping-suggestion-feedback' =>
+                'SELECT t.home_id, t.id AS entity_id, 1 AS revision,
+                        t.actor_user_id, t.created_at AS changed_at, t.suggestion_id,
+                        t.decision, t.result_quantity, t.reason
+                 FROM user_suggestion_feedback t'
+                . $missing('shopping-suggestion-feedback') . 't.id)',
             'shopping-list-line' =>
                 'SELECT t.home_id, t.id AS entity_id, t.revision,
                         l.created_by_user_id AS actor_user_id, t.updated_at AS changed_at,
                         t.shopping_list_id, t.home_product_id, t.description,
                         t.source, t.quantity_to_buy, t.explanation,
-                        t.confidence, t.checked_at
+                        t.confidence, t.checked_at, t.archived_at, t.suggestion_id, t.selected_pack_id
                  FROM shopping_list_lines t
                  INNER JOIN shopping_lists l
                    ON l.id = t.shopping_list_id AND l.home_id = t.home_id'
@@ -228,10 +242,27 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'location' => (string) $row['location'],
                 'status' => (string) $row['status'],
             ],
+            'shopping-stock-preference' => [
+                'homeProductId' => (string) $row['entity_id'],
+                'minimumQuantity' => $this->nullableString($row['minimum_quantity']),
+                'alwaysKeep' => (bool) $row['always_keep'],
+                'neverSuggest' => (bool) $row['never_suggest'],
+                'preferredPackId' => $this->nullableString($row['preferred_pack_id']),
+                'leadTimeDays' => (int) $row['lead_time_days'],
+                'targetCoverageDays' => $row['target_coverage_days'] === null
+                    ? null : (int) $row['target_coverage_days'],
+                'snoozeUntil' => $this->nullableString($row['snooze_until']),
+            ],
             'shopping-list' => [
                 'name' => (string) $row['name'],
                 'kind' => (string) $row['kind'],
                 'status' => (string) $row['status'],
+            ],
+            'shopping-suggestion-feedback' => [
+                'suggestionId' => (string) $row['suggestion_id'],
+                'decision' => (string) $row['decision'],
+                'resultQuantity' => $this->nullableString($row['result_quantity']),
+                'reason' => (string) $row['reason'],
             ],
             'shopping-list-line' => [
                 'listId' => (string) $row['shopping_list_id'],
@@ -243,6 +274,9 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'confidence' => $this->nullableString($row['confidence']),
                 'checkedAt' => $this->nullableString($row['checked_at']),
                 'checked' => $row['checked_at'] !== null,
+                'archived' => $row['archived_at'] !== null,
+                'suggestionId' => $this->nullableString($row['suggestion_id']),
+                'selectedPackId' => $this->nullableString($row['selected_pack_id']),
             ],
             default => throw new \LogicException('Unknown synchronization backfill resource.'),
         };

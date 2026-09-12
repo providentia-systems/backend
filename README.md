@@ -24,7 +24,7 @@ management interface. It is a modular monolith built with Mezzio, selected
 Laminas components, Doctrine ORM/DBAL/Migrations and an asynchronous messaging
 boundary backed by Enqueue Redis.
 
-API **2.0.0** provides email-code authentication, verified email aliases,
+API **2.1.0** provides email-code authentication, verified email aliases,
 account and home profiles, invitation acceptance, configurable access groups,
 country-specific onboarding and administrator approval. Account, home and admin
 groups are separate: the backend enforces their features, limits and permissions.
@@ -94,7 +94,7 @@ connection/migration implementation, helper or CI matrix.
 The repository's default branch is `main`. Each successful release pipeline for
 `main` creates the next patch release, starting at **0.1.0**, after its required
 checks pass. Set `NEXT_RELEASE_VERSION` before a merge for a deliberate minor or major release. Backend
-release versions are separate from the **2.0.0 API contract version**. Badges
+release versions are separate from the **2.1.0 API contract version**. Badges
 link to live results; CI / CLI includes the quality suite and CLI database/queue
 proofs. A green build does not replace a server acceptance or restore rehearsal.
 

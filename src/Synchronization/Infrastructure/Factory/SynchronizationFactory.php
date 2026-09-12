@@ -13,6 +13,7 @@ use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\Shopping\Application\ShoppingService;
+use Providentia\Shopping\Application\ShoppingIntelligenceService;
 use Providentia\Synchronization\Application\CursorCodec;
 use Providentia\Synchronization\Application\HomePreferenceSyncEntityPolicy;
 use Providentia\Synchronization\Application\PantrySyncCommandDispatcher;
@@ -90,6 +91,7 @@ final class SynchronizationFactory
                 $container->get(InventoryService::class),
                 $container->get(PurchasingService::class),
                 $container->get(ShoppingService::class),
+                $container->get(ShoppingIntelligenceService::class),
             ),
             $requestedName === PrivateNoteSyncEntityPolicy::class => new PrivateNoteSyncEntityPolicy(),
             $requestedName === HomePreferenceSyncEntityPolicy::class => new HomePreferenceSyncEntityPolicy(),

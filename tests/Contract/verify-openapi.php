@@ -8,6 +8,21 @@ $path = $root . '/contracts/openapi/providentia-v1.json';
 $source = (string) file_get_contents($path);
 $contract = json_decode($source, true, 512, JSON_THROW_ON_ERROR);
 $expected = [
+    '/api/v1/admin/homes/{homeId}/stock-preferences/{homeProductId}' => [
+        'get' => 'getOperatorStockPreference',
+        'put' => 'putOperatorStockPreference',
+    ],
+    '/api/v1/admin/homes/{homeId}/locations' => ['post' => 'createOperatorHomeLocation'],
+    '/api/v1/admin/homes/{homeId}/locations/{locationId}' => ['patch' => 'updateOperatorHomeLocation'],
+    '/api/v1/admin/homes/{homeId}/stores' => ['post' => 'createOperatorHomeStore'],
+    '/api/v1/admin/homes/{homeId}/stores/{storeId}' => ['patch' => 'updateOperatorHomeStore'],
+    '/api/v1/homes/{homeId}/locations/{locationId}' => ['patch' => 'updateHomeLocation'],
+    '/api/v1/homes/{homeId}/stores/{storeId}' => ['patch' => 'updateStore'],
+
+    '/api/v1/admin/homes/{homeId}/products' => ['post' => 'createOperatorHomeProduct'],
+    '/api/v1/admin/homes/{homeId}/products/{homeProductId}' => ['patch' => 'updateOperatorHomeProduct'],
+    '/api/v1/admin/homes/{homeId}/categories' => ['post' => 'createOperatorHomeCategory'],
+    '/api/v1/admin/homes/{homeId}/categories/{categoryId}' => ['patch' => 'updateOperatorHomeCategory'],
     '/api/v1/catalog-admin/entities/{entityType}' => ['get' => 'listCatalogEntities'],
     '/api/v1/catalog-admin/entities/{entityType}/{entityId}' => ['put' => 'saveCatalogEntity'],
     '/api/v1/auth/email-codes' => ['post' => 'requestEmailCode'],
@@ -320,9 +335,9 @@ foreach ($contract['paths'] as $pathTemplate => $pathItem) {
         }
     }
 }
-if (count($contract['paths']) !== 176 || $operationCount !== 210) {
+if (count($contract['paths']) !== 194 || $operationCount !== 235) {
     throw new RuntimeException(
-        'API 2.0 must expose exactly 176 paths and 210 operations.',
+        'API 2.1 must expose exactly 194 paths and 235 operations.',
     );
 }
 // Zero-password guarantee: no human-account password, registration, or
@@ -563,6 +578,7 @@ foreach (['homeCategoryId', 'categorySource'] as $requiredProjection) {
 $syncCommands = $contract['components']['schemas']['SyncPantryCommand'] ?? [];
 foreach (
     [
+    'shopping.preference.put' => ['SyncStockPreferencePutPayload', true],
     'inventory.home-category.create' => ['SyncHomeCategoryCreatePayload', false],
     'inventory.home-category.update' => ['SyncHomeCategoryUpdatePayload', true],
     'inventory.home-product.create' => ['SyncHomeProductCreatePayload', false],
