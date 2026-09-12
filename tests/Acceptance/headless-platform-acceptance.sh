@@ -814,6 +814,9 @@ assert_json 'The promoted contribution did not resolve through the global item-m
     and .categoryId == $categoryId
     and .category == "Acceptance pantry"
 ' --arg productId "$published_product_id" --arg categoryId "$published_category_id"
+assert_json 'Product approval did not publish its contributed pack atomically.' '
+    .packs | any(.packText == "400 g tin" and .revision == 1)
+'
 
 # A shared store price is accepted only for a currently published product/pack
 # attached to the homeowner's private inventory source. The stable submission
@@ -824,7 +827,7 @@ pack_proposal_body="$(jq -cn --arg productId "$published_product_id" '
         type:"pack",
         payload:{
             productId:$productId,
-            originalPackText:"400 g tin",
+            originalPackText:"800 g tin",
             unitId:null,
             amount:null,
             multiplicity:1
@@ -851,7 +854,7 @@ published_pack_id="$(jq -er '.entityId' "$response_body")"
 http_json GET "/api/v1/catalog/products/${published_product_id}" 200
 assert_json 'The approved pack was not visible on the canonical product.' '
     .packs
-    | any(.id == $packId and .packText == "400 g tin" and .revision == 1)
+    | any(.id == $packId and .packText == "800 g tin" and .revision == 1)
 ' --arg packId "$published_pack_id"
 
 store_price_source_body="$(jq -cn \

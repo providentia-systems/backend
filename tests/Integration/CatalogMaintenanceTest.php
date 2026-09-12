@@ -39,7 +39,8 @@ final class CatalogMaintenanceTest extends TestCase
                 product_id TEXT, pack_id TEXT, status TEXT)',
                 'CREATE TABLE catalog_revisions (id TEXT PRIMARY KEY, entity_type TEXT,
                 entity_id TEXT, entity_key TEXT,
-                before_json TEXT, after_json TEXT, reason TEXT, actor_user_id TEXT, operation_id TEXT, created_at TEXT)',
+                before_json TEXT, after_json TEXT, reason TEXT, actor_user_id TEXT,
+                operation_id TEXT, created_at TEXT)',
                 'CREATE TABLE audit_events (id TEXT PRIMARY KEY, home_id TEXT, actor_user_id TEXT,
                 action TEXT, target_type TEXT, target_id TEXT, details TEXT, occurred_at TEXT)',
                 'CREATE TABLE inventory_balances (home_id TEXT, home_product_id TEXT, quantity TEXT,
@@ -112,6 +113,24 @@ final class CatalogMaintenanceTest extends TestCase
         $this->expectException(DomainException::class);
         $unit['baseFactor'] = '1';
         $this->save('unit', 'unit', $unit, 1);
+    }
+
+    public function testApprovedProductWithoutAMeasureStillHasASelectablePack(): void
+    {
+        $this->save('category', 'category', ['canonicalName' => 'Pantry']);
+        $this->connection->transactional(fn (): array => $this->store->publishProposal(
+            ['id' => 'proposal', 'proposalType' => 'product', 'payload' => [
+                'canonicalName' => 'Rice', 'brand' => '', 'categoryId' => 'category',
+            ]],
+            'product',
+            'curator',
+            new DateTimeImmutable('2026-09-12T12:00:00Z'),
+        ));
+        $pack = $this->connection->fetchAssociative('SELECT * FROM product_packs WHERE product_id = ?', ['product']);
+        self::assertIsArray($pack);
+        self::assertSame('Unspecified pack', $pack['original_pack_text']);
+        self::assertSame('published', $pack['status']);
+        self::assertNull($pack['normalized_base_amount']);
     }
 
     public function testOperatorStockUsesTheActualTenantProductBalanceKey(): void
