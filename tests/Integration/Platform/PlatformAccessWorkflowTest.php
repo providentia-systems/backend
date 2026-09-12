@@ -824,76 +824,145 @@ final class PlatformAccessWorkflowTest extends TestCase
         self::assertSame(1, $created['revision']);
         self::assertSame($homeId, $created['homeId']);
         $this->problem(409, fn() => $service->saveList($admin, $homeId, $listId, $input, true));
-        $line = $service->saveLine($admin, $homeId, $listId, $lineId, [
-            'id' => $lineId, 'description' => 'Oats', 'quantityToBuy' => '2.5',
-            'expectedRevision' => 0, 'expectedListRevision' => 1, 'reason' => 'Plan groceries',
-        ], true);
+        $line = $service->saveLine(
+            $admin,
+            $homeId,
+            $listId,
+            $lineId,
+            [
+                'id' => $lineId,
+                'description' => 'Oats',
+                'quantityToBuy' => '2.5',
+                'expectedRevision' => 0,
+                'expectedListRevision' => 1,
+                'reason' => 'Plan groceries',
+            ],
+            true,
+        );
         self::assertSame(1, $line['revision']);
         self::assertFalse($line['checked']);
-        $edit = ['description' => 'Rolled oats', 'quantityToBuy' => '3.25',
-            'expectedRevision' => 1, 'reason' => 'Correct quantity'];
-        $this->problem(404, fn() => $service->saveLine(
-            $admin, $otherHome['id'], $listId, $lineId, $edit, false,
-        ));
+        $edit = [
+            'description' => 'Rolled oats',
+            'quantityToBuy' => '3.25',
+            'expectedRevision' => 1,
+            'reason' => 'Correct quantity',
+        ];
+        $this->problem(404, fn() => $service->saveLine($admin, $otherHome['id'], $listId, $lineId, $edit, false));
         $edited = $service->saveLine($admin, $homeId, $listId, $lineId, $edit, false);
         self::assertSame('Rolled oats', $edited['description']);
         self::assertSame('3.25', rtrim(rtrim((string) $edited['quantityToBuy'], '0'), '.'));
         self::assertSame('manual', $edited['source']);
         $this->problem(409, fn() => $service->saveLine($admin, $homeId, $listId, $lineId, $edit, false));
         $checked = $service->checkLine($admin, $homeId, $listId, $lineId, [
-            'checked' => true, 'expectedRevision' => 2, 'reason' => 'Purchased',
+            'checked' => true,
+            'expectedRevision' => 2,
+            'reason' => 'Purchased',
         ]);
         self::assertTrue($checked['checked']);
         foreach ([true, false] as $index => $archived) {
-            $saved = $service->saveLine($admin, $homeId, $listId, $lineId, [
-                'archived' => $archived, 'expectedRevision' => $index + 3, 'reason' => 'Correct list',
-            ], false);
+            $saved = $service->saveLine(
+                $admin,
+                $homeId,
+                $listId,
+                $lineId,
+                [
+                    'archived' => $archived,
+                    'expectedRevision' => $index + 3,
+                    'reason' => 'Correct list',
+                ],
+                false,
+            );
             self::assertSame($archived, $saved['archived']);
             self::assertTrue($saved['checked']);
         }
         $revision = (int) $this->db->fetchOne('SELECT revision FROM shopping_lists WHERE id = ?', [$listId]);
-        $service->saveList($admin, $homeId, $listId, [
-            'status' => 'archived', 'expectedRevision' => $revision, 'reason' => 'Complete list',
-        ], false);
-        $this->problem(409, fn() => $service->saveLine($admin, $homeId, $listId, $lineId, [
-            'quantityToBuy' => '5', 'expectedRevision' => 5, 'reason' => 'Closed list attempt',
-        ], false));
-        $service->saveList($admin, $homeId, $listId, [
-            'status' => 'open', 'expectedRevision' => $revision + 1, 'reason' => 'Reopen list',
-        ], false);
+        $service->saveList(
+            $admin,
+            $homeId,
+            $listId,
+            [
+                'status' => 'archived',
+                'expectedRevision' => $revision,
+                'reason' => 'Complete list',
+            ],
+            false,
+        );
+        $this->problem(
+            409,
+            fn() => $service->saveLine(
+                $admin,
+                $homeId,
+                $listId,
+                $lineId,
+                [
+                    'quantityToBuy' => '5',
+                    'expectedRevision' => 5,
+                    'reason' => 'Closed list attempt',
+                ],
+                false,
+            ),
+        );
+        $service->saveList(
+            $admin,
+            $homeId,
+            $listId,
+            [
+                'status' => 'open',
+                'expectedRevision' => $revision + 1,
+                'reason' => 'Reopen list',
+            ],
+            false,
+        );
         $audit = $this->db->fetchOne(
-            "SELECT details_json FROM platform_audit_events WHERE action = 'operator.home.shopping-line.saved' "
-            . "AND details_json LIKE '%Correct quantity%'",
+            "SELECT details_json FROM platform_audit_events WHERE action = 'operator.home.shopping-line.saved' " .
+                "AND details_json LIKE '%Correct quantity%'",
         );
         self::assertIsString($audit);
         $details = json_decode($audit, true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('Oats', $details['before']['description']);
         self::assertSame('Rolled oats', $details['after']['description']);
-        self::assertSame(0, (int) $this->db->fetchOne(
-            'SELECT COUNT(*) FROM home_memberships WHERE home_id = ? AND user_id = ?',
-            [$homeId, $admin->userId],
-        ));
-        self::assertSame(5, (int) $this->db->fetchOne(
-            'SELECT COUNT(*) FROM change_log WHERE home_id = ? AND entity_id = ?',
-            [$homeId, $lineId],
-        ));
+        self::assertSame(
+            0,
+            (int) $this->db->fetchOne('SELECT COUNT(*) FROM home_memberships WHERE home_id = ? AND user_id = ?', [
+                $homeId,
+                $admin->userId,
+            ]),
+        );
+        self::assertSame(
+            5,
+            (int) $this->db->fetchOne('SELECT COUNT(*) FROM change_log WHERE home_id = ? AND entity_id = ?', [
+                $homeId,
+                $lineId,
+            ]),
+        );
         $this->db->executeStatement(
-            "CREATE TRIGGER reject_shopping_audit BEFORE INSERT ON platform_audit_events "
-            . "WHEN NEW.action = 'operator.home.shopping-line.saved' "
-            . "BEGIN SELECT RAISE(ABORT, 'Audit unavailable'); END",
+            'CREATE TRIGGER reject_shopping_audit BEFORE INSERT ON platform_audit_events ' .
+                "WHEN NEW.action = 'operator.home.shopping-line.saved' " .
+                "BEGIN SELECT RAISE(ABORT, 'Audit unavailable'); END",
         );
         try {
-            $service->saveLine($admin, $homeId, $listId, $lineId, [
-                'description' => 'Uncommitted edit', 'expectedRevision' => 5, 'reason' => 'Atomicity check',
-            ], false);
+            $service->saveLine(
+                $admin,
+                $homeId,
+                $listId,
+                $lineId,
+                [
+                    'description' => 'Uncommitted edit',
+                    'expectedRevision' => 5,
+                    'reason' => 'Atomicity check',
+                ],
+                false,
+            );
             self::fail('Audit failure must roll back the shopping edit.');
         } catch (\Doctrine\DBAL\Exception) {
-            self::assertSame('Rolled oats', $this->db->fetchOne(
-                'SELECT description FROM shopping_list_lines WHERE id = ?', [$lineId],
-            ));
-            self::assertSame($revision + 2, (int) $this->db->fetchOne(
-                'SELECT revision FROM shopping_lists WHERE id = ?', [$listId],
-            ));
+            self::assertSame(
+                'Rolled oats',
+                $this->db->fetchOne('SELECT description FROM shopping_list_lines WHERE id = ?', [$lineId]),
+            );
+            self::assertSame(
+                $revision + 2,
+                (int) $this->db->fetchOne('SELECT revision FROM shopping_lists WHERE id = ?', [$listId]),
+            );
         }
     }
 
@@ -1010,7 +1079,7 @@ final class PlatformAccessWorkflowTest extends TestCase
         ));
         $changes = $this->db->fetchAllAssociative(
             'SELECT revision, payload_json, changed_by_user_id FROM change_log '
-            . 'WHERE home_id = ? AND entity_id = ? ORDER BY revision',
+            . "WHERE home_id = ? AND entity_id = ? AND entity_type = 'inventory-home-product' ORDER BY revision",
             [$homeId, $productId],
         );
         self::assertCount(4, $changes);
@@ -1138,38 +1207,51 @@ final class PlatformAccessWorkflowTest extends TestCase
         $globalCategoryId = '53000000-0000-4000-8000-000000000001';
         $globalProductId = '53000000-0000-4000-8000-000000000002';
         $base = ['status' => 'published', 'expectedRevision' => 0, 'reason' => 'Catalog fixture'];
-        $catalog->save($admin, 'category', $globalCategoryId, [
-            ...$base, 'fields' => ['canonicalName' => 'Groceries'],
-        ]);
+        $catalog->save($admin, 'category', $globalCategoryId, [...$base, 'fields' => ['canonicalName' => 'Groceries']]);
         $catalog->save($admin, 'product', $globalProductId, [
-            ...$base, 'fields' => ['canonicalName' => 'Beans', 'brand' => '', 'categoryId' => $globalCategoryId],
+            ...$base,
+            'fields' => ['canonicalName' => 'Beans', 'brand' => '', 'categoryId' => $globalCategoryId],
         ]);
         $inventory = $this->container->get(InventoryService::class);
         $category = $inventory->createHomeCategory($owner, $home['id'], 'Pantry');
         $otherCategory = $inventory->createHomeCategory($otherOwner, $otherHome['id'], 'Other pantry');
-        $created = $inventory->addHomeProduct(
-            $owner, $home['id'], $globalProductId, null, null, null, $category['id'],
+        $created = $inventory->addHomeProduct($owner, $home['id'], $globalProductId, null, null, null, $category['id']);
+        self::assertSame(
+            $category['id'],
+            $this->db->fetchOne('SELECT home_category_id FROM home_products WHERE id = ?', [$created['id']]),
         );
-        self::assertSame($category['id'], $this->db->fetchOne(
-            'SELECT home_category_id FROM home_products WHERE id = ?',
-            [$created['id']],
-        ));
-        $this->problem(422, fn() => $inventory->addHomeProduct(
-            $owner, $home['id'], $globalProductId, null, null, null, $otherCategory['id'],
-        ));
+        $this->problem(
+            422,
+            fn() => $inventory->addHomeProduct(
+                $owner,
+                $home['id'],
+                $globalProductId,
+                null,
+                null,
+                null,
+                $otherCategory['id'],
+            ),
+        );
         $operator = $this->container->get(OperatorInventoryService::class);
         $operator->createProduct($admin, $home['id'], [
-            'id' => '53000000-0000-4000-8000-000000000003', 'productId' => $globalProductId,
-            'homeCategoryId' => $category['id'], 'expectedRevision' => 0, 'reason' => 'Set household classification',
+            'id' => '53000000-0000-4000-8000-000000000003',
+            'productId' => $globalProductId,
+            'homeCategoryId' => $category['id'],
+            'expectedRevision' => 0,
+            'reason' => 'Set household classification',
         ]);
-        $this->problem(422, fn() => $operator->updateProduct($admin, $home['id'], $created['id'], [
-            'privateName' => 'Overwrite catalog name',
-            'reason' => 'Invalid global identity edit', 'expectedRevision' => 1,
-        ]));
-        self::assertSame('Beans', $this->db->fetchOne(
-            'SELECT canonical_name FROM products WHERE id = ?',
-            [$globalProductId],
-        ));
+        $this->problem(
+            422,
+            fn() => $operator->updateProduct($admin, $home['id'], $created['id'], [
+                'privateName' => 'Overwrite catalog name',
+                'reason' => 'Invalid global identity edit',
+                'expectedRevision' => 1,
+            ]),
+        );
+        self::assertSame(
+            'Beans',
+            $this->db->fetchOne('SELECT canonical_name FROM products WHERE id = ?', [$globalProductId]),
+        );
     }
 
     /** @return array{AuthenticatedIdentity, array<string, mixed>} */

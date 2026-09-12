@@ -203,37 +203,31 @@ final class DbalCountryStore implements CountryStore
         return $row === false ? null : $row;
     }
 
-    public function acceptPolicy(
-        string $userId,
-        string $id,
-        int $revision,
-        string $country,
-        string $now,
-    ): void {
+    public function acceptPolicy(string $userId, string $id, int $revision, string $country, string $now): void
+    {
         $policy = $this->lockPolicy($id);
         if ($policy === null || $policy['status'] !== 'published' || (int) $policy['revision'] !== $revision) {
             throw new \Providentia\SharedKernel\Application\Problem(
-                409, 'Policy changed', 'Read and accept the current published privacy notice.',
+                409,
+                'Policy changed',
+                'Read and accept the current published privacy notice.',
             );
         }
         if (
-            $this->connection->fetchOne(
-                'SELECT user_id FROM policy_acceptances WHERE user_id = ? AND policy_id = ?',
-                [$userId, $id],
-            )
+            $this->connection->fetchOne('SELECT user_id FROM policy_acceptances WHERE user_id = ? AND policy_id = ?', [
+                $userId,
+                $id,
+            ])
         ) {
             return;
         }
-        $this->connection->insert(
-            'policy_acceptances',
-            [
-                'user_id' => $userId,
-                'policy_id' => $id,
-                'policy_revision' => $revision,
-                'country_code' => $country,
-                'accepted_at' => $now,
-            ],
-        );
+        $this->connection->insert('policy_acceptances', [
+            'user_id' => $userId,
+            'policy_id' => $id,
+            'policy_revision' => $revision,
+            'country_code' => $country,
+            'accepted_at' => $now,
+        ]);
     }
 
     public function jobs(): array

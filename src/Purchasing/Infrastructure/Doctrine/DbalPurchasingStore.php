@@ -359,15 +359,23 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
              WHERE home_id = ? AND receipt_id = ? AND id = ?'),
             [$homeId, $receiptId, $lineId],
         );
-        if ($line === false || (int) $line['revision'] !== $expectedRevision || $line['approval_status'] === 'removed') {
+        if (
+            $line === false ||
+            (int) $line['revision'] !== $expectedRevision ||
+            $line['approval_status'] === 'removed'
+        ) {
             return false;
         }
-        $updated = $this->connection->update('receipt_lines', [
-            ...$fields,
-            'home_product_id' => null,
-            'revision' => $expectedRevision + 1,
-            'updated_at' => $this->date($at),
-        ], ['home_id' => $homeId, 'receipt_id' => $receiptId, 'id' => $lineId, 'revision' => $expectedRevision]);
+        $updated = $this->connection->update(
+            'receipt_lines',
+            [
+                ...$fields,
+                'home_product_id' => null,
+                'revision' => $expectedRevision + 1,
+                'updated_at' => $this->date($at),
+            ],
+            ['home_id' => $homeId, 'receipt_id' => $receiptId, 'id' => $lineId, 'revision' => $expectedRevision],
+        );
         if ($updated !== 1) {
             return false;
         }

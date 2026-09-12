@@ -175,14 +175,15 @@ final class InventoryItemMasterTest extends TestCase
         self::assertSame('Canned', $item['categoryName']);
         self::assertSame('global', $item['categorySource']);
         self::assertNull($item['homeCategoryId']);
-        self::assertSame(0, $this->store->itemMaster(
-            self::OTHER_HOME_ID, '', null, self::HOME_CATEGORY_ID, 100, 0,
-        )['total']);
+        self::assertSame(
+            0,
+            $this->store->itemMaster(self::OTHER_HOME_ID, '', null, self::HOME_CATEGORY_ID, 100, 0)['total'],
+        );
 
         $this->connection->executeStatement('ALTER TABLE inventory_balances ADD revision INTEGER NOT NULL DEFAULT 0');
         $this->connection->executeStatement(
-            'CREATE TABLE stock_threshold_preferences (home_id TEXT, home_product_id TEXT, '
-            . 'minimum_quantity TEXT, always_keep INTEGER, never_suggest INTEGER)',
+            'CREATE TABLE stock_threshold_preferences (home_id TEXT, home_product_id TEXT, ' .
+                'minimum_quantity TEXT, always_keep INTEGER, never_suggest INTEGER)',
         );
         $stock = $this->store->stock(self::HOME_ID, '', null, self::HOME_CATEGORY_ID, 100, 0);
         self::assertCount(1, $stock);
@@ -401,7 +402,8 @@ final class InventoryItemMasterTest extends TestCase
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, status TEXT NOT NULL
             )',
             'CREATE TABLE stock_count_lines (
-                session_id TEXT NOT NULL, home_id TEXT NOT NULL, home_product_id TEXT NOT NULL
+                session_id TEXT NOT NULL, home_id TEXT NOT NULL, home_product_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT \'confirmed\'
             )',
             'CREATE TABLE receipts (
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, status TEXT NOT NULL

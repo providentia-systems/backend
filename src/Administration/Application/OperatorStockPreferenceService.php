@@ -58,12 +58,16 @@ final class OperatorStockPreferenceService
     {
         $this->authorization->requirePermission($actor, $homeId, HomePermission::SHOPPING_MANAGE);
         $reason = $input['reason'] ?? null;
-        if (! is_string($reason) || trim($reason) === '' || mb_strlen(trim($reason)) > 500) {
+        if (!is_string($reason) || trim($reason) === '' || mb_strlen(trim($reason)) > 500) {
             throw new Problem(422, 'Audit reason required', 'Provide a reason containing 1 to 500 characters.');
         }
         unset($input['reason']);
         return $this->transactions->transactional(function () use (
-            $actor, $homeId, $productId, $input, $reason,
+            $actor,
+            $homeId,
+            $productId,
+            $input,
+            $reason,
         ): array {
             $this->access->serialize('home', $homeId);
             $this->requireProduct($homeId, $productId);
@@ -86,6 +90,4 @@ final class OperatorStockPreferenceService
         return $this->inventory->homeProduct($homeId, $productId, true)
             ?? throw new Problem(404, 'Product unavailable', 'The household product does not exist.');
     }
-
-
 }

@@ -23,11 +23,8 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
     ) {
     }
 
-    public function dispatch(
-        AuthenticatedIdentity $identity,
-        string $homeId,
-        SyncCommand $command,
-    ): array {
+    public function dispatch(AuthenticatedIdentity $identity, string $homeId, SyncCommand $command): array
+    {
         $payload = $command->payload;
 
         return match ($command->commandType) {
@@ -114,8 +111,11 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->revision($command),
             ),
             'inventory.count-line.remove' => $this->inventory->removeCountLine(
-                $identity, $homeId, $this->string($payload, 'sessionId'),
-                $command->entityId, $this->revision($command),
+                $identity,
+                $homeId,
+                $this->string($payload, 'sessionId'),
+                $command->entityId,
+                $this->revision($command),
             ),
             'inventory.count-session.close' => $this->inventory->closeCount(
                 $identity,
@@ -146,17 +146,32 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $command->entityId,
             ),
             'purchasing.receipt.update' => $this->purchasing->updateReceipt(
-                $identity, $homeId, $command->entityId, $payload, $this->revision($command),
+                $identity,
+                $homeId,
+                $command->entityId,
+                $payload,
+                $this->revision($command),
             ),
             'purchasing.receipt.cancel' => $this->purchasing->cancelReceipt(
-                $identity, $homeId, $command->entityId, $this->revision($command),
+                $identity,
+                $homeId,
+                $command->entityId,
+                $this->revision($command),
             ),
             'purchasing.receipt-line.update' => $this->purchasing->updateLine(
-                $identity, $homeId, $this->string($payload, 'receiptId'), $command->entityId,
-                array_diff_key($payload, ['receiptId' => true]), $this->revision($command),
+                $identity,
+                $homeId,
+                $this->string($payload, 'receiptId'),
+                $command->entityId,
+                array_diff_key($payload, ['receiptId' => true]),
+                $this->revision($command),
             ),
             'purchasing.receipt-line.remove' => $this->purchasing->removeLine(
-                $identity, $homeId, $this->string($payload, 'receiptId'), $command->entityId, $this->revision($command),
+                $identity,
+                $homeId,
+                $this->string($payload, 'receiptId'),
+                $command->entityId,
+                $this->revision($command),
             ),
             'purchasing.receipt.create' => $this->purchasing->createReceipt(
                 $identity,
@@ -181,11 +196,7 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->nullableString($payload, 'lineTotal'),
                 $command->entityId,
             ),
-            'purchasing.receipt-line.approve' => $this->approveReceiptLine(
-                $identity,
-                $homeId,
-                $command,
-            ),
+            'purchasing.receipt-line.approve' => $this->approveReceiptLine($identity, $homeId, $command),
             'purchasing.receipt-line.unresolve' => $this->purchasing->unresolveLine(
                 $identity,
                 $homeId,
@@ -199,19 +210,25 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $command->entityId,
                 $this->revision($command),
             ),
-            'shopping.preference.put' => ($this->intelligence
-                ?? throw new \LogicException('Shopping intelligence is unavailable.'))->putPreference(
-                    $identity,
-                    $homeId,
-                    $command->entityId,
-                    $payload + ['expectedRevision' => $this->revision($command)],
-                ),
-            'shopping.suggestion-feedback.create' => ($this->intelligence
-                ?? throw new \LogicException('Shopping intelligence is not composed.'))->feedback(
-                    $identity, $homeId, $this->string($payload, 'suggestionId'),
-                    $this->string($payload, 'decision'), $this->nullableString($payload, 'resultQuantity'),
-                    $this->string($payload, 'reason'), $command->entityId,
-                ),
+            'shopping.preference.put' => (
+                $this->intelligence ?? throw new \LogicException('Shopping intelligence is unavailable.')
+            )->putPreference(
+                $identity,
+                $homeId,
+                $command->entityId,
+                $payload + ['expectedRevision' => $this->revision($command)],
+            ),
+            'shopping.suggestion-feedback.create' => (
+                $this->intelligence ?? throw new \LogicException('Shopping intelligence is not composed.')
+            )->feedback(
+                $identity,
+                $homeId,
+                $this->string($payload, 'suggestionId'),
+                $this->string($payload, 'decision'),
+                $this->nullableString($payload, 'resultQuantity'),
+                $this->string($payload, 'reason'),
+                $command->entityId,
+            ),
             'shopping.list.create' => $this->shopping->createList(
                 $identity,
                 $homeId,
@@ -248,11 +265,7 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $command->entityId,
                 $this->nullableString($payload, 'suggestionId'),
             ),
-            'shopping.list-line.checked' => $this->checkShoppingLine(
-                $identity,
-                $homeId,
-                $command,
-            ),
+            'shopping.list-line.checked' => $this->checkShoppingLine($identity, $homeId, $command),
             default => throw new \LogicException('A validated synchronization command has no dispatcher.'),
         };
     }

@@ -60,15 +60,19 @@ final class StockPreferenceLifecycleTest extends TestCase
         $authorizer = $this->createMock(HomePermissionAuthorizer::class);
         $authorizer->expects(self::exactly(4))->method('requirePermission')->willReturn([]);
         $changes = $this->createMock(ChangeFeedWriter::class);
-        $changes->expects(self::exactly(2))->method('put')->willReturnCallback(
-            /** @param array<string, mixed> $fields */
-            function (string $home, string $actor, string $type, string $id, int $revision, array $fields): void {
-                self::assertTrue($this->connection->isTransactionActive());
-                self::assertSame('shopping-stock-preference', $type);
-                self::assertSame('product', $fields['homeProductId']);
-                self::assertSame($revision, (int) $this->store->preference($home, $id)['revision']);
-            },
-        );
+        $changes
+            ->expects(self::exactly(2))
+            ->method('put')
+            ->willReturnCallback(
+                /** @param array<string, mixed> $fields */
+                function (string $home, string $actor, string $type, string $id, int $revision, array $fields): int {
+                    self::assertTrue($this->connection->isTransactionActive());
+                    self::assertSame('shopping-stock-preference', $type);
+                    self::assertSame('product', $fields['homeProductId']);
+                    self::assertSame($revision, (int) $this->store->preference($home, $id)['revision']);
+                    return $revision;
+                },
+            );
         $service = $this->service($authorizer, $changes);
         $identity = new AuthenticatedIdentity('actor', 'session', 'device', 'home', []);
         self::assertSame(['revision' => 1], $service->putPreference($identity, 'home', 'product', $this->values(0)));
@@ -78,9 +82,15 @@ final class StockPreferenceLifecycleTest extends TestCase
         self::assertFalse($saved['neverSuggest']);
         self::assertSame(2, $saved['leadTimeDays']);
         self::assertSame(1, $saved['revision']);
-        self::assertSame(['revision' => 2], $service->putPreference(
-            $identity, 'home', 'product', array_replace($this->values(1), ['minimumQuantity' => null]),
-        ));
+        self::assertSame(
+            ['revision' => 2],
+            $service->putPreference(
+                $identity,
+                'home',
+                'product',
+                array_replace($this->values(1), ['minimumQuantity' => null]),
+            ),
+        );
         self::assertSame(2, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM stock_preference_revisions'));
         self::assertSame(2, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM audit_events'));
         try {
@@ -95,7 +105,9 @@ final class StockPreferenceLifecycleTest extends TestCase
     public function testRevokedShoppingPermissionPreventsEveryMutation(): void
     {
         $authorizer = $this->createMock(HomePermissionAuthorizer::class);
-        $authorizer->expects(self::once())->method('requirePermission')
+        $authorizer
+            ->expects(self::once())
+            ->method('requirePermission')
             ->with(self::anything(), 'home', HomePermission::SHOPPING_MANAGE)
             ->willThrowException(new Problem(404, 'Unavailable', 'Permission revoked.'));
         $changes = $this->createMock(ChangeFeedWriter::class);
@@ -103,7 +115,9 @@ final class StockPreferenceLifecycleTest extends TestCase
         $this->expectException(Problem::class);
         $this->service($authorizer, $changes)->putPreference(
             new AuthenticatedIdentity('actor', 'session', 'device', 'home', []),
-            'home', 'product', $this->values(0),
+            'home',
+            'product',
+            $this->values(0),
         );
     }
 
@@ -114,17 +128,24 @@ final class StockPreferenceLifecycleTest extends TestCase
         $clock = $this->createStub(Clock::class);
         $clock->method('now')->willReturn($this->at);
         $transactions = $this->createStub(TransactionManager::class);
-        $transactions->method('transactional')->willReturnCallback(
-            fn (callable $operation): mixed => $this->connection->transactional($operation),
-        );
+        $transactions
+            ->method('transactional')
+            ->willReturnCallback(fn(callable $operation): mixed => $this->connection->transactional($operation));
         $ids = $this->createStub(UuidGenerator::class);
         $id = 0;
         $ids->method('generate')->willReturnCallback(static function () use (&$id): string {
             return 'id-' . ++$id;
         });
         return new ShoppingIntelligenceService(
-            $this->store, $authorizer, new ConsumptionEstimator(), new SuggestionEngine(),
-            new PackOptimizer(), $ids, $clock, $transactions, $changes,
+            $this->store,
+            $authorizer,
+            new ConsumptionEstimator(),
+            new SuggestionEngine(),
+            new PackOptimizer(),
+            $ids,
+            $clock,
+            $transactions,
+            $changes,
         );
     }
 

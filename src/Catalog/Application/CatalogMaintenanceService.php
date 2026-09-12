@@ -21,20 +21,17 @@ final readonly class CatalogMaintenanceService
     }
 
     /** @return list<array<string, mixed>> */
-    public function list(
-        AuthenticatedIdentity $identity,
-        string $type,
-        int $offset,
-        ?string $productId = null,
-    ): array
+    public function list(AuthenticatedIdentity $identity, string $type, int $offset, ?string $productId = null): array
     {
         $this->authorization->requireReviewer($identity);
         $this->type($type);
         if (
-            $productId !== null && ($type === 'identity-rule' || preg_match(
-                '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-                $productId,
-            ) !== 1)
+            $productId !== null &&
+            ($type === 'identity-rule' ||
+                preg_match(
+                    '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+                    $productId,
+                ) !== 1)
         ) {
             throw new Problem(422, 'Invalid product filter', 'Choose a catalog product and related entity type.');
         }

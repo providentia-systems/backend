@@ -29,7 +29,7 @@ require_literal "$record_request" 'final int expectedRevision;'
 require_literal "$count_line" 'final String id;'
 require_literal "$count_line" 'final String homeProductId;'
 require_literal "$count_line" 'final String quantity;'
-require_literal "$count_line" 'final String status;'
+require_literal "$count_line" 'final StockCountLineStatusEnum status;'
 require_literal "$count_line" 'final int revision;'
 
 readonly identity_api="$package/lib/src/api/identity_api.dart"
