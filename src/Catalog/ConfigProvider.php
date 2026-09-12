@@ -6,7 +6,6 @@ namespace Providentia\Catalog;
 
 use Providentia\Catalog\Application\CatalogMaintenanceService;
 use Providentia\Catalog\Http\CatalogMaintenanceHandler;
-
 use Providentia\Catalog\Application\CatalogQueryService;
 use Providentia\Catalog\Application\CatalogSeedService;
 use Providentia\Catalog\Application\CatalogStore;

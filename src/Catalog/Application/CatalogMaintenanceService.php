@@ -17,7 +17,8 @@ final readonly class CatalogMaintenanceService
         private CatalogAuthorization $authorization,
         private Clock $clock,
         private TransactionManager $transactions,
-    ) {}
+    ) {
+    }
 
     /** @return list<array<string, mixed>> */
     public function list(AuthenticatedIdentity $identity, string $type, int $offset): array

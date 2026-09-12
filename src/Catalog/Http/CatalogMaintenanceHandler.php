@@ -15,7 +15,9 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 final readonly class CatalogMaintenanceHandler implements RequestHandlerInterface
 {
-    public function __construct(private CatalogMaintenanceService $service) {}
+    public function __construct(private CatalogMaintenanceService $service)
+    {
+    }
 
     public function handle(ServerRequestInterface $request): ResponseInterface
     {

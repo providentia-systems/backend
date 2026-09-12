@@ -588,8 +588,10 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         if ((int) $row['revision'] !== $expectedRevision) {
             return ['status' => 'revision-conflict'];
         }
-        if (($row['productId'] !== null || $row['packId'] !== null)
-            && ($privateNameProvided || $originalPackTextProvided)) {
+        if (
+            ($row['productId'] !== null || $row['packId'] !== null)
+            && ($privateNameProvided || $originalPackTextProvided)
+        ) {
             return ['status' => 'catalog-product'];
         }
         $nextCategoryId = $homeCategoryProvided ? $homeCategoryId : $row['homeCategoryId'];
@@ -613,8 +615,10 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         if ((int) $row['revision'] !== $expectedRevision) {
             return ['status' => 'revision-conflict'];
         }
-        if (($row['productId'] !== null || $row['packId'] !== null)
-            && ($privateNameProvided || $originalPackTextProvided)) {
+        if (
+            ($row['productId'] !== null || $row['packId'] !== null)
+            && ($privateNameProvided || $originalPackTextProvided)
+        ) {
             return ['status' => 'catalog-product'];
         }
         $nextCategoryId = $homeCategoryProvided ? $homeCategoryId : $row['homeCategoryId'];

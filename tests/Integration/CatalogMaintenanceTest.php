@@ -35,15 +35,16 @@ final class CatalogMaintenanceTest extends TestCase
                 'CREATE TABLE product_packs (id TEXT PRIMARY KEY, product_id TEXT, variant_id TEXT, unit_id TEXT,
                 source_key TEXT UNIQUE, original_pack_text TEXT, amount TEXT, normalized_base_amount TEXT,
                 multiplicity INTEGER, status TEXT, revision INTEGER, created_at TEXT, updated_at TEXT)',
-                'CREATE TABLE home_products (id TEXT PRIMARY KEY, home_id TEXT, product_id TEXT, pack_id TEXT, status TEXT)',
-                'CREATE TABLE catalog_revisions (id TEXT PRIMARY KEY, entity_type TEXT, entity_id TEXT, entity_key TEXT,
+                'CREATE TABLE home_products (id TEXT PRIMARY KEY, home_id TEXT,
+                product_id TEXT, pack_id TEXT, status TEXT)',
+                'CREATE TABLE catalog_revisions (id TEXT PRIMARY KEY, entity_type TEXT,
+                entity_id TEXT, entity_key TEXT,
                 before_json TEXT, after_json TEXT, reason TEXT, actor_user_id TEXT, operation_id TEXT, created_at TEXT)',
                 'CREATE TABLE audit_events (id TEXT PRIMARY KEY, home_id TEXT, actor_user_id TEXT,
                 action TEXT, target_type TEXT, target_id TEXT, details TEXT, occurred_at TEXT)',
                 'CREATE TABLE inventory_balances (home_id TEXT, home_product_id TEXT, quantity TEXT,
                 last_movement_id TEXT, revision INTEGER, updated_at TEXT, PRIMARY KEY(home_id, home_product_id))',
-            ]
-            as $sql
+            ] as $sql
         ) {
             $this->connection->executeStatement($sql);
         }
