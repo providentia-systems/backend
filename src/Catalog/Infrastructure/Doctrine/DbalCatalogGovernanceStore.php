@@ -360,7 +360,7 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
             if ($before !== null) {
                 foreach (['product_id', 'variant_id', 'unit_id', 'amount', 'multiplicity'] as $field) {
                     if ((string) $before[$field] !== (string) $values[$field]) {
-                        $this->requireUnused('home_products', 'pack_id', $id);
+                        $this->requireUnusedHomeIdentity('pack', $id, false);
                     }
                 }
             }
@@ -434,19 +434,20 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
             }
         }
         if ($status === 'archived') {
+            if ($type === 'product' || $type === 'pack') {
+                $this->requireUnusedHomeIdentity($type, $id, true);
+            }
             $references = match ($type) {
                 'category' => [['products', 'category_id']],
                 'product' => [
                     ['product_packs', 'product_id'],
                     ['product_variants', 'product_id'],
                     ['product_aliases', 'product_id'],
-                    ['home_products', 'product_id'],
                 ],
                 'unit' => [['product_packs', 'unit_id']],
                 'pack' => [
                     ['product_barcodes', 'pack_id'],
                     ['product_aliases', 'pack_id'],
-                    ['home_products', 'pack_id'],
                 ],
                 'variant' => [['product_packs', 'variant_id'], ['product_aliases', 'variant_id']],
                 default => [],
@@ -454,6 +455,13 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
             foreach ($references as [$table, $column]) {
                 $this->requireUnused($table, $column, $id, true);
             }
+        }
+    }
+
+    private function requireUnusedHomeIdentity(string $type, string $id, bool $activeOnly): void
+    {
+        if ($this->homeProducts->hasIdentityReference($type, $id, $activeOnly)) {
+            throw new DomainException('This identity is used by household records and must retain its meaning.');
         }
     }
 

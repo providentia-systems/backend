@@ -35,6 +35,20 @@ final readonly class DbalCatalogMergeHomeProductGateway implements CatalogMergeH
         ) === 1;
     }
 
+    public function hasIdentityReference(string $type, string $id, bool $activeOnly): bool
+    {
+        $column = match ($type) {
+            'product' => 'product_id',
+            'pack' => 'pack_id',
+            default => throw new \InvalidArgumentException('Unsupported catalog identity type.'),
+        };
+        return $this->connection->fetchOne(
+            'SELECT id FROM home_products WHERE ' . $column . ' = ?'
+                . ($activeOnly ? " AND status <> 'archived'" : '') . ' LIMIT 1',
+            [$id],
+        ) !== false;
+    }
+
     public function relink(string $homeProductId, string $fromProductId, string $toProductId): bool
     {
         return $this->connection->executeStatement(

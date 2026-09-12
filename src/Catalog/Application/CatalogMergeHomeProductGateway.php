@@ -9,6 +9,8 @@ interface CatalogMergeHomeProductGateway
     /** @return list<string> */
     public function references(string $productId): array;
 
+    public function hasIdentityReference(string $type, string $id, bool $activeOnly): bool;
+
     public function pointsTo(string $homeProductId, string $productId): bool;
 
     public function relink(string $homeProductId, string $fromProductId, string $toProductId): bool;
