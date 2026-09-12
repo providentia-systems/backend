@@ -17,15 +17,13 @@ final class Version20260912000100 extends AbstractMigration
 
     public function up(Schema $schema): void
     {
-        $schema->getTable('shopping_list_lines')->addColumn(
-            'archived_at',
-            Types::DATETIME_IMMUTABLE,
-            ['notnull' => false],
-        );
+        $schema
+            ->getTable('shopping_list_lines')
+            ->addColumn('archived_at', Types::DATETIME_IMMUTABLE, ['notnull' => false]);
         foreach (['suggestion_id', 'selected_pack_id'] as $column) {
-            $schema->getTable('shopping_list_lines')->addColumn(
-                $column, Types::STRING, ['length' => 36, 'notnull' => false],
-            );
+            $schema
+                ->getTable('shopping_list_lines')
+                ->addColumn($column, Types::STRING, ['length' => 36, 'notnull' => false]);
         }
     }
 

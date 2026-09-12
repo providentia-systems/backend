@@ -19,26 +19,19 @@ final class CountryHandler implements RequestHandlerInterface
     ) {
     }
 
-    public function handle(
-        ServerRequestInterface $request,
-    ): ResponseInterface {
+    public function handle(ServerRequestInterface $request): ResponseInterface
+    {
         /** @var array<string, mixed> $body */
-        $body = is_array($request->getParsedBody())
-            ? $request->getParsedBody()
-            : [];
+        $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
         $query = $request->getQueryParams();
-        $country = strtoupper(
-            (string) $request->getAttribute('countryCode', ''),
-        );
+        $country = strtoupper((string) $request->getAttribute('countryCode', ''));
         $result = match ($this->action) {
             'list' => ['data' => $this->countries->countries()],
             'policy' => $this->countries->registrationPolicy($country),
             'states', 'cities' => [
                 'data' => $this->countries->places(
                     $country,
-                    isset($query['stateId'])
-                        ? (int) $query['stateId']
-                        : null,
+                    isset($query['stateId']) ? (int) $query['stateId'] : null,
                     (string) ($query['search'] ?? ''),
                     $this->action === 'cities',
                     (int) ($query['offset'] ?? 0),
@@ -52,19 +45,17 @@ final class CountryHandler implements RequestHandlerInterface
             'policies' => [
                 'data' => $this->countries->policies(
                     RequestIdentity::require($request),
-                    isset($query['countryCode'])
-                        ? (string) $query['countryCode']
-                        : null,
+                    isset($query['countryCode']) ? (string) $query['countryCode'] : null,
                 ),
             ],
             'policy-delete' => $this->countries->deleteDraftPolicy(
-                RequestIdentity::require($request), (string) $request->getAttribute('policyId', ''), $body,
+                RequestIdentity::require($request),
+                (string) $request->getAttribute('policyId', ''),
+                $body,
             ),
             'policy-create', 'policy-update' => $this->countries->savePolicy(
                 RequestIdentity::require($request),
-                $this->action === 'policy-create'
-                    ? null
-                    : (string) $request->getAttribute('policyId', ''),
+                $this->action === 'policy-create' ? null : (string) $request->getAttribute('policyId', ''),
                 $body,
             ),
             'jobs' => [

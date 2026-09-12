@@ -20,14 +20,11 @@ final class AccessHandler implements RequestHandlerInterface
     ) {
     }
 
-    public function handle(
-        ServerRequestInterface $request,
-    ): ResponseInterface {
+    public function handle(ServerRequestInterface $request): ResponseInterface
+    {
         $identity = RequestIdentity::require($request);
         /** @var array<string, mixed> $body */
-        $body = is_array($request->getParsedBody())
-            ? $request->getParsedBody()
-            : [];
+        $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
         $query = $request->getQueryParams();
         if ($this->action === 'assign') {
             $this->access->assign(
@@ -42,13 +39,7 @@ final class AccessHandler implements RequestHandlerInterface
         if ($this->action === 'catalog') {
             $this->access->requireAdmin($identity, 'groups.manage');
             $scopes = [];
-            foreach (
-                [
-                FeatureCatalog::ACCOUNT,
-                FeatureCatalog::HOME,
-                FeatureCatalog::ADMIN,
-                ] as $scope
-            ) {
+            foreach ([FeatureCatalog::ACCOUNT, FeatureCatalog::HOME, FeatureCatalog::ADMIN] as $scope) {
                 $scopes[] = [
                     'scope' => $scope,
                     'features' => FeatureCatalog::features($scope),
@@ -67,19 +58,17 @@ final class AccessHandler implements RequestHandlerInterface
                 'list' => [
                     'data' => $this->access->groups(
                         $identity,
-                        isset($query['scope'])
-                            ? (string) $query['scope']
-                            : null,
+                        isset($query['scope']) ? (string) $query['scope'] : null,
                     ),
                 ],
                 'delete' => $this->access->deleteGroup(
-                    $identity, (string) $request->getAttribute('groupId', ''), $body,
+                    $identity,
+                    (string) $request->getAttribute('groupId', ''),
+                    $body,
                 ),
                 'create', 'update' => $this->access->saveGroup(
                     $identity,
-                    $this->action === 'create'
-                        ? null
-                        : (string) $request->getAttribute('groupId', ''),
+                    $this->action === 'create' ? null : (string) $request->getAttribute('groupId', ''),
                     $body,
                 ),
                 default => throw new \LogicException('Unknown access action.'),

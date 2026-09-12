@@ -587,9 +587,11 @@ final class PurchasingService
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
         $this->draftFields($fields, ['storeId', 'purchaseDate', 'currency', 'totalAmount', 'notes']);
-        if (! is_string($fields['purchaseDate'])
-            || preg_match('/^\d{4}-\d{2}-\d{2}$/', $fields['purchaseDate']) !== 1
-            || ! is_string($fields['notes'])) {
+        if (
+            !is_string($fields['purchaseDate']) ||
+            preg_match('/^\d{4}-\d{2}-\d{2}$/', $fields['purchaseDate']) !== 1 ||
+            !is_string($fields['notes'])
+        ) {
             throw new Problem(422, 'Invalid receipt', 'Provide a calendar date and text notes.');
         }
         $date = $this->date($fields['purchaseDate'])->format('Y-m-d');
@@ -600,13 +602,19 @@ final class PurchasingService
         }
         $total = $this->money($fields['totalAmount'] === null ? null : (string) $fields['totalAmount'], true);
         $storeId = $fields['storeId'] === null ? null : $this->identifier((string) $fields['storeId']);
-        return $this->changeDraftReceipt($identity, $homeId, $receiptId, [
-            'store_id' => $storeId,
-            'purchase_date' => $date,
-            'currency' => $currency,
-            'total_amount' => $total,
-            'notes' => $notes,
-        ], $expectedRevision);
+        return $this->changeDraftReceipt(
+            $identity,
+            $homeId,
+            $receiptId,
+            [
+                'store_id' => $storeId,
+                'purchase_date' => $date,
+                'currency' => $currency,
+                'total_amount' => $total,
+                'notes' => $notes,
+            ],
+            $expectedRevision,
+        );
     }
 
     /** @return array{id: string, revision: int} */
@@ -637,8 +645,12 @@ final class PurchasingService
         $description = trim((string) $fields['rawDescription']);
         $pack = $fields['originalPackText'] === null ? null : trim((string) $fields['originalPackText']);
         $quantity = $this->quantity((string) $fields['quantity']);
-        if ($description === '' || mb_strlen($description) > 500 || ($pack !== null && mb_strlen($pack) > 191)
-            || DecimalQuantity::quantity($quantity)->isZero()) {
+        if (
+            $description === '' ||
+            mb_strlen($description) > 500 ||
+            ($pack !== null && mb_strlen($pack) > 191) ||
+            DecimalQuantity::quantity($quantity)->isZero()
+        ) {
             throw new Problem(422, 'Invalid receipt line', 'Provide a description, positive quantity and pack text.');
         }
         $price = $this->money($fields['unitPrice'] === null ? null : (string) $fields['unitPrice'], true);
@@ -646,14 +658,21 @@ final class PurchasingService
         if ($price === null && $total === null) {
             throw new Problem(422, 'Invalid receipt line', 'A unit price or line total is required.');
         }
-        return $this->changeDraftLine($identity, $homeId, $receiptId, $lineId, [
-            'raw_description' => $description,
-            'quantity' => $quantity,
-            'original_pack_text' => $pack,
-            'unit_price' => $price,
-            'line_total' => $total,
-            'approval_status' => 'unreviewed',
-        ], $expectedRevision);
+        return $this->changeDraftLine(
+            $identity,
+            $homeId,
+            $receiptId,
+            $lineId,
+            [
+                'raw_description' => $description,
+                'quantity' => $quantity,
+                'original_pack_text' => $pack,
+                'unit_price' => $price,
+                'line_total' => $total,
+                'approval_status' => 'unreviewed',
+            ],
+            $expectedRevision,
+        );
     }
 
     /** @return array{id: string, revision: int} */
@@ -666,7 +685,12 @@ final class PurchasingService
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
         return $this->changeDraftLine(
-            $identity, $homeId, $receiptId, $lineId, ['approval_status' => 'removed'], $expectedRevision,
+            $identity,
+            $homeId,
+            $receiptId,
+            $lineId,
+            ['approval_status' => 'removed'],
+            $expectedRevision,
         );
     }
 
@@ -699,12 +723,23 @@ final class PurchasingService
     ): array {
         try {
             return $this->transactions->transactional(function () use (
-                $identity, $homeId, $receiptId, $fields, $expectedRevision,
+                $identity,
+                $homeId,
+                $receiptId,
+                $fields,
+                $expectedRevision,
             ): array {
                 $this->requireDraft($homeId, $receiptId);
-                if ($expectedRevision < 1 || ! $this->purchases->updateDraftReceipt(
-                    $homeId, $receiptId, $fields, $expectedRevision, $this->clock->now(),
-                )) {
+                if (
+                    $expectedRevision < 1 ||
+                    !$this->purchases->updateDraftReceipt(
+                        $homeId,
+                        $receiptId,
+                        $fields,
+                        $expectedRevision,
+                        $this->clock->now(),
+                    )
+                ) {
                     throw new Problem(409, 'Revision conflict', 'Refresh this draft receipt before changing it.');
                 }
                 $this->publishDraftReceipt($identity, $homeId, $receiptId);
@@ -728,12 +763,25 @@ final class PurchasingService
         int $expectedRevision,
     ): array {
         return $this->transactions->transactional(function () use (
-            $identity, $homeId, $receiptId, $lineId, $fields, $expectedRevision,
+            $identity,
+            $homeId,
+            $receiptId,
+            $lineId,
+            $fields,
+            $expectedRevision,
         ): array {
             $this->requireDraft($homeId, $receiptId);
-            if ($expectedRevision < 1 || ! $this->purchases->updateDraftReceiptLine(
-                $homeId, $receiptId, $lineId, $fields, $expectedRevision, $this->clock->now(),
-            )) {
+            if (
+                $expectedRevision < 1 ||
+                !$this->purchases->updateDraftReceiptLine(
+                    $homeId,
+                    $receiptId,
+                    $lineId,
+                    $fields,
+                    $expectedRevision,
+                    $this->clock->now(),
+                )
+            ) {
                 throw new Problem(409, 'Revision conflict', 'Refresh this draft receipt line before changing it.');
             }
             $line = $this->purchases->receiptLine($homeId, $receiptId, $lineId);
@@ -743,7 +791,13 @@ final class PurchasingService
             $revision = (int) $line['revision'];
             unset($line['id'], $line['revision']);
             $this->changes?->put(
-                $homeId, $identity->userId, 'purchasing-receipt-line', $lineId, $revision, $line, $this->clock->now(),
+                $homeId,
+                $identity->userId,
+                'purchasing-receipt-line',
+                $lineId,
+                $revision,
+                $line,
+                $this->clock->now(),
             );
             $this->publishDraftReceipt($identity, $homeId, $receiptId);
             return ['id' => $lineId, 'revision' => $revision];
@@ -756,12 +810,27 @@ final class PurchasingService
         if ($receipt === null) {
             throw new \RuntimeException('The updated receipt is unavailable.');
         }
-        $fields = array_intersect_key($receipt, array_flip([
-            'storeId', 'purchaseDate', 'currency', 'totalAmount', 'status', 'source', 'sourceReference', 'notes',
-        ]));
+        $fields = array_intersect_key(
+            $receipt,
+            array_flip([
+                'storeId',
+                'purchaseDate',
+                'currency',
+                'totalAmount',
+                'status',
+                'source',
+                'sourceReference',
+                'notes',
+            ]),
+        );
         $this->changes?->put(
-            $homeId, $identity->userId, 'purchasing-receipt', $receiptId,
-            (int) $receipt['revision'], $fields, $this->clock->now(),
+            $homeId,
+            $identity->userId,
+            'purchasing-receipt',
+            $receiptId,
+            (int) $receipt['revision'],
+            $fields,
+            $this->clock->now(),
         );
     }
 

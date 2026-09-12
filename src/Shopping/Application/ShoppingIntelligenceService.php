@@ -295,7 +295,7 @@ final class ShoppingIntelligenceService
         ?string $requestedId = null,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
-        if (! in_array($decision, ['accepted', 'edited', 'dismissed', 'snoozed'], true)) {
+        if (!in_array($decision, ['accepted', 'edited', 'dismissed', 'snoozed'], true)) {
             throw new Problem(422, 'Invalid suggestion feedback', 'Feedback decision is not supported.');
         }
         $reason = trim($reason);
@@ -310,13 +310,16 @@ final class ShoppingIntelligenceService
         if ($decision === 'edited' && $quantity === null) {
             throw new Problem(422, 'Invalid suggestion feedback', 'Edited feedback requires a quantity.');
         }
-        if ($decision === 'accepted' && $quantity !== null
-            && FixedDecimal::from($quantity)->compare(FixedDecimal::from((string) $suggestion['requiredQuantity'])) !== 0
+        if (
+            $decision === 'accepted' &&
+            $quantity !== null &&
+            FixedDecimal::from($quantity)->compare(FixedDecimal::from((string) $suggestion['requiredQuantity'])) !== 0
         ) {
             $decision = 'edited';
         }
-        if ($requestedId !== null
-            && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $requestedId) !== 1
+        if (
+            $requestedId !== null &&
+            preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $requestedId) !== 1
         ) {
             throw new Problem(422, 'Invalid feedback identifier', 'The feedback identifier must be a UUID.');
         }
@@ -348,9 +351,18 @@ final class ShoppingIntelligenceService
                 $at,
             );
             $this->changes?->put(
-                $homeId, $identity->userId, 'shopping-suggestion-feedback', $id, 1,
-                ['suggestionId' => $suggestionId, 'decision' => $decision,
-                 'resultQuantity' => $quantity, 'reason' => $reason], $at,
+                $homeId,
+                $identity->userId,
+                'shopping-suggestion-feedback',
+                $id,
+                1,
+                [
+                    'suggestionId' => $suggestionId,
+                    'decision' => $decision,
+                    'resultQuantity' => $quantity,
+                    'reason' => $reason,
+                ],
+                $at,
             );
         });
 

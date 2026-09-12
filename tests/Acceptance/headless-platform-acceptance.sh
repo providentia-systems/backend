@@ -674,7 +674,7 @@ http_json POST "/api/v1/homes/${home_id}/sync/push" 200 "$homeowner_access_token
     "$sync_create_payload" '' "$sync_batch_id"
 assert_json 'Typed private category/product creation did not acknowledge both durable operations.' '
     .protocolVersion == 2 and (.results | length == 2)
-    and all(.results[]; .status == "accepted" and .result.revision == 1)
+    and all(.results[]; .status == "accepted" and .result.id == .entityId)
 '
 private_sync_cursor="$(jq -er '.highWaterCursor' "$response_body")"
 http_json GET "/api/v1/admin/homes/${home_id}/records/products" 200 "$admin_access_token"
@@ -709,7 +709,7 @@ assert_json 'Admin edits were not published to another authorized installation t
 http_json POST "/api/v1/homes/${home_id}/sync/push" 200 "$homeowner_access_token" \
     "$sync_create_payload" '' "$sync_batch_id"
 assert_json 'Retrying an accepted private creation did not return its immutable receipt.' '
-    (.results | length == 2) and all(.results[]; .status == "accepted" and .result.revision == 1)
+    (.results | length == 2) and all(.results[]; .status == "accepted" and .result.id == .entityId)
 '
 stale_batch_id="$(uuid)"
 stale_sync_payload="$(jq -cn \

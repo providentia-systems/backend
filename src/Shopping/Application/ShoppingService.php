@@ -285,7 +285,7 @@ final class ShoppingService
         ): void {
             $previous = $this->shopping->line($homeId, $listId, $lineId);
             if (
-                ! $this->shopping->updateLine(
+                !$this->shopping->updateLine(
                     $homeId,
                     $listId,
                     $lineId,
@@ -298,12 +298,12 @@ final class ShoppingService
             ) {
                 throw new Problem(409, 'Revision conflict', 'The shopping-list line changed on another device.');
             }
-            if ($previous !== null && isset($previous['suggestionId'])
-                && DecimalQuantity::quantity((string) $previous['quantityToBuy'])->toString() !== $quantity
+            if (
+                $previous !== null &&
+                isset($previous['suggestionId']) &&
+                DecimalQuantity::quantity((string) $previous['quantityToBuy'])->toString() !== $quantity
             ) {
-                $this->recordSuggestionOutcome(
-                    $identity, $homeId, (string) $previous['suggestionId'], $quantity, null,
-                );
+                $this->recordSuggestionOutcome($identity, $homeId, (string) $previous['suggestionId'], $quantity, null);
             }
             $this->publishLine($identity, $homeId, $listId, $lineId);
             $this->publishList($identity, $homeId, $listId);
@@ -323,8 +323,13 @@ final class ShoppingService
             throw new \LogicException('Suggestion feedback is not composed for this shopping service.');
         }
         $this->intelligence->feedback(
-            $identity, $homeId, $suggestionId, 'accepted', $quantity,
-            'Confirmed on the shopping list.', $feedbackId,
+            $identity,
+            $homeId,
+            $suggestionId,
+            'accepted',
+            $quantity,
+            'Confirmed on the shopping list.',
+            $feedbackId,
         );
     }
 

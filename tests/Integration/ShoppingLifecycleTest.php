@@ -48,15 +48,19 @@ final class ShoppingLifecycleTest extends TestCase
             'CREATE TABLE home_products (id TEXT, home_id TEXT, private_name TEXT, product_id TEXT, status TEXT)',
         );
         $this->connection->executeStatement('CREATE TABLE products (id TEXT, canonical_name TEXT)');
-        foreach ([
-            'CREATE TABLE shopping_suggestion_runs (id TEXT, home_id TEXT, status TEXT, as_of TEXT)',
-            'CREATE TABLE shopping_suggestions (id TEXT, home_id TEXT, run_id TEXT, home_product_id TEXT,
+        foreach (
+            [
+                'CREATE TABLE shopping_suggestion_runs (id TEXT, home_id TEXT, status TEXT, as_of TEXT)',
+                'CREATE TABLE shopping_suggestions (id TEXT, home_id TEXT, run_id TEXT, home_product_id TEXT,
              selected_pack_id TEXT, required_quantity TEXT, confidence_band TEXT, status TEXT, expires_at TEXT)',
-            'CREATE TABLE user_suggestion_feedback (id TEXT PRIMARY KEY, home_id TEXT, suggestion_id TEXT,
-             actor_user_id TEXT, decision TEXT, original_quantity TEXT, result_quantity TEXT, reason TEXT, created_at TEXT)',
-            'CREATE TABLE audit_events (id TEXT PRIMARY KEY, home_id TEXT, actor_user_id TEXT, action TEXT,
+                'CREATE TABLE user_suggestion_feedback (id TEXT PRIMARY KEY, home_id TEXT, suggestion_id TEXT,
+             actor_user_id TEXT, decision TEXT, original_quantity TEXT, result_quantity TEXT,
+             reason TEXT, created_at TEXT)',
+                'CREATE TABLE audit_events (id TEXT PRIMARY KEY, home_id TEXT, actor_user_id TEXT, action TEXT,
              target_type TEXT, target_id TEXT, details TEXT, occurred_at TEXT)',
-        ] as $sql) {
+            ]
+            as $sql
+        ) {
             $this->connection->executeStatement($sql);
         }
         $this->store = new DbalShoppingStore($this->connection);
@@ -148,12 +152,21 @@ final class ShoppingLifecycleTest extends TestCase
     {
         $this->connection->insert('home_products', ['id' => 'product', 'home_id' => 'home', 'status' => 'active']);
         $this->connection->insert('shopping_suggestion_runs', [
-            'id' => 'run', 'home_id' => 'home', 'status' => 'completed', 'as_of' => '2026-09-12 10:00:00',
+            'id' => 'run',
+            'home_id' => 'home',
+            'status' => 'completed',
+            'as_of' => '2026-09-12 10:00:00',
         ]);
         $this->connection->insert('shopping_suggestions', [
-            'id' => 'suggestion', 'home_id' => 'home', 'run_id' => 'run', 'home_product_id' => 'product',
-            'selected_pack_id' => 'pack', 'required_quantity' => '2', 'confidence_band' => 'medium',
-            'status' => 'active', 'expires_at' => '2026-09-13 10:00:00',
+            'id' => 'suggestion',
+            'home_id' => 'home',
+            'run_id' => 'run',
+            'home_product_id' => 'product',
+            'selected_pack_id' => 'pack',
+            'required_quantity' => '2',
+            'confidence_band' => 'medium',
+            'status' => 'active',
+            'expires_at' => '2026-09-13 10:00:00',
         ]);
         $homes = $this->createStub(HomeStore::class);
         $homes->method('membership')->willReturn(['status' => 'active', 'role' => HomeAuthorization::MEMBER]);
@@ -161,16 +174,29 @@ final class ShoppingLifecycleTest extends TestCase
         $clock = $this->createStub(Clock::class);
         $clock->method('now')->willReturn($this->at);
         $transactions = $this->createStub(TransactionManager::class);
-        $transactions->method('transactional')->willReturnCallback(
-            fn(callable $operation): mixed => $this->connection->transactional($operation),
-        );
+        $transactions
+            ->method('transactional')
+            ->willReturnCallback(fn(callable $operation): mixed => $this->connection->transactional($operation));
         $ids = new SequenceUuidGenerator();
         $intelligence = new ShoppingIntelligenceService(
-            new DbalShoppingIntelligenceStore($this->connection), $authorization,
-            new ConsumptionEstimator(), new SuggestionEngine(), new PackOptimizer(), $ids, $clock, $transactions,
+            new DbalShoppingIntelligenceStore($this->connection),
+            $authorization,
+            new ConsumptionEstimator(),
+            new SuggestionEngine(),
+            new PackOptimizer(),
+            $ids,
+            $clock,
+            $transactions,
         );
         $service = new ShoppingService(
-            $this->store, $authorization, new LegacySuggestionPolicy(), $ids, $clock, $transactions, null, $intelligence,
+            $this->store,
+            $authorization,
+            new LegacySuggestionPolicy(),
+            $ids,
+            $clock,
+            $transactions,
+            null,
+            $intelligence,
         );
         $identity = new AuthenticatedIdentity('actor', 'session', 'device', 'home', []);
         try {

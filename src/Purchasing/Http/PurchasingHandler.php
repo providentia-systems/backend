@@ -35,79 +35,87 @@ final class PurchasingHandler implements RequestHandlerInterface
         }
 
         return match ($this->action) {
-            'history' => new JsonResponse(['data' => $this->purchases->history(
-                $identity,
-                $homeId,
-                isset($query['from']) ? (string) $query['from'] : null,
-                isset($query['to']) ? (string) $query['to'] : null,
-                isset($query['storeId']) ? (string) $query['storeId'] : null,
-                (int) ($query['limit'] ?? 50),
-                (int) ($query['offset'] ?? 0),
-            )]),
+            'history' => new JsonResponse([
+                'data' => $this->purchases->history(
+                    $identity,
+                    $homeId,
+                    isset($query['from']) ? (string) $query['from'] : null,
+                    isset($query['to']) ? (string) $query['to'] : null,
+                    isset($query['storeId']) ? (string) $query['storeId'] : null,
+                    (int) ($query['limit'] ?? 50),
+                    (int) ($query['offset'] ?? 0),
+                ),
+            ]),
             'update', 'cancel', 'lines.update', 'lines.remove' => $this->draftMutation(
-                $identity, $homeId, $receiptId, $request, $body,
-            ),
-            'get' => new JsonResponse($this->purchases->receipt($identity, $homeId, $receiptId)),
-            'summary' => new JsonResponse($this->purchases->summary(
-                $identity,
-                $homeId,
-                (int) ($query['recentDays'] ?? 90),
-            )),
-            'stores.update' => new JsonResponse($this->purchases->updateStore(
-                $identity,
-                $homeId,
-                (string) $request->getAttribute('storeId', ''),
-                array_key_exists('name', $body) ? (string) $body['name'] : null,
-                array_key_exists('location', $body) ? (string) $body['location'] : null,
-                array_key_exists('status', $body) ? (string) $body['status'] : null,
-                (int) ($body['expectedRevision'] ?? 0),
-            )),
-            'stores.list' => new JsonResponse(['data' => $this->purchases->stores(
-                $identity,
-                $homeId,
-                filter_var($query['includeArchived'] ?? false, FILTER_VALIDATE_BOOLEAN),
-            )]),
-            'stores.create' => new JsonResponse($this->purchases->createStore(
-                $identity,
-                $homeId,
-                (string) ($body['name'] ?? ''),
-                (string) ($body['location'] ?? ''),
-            ), 201),
-            'create' => new JsonResponse($this->purchases->createReceipt(
-                $identity,
-                $homeId,
-                isset($body['storeId']) ? (string) $body['storeId'] : null,
-                (string) ($body['purchaseDate'] ?? ''),
-                (string) ($body['currency'] ?? ''),
-                isset($body['totalAmount']) ? (string) $body['totalAmount'] : null,
-                (string) ($body['notes'] ?? ''),
-                isset($body['sourceReference']) ? (string) $body['sourceReference'] : null,
-            ), 201),
-            'lines.create' => new JsonResponse($this->purchases->addLine(
-                $identity,
-                $homeId,
-                $receiptId,
-                (int) ($body['expectedReceiptRevision'] ?? 0),
-                (string) ($body['rawDescription'] ?? ''),
-                (string) ($body['quantity'] ?? ''),
-                isset($body['originalPackText']) ? (string) $body['originalPackText'] : null,
-                isset($body['unitPrice']) ? (string) $body['unitPrice'] : null,
-                isset($body['lineTotal']) ? (string) $body['lineTotal'] : null,
-            ), 201),
-            'lines.approve' => $this->approveLine($identity, $homeId, $receiptId, $request, $body),
-            'lines.unresolve' => $this->unresolveLine(
                 $identity,
                 $homeId,
                 $receiptId,
                 $request,
                 $body,
             ),
-            'commit' => new JsonResponse($this->purchases->commit(
-                $identity,
-                $homeId,
-                $receiptId,
-                (int) ($body['expectedRevision'] ?? 0),
-            )),
+            'get' => new JsonResponse($this->purchases->receipt($identity, $homeId, $receiptId)),
+            'summary' => new JsonResponse(
+                $this->purchases->summary($identity, $homeId, (int) ($query['recentDays'] ?? 90)),
+            ),
+            'stores.update' => new JsonResponse(
+                $this->purchases->updateStore(
+                    $identity,
+                    $homeId,
+                    (string) $request->getAttribute('storeId', ''),
+                    array_key_exists('name', $body) ? (string) $body['name'] : null,
+                    array_key_exists('location', $body) ? (string) $body['location'] : null,
+                    array_key_exists('status', $body) ? (string) $body['status'] : null,
+                    (int) ($body['expectedRevision'] ?? 0),
+                ),
+            ),
+            'stores.list' => new JsonResponse([
+                'data' => $this->purchases->stores(
+                    $identity,
+                    $homeId,
+                    filter_var($query['includeArchived'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                ),
+            ]),
+            'stores.create' => new JsonResponse(
+                $this->purchases->createStore(
+                    $identity,
+                    $homeId,
+                    (string) ($body['name'] ?? ''),
+                    (string) ($body['location'] ?? ''),
+                ),
+                201,
+            ),
+            'create' => new JsonResponse(
+                $this->purchases->createReceipt(
+                    $identity,
+                    $homeId,
+                    isset($body['storeId']) ? (string) $body['storeId'] : null,
+                    (string) ($body['purchaseDate'] ?? ''),
+                    (string) ($body['currency'] ?? ''),
+                    isset($body['totalAmount']) ? (string) $body['totalAmount'] : null,
+                    (string) ($body['notes'] ?? ''),
+                    isset($body['sourceReference']) ? (string) $body['sourceReference'] : null,
+                ),
+                201,
+            ),
+            'lines.create' => new JsonResponse(
+                $this->purchases->addLine(
+                    $identity,
+                    $homeId,
+                    $receiptId,
+                    (int) ($body['expectedReceiptRevision'] ?? 0),
+                    (string) ($body['rawDescription'] ?? ''),
+                    (string) ($body['quantity'] ?? ''),
+                    isset($body['originalPackText']) ? (string) $body['originalPackText'] : null,
+                    isset($body['unitPrice']) ? (string) $body['unitPrice'] : null,
+                    isset($body['lineTotal']) ? (string) $body['lineTotal'] : null,
+                ),
+                201,
+            ),
+            'lines.approve' => $this->approveLine($identity, $homeId, $receiptId, $request, $body),
+            'lines.unresolve' => $this->unresolveLine($identity, $homeId, $receiptId, $request, $body),
+            'commit' => new JsonResponse(
+                $this->purchases->commit($identity, $homeId, $receiptId, (int) ($body['expectedRevision'] ?? 0)),
+            ),
             default => throw new \LogicException('Unknown purchasing action.'),
         };
     }

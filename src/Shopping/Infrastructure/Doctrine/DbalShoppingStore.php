@@ -136,8 +136,11 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
                        ORDER BY as_of DESC, id DESC LIMIT 1)',
                 ['home' => $homeId, 'suggestion' => $suggestionId, 'completed' => 'completed'],
             );
-            if ($suggestion === false || $suggestion['home_product_id'] !== $homeProductId
-                || $suggestion['status'] !== 'active' || $suggestion['expires_at'] <= $this->date($at)
+            if (
+                $suggestion === false ||
+                $suggestion['home_product_id'] !== $homeProductId ||
+                $suggestion['status'] !== 'active' ||
+                $suggestion['expires_at'] <= $this->date($at)
             ) {
                 throw new \DomainException('The recommendation is no longer available for this home product.');
             }
