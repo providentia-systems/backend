@@ -369,7 +369,10 @@ final class CatalogGovernanceService
             foreach (['packText', 'barcode'] as $field) {
                 if (array_key_exists($field, $payload)) {
                     $value = $payload[$field];
-                    if ($value !== null && (! is_string($value) || mb_strlen($value) > ($field === 'barcode' ? 64 : 191))) {
+                    if (
+                        $value !== null
+                        && (! is_string($value) || mb_strlen($value) > ($field === 'barcode' ? 64 : 191))
+                    ) {
                         throw new Problem(422, 'Invalid proposal', 'Invalid product pack or barcode.');
                     }
                     $extra[$field] = $value;

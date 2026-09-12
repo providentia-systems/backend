@@ -11,16 +11,22 @@ use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use DomainException;
 use Providentia\Catalog\Application\CatalogGovernanceStore;
+use Providentia\Catalog\Application\CatalogMaintenanceStore;
 use Providentia\Catalog\Application\CatalogMergeHomeProductGateway;
 use Providentia\SharedKernel\Application\UuidGenerator;
 
-final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, \Providentia\Catalog\Application\CatalogMaintenanceStore
+final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, CatalogMaintenanceStore
 {
     public function __construct(
         private readonly Connection $connection,
         private readonly UuidGenerator $ids,
         private readonly CatalogMergeHomeProductGateway $homeProducts,
     ) {
+    }
+
+    private function forUpdate(string $sql): string
+    {
+        return $this->connection->getDatabasePlatform() instanceof SQLitePlatform ? $sql : $sql . ' FOR UPDATE';
     }
 
     /** @return array{table: string, fields: array<string, array{string, int, bool}>} */
@@ -183,8 +189,7 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, \Provi
                 'brand' => 'normalized_brand',
                 'canonical_label' => 'normalized_label',
                 'raw_alias' => 'normalized_alias',
-            ]
-            as $source => $target
+            ] as $source => $target
         ) {
             if (isset($values[$source])) {
                 $values[$target] = $this->normalize((string) $values[$source]);
@@ -274,8 +279,7 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, \Provi
                 'variant_id' => 'product_variants',
                 'pack_id' => 'product_packs',
                 'unit_id' => 'units',
-            ]
-            as $field => $table
+            ] as $field => $table
         ) {
             if (!isset($values[$field])) {
                 continue;
@@ -388,7 +392,8 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, \Provi
         }
         if ($type === 'alias' && $status === 'published') {
             $existing = $this->connection->fetchOne(
-                "SELECT id FROM product_aliases WHERE scope = 'global' AND normalized_alias = ? AND status = 'approved' AND id <> ?",
+                "SELECT id FROM product_aliases WHERE scope = 'global' AND normalized_alias = ?"
+                    . " AND status = 'approved' AND id <> ?",
                 [$this->normalize((string) $values['raw_alias']), $id],
             );
             if ($existing !== false) {
@@ -778,7 +783,9 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, \Provi
                 }
                 if ($payload['amount'] !== null) {
                     $baseAmount = \Providentia\Catalog\Domain\PackMeasure::normalize(
-                        (string) $payload['amount'], (string) $unit['baseFactor'], (int) $payload['multiplicity'],
+                        (string) $payload['amount'],
+                        (string) $unit['baseFactor'],
+                        (int) $payload['multiplicity'],
                     );
                 }
             }
