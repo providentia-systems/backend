@@ -115,6 +115,26 @@ final class CatalogMaintenanceTest extends TestCase
         $this->save('unit', 'unit', $unit, 1);
     }
 
+    public function testHomeIdentityReferenceGatewayPreservesHistoricalAndActiveUsage(): void
+    {
+        $this->connection->insert('home_products', [
+            'id' => 'home-product', 'home_id' => 'home', 'product_id' => 'product',
+            'pack_id' => 'pack', 'status' => 'active',
+        ]);
+        $references = new DbalCatalogMergeHomeProductGateway($this->connection);
+        foreach (['product', 'pack'] as $type) {
+            self::assertTrue($references->hasIdentityReference($type, $type, true));
+            self::assertTrue($references->hasIdentityReference($type, $type, false));
+            self::assertFalse($references->hasIdentityReference($type, 'other', false));
+        }
+        $this->connection->update('home_products', ['status' => 'archived'], ['id' => 'home-product']);
+        foreach (['product', 'pack'] as $type) {
+            self::assertFalse($references->hasIdentityReference($type, $type, true));
+            self::assertTrue($references->hasIdentityReference($type, $type, false));
+        }
+        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM home_products'));
+    }
+
     public function testApprovedProductWithoutAMeasureStillHasASelectablePack(): void
     {
         $this->save('category', 'category', ['canonicalName' => 'Pantry']);

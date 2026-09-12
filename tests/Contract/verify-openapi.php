@@ -1329,6 +1329,7 @@ if (
     'approved',
     'unresolved',
     'approved-catalog',
+    'removed',
     ]
     || ($unresolvedDecisionSchema['additionalProperties'] ?? null) !== false
     || ($unresolvedDecisionSchema['properties']['approvalStatus']['const'] ?? null) !== 'unresolved'
