@@ -6,9 +6,11 @@ namespace Providentia\Shopping\Application;
 
 use DateTimeImmutable;
 use InvalidArgumentException;
-use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermission;
+use Providentia\Home\Application\HomePermissionAuthorizer;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\Clock;
+use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
@@ -19,25 +21,16 @@ use Providentia\Shopping\Domain\SuggestionEngine;
 
 final class ShoppingIntelligenceService
 {
-    private const WRITERS = [
-        HomeAuthorization::OWNER,
-        HomeAuthorization::MANAGER,
-        HomeAuthorization::MEMBER,
-    ];
-    private const POLICY_MANAGERS = [
-        HomeAuthorization::OWNER,
-        HomeAuthorization::MANAGER,
-    ];
-
     public function __construct(
         private readonly ShoppingIntelligenceStore $store,
-        private readonly HomeAuthorization $authorization,
+        private readonly HomePermissionAuthorizer $authorization,
         private readonly ConsumptionEstimator $estimator,
         private readonly SuggestionEngine $suggestions,
         private readonly PackOptimizer $packs,
         private readonly UuidGenerator $ids,
         private readonly Clock $clock,
         private readonly TransactionManager $transactions,
+        private readonly ?ChangeFeedWriter $changes = null,
     ) {
     }
 
@@ -47,7 +40,7 @@ final class ShoppingIntelligenceService
         string $homeId,
         int $horizonDays,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
         if ($horizonDays < 1 || $horizonDays > 90) {
             throw new Problem(422, 'Invalid suggestion horizon', 'Horizon must be between 1 and 90 days.');
         }
@@ -150,7 +143,7 @@ final class ShoppingIntelligenceService
     /** @return list<array<string, mixed>> */
     public function estimates(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
 
         return $this->store->latestEstimates($homeId);
     }
@@ -158,7 +151,7 @@ final class ShoppingIntelligenceService
     /** @return list<array<string, mixed>> */
     public function suggestions(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
 
         return $this->store->latestSuggestions($homeId, $this->clock->now());
     }
@@ -166,7 +159,7 @@ final class ShoppingIntelligenceService
     /** @return list<array<string, mixed>> */
     public function priceComparisons(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
 
         return $this->store->latestPriceComparisons($homeId);
     }
@@ -177,7 +170,7 @@ final class ShoppingIntelligenceService
         string $homeId,
         string $suggestionId,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
         $result = $this->store->explanation($homeId, $suggestionId);
         if ($result === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
@@ -192,7 +185,7 @@ final class ShoppingIntelligenceService
         string $homeId,
         string $homeProductId,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
 
         return $this->store->preference($homeId, $homeProductId) ?? [
             'homeProductId' => $homeProductId,
@@ -217,7 +210,8 @@ final class ShoppingIntelligenceService
         string $homeProductId,
         array $input,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::POLICY_MANAGERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_MANAGE);
+        $this->validatePreference($input);
         $minimum = $this->optionalQuantity($input['minimumQuantity'] ?? null);
         $leadTime = (int) ($input['leadTimeDays'] ?? 0);
         $coverageValue = $input['targetCoverageDays'] ?? null;
@@ -239,24 +233,47 @@ final class ShoppingIntelligenceService
         }
         $at = $this->clock->now();
         try {
-            $saved = $this->transactions->transactional(fn (): bool => $this->store->savePreference(
+            $preference = [
+                'minimumQuantity' => $minimum,
+                'alwaysKeep' => (bool) ($input['alwaysKeep'] ?? false),
+                'neverSuggest' => (bool) ($input['neverSuggest'] ?? false),
+                'preferredPackId' => $preferred === '' ? null : $preferred,
+                'leadTimeDays' => $leadTime,
+                'targetCoverageDays' => $coverage,
+                'snoozeUntil' => $snooze,
+            ];
+            $saved = $this->transactions->transactional(function () use (
+                $identity,
                 $homeId,
                 $homeProductId,
-                $identity->userId,
-                $this->ids->generate(),
-                $this->ids->generate(),
-                [
-                    'minimumQuantity' => $minimum,
-                    'alwaysKeep' => (bool) ($input['alwaysKeep'] ?? false),
-                    'neverSuggest' => (bool) ($input['neverSuggest'] ?? false),
-                    'preferredPackId' => $preferred === '' ? null : $preferred,
-                    'leadTimeDays' => $leadTime,
-                    'targetCoverageDays' => $coverage,
-                    'snoozeUntil' => $snooze,
-                ],
+                $preference,
                 $expectedRevision,
                 $at,
-            ));
+            ): bool {
+                $saved = $this->store->savePreference(
+                    $homeId,
+                    $homeProductId,
+                    $identity->userId,
+                    $this->ids->generate(),
+                    $this->ids->generate(),
+                    $preference,
+                    $expectedRevision,
+                    $at,
+                );
+                if ($saved) {
+                    $this->changes?->put(
+                        $homeId,
+                        $identity->userId,
+                        'shopping-stock-preference',
+                        $homeProductId,
+                        $expectedRevision + 1,
+                        ['homeProductId' => $homeProductId] + $preference,
+                        $at,
+                    );
+                }
+
+                return $saved;
+            });
         } catch (\DomainException $error) {
             throw new Problem(422, 'Invalid replenishment policy', $error->getMessage());
         }
@@ -275,8 +292,9 @@ final class ShoppingIntelligenceService
         string $decision,
         ?string $resultQuantity,
         string $reason,
+        ?string $requestedId = null,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::WRITERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
         if (! in_array($decision, ['accepted', 'edited', 'dismissed', 'snoozed'], true)) {
             throw new Problem(422, 'Invalid suggestion feedback', 'Feedback decision is not supported.');
         }
@@ -292,7 +310,17 @@ final class ShoppingIntelligenceService
         if ($decision === 'edited' && $quantity === null) {
             throw new Problem(422, 'Invalid suggestion feedback', 'Edited feedback requires a quantity.');
         }
-        $id = $this->ids->generate();
+        if ($decision === 'accepted' && $quantity !== null
+            && FixedDecimal::from($quantity)->compare(FixedDecimal::from((string) $suggestion['requiredQuantity'])) !== 0
+        ) {
+            $decision = 'edited';
+        }
+        if ($requestedId !== null
+            && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $requestedId) !== 1
+        ) {
+            throw new Problem(422, 'Invalid feedback identifier', 'The feedback identifier must be a UUID.');
+        }
+        $id = $requestedId ?? $this->ids->generate();
         $auditEventId = $this->ids->generate();
         $at = $this->clock->now();
         $this->transactions->transactional(function () use (
@@ -319,6 +347,11 @@ final class ShoppingIntelligenceService
                 $reason,
                 $at,
             );
+            $this->changes?->put(
+                $homeId, $identity->userId, 'shopping-suggestion-feedback', $id, 1,
+                ['suggestionId' => $suggestionId, 'decision' => $decision,
+                 'resultQuantity' => $quantity, 'reason' => $reason], $at,
+            );
         });
 
         return ['id' => $id];
@@ -334,7 +367,7 @@ final class ShoppingIntelligenceService
         array $cutoffs,
         int $evaluationDays,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::POLICY_MANAGERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_MANAGE);
         if ($cutoffs === [] || count($cutoffs) > 12 || $evaluationDays < 1 || $evaluationDays > 90) {
             throw new Problem(422, 'Invalid backtest', 'Provide one to twelve cutoffs and 1 to 90 evaluation days.');
         }
@@ -454,7 +487,7 @@ final class ShoppingIntelligenceService
         string $homeId,
         string $runId,
     ): array {
-        $this->authorization->requireRole($identity, $homeId, self::POLICY_MANAGERS);
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_MANAGE);
         $result = $this->store->backtest($homeId, $runId);
         if ($result === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
@@ -558,6 +591,31 @@ final class ShoppingIntelligenceService
         unset($row);
 
         return $rows;
+    }
+
+    /** @param array<string, mixed> $input */
+    private function validatePreference(array $input): void
+    {
+        $fields = [
+            'minimumQuantity', 'alwaysKeep', 'neverSuggest', 'preferredPackId',
+            'leadTimeDays', 'targetCoverageDays', 'snoozeUntil', 'expectedRevision',
+        ];
+        if (array_diff(array_keys($input), $fields) !== [] || array_diff($fields, array_keys($input)) !== []) {
+            throw new Problem(422, 'Invalid preferences', 'Provide the complete supported preference fields.');
+        }
+        if (
+            ! is_bool($input['alwaysKeep']) || ! is_bool($input['neverSuggest'])
+            || ! is_int($input['expectedRevision']) || $input['expectedRevision'] < 0
+            || ! is_int($input['leadTimeDays'])
+            || ($input['targetCoverageDays'] !== null && ! is_int($input['targetCoverageDays']))
+        ) {
+            throw new Problem(422, 'Invalid preferences', 'Flags, day counts and revision have invalid types.');
+        }
+        foreach (['minimumQuantity', 'preferredPackId', 'snoozeUntil'] as $field) {
+            if ($input[$field] !== null && ! is_string($input[$field])) {
+                throw new Problem(422, 'Invalid preferences', 'Quantity, pack and date fields must be text or null.');
+            }
+        }
     }
 
     private function optionalQuantity(mixed $value): ?string

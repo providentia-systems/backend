@@ -1,7 +1,7 @@
 # Administrator control plane
 
 The backend owns domain rules, persistence, authorization, deployment and the
-canonical API 2.0.0 contract. The homeowner and administrator Flutter clients
+canonical API 2.1.0 contract. The homeowner and administrator Flutter clients
 remain separate applications, installations and protected credential stores.
 Authentication is numeric email OTP entered in the requesting app. The backend
 serves no login page or application management UI.

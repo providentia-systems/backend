@@ -90,6 +90,40 @@ final class DbalAccessStore implements AccessStore
         ) === 1;
     }
 
+    public function deleteGroup(string $id, int $expectedRevision): ?array
+    {
+        $group = $this->lockGroup($id);
+        if (
+            $group === null || (int) $group['revision'] !== $expectedRevision
+            || (bool) $group['protected'] || in_array($id, [
+                FeatureCatalog::STARTER_ACCOUNT, FeatureCatalog::INVITED_ACCOUNT,
+                FeatureCatalog::STARTER_HOME, FeatureCatalog::SYSTEM_OWNER,
+            ], true)
+        ) {
+            return null;
+        }
+        $deleted = $this->connection->executeStatement(
+            'DELETE FROM access_groups WHERE id = :id AND revision = :revision AND protected = 0
+             AND NOT EXISTS (SELECT 1 FROM access_assignments a WHERE a.group_id = access_groups.id)
+             AND NOT EXISTS (SELECT 1 FROM country_settings c WHERE c.account_group_id = access_groups.id
+                OR c.invited_group_id = access_groups.id OR c.home_group_id = access_groups.id)',
+            ['id' => $id, 'revision' => $expectedRevision],
+        );
+
+        return $deleted === 1 ? $this->decodeGroup($group) : null;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function lockGroup(string $id): ?array
+    {
+        $this->connection->executeStatement('UPDATE access_groups SET id = id WHERE id = ?', [$id]);
+        $lock = $this->connection->getDatabasePlatform() instanceof \Doctrine\DBAL\Platforms\SQLitePlatform
+            ? '' : ' FOR UPDATE';
+        $row = $this->connection->fetchAssociative('SELECT * FROM access_groups WHERE id = ?' . $lock, [$id]);
+
+        return $row === false ? null : $row;
+    }
+
     public function assignment(
         string $scope,
         string $subjectId,
@@ -137,6 +171,10 @@ final class DbalAccessStore implements AccessStore
         string $groupId,
         int $expectedRevision,
     ): bool {
+        $group = $this->lockGroup($groupId);
+        if ($group === null || $group['scope'] !== $scope) {
+            return false;
+        }
         if ($expectedRevision === 0) {
             try {
                 $this->connection->insert(

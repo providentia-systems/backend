@@ -15,6 +15,85 @@ use Providentia\SharedKernel\Http\MetricsHandler;
 use Providentia\SharedKernel\Http\SystemInfoHandler;
 
 return static function (Application $app): void {
+    $app->post(
+        '/api/v1/admin/homes/{homeId}/shopping-lists',
+        [BearerAuthenticationMiddleware::class, 'operator-shopping.list-create'],
+        'api.operator-shopping.list-create',
+    );
+    $app->patch(
+        '/api/v1/admin/homes/{homeId}/shopping-lists/{listId}',
+        [BearerAuthenticationMiddleware::class, 'operator-shopping.list-update'],
+        'api.operator-shopping.list-update',
+    );
+    $app->post(
+        '/api/v1/admin/homes/{homeId}/shopping-lists/{listId}/lines',
+        [BearerAuthenticationMiddleware::class, 'operator-shopping.line-create'],
+        'api.operator-shopping.line-create',
+    );
+    $app->patch(
+        '/api/v1/admin/homes/{homeId}/shopping-lists/{listId}/lines/{lineId}',
+        [BearerAuthenticationMiddleware::class, 'operator-shopping.line-update'],
+        'api.operator-shopping.line-update',
+    );
+    $app->put(
+        '/api/v1/admin/homes/{homeId}/shopping-lists/{listId}/lines/{lineId}/checked',
+        [BearerAuthenticationMiddleware::class, 'operator-shopping.line-check'],
+        'api.operator-shopping.line-check',
+    );
+
+    $app->post(
+        '/api/v1/admin/homes/{homeId}/locations',
+        [BearerAuthenticationMiddleware::class, 'operator-inventory.location-create'],
+        'api.operator-inventory.location-create',
+    );
+    $app->patch(
+        '/api/v1/admin/homes/{homeId}/locations/{locationId}',
+        [BearerAuthenticationMiddleware::class, 'operator-inventory.location-update'],
+        'api.operator-inventory.location-update',
+    );
+    $app->post(
+        '/api/v1/admin/homes/{homeId}/stores',
+        [BearerAuthenticationMiddleware::class, 'operator-inventory.store-create'],
+        'api.operator-inventory.store-create',
+    );
+    $app->patch(
+        '/api/v1/admin/homes/{homeId}/stores/{storeId}',
+        [BearerAuthenticationMiddleware::class, 'operator-inventory.store-update'],
+        'api.operator-inventory.store-update',
+    );
+
+    $app->get(
+        '/api/v1/admin/homes/{homeId}/stock-preferences/{homeProductId}',
+        [BearerAuthenticationMiddleware::class, \Providentia\Administration\Http\OperatorStockPreferenceHandler::class],
+        'api.operator-stock-preferences.get',
+    );
+    $app->put(
+        '/api/v1/admin/homes/{homeId}/stock-preferences/{homeProductId}',
+        [BearerAuthenticationMiddleware::class, \Providentia\Administration\Http\OperatorStockPreferenceHandler::class],
+        'api.operator-stock-preferences.put',
+    );
+
+    $app->post(
+        '/api/v1/admin/homes/{homeId}/products',
+        [BearerAuthenticationMiddleware::class, 'operator-inventory.product-create'],
+        'api.operator-inventory.product-create',
+    );
+    $app->patch(
+        '/api/v1/admin/homes/{homeId}/products/{homeProductId}',
+        [BearerAuthenticationMiddleware::class, 'operator-inventory.product-update'],
+        'api.operator-inventory.product-update',
+    );
+    $app->post(
+        '/api/v1/admin/homes/{homeId}/categories',
+        [BearerAuthenticationMiddleware::class, 'operator-inventory.category-create'],
+        'api.operator-inventory.category-create',
+    );
+    $app->patch(
+        '/api/v1/admin/homes/{homeId}/categories/{categoryId}',
+        [BearerAuthenticationMiddleware::class, 'operator-inventory.category-update'],
+        'api.operator-inventory.category-update',
+    );
+
     $app->get(
         '/api/v1/admin/homes',
         [
@@ -297,6 +376,11 @@ return static function (Application $app): void {
         ],
         'api.access.update',
     );
+    $app->delete(
+        '/api/v1/admin/access/groups/{groupId}',
+        [BearerAuthenticationMiddleware::class, 'access.delete'],
+        'api.access.delete',
+    );
     $app->get(
         '/api/v1/admin/access/{scope}/{subjectId}',
         [BearerAuthenticationMiddleware::class, 'access.get'],
@@ -377,6 +461,11 @@ return static function (Application $app): void {
             'country.policy-update',
         ],
         'api.country.policy-update',
+    );
+    $app->delete(
+        '/api/v1/admin/privacy-policies/{policyId}',
+        [BearerAuthenticationMiddleware::class, 'country.policy-delete'],
+        'api.country.policy-delete',
     );
     $app->get(
         '/api/v1/admin/reference-updates',
@@ -776,6 +865,11 @@ return static function (Application $app): void {
         ],
         'api.inventory.locations.list',
     );
+    $app->patch(
+        '/api/v1/homes/{homeId}/locations/{locationId}',
+        [BearerAuthenticationMiddleware::class, 'inventory.locations.update'],
+        'api.inventory.locations.update',
+    );
     $app->post(
         '/api/v1/homes/{homeId}/locations',
         [
@@ -905,6 +999,11 @@ return static function (Application $app): void {
         'api.inventory.counts.lines.put',
     );
     $app->post(
+        '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/lines/{lineId}/remove',
+        [BearerAuthenticationMiddleware::class, 'inventory.counts.line.remove'],
+        'api.inventory.counts.line.remove',
+    );
+    $app->post(
         '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/close',
         [
             BearerAuthenticationMiddleware::class,
@@ -943,6 +1042,36 @@ return static function (Application $app): void {
             'purchasing.get',
         ],
         'api.purchasing.receipts.get',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}',
+        [BearerAuthenticationMiddleware::class, 'purchasing.update'],
+        'api.purchasing.receipts.update',
+    );
+    $app->delete(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}',
+        [BearerAuthenticationMiddleware::class, 'purchasing.cancel'],
+        'api.purchasing.receipts.cancel',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}/lines/{lineId}',
+        [BearerAuthenticationMiddleware::class, 'purchasing.lines.update'],
+        'api.purchasing.receipt-lines.update',
+    );
+    $app->delete(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}/lines/{lineId}',
+        [BearerAuthenticationMiddleware::class, 'purchasing.lines.remove'],
+        'api.purchasing.receipt-lines.remove',
+    );
+    $app->patch(
+        '/api/v1/homes/{homeId}/stores/{storeId}',
+        [BearerAuthenticationMiddleware::class, 'purchasing.stores.update'],
+        'api.purchasing.stores.update',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/stores',
+        [BearerAuthenticationMiddleware::class, 'purchasing.stores.list'],
+        'api.purchasing.stores.list',
     );
     $app->post(
         '/api/v1/homes/{homeId}/stores',

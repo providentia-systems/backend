@@ -9,7 +9,7 @@ use DateTimeImmutable;
 interface CatalogMaintenanceStore
 {
     /** @return list<array<string, mixed>> */
-    public function entities(string $type, int $offset): array;
+    public function entities(string $type, int $offset, ?string $productId = null): array;
 
     /** @param array<string, mixed> $fields
      * @return array<string, mixed>

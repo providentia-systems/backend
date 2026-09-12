@@ -255,6 +255,43 @@ final class AccessService
         return $group;
     }
 
+    /**
+     * @param array<string, mixed> $input
+     * @return array{removed: true}
+     */
+    public function deleteGroup(AuthenticatedIdentity $identity, string $id, array $input): array
+    {
+        $this->requireAdmin($identity, 'groups.manage');
+        $revision = $input['expectedRevision'] ?? null;
+        $reason = $input['reason'] ?? null;
+        if (
+            ! is_int($revision) || $revision < 1 || ! is_string($reason)
+            || trim($reason) === '' || mb_strlen(trim($reason)) > 500
+            || array_diff(array_keys($input), ['expectedRevision', 'reason']) !== []
+        ) {
+            throw new Problem(422, 'Invalid removal', 'Provide the current revision and a concise audit reason.');
+        }
+        $group = $this->store->group($id)
+            ?? throw new Problem(404, 'Group unavailable', 'The group does not exist.');
+        if ($group['scope'] === FeatureCatalog::ADMIN) {
+            $this->requireAdmin($identity, 'administrators.manage');
+        }
+        $this->transactions->transactional(function () use ($identity, $id, $revision, $reason): void {
+            $removed = $this->store->deleteGroup($id, $revision);
+            if ($removed === null) {
+                throw new Problem(
+                    409, 'Group cannot be removed',
+                    'Reload the group. Built-in, protected, assigned and country-default groups must be retained.',
+                );
+            }
+            $this->store->audit($identity->userId, 'group.removed', (string) $removed['scope'], $id, [
+                'reason' => trim($reason), 'before' => $removed,
+            ]);
+        });
+
+        return ['removed' => true];
+    }
+
     /** @return array<string, mixed> */
     public function assignment(
         AuthenticatedIdentity $identity,

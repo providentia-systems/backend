@@ -47,6 +47,7 @@ final class ShoppingFactory
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
                 $container->get(ChangeFeedWriter::class),
+                $container->get(ShoppingIntelligenceService::class),
             ),
             $requestedName === ShoppingIntelligenceService::class => new ShoppingIntelligenceService(
                 $container->get(ShoppingIntelligenceStore::class),
@@ -57,6 +58,7 @@ final class ShoppingFactory
                 $container->get(UuidGenerator::class),
                 $container->get(Clock::class),
                 $container->get(TransactionManager::class),
+                $container->get(ChangeFeedWriter::class),
             ),
             str_starts_with($requestedName, 'shopping.intelligence.') => new ShoppingIntelligenceHandler(
                 $container->get(ShoppingIntelligenceService::class),

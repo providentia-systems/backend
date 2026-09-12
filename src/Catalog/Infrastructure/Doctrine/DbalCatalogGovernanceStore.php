@@ -103,15 +103,27 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
         };
     }
 
-    public function entities(string $type, int $offset): array
+    public function entities(string $type, int $offset, ?string $productId = null): array
     {
         $definition = $this->entityDefinition($type);
+        $where = $type === 'alias' ? ["scope = 'global'", 'home_id IS NULL'] : [];
+        if ($productId !== null) {
+            $where[] = match ($type) {
+                'product' => 'id = :product',
+                'category' => 'id IN (SELECT category_id FROM products WHERE id = :product)',
+                'pack', 'variant', 'alias' => 'product_id = :product',
+                'barcode' => 'pack_id IN (SELECT id FROM product_packs WHERE product_id = :product)',
+                'unit' => 'id IN (SELECT unit_id FROM product_packs WHERE product_id = :product)',
+                default => throw new DomainException('This entity type has no product relationship.'),
+            };
+        }
         $rows = $this->connection->fetchAllAssociative(
             'SELECT * FROM ' .
                 $definition['table'] .
-                ($type === 'alias' ? " WHERE scope = 'global' AND home_id IS NULL" : '') .
+                ($where === [] ? '' : ' WHERE ' . implode(' AND ', $where)) .
                 ' ORDER BY id LIMIT 100 OFFSET ' .
                 max(0, $offset),
+            $productId === null ? [] : ['product' => $productId],
         );
         return array_map(fn(array $row): array => $this->entityRepresentation($type, $row), $rows);
     }
@@ -164,6 +176,9 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
                 throw new DomainException('A catalog field is missing or exceeds its supported length.');
             }
             $values[$column] = trim($value);
+        }
+        if ($type === 'alias') {
+            CatalogPublicationLock::aliases($this->connection);
         }
         $before = $this->one($this->forUpdate('SELECT * FROM ' . $table . ' WHERE id = :id'), ['id' => $id]);
         if (($before === null ? 0 : (int) $before['revision']) !== $expectedRevision) {
@@ -272,6 +287,7 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
         string $status,
         string $id,
     ): void {
+        $references = [];
         foreach (
             [
                 'category_id' => 'categories',
@@ -290,6 +306,7 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
             if ($reference === null || ($status === 'published' && $reference['status'] !== 'published')) {
                 throw new DomainException('Choose currently published catalog references.');
             }
+            $references[$field] = $reference;
             if (
                 isset($values['product_id'], $reference['product_id']) &&
                 $values['product_id'] !== $reference['product_id']
@@ -311,6 +328,14 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
             }
         }
         if ($type === 'pack') {
+            if (
+                $before !== null && (
+                    $before['product_id'] !== $values['product_id']
+                    || $before['variant_id'] !== $values['variant_id']
+                )
+            ) {
+                throw new DomainException('A pack cannot change product or variant. Create a new pack identity.');
+            }
             $multiplicity = filter_var($values['multiplicity'], FILTER_VALIDATE_INT);
             if (
                 $multiplicity === false ||
@@ -391,9 +416,17 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
             }
         }
         if ($type === 'alias' && $status === 'published') {
+            if (
+                isset($values['variant_id'], $values['pack_id'])
+                && ($references['pack_id']['variant_id'] ?? null) !== $values['variant_id']
+            ) {
+                throw new DomainException('The alias pack must belong to its selected variant.');
+            }
             $existing = $this->connection->fetchOne(
-                "SELECT id FROM product_aliases WHERE scope = 'global' AND normalized_alias = ?"
-                    . " AND status = 'approved' AND id <> ?",
+                $this->forUpdate(
+                    "SELECT id FROM product_aliases WHERE scope = 'global' AND home_id IS NULL"
+                    . " AND normalized_alias = ? AND status = 'approved' AND id <> ?",
+                ),
                 [$this->normalize((string) $values['raw_alias']), $id],
             );
             if ($existing !== false) {
@@ -807,12 +840,15 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
             return ['entityType' => 'pack', 'entityId' => $entityId];
         }
         if ($type === 'alias') {
+            CatalogPublicationLock::aliases($this->connection);
             $productId = (string) $payload['productId'];
-            if (! $this->exists('products', $productId, 'published')) {
-                throw new DomainException('The proposed product is unavailable.');
-            }
-            $this->assertOptionalChild('product_variants', $payload['variantId'], $productId);
-            $this->assertOptionalChild('product_packs', $payload['packId'], $productId);
+            $values = [
+                'product_id' => $productId,
+                'variant_id' => $payload['variantId'],
+                'pack_id' => $payload['packId'],
+                'raw_alias' => $payload['rawAlias'],
+            ];
+            $this->validateEntityReferences('alias', $values, null, 'published', $entityId);
             $this->connection->insert('product_aliases', [
                 'id' => $entityId,
                 'scope' => 'global',

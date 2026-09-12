@@ -172,6 +172,33 @@ final class SynchronizationBackfillTest extends TestCase
         self::assertSame(self::CATEGORY_ID, $product['homeCategoryId']);
     }
 
+    public function testStockPreferencesBackfillWithTheirActualRevisionAndBooleanTypes(): void
+    {
+        $this->connection->insert('stock_threshold_preferences', [
+            'home_id' => self::HOME_ONE, 'home_product_id' => self::PRODUCT_ID,
+            'minimum_quantity' => '4.125', 'always_keep' => 1, 'never_suggest' => 0,
+            'lead_time_days' => 2, 'target_coverage_days' => 14, 'revision' => 7,
+            'updated_at' => '2026-09-12 12:00:00',
+        ]);
+        $service = new SyncBackfillService(
+            new DbalSyncBackfillStore($this->connection),
+            new DbalChangeFeedWriter($this->connection, new SequenceUuidGenerator()),
+            new BackfillDbalTransactionManager($this->connection),
+        );
+        self::assertSame(1, $service->run(self::HOME_ONE, 10)['appended']);
+        self::assertSame(0, $service->run(self::HOME_ONE, 10)['appended']);
+        $change = $this->connection->fetchAssociative(
+            "SELECT revision, payload_json FROM change_log WHERE entity_type = 'shopping-stock-preference'",
+        );
+        self::assertIsArray($change);
+        self::assertSame(7, (int) $change['revision']);
+        $fields = json_decode((string) $change['payload_json'], true, 32, JSON_THROW_ON_ERROR);
+        self::assertSame(self::PRODUCT_ID, $fields['homeProductId']);
+        self::assertSame('4.125', $fields['minimumQuantity']);
+        self::assertTrue($fields['alwaysKeep']);
+        self::assertFalse($fields['neverSuggest']);
+    }
+
     /** @return list<string> */
     private function schema(): array
     {
@@ -186,6 +213,11 @@ final class SynchronizationBackfillTest extends TestCase
                 id TEXT PRIMARY KEY, message_type TEXT, queue_name TEXT, payload TEXT,
                 occurred_at TEXT, available_at TEXT, published_at TEXT, attempts INTEGER,
                 last_error TEXT, status TEXT
+            )',
+            'CREATE TABLE stock_threshold_preferences (
+                home_id TEXT, home_product_id TEXT, minimum_quantity TEXT, always_keep INTEGER,
+                never_suggest INTEGER, preferred_pack_id TEXT, lead_time_days INTEGER,
+                target_coverage_days INTEGER, snooze_until TEXT, revision INTEGER, updated_at TEXT
             )',
             'CREATE TABLE stock_movements (id TEXT PRIMARY KEY, actor_user_id TEXT)',
             'CREATE TABLE inventory_balances (
@@ -232,10 +264,15 @@ final class SynchronizationBackfillTest extends TestCase
                 id TEXT, home_id TEXT, name TEXT, kind TEXT, status TEXT, revision INTEGER,
                 created_by_user_id TEXT, updated_at TEXT
             )',
+            'CREATE TABLE user_suggestion_feedback (
+                id TEXT, home_id TEXT, actor_user_id TEXT, suggestion_id TEXT,
+                decision TEXT, result_quantity TEXT, reason TEXT, created_at TEXT
+            )',
             'CREATE TABLE shopping_list_lines (
                 id TEXT, home_id TEXT, shopping_list_id TEXT, home_product_id TEXT,
                 description TEXT, source TEXT, quantity_to_buy TEXT, explanation TEXT,
-                confidence TEXT, checked_at TEXT, revision INTEGER, updated_at TEXT
+                confidence TEXT, checked_at TEXT, archived_at TEXT, suggestion_id TEXT,
+                selected_pack_id TEXT, revision INTEGER, updated_at TEXT
             )',
         ];
     }

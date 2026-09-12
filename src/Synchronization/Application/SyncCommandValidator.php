@@ -104,6 +104,13 @@ final class SyncCommandValidator
                 true,
                 $baseRevision,
             ),
+            'inventory.location.update' => $this->shape(
+                $payload,
+                ['name', 'kind', 'status'],
+                [],
+                true,
+                $baseRevision,
+            ),
             'inventory.location.create' => $this->shape(
                 $payload,
                 ['name', 'kind'],
@@ -146,14 +153,40 @@ final class SyncCommandValidator
                 true,
                 $baseRevision,
             ),
+            'inventory.count-line.remove' => $this->shape($payload, ['sessionId'], ['sessionId'], true, $baseRevision),
             'inventory.count-session.close' => $this->shape($payload, [], [], true, $baseRevision),
             'inventory.count-session.cancel' => $this->shape($payload, [], [], true, $baseRevision),
+            'purchasing.store.update' => $this->shape(
+                $payload,
+                ['name', 'location', 'status'],
+                [],
+                true,
+                $baseRevision,
+            ),
             'purchasing.store.create' => $this->shape(
                 $payload,
                 ['name', 'location'],
                 ['name', 'location'],
                 false,
                 $baseRevision,
+            ),
+            'purchasing.receipt.update' => $this->shape(
+                $payload,
+                ['storeId', 'purchaseDate', 'currency', 'totalAmount', 'notes'],
+                ['storeId', 'purchaseDate', 'currency', 'totalAmount', 'notes'],
+                true,
+                $baseRevision,
+            ),
+            'purchasing.receipt.cancel' => $this->shape($payload, [], [], true, $baseRevision),
+            'purchasing.receipt-line.update' => $this->shape(
+                $payload,
+                ['receiptId', 'rawDescription', 'quantity', 'originalPackText', 'unitPrice', 'lineTotal'],
+                ['receiptId', 'rawDescription', 'quantity', 'originalPackText', 'unitPrice', 'lineTotal'],
+                true,
+                $baseRevision,
+            ),
+            'purchasing.receipt-line.remove' => $this->shape(
+                $payload, ['receiptId'], ['receiptId'], true, $baseRevision,
             ),
             'purchasing.receipt.create' => $this->shape(
                 $payload,
@@ -184,6 +217,22 @@ final class SyncCommandValidator
                 $baseRevision,
             ),
             'purchasing.receipt.commit' => $this->shape($payload, [], [], true, $baseRevision),
+            'shopping.preference.put' => $this->shape(
+                $payload,
+                ['minimumQuantity', 'alwaysKeep', 'neverSuggest', 'preferredPackId',
+                    'leadTimeDays', 'targetCoverageDays', 'snoozeUntil'],
+                ['minimumQuantity', 'alwaysKeep', 'neverSuggest', 'preferredPackId',
+                    'leadTimeDays', 'targetCoverageDays', 'snoozeUntil'],
+                true,
+                $baseRevision,
+            ),
+            'shopping.suggestion-feedback.create' => $this->shape(
+                $payload,
+                ['suggestionId', 'decision', 'resultQuantity', 'reason'],
+                ['suggestionId', 'decision', 'resultQuantity', 'reason'],
+                false,
+                $baseRevision,
+            ),
             'shopping.list.create' => $this->shape(
                 $payload,
                 ['name', 'kind'],
@@ -191,9 +240,23 @@ final class SyncCommandValidator
                 false,
                 $baseRevision,
             ),
+            'shopping.list.update' => $this->shape(
+                $payload,
+                ['name', 'status'],
+                ['name', 'status'],
+                true,
+                $baseRevision,
+            ),
+            'shopping.list-line.update' => $this->shape(
+                $payload,
+                ['listId', 'description', 'quantity', 'archived'],
+                ['listId', 'description', 'quantity', 'archived'],
+                true,
+                $baseRevision,
+            ),
             'shopping.list-line.create' => $this->shape(
                 $payload,
-                ['listId', 'homeProductId', 'description', 'quantity'],
+                ['listId', 'homeProductId', 'description', 'quantity', 'suggestionId'],
                 ['listId', 'homeProductId', 'description', 'quantity'],
                 true,
                 $baseRevision,
@@ -207,6 +270,24 @@ final class SyncCommandValidator
             ),
             default => throw new Problem(422, 'Invalid command', 'commandType is not enabled for synchronization.'),
         };
+
+        if (in_array($type, ['inventory.location.update', 'purchasing.store.update'], true)) {
+            if ($payload === [] || $baseRevision === null || $baseRevision < 1) {
+                throw new Problem(422, 'Invalid command', 'Metadata updates require a change and positive baseRevision.');
+            }
+            foreach ($payload as $value) {
+                if (! is_string($value)) {
+                    throw new Problem(422, 'Invalid command', 'Metadata values must be strings.');
+                }
+            }
+        }
+
+        if (in_array($type, [
+            'purchasing.receipt.update', 'purchasing.receipt.cancel',
+            'purchasing.receipt-line.update', 'purchasing.receipt-line.remove',
+        ], true) && ($baseRevision === null || $baseRevision < 1)) {
+            throw new Problem(422, 'Invalid draft command', 'Draft changes require a positive baseRevision.');
+        }
 
         $this->validateFieldTypes($type, $payload);
     }
@@ -247,12 +328,16 @@ final class SyncCommandValidator
             'inventory.home-product.update' => ['homeCategoryId'],
             'inventory.count-session.create' => ['locationId'],
             'inventory.count-line.upsert' => ['sessionId', 'homeProductId'],
-            'purchasing.receipt.create' => ['storeId'],
-            'purchasing.receipt-line.create' => ['receiptId'],
+            'inventory.count-line.remove' => ['sessionId'],
+            'purchasing.receipt.create', 'purchasing.receipt.update' => ['storeId'],
+            'purchasing.receipt-line.create', 'purchasing.receipt-line.update',
+            'purchasing.receipt-line.remove' => ['receiptId'],
             'purchasing.receipt-line.approve' => ['receiptId', 'homeProductId'],
             'purchasing.receipt-line.unresolve' => ['receiptId'],
-            'shopping.list-line.create' => ['listId', 'homeProductId'],
-            'shopping.list-line.checked' => ['listId'],
+            'shopping.preference.put' => ['preferredPackId'],
+            'shopping.list-line.create' => ['listId', 'homeProductId', 'suggestionId'],
+            'shopping.suggestion-feedback.create' => ['suggestionId'],
+            'shopping.list-line.checked', 'shopping.list-line.update' => ['listId'],
             default => [],
         };
         foreach ($uuidFields as $field) {
@@ -262,11 +347,24 @@ final class SyncCommandValidator
             }
         }
 
+        $booleanFields = ['scopeComplete', 'checked', 'archived', 'alwaysKeep', 'neverSuggest'];
         foreach ($payload as $field => $fieldValue) {
-            if (in_array($field, ['scopeComplete', 'checked'], true) && ! is_bool($fieldValue)) {
+            if ($type === 'shopping.suggestion-feedback.create' && $field !== 'resultQuantity' && $fieldValue === null) {
+                throw new Problem(422, 'Invalid command', $field . ' must not be null.');
+            }
+            if (in_array($type, ['shopping.list.update', 'shopping.list-line.update'], true) && $fieldValue === null) {
+                throw new Problem(422, 'Invalid command', $field . ' must not be null.');
+            }
+            if (in_array($field, ['leadTimeDays', 'targetCoverageDays'], true)) {
+                if (($field === 'leadTimeDays' || $fieldValue !== null) && ! is_int($fieldValue)) {
+                    throw new Problem(422, 'Invalid command', $field . ' must be an integer or null.');
+                }
+                continue;
+            }
+            if (in_array($field, $booleanFields, true) && ! is_bool($fieldValue)) {
                 throw new Problem(422, 'Invalid command', $field . ' must be boolean.');
             }
-            if (! in_array($field, $uuidFields, true) && ! in_array($field, ['scopeComplete', 'checked'], true)) {
+            if (! in_array($field, $uuidFields, true) && ! in_array($field, $booleanFields, true)) {
                 if ($fieldValue !== null && ! is_string($fieldValue)) {
                     throw new Problem(422, 'Invalid command', $field . ' must be a string or null.');
                 }

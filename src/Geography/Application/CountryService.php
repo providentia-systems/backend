@@ -322,6 +322,38 @@ final class CountryService
     }
 
     /**
+     * @param array<string, mixed> $input
+     * @return array{removed: true}
+     */
+    public function deleteDraftPolicy(AuthenticatedIdentity $admin, string $id, array $input): array
+    {
+        $this->access->requireAdmin($admin, 'policies.manage');
+        $revision = $input['expectedRevision'] ?? null;
+        $reason = $input['reason'] ?? null;
+        if (
+            ! is_int($revision) || $revision < 1 || ! is_string($reason)
+            || trim($reason) === '' || mb_strlen(trim($reason)) > 500
+            || array_diff(array_keys($input), ['expectedRevision', 'reason']) !== []
+        ) {
+            throw new Problem(422, 'Invalid removal', 'Provide the current revision and a concise audit reason.');
+        }
+        $this->transactions->transactional(function () use ($admin, $id, $revision, $reason): void {
+            $removed = $this->store->deleteDraftPolicy($id, $revision);
+            if ($removed === null) {
+                throw new Problem(
+                    409, 'Policy cannot be removed',
+                    'Reload the policy. Only unused, unpublished drafts can be removed; accepted notices are retained.',
+                );
+            }
+            $this->groups->audit($admin->userId, 'policy.removed', 'policy', $id, [
+                'reason' => trim($reason), 'before' => $removed,
+            ]);
+        });
+
+        return ['removed' => true];
+    }
+
+    /**
      * @return list<array<string, mixed>> */
     public function jobs(AuthenticatedIdentity $admin): array
     {

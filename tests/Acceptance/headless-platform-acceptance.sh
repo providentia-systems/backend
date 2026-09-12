@@ -86,6 +86,7 @@ http_json() {
     local bearer="${4:-}"
     local payload="${5:-}"
     local origin="${6:-}"
+    local idempotency_key="${7:-}"
     local -a arguments=(
         --silent --show-error
         --connect-timeout 10 --max-time 90
@@ -104,6 +105,9 @@ http_json() {
     if [[ -n "$origin" ]]; then
         arguments+=(--header "Origin: ${origin}")
     fi
+    if [[ -n "$idempotency_key" ]]; then
+        arguments+=(--header "Idempotency-Key: ${idempotency_key}")
+    fi
 
     response_status="$(curl "${arguments[@]}" "${api_base}${path}")"
     if [[ "$response_status" != "$expected_status" ]]; then
@@ -117,6 +121,14 @@ http_multipart() {
     local bearer="$3"
     local image_file="$4"
     local session_id="$5"
+    local plan_hash selected_profile
+    http_json GET "${path%/extractions}/settings" 200 "$bearer"
+    plan_hash="$(jq -er '.transmissionPlan.sha256' "$response_body")"
+    selected_profile="$(jq -r '.transmissionPlan.extractionProfiles[0].profileId // empty' "$response_body")"
+    local plan_arguments=(--form "transmissionPlanHash=${plan_hash}")
+    if [[ -n "$selected_profile" ]]; then
+        plan_arguments+=(--form "selectedProfileId=${selected_profile}")
+    fi
 
     response_status="$(curl \
         --silent --show-error --connect-timeout 10 --max-time 90 \
@@ -129,6 +141,7 @@ http_multipart() {
         --form 'kind=stock' \
         --form "targetId=${session_id}" \
         --form 'transmissionConsent=true' \
+        "${plan_arguments[@]}" \
         --form "image=@${image_file};type=image/png;filename=acceptance-stock.png" \
         "${api_base}${path}")"
     if [[ "$response_status" != "$expected_status" ]]; then
@@ -433,6 +446,7 @@ email_code_session() {
     ' --arg installationId "$installation_id"
     login_access_token="$(jq -er '.accessToken' "$response_body")"
     login_user_id="$(jq -er '.userId' "$response_body")"
+    login_device_id="$(jq -er '.deviceId' "$response_body")"
     login_active_home_id="$(jq -r '.activeHomeId // empty' "$response_body")"
     http_json POST '/api/v1/auth/email-codes/verify' 422 '' "$verify_body"
     assert_problem_json
@@ -500,6 +514,7 @@ assert_json 'The system owner bootstrap did not expose scoped administrator auth
 email_code_session homeowner acceptance-homeowner@example.test linux
 homeowner_access_token="$login_access_token"
 homeowner_user_id="$login_user_id"
+homeowner_device_id="$login_device_id"
 [[ -z "$login_active_home_id" ]] || fail 'Email verification created a home before registration.'
 complete_profile "$homeowner_access_token" 'Acceptance homeowner'
 http_json POST '/api/v1/homes' 201 "$homeowner_access_token" \
@@ -629,23 +644,86 @@ assert_json 'The approved global category was not publicly discoverable.' '
     .data | any(.id == $categoryId and .canonicalName == "Acceptance pantry")
 ' --arg categoryId "$published_category_id"
 
-# Manual taxonomy remains home-private and usable before any sharing consent.
-category_body="$(jq -cn '{name:"Acceptance pantry"}')"
-http_json POST "/api/v1/homes/${home_id}/categories" 201 "$homeowner_access_token" "$category_body"
-assert_json 'The private category was not created as a revisioned active record.' '
-    .name == "Acceptance pantry" and .status == "active" and .revision == 1
-'
-home_category_id="$(jq -er '.id' "$response_body")"
-
-product_body="$(jq -cn --arg homeCategoryId "$home_category_id" '
+# Exercise the Client's typed durable contract through HTTP before public consent.
+home_category_id="$(uuid)"
+home_product_id="$(uuid)"
+sync_batch_id="$(uuid)"
+sync_create_payload="$(jq -cn \
+    --arg batchId "$sync_batch_id" --arg deviceId "$homeowner_device_id" \
+    --arg categoryId "$home_category_id" --arg productId "$home_product_id" \
+    --arg categoryOperationId "$(uuid)" --arg productOperationId "$(uuid)" \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
     {
-        privateName:"Acceptance baked beans",
-        originalPackText:"400 g tin",
-        homeCategoryId:$homeCategoryId
+        protocolVersion:2,batchId:$batchId,deviceId:$deviceId,lastPulledCursor:null,
+        operations:[
+            {
+                operationId:$categoryOperationId,commandType:"inventory.home-category.create",
+                entityId:$categoryId,baseRevision:null,clientTimestamp:$at,payloadSchemaVersion:1,
+                payload:{name:"Draft pantry"}
+            },
+            {
+                operationId:$productOperationId,commandType:"inventory.home-product.create",
+                entityId:$productId,baseRevision:null,clientTimestamp:$at,payloadSchemaVersion:1,
+                payload:{productId:null,packId:null,privateName:"Draft beans",
+                    originalPackText:"Draft pack",homeCategoryId:$categoryId}
+            }
+        ]
     }
 ')"
-http_json POST "/api/v1/homes/${home_id}/products" 201 "$homeowner_access_token" "$product_body"
-home_product_id="$(jq -er '.id' "$response_body")"
+http_json POST "/api/v1/homes/${home_id}/sync/push" 200 "$homeowner_access_token" \
+    "$sync_create_payload" '' "$sync_batch_id"
+assert_json 'Typed private category/product creation did not acknowledge both durable operations.' '
+    .protocolVersion == 2 and (.results | length == 2)
+    and all(.results[]; .status == "accepted" and .result.revision == 1)
+'
+private_sync_cursor="$(jq -er '.highWaterCursor' "$response_body")"
+http_json GET "/api/v1/admin/homes/${home_id}/records/products" 200 "$admin_access_token"
+assert_json 'An unshared private product was missing from authorized Admin inspection.' '
+    .data | any(.id == $productId and .private_name == "Draft beans" and .home_category_id == $categoryId)
+' --arg productId "$home_product_id" --arg categoryId "$home_category_id"
+http_json PATCH "/api/v1/admin/homes/${home_id}/categories/${home_category_id}" \
+    200 "$admin_access_token" \
+    '{"name":"Acceptance pantry","expectedRevision":1,"reason":"Acceptance category correction"}'
+assert_json 'Admin category editing did not retain its identity and increment its revision.' '
+    .id == $categoryId and .name == "Acceptance pantry" and .revision == 2
+' --arg categoryId "$home_category_id"
+operator_product_patch='{"privateName":"Acceptance baked beans","originalPackText":"400 g tin","expectedRevision":1,"reason":"Acceptance product correction"}'
+http_json PATCH "/api/v1/admin/homes/${home_id}/products/${home_product_id}" \
+    403 "$member_access_token" "$operator_product_patch"
+assert_problem_json
+http_json PATCH "/api/v1/admin/homes/${home_id}/products/${home_product_id}" \
+    200 "$admin_access_token" "$operator_product_patch"
+assert_json 'Admin product editing did not increment the private product revision.' '
+    .id == $productId and .privateName == "Acceptance baked beans" and .revision == 2
+' --arg productId "$home_product_id"
+http_json GET "/api/v1/homes/${home_id}/sync/pull?cursor=${private_sync_cursor}" \
+    200 "$member_access_token"
+assert_json 'Admin edits were not published to another authorized installation through the home change feed.' '
+    (.changes | any(.entityType == "inventory-home-category" and .entityId == $categoryId
+        and .revision == 2 and .representation.name == "Acceptance pantry"))
+    and (.changes | any(.entityType == "inventory-home-product" and .entityId == $productId
+        and .revision == 2 and .representation.privateName == "Acceptance baked beans"
+        and .representation.originalPackText == "400 g tin"))
+' --arg productId "$home_product_id" --arg categoryId "$home_category_id"
+# A lost-response retry returns the original acknowledgement without undoing Admin's edit.
+http_json POST "/api/v1/homes/${home_id}/sync/push" 200 "$homeowner_access_token" \
+    "$sync_create_payload" '' "$sync_batch_id"
+assert_json 'Retrying an accepted private creation did not return its immutable receipt.' '
+    (.results | length == 2) and all(.results[]; .status == "accepted" and .result.revision == 1)
+'
+stale_batch_id="$(uuid)"
+stale_sync_payload="$(jq -cn \
+    --arg batchId "$stale_batch_id" --arg deviceId "$homeowner_device_id" \
+    --arg productId "$home_product_id" --arg operationId "$(uuid)" \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+    {protocolVersion:2,batchId:$batchId,deviceId:$deviceId,lastPulledCursor:null,
+     operations:[{operationId:$operationId,commandType:"inventory.home-product.update",
+        entityId:$productId,baseRevision:1,clientTimestamp:$at,payloadSchemaVersion:1,
+        payload:{privateName:"Stale edit must not win"}}]}
+')"
+http_json POST "/api/v1/homes/${home_id}/sync/push" 200 "$homeowner_access_token" \
+    "$stale_sync_payload" '' "$stale_batch_id"
+assert_json 'A stale private product command overwrote an accepted Admin edit.' '.results[0].status == "conflict"'
 http_json GET "/api/v1/homes/${home_id}/products?homeCategoryId=${home_category_id}" \
     200 "$homeowner_access_token"
 assert_json 'The private product/category relationship was not queryable.' '
@@ -1593,6 +1671,9 @@ jq -n \
         applicationBoundEmailCodes:true,
         adminHasNoHousehold:true,
         operatorInspectionAudited:true,
+        typedPrivateLifecycleSynchronized:true,
+        operatorEditsReturnedThroughHomeFeed:true,
+        immutableSyncRetryAndStaleRevision:true,
         invitationsExplicitAndFeatureControlled:true,
         downgradePreservesMembership:true,
         privateCatalog:true,

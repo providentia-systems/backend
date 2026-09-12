@@ -57,6 +57,9 @@ final class CountryHandler implements RequestHandlerInterface
                         : null,
                 ),
             ],
+            'policy-delete' => $this->countries->deleteDraftPolicy(
+                RequestIdentity::require($request), (string) $request->getAttribute('policyId', ''), $body,
+            ),
             'policy-create', 'policy-update' => $this->countries->savePolicy(
                 RequestIdentity::require($request),
                 $this->action === 'policy-create'

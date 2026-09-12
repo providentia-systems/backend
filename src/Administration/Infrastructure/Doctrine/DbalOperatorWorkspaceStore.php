@@ -66,6 +66,7 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
             'categories' => 'home_categories',
             'products' => 'home_products',
             'locations' => 'home_locations',
+            'stores' => 'stores',
             'stock' => 'inventory_balances',
             'movements' => 'stock_movements',
             'receipts' => 'receipts',

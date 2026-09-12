@@ -1,11 +1,12 @@
 # Providentia pre-release product and access decisions
 
 **Adopted:** 2026-09-05. **Scope:** backend, homeowner client and administrator
-client. **Contract:** API 2.0.0; exact artifacts are pinned by each repository's
+client. **Current contract:** API 2.1.0; exact artifacts are pinned by each repository's
 contract lock. This record supersedes the August pilot decisions wherever
 identity, permissions, administrator visibility, profiles or onboarding differ.
-The system has no deployed clients or live user data. Code may be aligned
-directly; production database migrations and future release discipline remain.
+Existing test deployments may contain household data. Apply the documented
+portable migrations and deploy matching backend and client builds; do not infer
+a running environment from the repository branch or an old phase document.
 
 ## Identity and registration
 

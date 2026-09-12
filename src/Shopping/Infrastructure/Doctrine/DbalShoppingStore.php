@@ -7,6 +7,7 @@ namespace Providentia\Shopping\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Providentia\Shopping\Application\ShoppingStore;
 use Providentia\Shopping\Application\ShoppingSummaryReader;
 
@@ -26,12 +27,12 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
                     SUM(CASE WHEN sll.checked_at IS NOT NULL THEN 1 ELSE 0 END) AS checkedCount
              FROM shopping_lists sl
              LEFT JOIN shopping_list_lines sll
-               ON sll.shopping_list_id = sl.id AND sll.home_id = sl.home_id
-             WHERE sl.home_id = :home AND sl.status <> :archived
+               ON sll.shopping_list_id = sl.id AND sll.home_id = sl.home_id AND sll.archived_at IS NULL
+             WHERE sl.home_id = :home
              GROUP BY sl.id, sl.name, sl.kind, sl.status, sl.revision,
                       sl.created_by_user_id, sl.created_at, sl.updated_at
              ORDER BY sl.updated_at DESC, sl.id',
-            ['home' => $homeId, 'archived' => 'archived'],
+            ['home' => $homeId],
         );
     }
 
@@ -53,6 +54,8 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
                     COALESCE(p.canonical_name, hp.private_name, sll.description) AS productName,
                     sll.description, sll.source, sll.quantity_to_buy AS quantityToBuy,
                     sll.explanation, sll.confidence, sll.checked_at AS checkedAt,
+                    sll.archived_at AS archivedAt, sll.suggestion_id AS suggestionId,
+                    sll.selected_pack_id AS selectedPackId,
                     sll.revision, sll.created_at AS createdAt, sll.updated_at AS updatedAt
              FROM shopping_list_lines sll
              LEFT JOIN home_products hp
@@ -62,6 +65,18 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
              ORDER BY CASE WHEN sll.checked_at IS NULL THEN 0 ELSE 1 END,
                       productName, sll.id',
             ['home' => $homeId, 'list' => $listId],
+        );
+    }
+
+    public function line(string $homeId, string $listId, string $lineId): ?array
+    {
+        return $this->one(
+            'SELECT id, shopping_list_id AS listId, home_product_id AS homeProductId,
+                    description, source, quantity_to_buy AS quantityToBuy, explanation, confidence,
+                    checked_at AS checkedAt, archived_at AS archivedAt, revision,
+                    suggestion_id AS suggestionId, selected_pack_id AS selectedPackId
+             FROM shopping_list_lines WHERE home_id = :home AND shopping_list_id = :list AND id = :id',
+            ['home' => $homeId, 'list' => $listId, 'id' => $lineId],
         );
     }
 
@@ -99,6 +114,7 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
         string $explanation,
         ?string $confidence,
         DateTimeImmutable $at,
+        ?string $suggestionId = null,
     ): bool {
         if ($homeProductId !== null) {
             $product = (int) $this->connection->fetchOne(
@@ -109,6 +125,26 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
             if ($product !== 1) {
                 throw new \DomainException('The selected home product is unavailable.');
             }
+        }
+        $selectedPackId = null;
+        if ($suggestionId !== null) {
+            $suggestion = $this->connection->fetchAssociative(
+                'SELECT home_product_id, selected_pack_id, confidence_band, status, expires_at
+                 FROM shopping_suggestions WHERE home_id = :home AND id = :suggestion
+                   AND run_id = (SELECT id FROM shopping_suggestion_runs
+                       WHERE home_id = :home AND status = :completed
+                       ORDER BY as_of DESC, id DESC LIMIT 1)',
+                ['home' => $homeId, 'suggestion' => $suggestionId, 'completed' => 'completed'],
+            );
+            if ($suggestion === false || $suggestion['home_product_id'] !== $homeProductId
+                || $suggestion['status'] !== 'active' || $suggestion['expires_at'] <= $this->date($at)
+            ) {
+                throw new \DomainException('The recommendation is no longer available for this home product.');
+            }
+            $selectedPackId = $suggestion['selected_pack_id'];
+            $source = 'suggested';
+            $confidence = (string) $suggestion['confidence_band'];
+            $explanation = 'Suggested from household consumption and stock evidence.';
         }
         $now = $this->date($at);
         $updated = $this->connection->executeStatement(
@@ -133,6 +169,8 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
             'home_product_id' => $homeProductId,
             'description' => $description,
             'source' => $source,
+            'suggestion_id' => $suggestionId,
+            'selected_pack_id' => $selectedPackId,
             'quantity_to_buy' => $quantity,
             'explanation' => $explanation,
             'confidence' => $confidence,
@@ -153,12 +191,15 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
         int $expectedRevision,
         DateTimeImmutable $at,
     ): bool {
+        if (! $this->lockOpenList($homeId, $listId)) {
+            return false;
+        }
         $now = $this->date($at);
         $updated = $this->connection->executeStatement(
             'UPDATE shopping_list_lines
              SET checked_at = :checked, revision = revision + 1, updated_at = :updated
              WHERE id = :id AND home_id = :home AND shopping_list_id = :list
-               AND revision = :revision
+               AND archived_at IS NULL AND revision = :revision
                AND EXISTS (
                    SELECT 1 FROM shopping_lists sl
                    WHERE sl.id = shopping_list_lines.shopping_list_id
@@ -168,6 +209,74 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
                 'checked' => $checked ? $now : null,
                 'updated' => $now,
                 'id' => $lineId,
+                'home' => $homeId,
+                'list' => $listId,
+                'revision' => $expectedRevision,
+                'status' => 'open',
+            ],
+        );
+        if ($updated !== 1) {
+            return false;
+        }
+        $this->connection->executeStatement(
+            'UPDATE shopping_lists SET revision = revision + 1, updated_at = :updated
+             WHERE id = :list AND home_id = :home AND status = :status',
+            ['updated' => $now, 'list' => $listId, 'home' => $homeId, 'status' => 'open'],
+        );
+
+        return true;
+    }
+
+    public function updateList(
+        string $homeId,
+        string $listId,
+        string $name,
+        string $status,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool {
+        return $this->connection->executeStatement(
+            'UPDATE shopping_lists SET name = :name, status = :status,
+                    revision = revision + 1, updated_at = :updated
+             WHERE id = :list AND home_id = :home AND revision = :revision',
+            [
+                'name' => $name,
+                'status' => $status,
+                'updated' => $this->date($at),
+                'list' => $listId,
+                'home' => $homeId,
+                'revision' => $expectedRevision,
+            ],
+        ) === 1;
+    }
+
+    public function updateLine(
+        string $homeId,
+        string $listId,
+        string $lineId,
+        string $description,
+        string $quantity,
+        bool $archived,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool {
+        if (! $this->lockOpenList($homeId, $listId)) {
+            return false;
+        }
+        $now = $this->date($at);
+        $updated = $this->connection->executeStatement(
+            'UPDATE shopping_list_lines SET description = :description, quantity_to_buy = :quantity,
+                    archived_at = :archived, revision = revision + 1, updated_at = :updated
+             WHERE id = :line AND home_id = :home AND shopping_list_id = :list AND revision = :revision
+               AND EXISTS (SELECT 1 FROM shopping_lists sl
+                   WHERE sl.id = shopping_list_lines.shopping_list_id
+                     AND sl.home_id = shopping_list_lines.home_id AND sl.status = :status)',
+            [
+                'description' => $description,
+                'quantity' => $quantity,
+                'archived' => $archived ? $now : null,
+                'updated' => $now,
+                'line' => $lineId,
                 'home' => $homeId,
                 'list' => $listId,
                 'revision' => $expectedRevision,
@@ -235,10 +344,20 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
                     SUM(CASE WHEN sll.checked_at IS NULL THEN 1 ELSE 0 END) AS uncheckedLineCount
              FROM shopping_lists sl
              LEFT JOIN shopping_list_lines sll
-               ON sll.shopping_list_id = sl.id AND sll.home_id = sl.home_id
+               ON sll.shopping_list_id = sl.id AND sll.home_id = sl.home_id AND sll.archived_at IS NULL
              WHERE sl.home_id = :home AND sl.status = :status',
             ['home' => $homeId, 'status' => 'open'],
         ) ?? ['openListCount' => 0, 'lineCount' => 0, 'uncheckedLineCount' => 0];
+    }
+
+    private function lockOpenList(string $homeId, string $listId): bool
+    {
+        $lock = $this->connection->getDatabasePlatform() instanceof SQLitePlatform ? '' : ' FOR UPDATE';
+
+        return $this->connection->fetchOne(
+            'SELECT status FROM shopping_lists WHERE home_id = :home AND id = :list' . $lock,
+            ['home' => $homeId, 'list' => $listId],
+        ) === 'open';
     }
 
     /**
