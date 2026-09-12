@@ -140,3 +140,11 @@ checks must agree. Required checks must pass on the published heads. Draft PRs
 or code coverage alone do not establish deployment readiness; actual deployed
 acceptance, backups, mail and the selected production environment must also be
 verified before launch.
+
+## 2026-09-12 product lifecycle implementation
+
+The owner authorized coordinated CRUD, synchronization and catalog maintenance
+changes in all three repositories, with branches and pull requests. The product
+name remains **Providentia**. See [the implementation record](product-lifecycle-integration.md)
+for the exact shipped-in-branch surface, archival rules, and outstanding validation.
+This entry does not declare production acceptance.

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Providentia\Catalog;
 
+use Providentia\Catalog\Application\CatalogMaintenanceService;
+use Providentia\Catalog\Http\CatalogMaintenanceHandler;
+
 use Providentia\Catalog\Application\CatalogQueryService;
 use Providentia\Catalog\Application\CatalogSeedService;
 use Providentia\Catalog\Application\CatalogStore;
@@ -77,6 +80,8 @@ final class ConfigProvider
                     CatalogCategoryHandler::class => CatalogFactory::class,
                     CatalogContributionPromotionHandler::class => CatalogContributionFactory::class,
                     CatalogProductHandler::class => CatalogFactory::class,
+                    CatalogMaintenanceService::class => CatalogFactory::class,
+                    CatalogMaintenanceHandler::class => CatalogFactory::class,
                     'catalog.governance.proposals.submit' => CatalogFactory::class,
                     'catalog.governance.workbench' => CatalogFactory::class,
                     'catalog.governance.proposals.decision' => CatalogFactory::class,

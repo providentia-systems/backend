@@ -364,6 +364,19 @@ final class CatalogGovernanceService
         if (! isset($definitions[$type])) {
             throw new Problem(422, 'Invalid proposal', 'Proposal type is not supported.');
         }
+        $extra = [];
+        if ($type === 'product') {
+            foreach (['packText', 'barcode'] as $field) {
+                if (array_key_exists($field, $payload)) {
+                    $value = $payload[$field];
+                    if ($value !== null && (! is_string($value) || mb_strlen($value) > ($field === 'barcode' ? 64 : 191))) {
+                        throw new Problem(422, 'Invalid proposal', 'Invalid product pack or barcode.');
+                    }
+                    $extra[$field] = $value;
+                    unset($payload[$field]);
+                }
+            }
+        }
         $actual = array_keys($payload);
         sort($actual);
         $expected = $definitions[$type];
@@ -379,7 +392,7 @@ final class CatalogGovernanceService
 
         return match ($type) {
             'category' => $this->categoryPayload($payload),
-            'product' => $this->productPayload($payload),
+            'product' => $this->productPayload($payload) + $extra,
             'pack' => $this->packPayload($payload),
             'alias' => $this->aliasPayload($payload),
             'barcode' => $this->barcodePayload($payload),

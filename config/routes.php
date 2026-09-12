@@ -663,6 +663,16 @@ return static function (Application $app): void {
         'api.catalog.proposals.submit',
     );
     $app->get(
+        '/api/v1/catalog-admin/entities/{entityType}',
+        [BearerAuthenticationMiddleware::class, \Providentia\Catalog\Http\CatalogMaintenanceHandler::class],
+        'api.catalog.entities.list',
+    );
+    $app->put(
+        '/api/v1/catalog-admin/entities/{entityType}/{entityId}',
+        [BearerAuthenticationMiddleware::class, \Providentia\Catalog\Http\CatalogMaintenanceHandler::class],
+        'api.catalog.entities.save',
+    );
+    $app->get(
         '/api/v1/catalog-admin/workbench',
         [
             BearerAuthenticationMiddleware::class,

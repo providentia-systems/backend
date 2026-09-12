@@ -98,7 +98,7 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
             ? 'id, home_id, normalized_email, role, status, revision, created_at, expires_at'
             : '*';
         $order = $collection === 'stock'
-            ? 'product_id, location_id'
+            ? 'home_product_id'
             : 'id';
         return $this->connection->fetchAllAssociative(
             'SELECT ' . $columns . ' FROM ' . $table . ' WHERE home_id = ? ORDER BY ' . $order

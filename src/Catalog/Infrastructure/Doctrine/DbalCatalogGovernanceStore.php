@@ -14,13 +14,428 @@ use Providentia\Catalog\Application\CatalogGovernanceStore;
 use Providentia\Catalog\Application\CatalogMergeHomeProductGateway;
 use Providentia\SharedKernel\Application\UuidGenerator;
 
-final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
+final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, \Providentia\Catalog\Application\CatalogMaintenanceStore
 {
     public function __construct(
         private readonly Connection $connection,
         private readonly UuidGenerator $ids,
         private readonly CatalogMergeHomeProductGateway $homeProducts,
     ) {
+    }
+
+    /** @return array{table: string, fields: array<string, array{string, int, bool}>} */
+    private function entityDefinition(string $type): array
+    {
+        return match ($type) {
+            'category' => [
+                'table' => 'categories',
+                'fields' => ['canonicalName' => ['canonical_name', 191, false]],
+            ],
+            'product' => [
+                'table' => 'products',
+                'fields' => [
+                    'canonicalName' => ['canonical_name', 191, false],
+                    'brand' => ['brand', 120, true],
+                    'categoryId' => ['category_id', 36, false],
+                ],
+            ],
+            'unit' => [
+                'table' => 'units',
+                'fields' => [
+                    'symbol' => ['symbol', 32, false],
+                    'name' => ['name', 80, false],
+                    'dimension' => ['dimension', 40, false],
+                    'baseFactor' => ['base_factor', 21, false],
+                ],
+            ],
+            'pack' => [
+                'table' => 'product_packs',
+                'fields' => [
+                    'productId' => ['product_id', 36, false],
+                    'variantId' => ['variant_id', 36, true],
+                    'unitId' => ['unit_id', 36, true],
+                    'originalPackText' => ['original_pack_text', 191, false],
+                    'amount' => ['amount', 21, true],
+                    'multiplicity' => ['multiplicity', 4, false],
+                ],
+            ],
+            'variant' => [
+                'table' => 'product_variants',
+                'fields' => [
+                    'productId' => ['product_id', 36, false],
+                    'canonicalLabel' => ['canonical_label', 191, false],
+                    'attributesJson' => ['attributes_json', 8000, false],
+                ],
+            ],
+            'alias' => [
+                'table' => 'product_aliases',
+                'fields' => [
+                    'productId' => ['product_id', 36, false],
+                    'variantId' => ['variant_id', 36, true],
+                    'packId' => ['pack_id', 36, true],
+                    'rawAlias' => ['raw_alias', 191, false],
+                ],
+            ],
+            'barcode' => [
+                'table' => 'product_barcodes',
+                'fields' => [
+                    'packId' => ['pack_id', 36, false],
+                    'barcode' => ['barcode', 64, false],
+                    'barcodeType' => ['barcode_type', 24, false],
+                ],
+            ],
+            'identity-rule' => [
+                'table' => 'product_identity_rules',
+                'fields' => [
+                    'ruleKey' => ['rule_key', 80, false],
+                    'family' => ['family', 191, false],
+                    'ruleDefinition' => ['rule_definition', 16000, false],
+                    'provenance' => ['provenance', 191, false],
+                ],
+            ],
+            default => throw new DomainException('Unsupported catalog entity.'),
+        };
+    }
+
+    public function entities(string $type, int $offset): array
+    {
+        $definition = $this->entityDefinition($type);
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT * FROM ' .
+                $definition['table'] .
+                ($type === 'alias' ? " WHERE scope = 'global' AND home_id IS NULL" : '') .
+                ' ORDER BY id LIMIT 100 OFFSET ' .
+                max(0, $offset),
+        );
+        return array_map(fn(array $row): array => $this->entityRepresentation($type, $row), $rows);
+    }
+
+    /** @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function entityRepresentation(string $type, array $row): array
+    {
+        $fields = [];
+        foreach ($this->entityDefinition($type)['fields'] as $key => [$column]) {
+            $fields[$key] = $row[$column] === null ? null : (string) $row[$column];
+        }
+        return [
+            'id' => (string) $row['id'],
+            'type' => $type,
+            'status' => $row['status'] === 'approved' ? 'published' : (string) $row['status'],
+            'revision' => (int) $row['revision'],
+            'fields' => $fields,
+        ];
+    }
+
+    public function saveEntity(
+        string $type,
+        string $id,
+        array $fields,
+        string $status,
+        int $expectedRevision,
+        string $reason,
+        string $actorId,
+        DateTimeImmutable $at,
+    ): array {
+        $definition = $this->entityDefinition($type);
+        $table = $definition['table'];
+        $actual = array_keys($fields);
+        $expected = array_keys($definition['fields']);
+        sort($actual);
+        sort($expected);
+        if ($actual !== $expected) {
+            throw new DomainException('Supply exactly the documented fields for this entity.');
+        }
+        $values = [];
+        foreach ($definition['fields'] as $key => [$column, $maximum, $nullable]) {
+            $value = $fields[$key];
+            if ($value === null && $nullable && $key !== 'brand') {
+                $values[$column] = null;
+                continue;
+            }
+            if (!is_string($value) || mb_strlen($value) > $maximum || (!$nullable && trim($value) === '')) {
+                throw new DomainException('A catalog field is missing or exceeds its supported length.');
+            }
+            $values[$column] = trim($value);
+        }
+        $before = $this->one($this->forUpdate('SELECT * FROM ' . $table . ' WHERE id = :id'), ['id' => $id]);
+        if (($before === null ? 0 : (int) $before['revision']) !== $expectedRevision) {
+            throw new DomainException('This entity changed. Reload its current revision before editing.');
+        }
+        if (
+            $type === 'alias' &&
+            $before !== null &&
+            ($before['scope'] !== 'global' || $before['home_id'] !== null)
+        ) {
+            throw new DomainException('Private aliases cannot be managed through the global catalog.');
+        }
+        if (
+            $before !== null &&
+            !in_array($before['status'], ['published', 'approved', 'pending-normalization', 'archived'], true)
+        ) {
+            throw new DomainException('Use the existing governance workflow for this entity state.');
+        }
+        $this->validateEntityReferences($type, $values, $before, $status, $id);
+        foreach (
+            [
+                'canonical_name' => 'normalized_name',
+                'brand' => 'normalized_brand',
+                'canonical_label' => 'normalized_label',
+                'raw_alias' => 'normalized_alias',
+            ]
+            as $source => $target
+        ) {
+            if (isset($values[$source])) {
+                $values[$target] = $this->normalize((string) $values[$source]);
+            }
+        }
+        if ($type === 'category' && $before === null) {
+            $values['parent_id'] = null;
+        }
+        if ($type === 'pack') {
+            $values['source_key'] = $before['source_key'] ?? 'catalog-maintenance:' . $id;
+        }
+        if ($type === 'alias') {
+            $values += ['scope' => 'global', 'home_id' => null, 'approval_source' => 'curator'];
+        }
+        if ($type === 'barcode') {
+            $values['verification_status'] = 'verified';
+        }
+        $storedStatus =
+            $status === 'published' && in_array($type, ['alias', 'identity-rule'], true)
+                ? 'approved'
+                : $status;
+        $values += [
+            'status' => $storedStatus,
+            'revision' => $expectedRevision + 1,
+            'updated_at' => $this->date($at),
+        ];
+        try {
+            if ($before === null) {
+                $this->connection->insert($table, $values + ['id' => $id, 'created_at' => $this->date($at)]);
+            } elseif (
+                $this->connection->update($table, $values, ['id' => $id, 'revision' => $expectedRevision]) !==
+                1
+            ) {
+                throw new DomainException('The catalog entity changed concurrently.');
+            }
+        } catch (UniqueConstraintViolationException) {
+            throw new DomainException('A catalog entity with this identity already exists.');
+        }
+        $after = array_merge($before ?? [], $values, ['id' => $id]);
+        $this->recordRevision(
+            $this->ids->generate(),
+            $type,
+            $id,
+            $before,
+            $after,
+            $reason,
+            $actorId,
+            $this->ids->generate(),
+            $at,
+        );
+        if ($type === 'product' && $before === null && $status === 'published') {
+            $this->saveEntity(
+                'pack',
+                $this->ids->generate(),
+                [
+                    'productId' => $id,
+                    'variantId' => null,
+                    'unitId' => null,
+                    'originalPackText' => 'Unspecified pack',
+                    'amount' => null,
+                    'multiplicity' => '1',
+                ],
+                'published',
+                0,
+                'Initial selectable pack: ' . $reason,
+                $actorId,
+                $at,
+            );
+        }
+        return $this->entityRepresentation($type, $after);
+    }
+
+    /** @param array<string, mixed> $values
+     * @param array<string, mixed>|null $before
+     */
+    private function validateEntityReferences(
+        string $type,
+        array &$values,
+        ?array $before,
+        string $status,
+        string $id,
+    ): void {
+        foreach (
+            [
+                'category_id' => 'categories',
+                'product_id' => 'products',
+                'variant_id' => 'product_variants',
+                'pack_id' => 'product_packs',
+                'unit_id' => 'units',
+            ]
+            as $field => $table
+        ) {
+            if (!isset($values[$field])) {
+                continue;
+            }
+            $reference = $this->one($this->forUpdate('SELECT * FROM ' . $table . ' WHERE id = :id'), [
+                'id' => $values[$field],
+            ]);
+            if ($reference === null || ($status === 'published' && $reference['status'] !== 'published')) {
+                throw new DomainException('Choose currently published catalog references.');
+            }
+            if (
+                isset($values['product_id'], $reference['product_id']) &&
+                $values['product_id'] !== $reference['product_id']
+            ) {
+                throw new DomainException('The variant or pack belongs to another product.');
+            }
+        }
+        if ($type === 'unit') {
+            \Providentia\Catalog\Domain\PackMeasure::normalize('1', (string) $values['base_factor'], 1);
+            if (preg_match('/^0+(?:\.0+)?$/', (string) $values['base_factor']) === 1) {
+                throw new DomainException('Unit conversion factors must be positive.');
+            }
+            if (
+                $before !== null &&
+                ($before['dimension'] !== $values['dimension'] ||
+                    (string) $before['base_factor'] !== $values['base_factor'])
+            ) {
+                $this->requireUnused('product_packs', 'unit_id', $id);
+            }
+        }
+        if ($type === 'pack') {
+            $multiplicity = filter_var($values['multiplicity'], FILTER_VALIDATE_INT);
+            if (
+                $multiplicity === false ||
+                $multiplicity < 1 ||
+                $multiplicity > 1000 ||
+                ($values['amount'] === null) !== ($values['unit_id'] === null)
+            ) {
+                throw new DomainException(
+                    'A pack requires a paired amount/unit and multiplicity from 1 to 1000.',
+                );
+            }
+            $values['normalized_base_amount'] =
+                $values['amount'] === null
+                    ? null
+                    : \Providentia\Catalog\Domain\PackMeasure::normalize(
+                        (string) $values['amount'],
+                        (string) $this->connection->fetchOne('SELECT base_factor FROM units WHERE id = ?', [
+                            $values['unit_id'],
+                        ]),
+                        $multiplicity,
+                    );
+            if ($before !== null) {
+                foreach (['product_id', 'variant_id', 'unit_id', 'amount', 'multiplicity'] as $field) {
+                    if ((string) $before[$field] !== (string) $values[$field]) {
+                        $this->requireUnused('home_products', 'pack_id', $id);
+                    }
+                }
+            }
+        }
+        if ($type === 'identity-rule') {
+            try {
+                $rule = json_decode((string) $values['rule_definition'], false, 32, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                throw new DomainException('Identity rule definitions must be JSON objects.');
+            }
+            if (!($rule instanceof \stdClass)) {
+                throw new DomainException('Identity rule definitions must be JSON objects.');
+            }
+        }
+        if ($type === 'variant') {
+            try {
+                $attributes = json_decode(
+                    (string) $values['attributes_json'],
+                    false,
+                    32,
+                    JSON_THROW_ON_ERROR,
+                );
+            } catch (\JsonException) {
+                throw new DomainException('Variant attributes must be a JSON object.');
+            }
+            if (!($attributes instanceof \stdClass)) {
+                throw new DomainException('Variant attributes must be a JSON object.');
+            }
+            if ($before !== null && $before['product_id'] !== $values['product_id']) {
+                $this->requireUnused('product_packs', 'variant_id', $id);
+                $this->requireUnused('product_aliases', 'variant_id', $id);
+            }
+        }
+        if ($type === 'barcode') {
+            $lengths = ['gtin-8' => 8, 'gtin-12' => 12, 'gtin-13' => 13, 'gtin-14' => 14];
+            $code = (string) $values['barcode'];
+            $kind = (string) $values['barcode_type'];
+            if ($kind === 'other') {
+                if (preg_match('/^[0-9A-Za-z]{6,64}$/', $code) !== 1) {
+                    throw new DomainException('Invalid barcode.');
+                }
+            } else {
+                if (!isset($lengths[$kind]) || strlen($code) !== $lengths[$kind] || !ctype_digit($code)) {
+                    throw new DomainException('Invalid GTIN format.');
+                }
+                $sum = 0;
+                for ($i = strlen($code) - 2, $weight = 3; $i >= 0; --$i, $weight = 4 - $weight) {
+                    $sum += (int) $code[$i] * $weight;
+                }
+                if ((10 - ($sum % 10)) % 10 !== (int) substr($code, -1)) {
+                    throw new DomainException('Invalid GTIN check digit.');
+                }
+            }
+        }
+        if ($type === 'alias' && $status === 'published') {
+            $existing = $this->connection->fetchOne(
+                "SELECT id FROM product_aliases WHERE scope = 'global' AND normalized_alias = ? AND status = 'approved' AND id <> ?",
+                [$this->normalize((string) $values['raw_alias']), $id],
+            );
+            if ($existing !== false) {
+                throw new DomainException('Resolve the existing alias conflict before publishing.');
+            }
+        }
+        if ($status === 'archived') {
+            $references = match ($type) {
+                'category' => [['products', 'category_id']],
+                'product' => [
+                    ['product_packs', 'product_id'],
+                    ['product_variants', 'product_id'],
+                    ['product_aliases', 'product_id'],
+                    ['home_products', 'product_id'],
+                ],
+                'unit' => [['product_packs', 'unit_id']],
+                'pack' => [
+                    ['product_barcodes', 'pack_id'],
+                    ['product_aliases', 'pack_id'],
+                    ['home_products', 'pack_id'],
+                ],
+                'variant' => [['product_packs', 'variant_id'], ['product_aliases', 'variant_id']],
+                default => [],
+            };
+            foreach ($references as [$table, $column]) {
+                $this->requireUnused($table, $column, $id, true);
+            }
+        }
+    }
+
+    private function requireUnused(string $table, string $column, string $id, bool $activeOnly = false): void
+    {
+        $used = $this->connection->fetchOne(
+            'SELECT id FROM ' .
+                $table .
+                ' WHERE ' .
+                $column .
+                ' = ?' .
+                ($activeOnly ? " AND status <> 'archived'" : '') .
+                ' LIMIT 1',
+            [$id],
+        );
+        if ($used !== false) {
+            throw new DomainException(
+                'This entity is in use. Retire its active dependents or create a new identity to preserve history.',
+            );
+        }
     }
 
     /**
@@ -329,6 +744,22 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
                 throw new DomainException('A matching product was published concurrently.');
             }
 
+            if (array_key_exists('packText', $payload)) {
+                $packId = $this->ids->generate();
+                $this->saveEntity('pack', $packId, [
+                    'productId' => $entityId, 'variantId' => null, 'unitId' => null,
+                    'originalPackText' => trim((string) $payload['packText']) ?: 'Unspecified pack',
+                    'amount' => null, 'multiplicity' => '1',
+                ], 'published', 0, 'Pack from approved product contribution', $actorUserId, $at);
+                if (isset($payload['barcode']) && trim((string) $payload['barcode']) !== '') {
+                    $barcode = trim((string) $payload['barcode']);
+                    $kind = ctype_digit($barcode) && in_array(strlen($barcode), [8, 12, 13, 14], true)
+                        ? 'gtin-' . strlen($barcode) : 'other';
+                    $this->saveEntity('barcode', $this->ids->generate(), [
+                        'packId' => $packId, 'barcode' => $barcode, 'barcodeType' => $kind,
+                    ], 'published', 0, 'Barcode from approved product contribution', $actorUserId, $at);
+                }
+            }
             return ['entityType' => 'product', 'entityId' => $entityId];
         }
         if ($type === 'pack') {
@@ -346,13 +777,8 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore
                     throw new DomainException('The proposed unit is unavailable.');
                 }
                 if ($payload['amount'] !== null) {
-                    $baseAmount = number_format(
-                        (float) $payload['amount']
-                        * (int) $payload['multiplicity']
-                        * (float) $unit['baseFactor'],
-                        8,
-                        '.',
-                        '',
+                    $baseAmount = \Providentia\Catalog\Domain\PackMeasure::normalize(
+                        (string) $payload['amount'], (string) $unit['baseFactor'], (int) $payload['multiplicity'],
                     );
                 }
             }

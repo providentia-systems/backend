@@ -121,7 +121,7 @@ final class SyncCommandValidator
             'inventory.home-product.update' => $this->shape(
                 $payload,
                 ['privateName', 'originalPackText', 'homeCategoryId', 'status'],
-                ['privateName', 'originalPackText', 'homeCategoryId', 'status'],
+                [],
                 true,
                 $baseRevision,
             ),

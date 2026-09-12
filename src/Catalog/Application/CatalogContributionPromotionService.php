@@ -95,6 +95,8 @@ final class CatalogContributionPromotionService
                     'canonicalName' => (string) ($payload['canonicalName'] ?? ''),
                     'brand' => (string) ($payload['brand'] ?? ''),
                     'categoryId' => $publishedCategoryId,
+                    'packText' => $payload['packText'] ?? null,
+                    'barcode' => $payload['barcode'] ?? null,
                 ]);
                 $linkedAt = $this->clock->now();
                 $linked = $this->contributions->linkContributionProposal(
