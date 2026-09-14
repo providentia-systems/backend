@@ -1,0 +1,43 @@
+name: Prepare classified receipt regression fixture
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/step-1-receipt-fixture.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: >-
+      github.repository == 'providentia-systems/backend' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'fix/step-1-authoritative-sync'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Classify the positive recovery fixture without changing its assertions
+        run: |
+          php <<'PHP'
+          <?php
+          $path = 'tests/Unit/Synchronization/SynchronizationServiceTest.php';
+          $source = file_get_contents($path);
+          $start = strpos($source, 'public function testLostResponseStatusRecoveryIsScopedAndPreservesUnknownOperations()');
+          $end = strpos($source, 'public function testUnresolvedReceiptCommandReplayReturnsImmutableReceiptWithoutRedispatch()', $start);
+          if ($start === false || $end === false) throw new RuntimeException('Fixture scope changed.');
+          $section = substr($source, $start, $end - $start);
+          $needle = "            'status' => 'accepted',\n";
+          if (substr_count($section, $needle) !== 1) throw new RuntimeException('Fixture shape changed.');
+          $section = str_replace($needle, $needle . "            'commandType' => 'shopping.list.create',\n", $section);
+          file_put_contents($path, substr($source, 0, $start) . $section . substr($source, $end));
+          PHP
+          git diff --check
+          git diff -- tests/Unit/Synchronization/SynchronizationServiceTest.php
+          git add -- tests/Unit/Synchronization/SynchronizationServiceTest.php
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'test(sync): classify the accepted receipt recovery fixture'
+          git push origin HEAD:fix/step-1-authoritative-sync
