@@ -1555,7 +1555,7 @@ shared_profile_id="$(jq -er '.id' "$response_body")"
 policy_body="$(jq -cn --arg id "$shared_profile_id" '{extractionProfileIds:[$id],
     validationProfileId:null,maxAttempts:2,maxTotalTokens:50000,
     maxEstimatedCostMicros:1000000,expectedRevision:0}')"
-http_json PUT "/api/v1/homes/${home_id}/ai/orchestration-policy" \
+http_json PUT "/api/v1/homes/${home_id}/ai/policy" \
     200 "$homeowner_access_token" "$policy_body"
 
 image_file="${evidence_dir}/acceptance-stock.png"

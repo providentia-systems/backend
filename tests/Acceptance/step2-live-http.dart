@@ -254,12 +254,12 @@ void main() {
         };
         await request(
           'PUT',
-          '$prefix/ai/orchestration-policy',
+          '$prefix/ai/policy',
           policy(privateA),
           status: 422,
         );
         final shared = await profile('shared-profile', 'home', tokenA);
-        await request('PUT', '$prefix/ai/orchestration-policy', policy(shared));
+        await request('PUT', '$prefix/ai/policy', policy(shared));
         final a = await aiA.loadWorkspace(homeId: home);
         final b = await aiB.loadWorkspace(homeId: home);
         expect(a.policy.extractionProfileIds, [shared]);
@@ -270,14 +270,14 @@ void main() {
         expect(b.profiles.any((profile) => profile.id == privateA), isFalse);
         await request(
           'DELETE',
-          '$prefix/ai/profiles/$privateA?expectedRevision=1',
-          null,
+          '$prefix/ai/profiles/$privateA',
+          {'expectedRevision': 1},
           token: tokenB,
           status: 404,
         );
         await request(
           'PUT',
-          '$prefix/ai/orchestration-policy',
+          '$prefix/ai/policy',
           policy(shared),
           status: 409,
         );
@@ -289,7 +289,7 @@ void main() {
           'endpoint': 'http://127.0.0.1:19999/bob-private',
           'estimatedCostMicros': 0,
           'expectedRevision': 1,
-        }, token: tokenB);
+        }, token: tokenB, status: 201);
         final changed = await aiB.loadWorkspace(homeId: home);
         expect(
           changed.settings.transmissionPlan!.sha256,
