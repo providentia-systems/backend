@@ -1,0 +1,44 @@
+name: Step 2 fixture route alignment
+on:
+  pull_request:
+    paths:
+      - .github/workflows/step-2-fixture-routes.yml
+permissions:
+  contents: read
+jobs:
+  align:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/step-1-authoritative-sync'
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Use the actual documented operation URLs and statuses
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('tests/Acceptance/step2-live-http.dart');s=p.read_text()
+          assert s.count('/ai/orchestration-policy')==3
+          s=s.replace('/ai/orchestration-policy','/ai/policy')
+          old="'$prefix/ai/profiles/$privateA?expectedRevision=1',\n          null,"
+          assert s.count(old)==1
+          s=s.replace(old,"'$prefix/ai/profiles/$privateA',\n          {'expectedRevision': 1},")
+          old="          token: tokenB,\n        );\n        final changed"
+          assert s.count(old)==1
+          s=s.replace(old,"          token: tokenB,\n          status: 201,\n        );\n        final changed")
+          p.write_text(s)
+          p=Path('tests/Acceptance/headless-platform-acceptance.sh');s=p.read_text()
+          assert s.count('/ai/orchestration-policy')==1
+          p.write_text(s.replace('/ai/orchestration-policy','/ai/policy'))
+          PY
+          git diff --check
+          git rm .github/workflows/step-2-fixture-routes.yml
+          git add tests/Acceptance/step2-live-http.dart tests/Acceptance/headless-platform-acceptance.sh
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'test(step2): use canonical policy URL and profile revision protocol in live fixtures'
+          git push origin HEAD:fix/step-1-authoritative-sync
+          git rev-parse HEAD
