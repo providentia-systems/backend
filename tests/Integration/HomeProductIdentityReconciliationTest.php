@@ -139,7 +139,9 @@ final class HomeProductIdentityReconciliationTest extends TestCase
     public function testFeedFailureRollsBackTheIdentityRepair(): void
     {
         $writer = $this->createMock(ChangeFeedWriter::class);
-        $writer->method('put')->willThrowException(new \RuntimeException('synthetic outbox failure'));
+        $writer->expects(self::once())
+            ->method('put')
+            ->willThrowException(new \RuntimeException('synthetic outbox failure'));
         try {
             $this->service($writer)->run('home', null, 1, 'owner');
             self::fail('The failing outbox was accepted.');
