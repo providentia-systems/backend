@@ -9,6 +9,7 @@ use Providentia\AiIntegration\Application\ExtractionSchema;
 use Providentia\AiIntegration\Application\SensitiveBufferEraser;
 use Providentia\AiIntegration\Domain\ExtractionOutcome;
 use Providentia\AiIntegration\Domain\ExtractionRequest;
+use Providentia\SharedKernel\Application\Problem;
 use Throwable;
 
 final readonly class AiOrchestrator
@@ -34,6 +35,7 @@ final readonly class AiOrchestrator
         int $maxEstimatedCostMicros = PHP_INT_MAX,
         int $maxTotalTokens = PHP_INT_MAX,
         ?callable $recordAttempt = null,
+        ?callable $beforeTransmission = null,
     ): AiOrchestrationResult {
         try {
             return $this->executeTracked(
@@ -45,6 +47,7 @@ final readonly class AiOrchestrator
                 $maxEstimatedCostMicros,
                 $maxTotalTokens,
                 $recordAttempt,
+                $beforeTransmission,
             );
         } finally {
             $this->buffers->erase($bytes);
@@ -63,6 +66,7 @@ final readonly class AiOrchestrator
         int $maxEstimatedCostMicros,
         int $maxTotalTokens,
         ?callable $recordAttempt,
+        ?callable $beforeTransmission,
     ): AiOrchestrationResult {
         if (count($extractionPlan) + ($validator === null ? 0 : 1) > $this->maxAttempts) {
             throw new AiProviderException('orchestration_budget_exceeded', 'The AI attempt budget was exceeded.');
@@ -78,7 +82,7 @@ final readonly class AiOrchestrator
         foreach ($extractionPlan as $execution) {
             $spentMicros = $this->reserveBudget($spentMicros, $execution, $maxEstimatedCostMicros);
             try {
-                $primary = $this->run($execution, $kind, $mimeType, $bytes);
+                $primary = $this->run($execution, $kind, $mimeType, $bytes, $beforeTransmission);
                 $primaryProvider = $execution->provider->id();
                 $attempt = $this->attempt('extract', $execution, 'completed', null);
                 $attempts[] = $attempt;
@@ -96,6 +100,9 @@ final readonly class AiOrchestrator
                 if (! $this->failures->permitsFailover($error->safeCode)) {
                     throw $error;
                 }
+            } catch (Problem $problem) {
+                // Revoked consent/authorization is not a retryable provider failure.
+                throw $problem;
             } catch (Throwable) {
                 $attempt = $this->attempt('extract', $execution, 'failed', 'provider_failure');
                 $attempts[] = $attempt;
@@ -127,7 +134,7 @@ final readonly class AiOrchestrator
             }
             $this->reserveBudget($spentMicros, $validator, $maxEstimatedCostMicros);
             try {
-                $validation = $this->run($validator, $kind, $mimeType, $bytes);
+                $validation = $this->run($validator, $kind, $mimeType, $bytes, $beforeTransmission);
                 $attempt = $this->attempt('validate', $validator, 'completed', null);
                 $attempts[] = $attempt;
                 if ($recordAttempt !== null) {
@@ -139,6 +146,9 @@ final readonly class AiOrchestrator
                     $recordAttempt($attempt);
                 }
                 throw $error;
+            } catch (Problem $problem) {
+                // Revoked consent/authorization is not a retryable provider failure.
+                throw $problem;
             } catch (Throwable) {
                 $attempt = $this->attempt('validate', $validator, 'failed', 'provider_failure');
                 if ($recordAttempt !== null) {
@@ -174,7 +184,11 @@ final readonly class AiOrchestrator
         string $kind,
         string $mimeType,
         string &$bytes,
+        ?callable $beforeTransmission,
     ): ExtractionOutcome {
+        if ($beforeTransmission !== null) {
+            $beforeTransmission();
+        }
         $requestBytes = $bytes;
         $requestCredential = $execution->credential;
         $request = new ExtractionRequest(

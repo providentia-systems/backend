@@ -33,7 +33,27 @@ final class DbalCatalogContributionStore implements CatalogContributionStore
             ['home' => $homeId],
         );
 
-        return $row === false ? null : $row;
+        if ($row === false) {
+            return null;
+        }
+        foreach (['shareProductIdentity', 'shareProductImages', 'shareStorePrices'] as $flag) {
+            $row[$flag] = match ($row[$flag]) {
+                true, 1, '1' => true,
+                false, 0, '0' => false,
+                default => throw new \UnexpectedValueException('Invalid persisted catalog consent flag.'),
+            };
+        }
+        $revision = $row['revision'];
+        if (
+            (! is_int($revision) && ! is_string($revision))
+            || preg_match('/^[1-9][0-9]*$/D', (string) $revision) !== 1
+            || filter_var($revision, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false
+        ) {
+            throw new \UnexpectedValueException('Invalid persisted catalog consent revision.');
+        }
+        $row['revision'] = (int) $revision;
+
+        return $row;
     }
 
     public function saveConsent(
