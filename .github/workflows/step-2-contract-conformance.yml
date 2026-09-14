@@ -1,0 +1,100 @@
+name: Step 2 response conformance
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'contracts/**'
+      - 'tests/**'
+      - '.github/workflows/step-2-contract-conformance.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: step2-conformance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  live:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sqlite
+            image: mysql:8.4.6
+            health: mysqladmin ping -h 127.0.0.1 -uroot -proot --silent
+            url: sqlite:///var/step2.sqlite
+          - name: mysql
+            image: mysql:8.4.6
+            health: mysqladmin ping -h 127.0.0.1 -uroot -proot --silent
+            url: mysql://providentia:providentia@127.0.0.1:3306/providentia?charset=utf8mb4
+          - name: mariadb
+            image: mariadb:11.8.3
+            health: healthcheck.sh --connect --innodb_initialized
+            url: mysql://providentia:providentia@127.0.0.1:3306/providentia?charset=utf8mb4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_DATABASE: providentia
+          MYSQL_USER: providentia
+          MYSQL_PASSWORD: providentia
+          MYSQL_ROOT_PASSWORD: root
+          MARIADB_DATABASE: providentia
+          MARIADB_USER: providentia
+          MARIADB_PASSWORD: providentia
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "${{ matrix.health }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: ${{ matrix.url }}
+      QUEUE_REQUIRED: '0'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/client
+          ref: 3d5d8fd0ab487145abd9e26d69c8f68bdb959208
+          path: _step2_client
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5.9'
+          extensions: gd, intl, json, mbstring, pdo_mysql, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.10.2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Install pinned Flutter and production Drift adapters
+        run: |
+          bash _step2_client/tool/install_flutter_linux.sh "$RUNNER_TEMP/providentia-sdk"
+          echo "$RUNNER_TEMP/providentia-sdk/flutter/bin" >> "$GITHUB_PATH"
+      - working-directory: _step2_client
+        run: |
+          flutter pub get --enforce-lockfile
+          dart run build_runner build --delete-conflicting-outputs
+      - name: Real PHP HTTP to Dart, with server and local database reopen
+        run: |
+          { php --version; composer --version; flutter --version; git rev-parse HEAD; git -C _step2_client rev-parse HEAD; } > /tmp/step2-runtime.txt
+          bash tests/Acceptance/step2-http-dart.sh "$PWD/_step2_client" > /tmp/step2-live-check.log 2>&1
+      - name: Email-code authentication regression
+        if: always()
+        run: bash tests/Acceptance/development-auth-http-smoke.sh > /tmp/step2-auth-check.log 2>&1
+      - name: Preserve actual results, never session fixtures or credentials
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: step2-response-${{ matrix.name }}
+          path: |
+            /tmp/step2-runtime.txt
+            /tmp/step2-live-check.log
+            /tmp/step2-auth-check.log
+            /tmp/step2-*-dart.jsonl
+            /tmp/step2-*-http.log
+          retention-days: 14

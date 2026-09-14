@@ -5,7 +5,6 @@ declare(strict_types=1);
 use Doctrine\DBAL\Connection;
 use Providentia\Access\Application\AccessStore;
 use Providentia\Access\Domain\FeatureCatalog;
-use Providentia\Catalog\Application\CatalogStore;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\IdentityStore;
@@ -32,8 +31,6 @@ $homes = $container->get(HomeStore::class);
 $access = $container->get(AccessStore::class);
 /** @var UuidGenerator $ids */
 $ids = $container->get(UuidGenerator::class);
-/** @var CatalogStore $catalog */
-$catalog = $container->get(CatalogStore::class);
 /** @var AuthenticationService $authentication */
 $authentication = $container->get(AuthenticationService::class);
 /** @var TransactionManager $transactions */
@@ -45,12 +42,11 @@ $fixture = $transactions->transactional(static function () use (
     $homes,
     $access,
     $ids,
-    $catalog,
     $authentication,
     $at,
 ): array {
     foreach (FeatureCatalog::defaults() as $group) {
-        if ($access->group((string) $group['id']) === null && !$access->saveGroup($group, 0)) {
+        if ($access->group((string) $group['id']) === null && ! $access->saveGroup($group, 0)) {
             throw new RuntimeException('Unable to seed the default authorization groups.');
         }
     }
@@ -61,66 +57,83 @@ $fixture = $transactions->transactional(static function () use (
     foreach ([$alice => 'alice', $bob => 'bob'] as $id => $name) {
         $identity->createUser($id, $name . '@step2.example.test', $name, 'en', 'UTC', $at);
         $identity->markEmailVerified($id, $at);
-        if (!$access->assign('account', $id, FeatureCatalog::STARTER_ACCOUNT, 0)) {
+        if (! $access->assign('account', $id, FeatureCatalog::STARTER_ACCOUNT, 0)) {
             throw new RuntimeException('Unable to seed account authorization.');
         }
     }
     $homes->createHome($home, $alice, 'Synthetic conformance home', 'en', 'NAD', 'UTC', $at);
     $homes->createHome($other, $bob, 'Synthetic isolated home', 'en', 'NAD', 'UTC', $at);
     foreach ([$home, $other] as $homeId) {
-        if (!$access->assign('home', $homeId, FeatureCatalog::STARTER_HOME, 0)) {
+        if (! $access->assign('home', $homeId, FeatureCatalog::STARTER_HOME, 0)) {
             throw new RuntimeException('Unable to seed home authorization.');
         }
     }
+    $now = $at->format('Y-m-d H:i:s');
     $db->insert('home_memberships', [
         'home_id' => $home,
         'user_id' => $bob,
         'role' => 'manager',
         'status' => 'active',
         'revision' => 1,
-        'joined_at' => $at->format('Y-m-d H:i:s'),
+        'joined_at' => $now,
         'left_at' => null,
-        'updated_at' => $at->format('Y-m-d H:i:s'),
+        'updated_at' => $now,
     ]);
-    $items = [];
-    foreach (['name', 'product', 'pack', 'barcode'] as $kind) {
-        foreach ([1, 2] as $size) {
-            $items[] = [
-                'category' => 'Step 2 synthetic category',
-                'product' => 'Step 2 ' . $kind . ' family',
-                'brand' => '',
-                'sourceId' => 'step2-' . $kind . '-' . $size,
-                'packSize' => $size . ' kg',
-            ];
-        }
-    }
-    $catalog->importSeed(['items' => $items, 'aliases' => [], 'identityRules' => []], $at);
+    // The authoritative catalog seeder intentionally enforces its exact source
+    // counts. Synthetic reference rows are fixture data, not an alternative seed.
+    // All inventory/import reads and writes below go through the real HTTP API.
+    $base = ['status' => 'published', 'revision' => 1, 'created_at' => $now, 'updated_at' => $now];
+    $category = $ids->generate();
+    $db->insert('categories', [
+        ...$base,
+        'id' => $category,
+        'parent_id' => null,
+        'canonical_name' => 'Step 2 synthetic category',
+        'normalized_name' => 'step 2 synthetic category',
+    ]);
     $families = [];
     foreach (['name', 'product', 'pack', 'barcode'] as $kind) {
-        $row = $db->fetchAssociative(
-            'SELECT p.id AS productId, p.canonical_name AS name, pk.id AS packId
-             FROM products p INNER JOIN product_packs pk ON pk.product_id = p.id WHERE pk.source_key = ?',
-            ['step2-' . $kind . '-2'],
-        );
-        if ($row === false) {
-            throw new RuntimeException('Synthetic product seed is incomplete.');
+        $product = $ids->generate();
+        $name = 'Step 2 ' . $kind . ' family';
+        $db->insert('products', [
+            ...$base,
+            'id' => $product,
+            'category_id' => $category,
+            'canonical_name' => $name,
+            'normalized_name' => mb_strtolower($name),
+            'brand' => '',
+            'normalized_brand' => '',
+        ]);
+        foreach ([1, 2] as $size) {
+            $pack = $ids->generate();
+            $db->insert('product_packs', [
+                ...$base,
+                'id' => $pack,
+                'product_id' => $product,
+                'variant_id' => null,
+                'unit_id' => null,
+                'source_key' => 'step2-' . $kind . '-' . $size,
+                'original_pack_text' => $size . ' kg',
+                'amount' => (string) $size,
+                'normalized_base_amount' => (string) ($size * 1000),
+                'multiplicity' => 1,
+            ]);
+            if ($size === 2) {
+                $families[$kind] = ['productId' => $product, 'packId' => $pack, 'name' => $name];
+            }
         }
-        $families[$kind] = $row;
     }
     $db->insert('product_barcodes', [
+        ...$base,
         'id' => $ids->generate(),
         'pack_id' => $families['barcode']['packId'],
         'barcode' => 'STEP2-EXACT-PACK',
         'barcode_type' => 'internal',
         'verification_status' => 'verified',
-        'status' => 'published',
-        'revision' => 1,
-        'created_at' => $at->format('Y-m-d H:i:s'),
-        'updated_at' => $at->format('Y-m-d H:i:s'),
     ]);
     $sessions = [];
     foreach (['alice' => $alice, 'bob' => $bob] as $name => $id) {
-        // Only session issuance is seeded. Every tested request uses the real
+        // Session issuance is seeded. Tested requests still use the production
         // bearer middleware, authorization, services, database and serializers.
         $sessions[$name] = $authentication->issueVerifiedSession(
             $id,
