@@ -18,8 +18,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - name: Prepare exact proposed source, never production data
-        run: python3 tool/step3-prepare.py
+      - run: python3 tool/step3-prepare.py
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
         with:
           php-version: '8.5.9'
@@ -27,27 +26,67 @@ jobs:
           coverage: none
           tools: composer:2.10.2
       - run: composer install --no-interaction --prefer-dist --no-progress
-      - name: Format changed PHP using the existing coding standard
+      - name: Apply the existing coding standard and verify the result
         run: |
-          set +e
-          vendor/bin/phpcbf $(git diff --name-only -- '*.php')
-          result=$?
-          test "$result" -eq 0 -o "$result" -eq 1
-      - name: Complete backend quality and authentication boundary
-        run: |
-          composer check
-          bash tests/Acceptance/development-auth-http-smoke.sh
-      - name: Preserve exact reviewed source and runtime
+          vendor/bin/phpcbf $(git diff --name-only -- '*.php') || formatter_status=$?
+          vendor/bin/phpcs $(git diff --name-only -- '*.php')
+      - name: Complete backend quality
+        run: composer check
+      - name: Complete backend PHPUnit suite independently
+        if: success() || failure()
+        run: vendor/bin/phpunit > /tmp/step3-tests.log 2>&1
+      - name: Authentication HTTP smoke
+        if: success() || failure()
+        run: bash tests/Acceptance/development-auth-http-smoke.sh > /tmp/step3-auth.log 2>&1
+      - name: Preserve exact source and failures for repair
         if: always()
         run: |
           mkdir -p /tmp/step3-evidence
           git add -N src tests docs contracts tool/materialize-openapi-contract.sh
           git diff --binary HEAD -- . ':!tool/step3-*' ':!.github/workflows/step-3-preflight.yml' > /tmp/step3-evidence/reviewed-source.patch
+          test -s /tmp/step3-evidence/reviewed-source.patch
           git diff --stat > /tmp/step3-evidence/source-stat.txt
           { git rev-parse HEAD; php --version; composer --version; } > /tmp/step3-evidence/runtime.txt
+          for log in /tmp/step3-tests.log /tmp/step3-auth.log; do if test -f "$log"; then cp "$log" /tmp/step3-evidence/; fi; done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: step3-backend-preflight
           path: /tmp/step3-evidence/
           retention-days: 7
+  materialize:
+    needs: backend
+    if: always() && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download this exact run's source without executing it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name step3-backend-preflight --dir "$RUNNER_TEMP/step3-source"
+      - name: Commit only source to the existing draft repair branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/git/ref/heads/fix/step-1-authoritative-sync --jq .object.sha)" = "$EXPECTED_HEAD"
+          test -s "$RUNNER_TEMP/step3-source/reviewed-source.patch"
+          git apply --check "$RUNNER_TEMP/step3-source/reviewed-source.patch"
+          git apply "$RUNNER_TEMP/step3-source/reviewed-source.patch"
+          rm -f tool/step3-prepare.py tool/step3-preflight.patch.gz .github/workflows/step-3-preflight.yml .github/workflows/step-3-source-review.yml
+          git config user.name 'Providentia source preparation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(step3): enforce publication, evidence and private export boundaries'
+          git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git push origin HEAD:refs/heads/fix/step-1-authoritative-sync
+          git config --local --unset-all http.https://github.com/.extraheader
+          git rev-parse HEAD
