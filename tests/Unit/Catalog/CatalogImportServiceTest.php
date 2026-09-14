@@ -157,6 +157,7 @@ final class CatalogImportServiceTest extends TestCase
                 'productId' => self::PRODUCT_ID,
                 'packId' => null,
                 'privateName' => null,
+                'productName' => 'Synthetic product family',
                 'originalPackText' => null,
             ]],
         ]);
@@ -171,6 +172,7 @@ final class CatalogImportServiceTest extends TestCase
                 'productId' => self::PRODUCT_ID,
                 'packId' => null,
                 'privateName' => null,
+                'productName' => 'Synthetic product family',
                 'originalPackText' => null,
                 'status' => 'active',
             ],

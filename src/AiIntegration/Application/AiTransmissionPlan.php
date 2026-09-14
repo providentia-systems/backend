@@ -67,9 +67,21 @@ final readonly class AiTransmissionPlan
      */
     private static function recipient(array $profile): array
     {
+        if (
+            ! is_string($profile['id'] ?? null)
+            || preg_match('/^[A-Za-z0-9-]{1,36}$/D', $profile['id']) !== 1
+            || ! is_int($profile['revision'] ?? null) || $profile['revision'] < 1
+        ) {
+            throw new Problem(
+                409,
+                'AI setup required',
+                'Select saved, revisioned provider profiles before extraction.',
+            );
+        }
+
         return [
-            'profileId' => $profile['id'] ?? null,
-            'revision' => (int) ($profile['revision'] ?? 0),
+            'profileId' => $profile['id'],
+            'revision' => $profile['revision'],
             'provider' => (string) ($profile['provider'] ?? ''),
             'model' => (string) ($profile['model'] ?? ''),
             'endpoint' => $profile['endpoint'] ?? null,

@@ -17,6 +17,12 @@ use Providentia\Inventory\Infrastructure\Doctrine\DbalCatalogContributionSourceR
 use Providentia\Inventory\Infrastructure\Doctrine\DbalCatalogImportHomeProductGateway;
 use Providentia\Inventory\Infrastructure\Doctrine\DbalCatalogMergeHomeProductGateway;
 use Providentia\Inventory\Infrastructure\Factory\InventoryFactory;
+use Providentia\Inventory\Application\HomeProductIdentityRepairStore;
+use Providentia\Inventory\Application\HomeProductIdentityReconciler;
+use Providentia\Inventory\Infrastructure\Doctrine\DbalHomeProductIdentityRepairStore;
+use Providentia\Inventory\Infrastructure\Doctrine\DbalHomeProductSyncNormalizer;
+use Providentia\Inventory\Infrastructure\Cli\ReconcileHomeProductIdentitiesCommand;
+use Providentia\Synchronization\Application\SyncRepresentationNormalizer;
 
 final class ConfigProvider
 {
@@ -24,9 +30,14 @@ final class ConfigProvider
     public function __invoke(): array
     {
         return [
+            'laminas-cli' => ['commands' => [
+                'inventory:reconcile-identities' => ReconcileHomeProductIdentitiesCommand::class,
+            ]],
             'dependencies' => [
                 'aliases' => [
                     InventoryStore::class => DbalInventoryStore::class,
+                    SyncRepresentationNormalizer::class => DbalHomeProductSyncNormalizer::class,
+                    HomeProductIdentityRepairStore::class => DbalHomeProductIdentityRepairStore::class,
                     InventorySummaryReader::class => DbalInventoryStore::class,
                     InventoryAnalyticsReader::class => DbalInventoryStore::class,
                     InventoryMovementGateway::class => InventoryService::class,
@@ -40,6 +51,10 @@ final class ConfigProvider
                     DbalCatalogImportHomeProductGateway::class => InventoryFactory::class,
                     DbalCatalogMergeHomeProductGateway::class => InventoryFactory::class,
                     InventoryService::class => InventoryFactory::class,
+                    DbalHomeProductSyncNormalizer::class => InventoryFactory::class,
+                    DbalHomeProductIdentityRepairStore::class => InventoryFactory::class,
+                    HomeProductIdentityReconciler::class => InventoryFactory::class,
+                    ReconcileHomeProductIdentitiesCommand::class => InventoryFactory::class,
                     'inventory.locations.list' => InventoryFactory::class,
                     'inventory.locations.create' => InventoryFactory::class,
                     'inventory.locations.update' => InventoryFactory::class,

@@ -92,7 +92,10 @@ final class CatalogContributionPrivacyTest extends TestCase
         self::assertSame(0, (int) $this->connection->fetchOne(
             "SELECT COUNT(*) FROM catalog_contributions WHERE moderation_status = 'pending'",
         ));
-        self::assertSame(13, $this->store->consent('home-private')['revision']);
+        $withdrawn = $this->store->consent('home-private');
+        self::assertNotNull($withdrawn);
+        self::assertArrayHasKey('revision', $withdrawn);
+        self::assertSame(13, $withdrawn['revision']);
     }
 
     public function testCorruptPersistedConsentFailsClosedRatherThanBecomingTruthy(): void

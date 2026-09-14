@@ -5,8 +5,8 @@ set -Eeuo pipefail
 readonly root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly archive="$root/contracts/source/providentia-v1.json.gz"
 readonly output="$root/contracts/openapi/providentia-v1.json"
-readonly archive_sha256='5e1e3f7224b85e52e09a298d2ad4c5a82d564c35d21d90e2b872bf33b3e9db8f'
-readonly output_sha256='40a8477521baa6c41cf2c5d872068f5ae1bf255a8d0bbccc97a05688d705ad57'
+readonly archive_sha256='beba4827515c2dc63f69145fad090769fea50a031c9f88f31bf2be4ddd951e55'
+readonly output_sha256='b29608746e59216ef69554c346d0606ac5815e42a6e04d5f284872b608d05647'
 
 sha256_file() {
   sha256sum "$1" | cut -d' ' -f1
