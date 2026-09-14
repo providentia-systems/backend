@@ -140,6 +140,7 @@ final readonly class AiHandler implements RequestHandlerInterface
         $this->ai->reviewObservationDecision(
             $identity,
             $homeId,
+            (string) $request->getAttribute('extractionId', ''),
             (string) $request->getAttribute('decisionId', ''),
             (string) ($body['decision'] ?? ''),
             (int) ($body['expectedRevision'] ?? 0),

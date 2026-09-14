@@ -95,6 +95,11 @@ final class CatalogGovernanceService
         if (! in_array($decision, ['approve', 'reject'], true)) {
             throw new Problem(422, 'Invalid moderation decision', 'Decision must be approve or reject.');
         }
+        // Approval publishes the proposal in this same transaction. Review-only
+        // access must never imply permission to mutate the global catalog.
+        if ($decision === 'approve') {
+            $this->authorization->requireCurator($identity);
+        }
         $reason = trim($reason);
         if ($reason === '' || mb_strlen($reason) > 500 || $expectedRevision < 1) {
             throw new Problem(422, 'Invalid moderation decision', 'A reason and current revision are required.');

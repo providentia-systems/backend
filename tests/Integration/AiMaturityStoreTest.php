@@ -211,11 +211,24 @@ final class AiMaturityStoreTest extends TestCase
             'decision-1', 'home-1', 'extraction-1', 'visual_overlap', 'left', 'right',
             ['normalizedCandidateKey' => 'key'], 'pending', $this->at,
         );
+        self::assertFalse($this->store->reviewObservationDecision(
+            'home-1', 'extraction-other', 'decision-1', 'distinct', 1, 'user-1', $this->at,
+        ), 'Same-home evidence is still owned by exactly one extraction.');
+        self::assertFalse($this->store->reviewObservationDecision(
+            'home-other', 'extraction-1', 'decision-1', 'distinct', 1, 'user-1', $this->at,
+        ));
+        $this->store->recordObservationDecision(
+            'digest-1', 'home-1', 'extraction-1', 'exact_digest', 'left', 'right',
+            [], 'confirmed_duplicate', $this->at,
+        );
+        self::assertFalse($this->store->reviewObservationDecision(
+            'home-1', 'extraction-1', 'digest-1', 'distinct', 1, 'user-1', $this->at,
+        ), 'Identical media cannot be reclassified as distinct by a review.');
         self::assertTrue($this->store->reviewObservationDecision(
-            'home-1', 'decision-1', 'confirmed_duplicate', 1, 'user-1', $this->at,
+            'home-1', 'extraction-1', 'decision-1', 'confirmed_duplicate', 1, 'user-1', $this->at,
         ));
         self::assertFalse($this->store->reviewObservationDecision(
-            'home-1', 'decision-1', 'distinct', 1, 'user-1', $this->at,
+            'home-1', 'extraction-1', 'decision-1', 'distinct', 1, 'user-1', $this->at,
         ));
         $tooLarge = new EncryptedMediaObject('second', 'wrapped', 'nonce', 1, str_repeat('b', 64), 900);
         self::assertFalse($this->store->insertMediaWithinQuota(
