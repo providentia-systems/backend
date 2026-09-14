@@ -48,6 +48,65 @@ final class AiSettingsPrivacyTest extends TestCase
     private const RECEIPT_ID = '01912345-6789-7abc-adef-0123456789ab';
     private const PROFILE_ID = '01912345-6789-7abc-bdef-0123456789ab';
     private const COMPATIBLE_ENDPOINT = 'https://vision.example.test/v1/chat/completions';
+    public function testUnconfiguredServerProxyKeepsManagementReachableWithoutALegacyRecipient(): void
+    {
+        $store = $this->createStub(AiStore::class);
+        $store->method('settings')->willReturn([
+            'mode' => 'server_proxy', 'provider' => 'ollama', 'model' => 'synthetic', 'revision' => 2,
+        ]);
+        $service = $this->directExtractionService(
+            $store,
+            $this->createStub(AiMaturityStore::class),
+            $this->syntheticProvider('ollama', false),
+            new SodiumSensitiveBufferEraser(),
+        );
+        $settings = $service->settings($this->identity(), self::HOME_ID);
+        self::assertSame(2, $settings['revision']);
+        self::assertNull($settings['transmissionPlan']);
+        self::assertSame([], $service->orchestrationPolicy($this->identity(), self::HOME_ID)['extractionProfileIds']);
+    }
+
+    public function testLegacyPrivatePolicyReferencesAreNeverDisclosedAndKeepRepairRevision(): void
+    {
+        foreach ([self::USER_ID, self::OTHER_USER_ID] as $owner) {
+            $profile = [...$this->providerProfile(), 'ownerUserId' => $owner];
+            $maturity = $this->createStub(AiMaturityStore::class);
+            $maturity->method('providerProfile')->willReturn($profile);
+            $maturity->method('providerProfiles')->willReturn($owner === self::USER_ID ? [$profile] : []);
+            $maturity->method('orchestrationPolicy')->willReturn([
+                'extractionProfileIds' => [self::PROFILE_ID], 'validationProfileId' => null,
+                'maxAttempts' => 4, 'maxTotalTokens' => 50000,
+                'maxEstimatedCostMicros' => 1000000, 'revision' => 7,
+            ]);
+            $service = $this->profileService($maturity);
+            $policy = $service->orchestrationPolicy($this->identity(), self::HOME_ID);
+            self::assertSame([], $policy['extractionProfileIds']);
+            self::assertNull($policy['validationProfileId']);
+            self::assertSame(7, $policy['revision']);
+            self::assertSame($policy, $service->settings($this->identity(), self::HOME_ID)['orchestrationPolicy']);
+        }
+    }
+
+    public function testSharedPolicyCannotSaveTheAuthorsPrivateProfile(): void
+    {
+        $maturity = $this->createMock(AiMaturityStore::class);
+        $maturity->method('providerProfile')->willReturn([
+            ...$this->providerProfile(), 'ownerUserId' => self::USER_ID,
+        ]);
+        $maturity->expects(self::never())->method('saveOrchestrationPolicy');
+        $this->expectException(Problem::class);
+        $this->expectExceptionMessage('shared profiles');
+        $this->profileService($maturity)->putOrchestrationPolicy(
+            $this->identity(),
+            self::HOME_ID,
+            [self::PROFILE_ID],
+            null,
+            4,
+            50000,
+            1000000,
+            0,
+        );
+    }
     public function testSettingsDistinguishDirectTransitFromExplicitEncryptedStorage(): void
     {
         $settings = $this->aiService()
