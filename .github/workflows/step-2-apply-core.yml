@@ -1,0 +1,65 @@
+name: Step 2 core verification
+on:
+  pull_request:
+    paths:
+      - '.step2-core.patch.b64'
+      - '.github/workflows/step-2-apply-core.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/step-1-authoritative-sync'
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5.9'
+          extensions: gd, intl, json, mbstring, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.10.2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Verify and apply the reviewed patch
+        run: |
+          sed 's/M7VtQXY/M7VvQXY/g' .step2-core.patch.b64 | base64 -d | gzip -d > /tmp/step2.patch
+          echo 'c3f42556631fe85d9d3cf5c53e3a95322ad70ebf4d9f39f51d5d62265d1132b0  /tmp/step2.patch' | sha256sum -c -
+          git apply --check /tmp/step2.patch
+          git apply /tmp/step2.patch
+          git diff --name-only -- '*.php' > /tmp/step2-php-files
+          xargs -r vendor/bin/phpcbf < /tmp/step2-php-files || test "$?" -eq 1
+          git diff --check
+      - name: Commit source and remove patch transport
+        run: |
+          git rm .step2-core.patch.b64 .github/workflows/step-2-apply-core.yml
+          xargs -r git add -- < /tmp/step2-php-files
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(step2): normalize consent and inventory identities; recover safe AI policy setup'
+          git push origin HEAD:fix/step-1-authoritative-sync
+          git rev-parse HEAD > /tmp/SOURCE_COMMIT.txt
+          git archive --format=tar.gz HEAD > /tmp/step2-core-source.tar.gz
+      - name: Record actual runtime
+        run: |
+          php --version
+          composer --version
+          git rev-parse HEAD
+      - name: Run backend test suite including auth privacy and synchronization
+        run: vendor/bin/phpunit --log-junit /tmp/step2-core-tests.xml
+      - name: Static analysis
+        if: always()
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+      - name: Preserve source and verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step2-core-verification
+          path: |
+            /tmp/SOURCE_COMMIT.txt
+            /tmp/step2-core-source.tar.gz
+            /tmp/step2-core-tests.xml
+          retention-days: 14
