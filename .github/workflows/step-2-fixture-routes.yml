@@ -26,9 +26,9 @@ jobs:
           old="'$prefix/ai/profiles/$privateA?expectedRevision=1',\n          null,"
           assert s.count(old)==1
           s=s.replace(old,"'$prefix/ai/profiles/$privateA',\n          {'expectedRevision': 1},")
-          old="          token: tokenB,\n        );\n        final changed"
+          old="        }, token: tokenB);\n        final changed"
           assert s.count(old)==1
-          s=s.replace(old,"          token: tokenB,\n          status: 201,\n        );\n        final changed")
+          s=s.replace(old,"        }, token: tokenB, status: 201);\n        final changed")
           p.write_text(s)
           p=Path('tests/Acceptance/headless-platform-acceptance.sh');s=p.read_text()
           assert s.count('/ai/orchestration-policy')==1
