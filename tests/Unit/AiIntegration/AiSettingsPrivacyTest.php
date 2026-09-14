@@ -209,7 +209,8 @@ final class AiSettingsPrivacyTest extends TestCase
         $maturity = $this->createMock(AiMaturityStore::class);
         $maturity->method('orchestrationPolicy')
             ->with(self::HOME_ID)
-            ->willReturn(null);
+            ->willReturn($this->syntheticPolicy());
+        $maturity->method('providerProfiles')->willReturn([$this->syntheticProfile()]);
         $maturity->expects(self::never())
             ->method('insertMediaWithinQuota');
         $storage = $this->createMock(MediaStorage::class);
@@ -277,6 +278,7 @@ final class AiSettingsPrivacyTest extends TestCase
             "\x89PNG\r\n\x1a\n" . str_repeat('x', 20),
             transmissionPlanHash: (string) $service->settings($this->identity(), self::HOME_ID)
                 ['transmissionPlan']['sha256'],
+            selectedProfileId: self::PROFILE_ID,
         );
         self::assertSame('review_required', $result['status']);
         self::assertSame(0, $result['candidateCount']);
@@ -306,8 +308,8 @@ final class AiSettingsPrivacyTest extends TestCase
         $store->expects(self::once())
             ->method('completeExtraction');
         $maturity = $this->createStub(AiMaturityStore::class);
-        $maturity->method('orchestrationPolicy')
-            ->willReturn(null);
+        $maturity->method('orchestrationPolicy')->willReturn($this->syntheticPolicy());
+        $maturity->method('providerProfiles')->willReturn([$this->syntheticProfile()]);
         $provider = new class implements AiProvider
         {
             public int $calls = 0;
@@ -387,6 +389,7 @@ final class AiSettingsPrivacyTest extends TestCase
                 'transmissionConsent' => true,
                 'transmissionPlanHash' => (string) $service->settings($this->identity(), self::HOME_ID)
                     ['transmissionPlan']['sha256'],
+                'selectedProfileId' => self::PROFILE_ID,
                 ],
             )
             ->withUploadedFiles(
@@ -564,8 +567,8 @@ final class AiSettingsPrivacyTest extends TestCase
         $store->expects(self::once())
             ->method('failExtraction');
         $maturity = $this->createStub(AiMaturityStore::class);
-        $maturity->method('orchestrationPolicy')
-            ->willReturn(null);
+        $maturity->method('orchestrationPolicy')->willReturn($this->syntheticPolicy());
+        $maturity->method('providerProfiles')->willReturn([$this->syntheticProfile()]);
         $provider = new class implements AiProvider
         {
             public function id(): string
@@ -606,6 +609,7 @@ final class AiSettingsPrivacyTest extends TestCase
                     'transmissionConsent' => true,
                     'transmissionPlanHash' => (string) $service->settings($this->identity(), self::HOME_ID)
                         ['transmissionPlan']['sha256'],
+                    'selectedProfileId' => self::PROFILE_ID,
                 ],
             )
             ->withUploadedFiles(
@@ -1774,6 +1778,25 @@ final class AiSettingsPrivacyTest extends TestCase
             $marker . '.png',
             'image/png',
         );
+    }
+
+    /** @return array<string, mixed> */
+    private function syntheticPolicy(): array
+    {
+        return [
+            'extractionProfileIds' => [self::PROFILE_ID], 'validationProfileId' => null,
+            'maxAttempts' => 4, 'maxTotalTokens' => 50000,
+            'maxEstimatedCostMicros' => 1000000, 'revision' => 1,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function syntheticProfile(): array
+    {
+        return [
+            ...$this->providerProfile(), 'provider' => 'synthetic', 'model' => 'synthetic-vision',
+            'ownerUserId' => null, 'ciphertext' => null, 'nonce' => null, 'keyVersion' => null,
+        ];
     }
 
     /** @return array<string, mixed> */

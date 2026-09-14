@@ -302,16 +302,18 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                        AND a.normalized_alias LIKE :pattern
                  ))';
         $privateWhere = 'hp.home_id = :home AND hp.status = :home_product_status
-            AND hp.product_id IS NULL AND hp.pack_id IS NULL
-            AND :category_empty = :empty
+            AND hp.pack_id IS NULL
+            AND (:category_empty = :empty OR p.category_id = :category)
             AND (:home_category_empty = :empty OR hc.id = :home_category)
             AND (:query_empty = :empty OR hp.normalized_private_name LIKE :pattern
+                 OR p.normalized_name LIKE :pattern OR p.normalized_brand LIKE :pattern
                  OR hp.original_pack_text LIKE :pattern)';
         $parameters = [
             'home' => $homeId,
             'published' => 'published',
             'archived' => 'archived',
             'home_product_status' => 'active',
+            'unresolved_name' => 'Unresolved catalog product',
             'category_empty' => $categoryId ?? '',
             'category' => $categoryId ?? '',
             'home_category_empty' => $homeCategoryId ?? '',
@@ -346,16 +348,21 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                     ON ib.home_id = :home AND ib.home_product_id = hp.id
                   WHERE ' . $globalWhere . '
                   UNION ALL
-                  SELECT NULL AS packId, NULL AS variantId, NULL AS productId,
-                         hp.private_name AS canonicalName, :empty AS brand,
-                         NULL AS categoryId, hc.id AS homeCategoryId,
-                         hc.name AS categoryName,
-                         CASE WHEN hc.id IS NULL THEN NULL ELSE :home_scope END AS categorySource,
+                  SELECT NULL AS packId, NULL AS variantId, hp.product_id AS productId,
+                         COALESCE(hp.private_name, p.canonical_name, :unresolved_name) AS canonicalName,
+                         COALESCE(p.brand, :empty) AS brand,
+                         CASE WHEN hc.id IS NULL THEN c.id ELSE NULL END AS categoryId,
+                         hc.id AS homeCategoryId, COALESCE(hc.name, c.canonical_name) AS categoryName,
+                         CASE WHEN hc.id IS NOT NULL THEN :home_scope
+                              WHEN c.id IS NOT NULL THEN :global_scope ELSE NULL END AS categorySource,
                          COALESCE(hp.original_pack_text, :empty) AS packText,
                          NULL AS packStatus, hp.id AS homeProductId,
                          hp.status AS homeProductStatus, COALESCE(ib.quantity, 0) AS quantity,
-                         hp.normalized_private_name AS sortName, :empty AS sortBrand
+                         COALESCE(hp.normalized_private_name, p.normalized_name, :empty) AS sortName,
+                         COALESCE(p.normalized_brand, :empty) AS sortBrand
                   FROM home_products hp
+                  LEFT JOIN products p ON p.id = hp.product_id
+                  LEFT JOIN categories c ON c.id = p.category_id
                   LEFT JOIN home_categories hc
                     ON hc.id = hp.home_category_id AND hc.home_id = hp.home_id
                   LEFT JOIN inventory_balances ib
@@ -599,9 +606,10 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         }
         if ($packId !== null) {
             $catalogPack = $this->connection->fetchAssociative(
-                'SELECT product_id FROM product_packs
-                 WHERE id = :pack AND status <> :status',
-                ['pack' => $packId, 'status' => 'archived'],
+                'SELECT pk.product_id FROM product_packs pk
+                 INNER JOIN products p ON p.id = pk.product_id AND p.status = :published
+                 WHERE pk.id = :pack AND pk.status <> :status',
+                ['pack' => $packId, 'status' => 'archived', 'published' => 'published'],
             );
             if (
                 $catalogPack === false

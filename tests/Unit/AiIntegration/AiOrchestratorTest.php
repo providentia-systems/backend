@@ -19,6 +19,52 @@ use Providentia\AiIntegration\Infrastructure\Security\SodiumSensitiveBufferErase
 
 final class AiOrchestratorTest extends TestCase
 {
+    public function testChangedConsentStopsFallbackAndValidationBeforeDispatch(): void
+    {
+        foreach ([false, true] as $validation) {
+            $calls = 0;
+            $guardCalls = 0;
+            $primary = $this->provider('primary', static function () use (&$calls, $validation): ExtractionOutcome {
+                ++$calls;
+                if (! $validation) {
+                    throw new AiProviderException('provider_timeout', 'Synthetic timeout.');
+                }
+                return self::outcome(null);
+            });
+            $next = $this->provider('next', static function () use (&$calls): ExtractionOutcome {
+                ++$calls;
+                return self::outcome(null);
+            });
+            $plan = [new AiExecution($primary, 'synthetic', null)];
+            if (! $validation) {
+                $plan[] = new AiExecution($next, 'synthetic', null);
+            }
+            try {
+                $this->orchestrator()->execute(
+                    'receipt',
+                    'image/png',
+                    'synthetic image',
+                    $plan,
+                    $validation ? new AiExecution($next, 'synthetic', null) : null,
+                    beforeTransmission: static function () use (&$guardCalls): void {
+                        if (++$guardCalls === 2) {
+                            throw new \Providentia\SharedKernel\Application\Problem(
+                                409,
+                                'Consent changed',
+                                'Review the changed plan.',
+                            );
+                        }
+                    },
+                );
+                self::fail('Transmission continued after consent changed.');
+            } catch (\Providentia\SharedKernel\Application\Problem $problem) {
+                self::assertSame(409, $problem->status);
+                self::assertSame(1, $calls);
+                self::assertSame(2, $guardCalls);
+            }
+        }
+    }
+
     public function testRetryableFailureFailsOverAndIndependentProviderValidates(): void
     {
         $buffers = new RecordingSensitiveBufferEraser();
