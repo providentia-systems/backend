@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: providentia-systems/client
-          ref: 3d5d8fd0ab487145abd9e26d69c8f68bdb959208
+          ref: 5b5a35ce212d488080a0442f0c2af34efc189c62
           path: _step2_client
           persist-credentials: false
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
