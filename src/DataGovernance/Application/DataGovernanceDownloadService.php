@@ -79,6 +79,9 @@ final class DataGovernanceDownloadService
                 throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
             }
         } else {
+            if ((string) ($request['requestedByUserId'] ?? '') !== $identity->userId) {
+                throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+            }
             $this->homes->requirePermission($identity, (string) $request['homeId'], HomePermission::DATA_EXPORT);
         }
 

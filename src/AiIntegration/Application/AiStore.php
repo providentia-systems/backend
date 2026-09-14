@@ -83,6 +83,11 @@ interface AiStore
     /** @return array<string, mixed>|null */
     public function extraction(string $homeId, string $id): ?array;
 
+    /** Must be called inside the review transaction before reading prerequisites. */
+    public function lockExtractionReview(string $homeId, string $extractionId): void;
+
+    public function hasAcceptedCandidates(string $homeId, string $extractionId): bool;
+
     public function reviewCandidate(
         string $homeId,
         string $extractionId,

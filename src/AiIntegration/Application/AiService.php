@@ -962,54 +962,58 @@ final class AiService
         if ($position < 0 || $expectedRevision < 1) {
             throw new Problem(422, 'Invalid AI review', 'Candidate position and revision are invalid.');
         }
-        if (
-            $decision === 'accepted'
-            && $this->maturity->hasPendingObservationDecisions($homeId, $extractionId)
-        ) {
-            throw new Problem(
-                409,
-                'Duplicate review required',
-                'Resolve every possible cross-image duplicate before accepting extraction candidates.',
-            );
-        }
-        if (
-            $decision === 'accepted'
-            && $this->maturity->hasBlockingExtractionDiscrepancies($homeId, $extractionId)
-        ) {
-            throw new Problem(
-                409,
-                'Validation discrepancy review required',
-                'Resolve every independent-provider discrepancy before accepting extraction candidates.',
-            );
-        }
-        if (
-            $decision === 'accepted'
-            && $this->maturity->candidateIsConfirmedDuplicate($homeId, $extractionId, $position)
-        ) {
-            throw new Problem(
-                409,
-                'Duplicate candidate rejected',
-                'This candidate was confirmed as an overlapping observation and cannot be counted twice.',
-            );
-        }
-        if (
-            ! $this->store->reviewCandidate(
-                $homeId,
-                $extractionId,
-                $position,
-                $decision,
-                $expectedRevision,
-                $identity->userId,
-                $this->clock->now(),
-            )
-        ) {
-            throw new Problem(409, 'Revision conflict', 'The AI candidate changed on another device.');
-        }
+        $this->transactions->transactional(function () use ($identity, $homeId, $extractionId, $position, $decision, $expectedRevision): void {
+            $this->store->lockExtractionReview($homeId, $extractionId);
+            if (
+                $decision === 'accepted'
+                && $this->maturity->hasPendingObservationDecisions($homeId, $extractionId)
+            ) {
+                throw new Problem(
+                    409,
+                    'Duplicate review required',
+                    'Resolve every possible cross-image duplicate before accepting extraction candidates.',
+                );
+            }
+            if (
+                $decision === 'accepted'
+                && $this->maturity->hasBlockingExtractionDiscrepancies($homeId, $extractionId)
+            ) {
+                throw new Problem(
+                    409,
+                    'Validation discrepancy review required',
+                    'Resolve every independent-provider discrepancy before accepting extraction candidates.',
+                );
+            }
+            if (
+                $decision === 'accepted'
+                && $this->maturity->candidateIsConfirmedDuplicate($homeId, $extractionId, $position)
+            ) {
+                throw new Problem(
+                    409,
+                    'Duplicate candidate rejected',
+                    'This candidate was confirmed as an overlapping observation and cannot be counted twice.',
+                );
+            }
+            if (
+                ! $this->store->reviewCandidate(
+                    $homeId,
+                    $extractionId,
+                    $position,
+                    $decision,
+                    $expectedRevision,
+                    $identity->userId,
+                    $this->clock->now(),
+                )
+            ) {
+                throw new Problem(409, 'Revision conflict', 'The AI candidate changed on another device.');
+            }
+        });
     }
 
     public function reviewObservationDecision(
         AuthenticatedIdentity $identity,
         string $homeId,
+        string $extractionId,
         string $decisionId,
         string $decision,
         int $expectedRevision,
@@ -1018,18 +1022,25 @@ final class AiService
         if (! in_array($decision, ['confirmed_duplicate', 'distinct'], true) || $expectedRevision < 1) {
             throw new Problem(422, 'Invalid duplicate review', 'Choose confirmed_duplicate or distinct.');
         }
-        if (
-            ! $this->maturity->reviewObservationDecision(
-                $homeId,
-                $decisionId,
-                $decision,
-                $expectedRevision,
-                $identity->userId,
-                $this->clock->now(),
-            )
-        ) {
-            throw new Problem(409, 'Revision conflict', 'The duplicate decision changed on another device.');
-        }
+        $this->transactions->transactional(function () use ($identity, $homeId, $extractionId, $decisionId, $decision, $expectedRevision): void {
+            $this->store->lockExtractionReview($homeId, $extractionId);
+            if ($this->store->hasAcceptedCandidates($homeId, $extractionId)) {
+                throw new Problem(409, 'Evidence review locked', 'Reject accepted candidates before changing their evidence.');
+            }
+            if (
+                ! $this->maturity->reviewObservationDecision(
+                    $homeId,
+                    $extractionId,
+                    $decisionId,
+                    $decision,
+                    $expectedRevision,
+                    $identity->userId,
+                    $this->clock->now(),
+                )
+            ) {
+                throw new Problem(409, 'Revision conflict', 'The duplicate decision changed on another device.');
+            }
+        });
     }
 
     public function reviewDiscrepancy(
@@ -1048,19 +1059,25 @@ final class AiService
         ) {
             throw new Problem(422, 'Invalid discrepancy review', 'Choose an allowed discrepancy decision.');
         }
-        if (
-            ! $this->maturity->reviewExtractionDiscrepancy(
-                $homeId,
-                $extractionId,
-                $position,
-                $decision,
-                $expectedRevision,
-                $identity->userId,
-                $this->clock->now(),
-            )
-        ) {
-            throw new Problem(409, 'Revision conflict', 'The discrepancy changed on another device.');
-        }
+        $this->transactions->transactional(function () use ($identity, $homeId, $extractionId, $position, $decision, $expectedRevision): void {
+            $this->store->lockExtractionReview($homeId, $extractionId);
+            if ($this->store->hasAcceptedCandidates($homeId, $extractionId)) {
+                throw new Problem(409, 'Evidence review locked', 'Reject accepted candidates before changing their evidence.');
+            }
+            if (
+                ! $this->maturity->reviewExtractionDiscrepancy(
+                    $homeId,
+                    $extractionId,
+                    $position,
+                    $decision,
+                    $expectedRevision,
+                    $identity->userId,
+                    $this->clock->now(),
+                )
+            ) {
+                throw new Problem(409, 'Revision conflict', 'The discrepancy changed on another device.');
+            }
+        });
     }
 
     /**

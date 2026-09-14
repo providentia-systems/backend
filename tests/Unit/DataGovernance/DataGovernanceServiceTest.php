@@ -212,6 +212,81 @@ final class DataGovernanceServiceTest extends TestCase
         self::assertTrue($processor->processOnce());
     }
 
+    public function testHomeExportDownloadIsBoundToTheOriginalRequester(): void
+    {
+        $store = $this->createMock(DataGovernanceStore::class);
+        $store->method('request')->willReturn([
+            'id' => self::REQUEST_ID,
+            'scopeType' => 'home',
+            'homeId' => self::HOME_ID,
+            'requestedByUserId' => '01912345-6789-7abc-bdef-0123456789ab',
+        ]);
+        $store->expects(self::never())->method('consumeDownload');
+        try {
+            $this->downloadService($store)->download($this->identity(), self::REQUEST_ID, 'synthetic-token');
+            self::fail('Another requester must not retrieve this export.');
+        } catch (Problem $problem) {
+            self::assertSame(404, $problem->status);
+        }
+    }
+
+    public function testEligibleProjectionNeverIncludesArtifactOrTokenSecrets(): void
+    {
+        $store = $this->createStub(DataGovernanceStore::class);
+        $store->method('requestsForUser')->willReturn([
+            [
+                'id' => self::REQUEST_ID,
+                'requestKind' => 'account_export',
+                'scopeType' => 'account',
+                'status' => 'completed',
+                'revision' => '3',
+                'requestedByUserId' => self::USER_ID,
+                'artifactExpiresAt' => '2026-08-05 12:00:00',
+                'artifactReference' => 'private-encrypted-artifact',
+                'downloadTokenHash' => 'private-token-hash',
+                'retainedDataDisclosure' => '[]',
+            ],
+        ]);
+        $requests = $this->service($store)->accountRequests($this->identity(), 50, 0);
+        self::assertTrue($requests[0]['downloadEligible']);
+        self::assertSame(3, $requests[0]['revision']);
+        self::assertArrayNotHasKey('artifactReference', $requests[0]);
+        self::assertArrayNotHasKey('downloadTokenHash', $requests[0]);
+        self::assertArrayNotHasKey('requestedByUserId', $requests[0]);
+    }
+
+    public function testUnavailableExpiredCancelledAndForeignExportsAreNotEligible(): void
+    {
+        $rows = [];
+        $base = [
+            'id' => self::REQUEST_ID,
+            'requestKind' => 'account_export',
+            'scopeType' => 'account',
+            'status' => 'completed',
+            'revision' => 3,
+            'requestedByUserId' => self::USER_ID,
+            'artifactExpiresAt' => '2026-08-05 12:00:00',
+            'artifactReference' => 'opaque-reference',
+            'retainedDataDisclosure' => '[]',
+        ];
+        foreach (
+            [
+            ['artifactExpiresAt' => '2026-08-04 12:00:00'],
+            ['status' => 'cancelled'],
+            ['artifactReference' => null],
+            ['requestedByUserId' => 'another-user'],
+            ['requestKind' => 'account_erasure'],
+            ] as $override
+        ) {
+            $rows[] = array_replace($base, $override);
+        }
+        $store = $this->createStub(DataGovernanceStore::class);
+        $store->method('requestsForUser')->willReturn($rows);
+        foreach ($this->service($store)->accountRequests($this->identity(), 50, 0) as $row) {
+            self::assertFalse($row['downloadEligible']);
+        }
+    }
+
     private function service(
         DataGovernanceStore $store,
         ?RecordingTransactionManager $transactions = null,

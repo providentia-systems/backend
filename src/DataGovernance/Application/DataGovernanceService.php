@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Providentia\DataGovernance\Application;
 
+use DateTimeImmutable;
+use DateTimeZone;
 use DomainException;
 use Providentia\DataGovernance\Domain\RetainedDataDisclosure;
 use Providentia\Home\Application\HomeAuthorization;
@@ -76,7 +78,7 @@ final class DataGovernanceService
             $identity->userId,
             min(100, max(1, $limit)),
             max(0, $offset),
-        ));
+        ), $identity);
     }
 
     /** @return list<array<string, mixed>> */
@@ -92,7 +94,7 @@ final class DataGovernanceService
             $homeId,
             min(100, max(1, $limit)),
             max(0, $offset),
-        ));
+        ), $identity);
     }
 
     public function cancel(
@@ -166,6 +168,7 @@ final class DataGovernanceService
             'requestKind' => $kind,
             'scopeType' => $scopeType,
             'status' => 'queued',
+            'downloadEligible' => false,
             'revision' => 1,
             'retainedDataDisclosure' => $disclosure,
             'createdAt' => $now->format(DATE_ATOM),
@@ -176,11 +179,28 @@ final class DataGovernanceService
      * @param list<array<string, mixed>> $rows
      * @return list<array<string, mixed>>
      */
-    private function decodeRows(array $rows): array
+    private function decodeRows(array $rows, AuthenticatedIdentity $identity): array
     {
         foreach ($rows as &$row) {
             $encoded = (string) ($row['retainedDataDisclosure'] ?? '[]');
-            $row['retainedDataDisclosure'] = json_decode($encoded, true, 512, JSON_THROW_ON_ERROR);
+            $disclosure = json_decode($encoded, true, 512, JSON_THROW_ON_ERROR);
+            $expiry = isset($row['artifactExpiresAt'])
+                ? new DateTimeImmutable((string) $row['artifactExpiresAt'], new DateTimeZone('UTC'))
+                : null;
+            $eligible = ($row['status'] ?? null) === 'completed'
+                && in_array($row['requestKind'] ?? null, ['account_export', 'home_export'], true)
+                && (string) ($row['requestedByUserId'] ?? '') === $identity->userId
+                && isset($row['artifactReference'])
+                && $expiry !== null && $expiry > $this->clock->now();
+            // Credential hashes, encryption nonces, storage references and the
+            // requester identity are not request-list or download UI fields.
+            $row = array_intersect_key($row, array_flip([
+                'id', 'requestKind', 'scopeType', 'homeId', 'status',
+                'artifactExpiresAt', 'failureReason', 'createdAt', 'updatedAt', 'revision',
+            ]));
+            $row['revision'] = (int) ($row['revision'] ?? 0);
+            $row['retainedDataDisclosure'] = $disclosure;
+            $row['downloadEligible'] = $eligible;
         }
         unset($row);
 

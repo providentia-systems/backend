@@ -35,7 +35,7 @@ final readonly class DataGovernanceHandler implements RequestHandlerInterface
         $query = $request->getQueryParams();
         $homeId = (string) $request->getAttribute('homeId', '');
 
-        return match ($this->action) {
+        $response = match ($this->action) {
             'account.export' => new JsonResponse($this->governance->requestAccountExport($identity), 202),
             'account.erasure' => new JsonResponse($this->governance->requestAccountErasure($identity), 202),
             'account.requests' => new JsonResponse(['data' => $this->governance->accountRequests(
@@ -64,6 +64,11 @@ final readonly class DataGovernanceHandler implements RequestHandlerInterface
             ), true, 512, JSON_THROW_ON_ERROR)),
             default => throw new \LogicException('Unknown data-governance action.'),
         };
+
+        // These authenticated responses contain private records or single-use
+        // credentials. Never allow a browser, proxy, or service worker cache.
+        return $response->withHeader('Cache-Control', 'private, no-store')
+            ->withHeader('Pragma', 'no-cache');
     }
 
     /** @param array<string, mixed> $body */
