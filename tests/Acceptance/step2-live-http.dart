@@ -302,7 +302,7 @@ void main() {
               )
               ..headers['Authorization'] = 'Bearer $tokenB'
               ..fields.addAll({
-                'kind': 'stock',
+                'kind': 'receipt',
                 'transmissionConsent': 'true',
                 'transmissionPlanHash': b.settings.transmissionPlan!.sha256,
                 'selectedProfileId': privateB,
