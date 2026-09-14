@@ -809,6 +809,7 @@ final class AiService
                     },
                     function () use ($identity, $homeId, $transmissionPlanHash, $selectedProfileId): void {
                         $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_USE);
+                        $this->authorization->requirePermission($identity, $homeId, HomePermission::AI_CREDENTIALS_USE);
                         $current = $this->transactions->transactional(
                             fn (): array => $this->settingsSnapshot($identity, $homeId),
                         );

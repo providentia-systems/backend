@@ -9,6 +9,7 @@ use DateTimeZone;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Providentia\Synchronization\Application\SyncStore;
+use Providentia\Synchronization\Application\SyncRepresentationNormalizer;
 use Providentia\Synchronization\Application\SyncCommand;
 use Providentia\Synchronization\Application\SyncOperation;
 use Providentia\Synchronization\Application\SyncSnapshot;
@@ -23,6 +24,7 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
         private readonly UuidGenerator $ids,
         private readonly int $offlineWindowDays = 90,
         private readonly int $tombstoneRetentionDays = 120,
+        private readonly ?SyncRepresentationNormalizer $representations = null,
     ) {
         if ($this->offlineWindowDays < 1 || $this->tombstoneRetentionDays < $this->offlineWindowDays) {
             throw new \InvalidArgumentException(
@@ -316,19 +318,14 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
 
         return new SyncSnapshotPage(
             $highWater,
-            array_map(static fn (array $row): array => [
+            array_map(fn (array $row): array => [
                 'entityType' => (string) $row['entity_type'],
                 'entityId' => (string) $row['entity_id'],
                 'revision' => (int) $row['revision'],
                 'representationSchemaVersion' => (int) $row['payload_schema_version'],
                 'representation' => array_merge(
                     ['id' => (string) $row['entity_id'], 'revision' => (int) $row['revision']],
-                    (array) json_decode(
-                        (string) $row['payload_json'],
-                        true,
-                        64,
-                        JSON_THROW_ON_ERROR,
-                    ),
+                    $this->decodedRepresentation($homeId, $row),
                 ),
                 'serverTimestamp' => (string) $row['changed_at'],
             ], $rows),
@@ -347,21 +344,36 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
             ['home' => $homeId, 'after' => $after, 'high_water' => $highWater],
         );
 
-        return array_map(static fn (array $row): array => [
+        return array_map(fn (array $row): array => [
             'cursor' => (int) $row['sequence_id'],
             'entityType' => (string) $row['entity_type'],
             'entityId' => (string) $row['entity_id'],
             'operationType' => (string) $row['operation_type'],
             'revision' => (int) $row['revision'],
             'payloadSchemaVersion' => (int) $row['payload_schema_version'],
-            'payload' => (array) json_decode(
-                (string) $row['payload_json'],
-                true,
-                64,
-                JSON_THROW_ON_ERROR,
-            ),
+            'payload' => $this->decodedRepresentation($homeId, $row),
             'changedAt' => (string) $row['changed_at'],
         ], $rows);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function decodedRepresentation(string $homeId, array $row): array
+    {
+        /** @var array<string, mixed> $payload */
+        $payload = (array) json_decode((string) $row['payload_json'], true, 64, JSON_THROW_ON_ERROR);
+        if ($this->representations === null || ($row['operation_type'] ?? null) === 'delete') {
+            return $payload;
+        }
+
+        return $this->representations->normalize(
+            $homeId,
+            (string) $row['entity_type'],
+            (string) $row['entity_id'],
+            $payload,
+        );
     }
 
     public function acknowledgeCursor(

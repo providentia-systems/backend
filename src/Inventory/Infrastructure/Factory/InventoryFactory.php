@@ -5,6 +5,13 @@ declare(strict_types=1);
 namespace Providentia\Inventory\Infrastructure\Factory;
 
 use Doctrine\DBAL\Connection;
+use Providentia\Inventory\Application\HomeProductIdentityRepairStore;
+use Providentia\Inventory\Application\HomeProductIdentityReconciler;
+use Providentia\Inventory\Infrastructure\Doctrine\DbalHomeProductIdentityRepairStore;
+use Providentia\Inventory\Infrastructure\Doctrine\DbalHomeProductSyncNormalizer;
+use Providentia\Inventory\Infrastructure\Cli\ReconcileHomeProductIdentitiesCommand as RepairIdentitiesCommand;
+use Providentia\Synchronization\Application\SyncRepresentationNormalizer;
+use Providentia\Home\Application\HomeStore;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Inventory\Application\InventoryService;
 use Providentia\Inventory\Application\InventoryStore;
@@ -24,6 +31,22 @@ final class InventoryFactory
     public function __invoke(ContainerInterface $container, string $requestedName): object
     {
         return match (true) {
+            $requestedName === DbalHomeProductSyncNormalizer::class => new DbalHomeProductSyncNormalizer(
+                $container->get(Connection::class),
+            ),
+            $requestedName === DbalHomeProductIdentityRepairStore::class => new DbalHomeProductIdentityRepairStore(
+                $container->get(Connection::class),
+            ),
+            $requestedName === HomeProductIdentityReconciler::class => new HomeProductIdentityReconciler(
+                $container->get(HomeProductIdentityRepairStore::class),
+                $container->get(HomeStore::class),
+                $container->get(ChangeFeedWriter::class),
+                $container->get(TransactionManager::class),
+                $container->get(Clock::class),
+            ),
+            $requestedName === RepairIdentitiesCommand::class => new RepairIdentitiesCommand(
+                $container->get(HomeProductIdentityReconciler::class),
+            ),
             $requestedName === DbalInventoryStore::class => new DbalInventoryStore(
                 $container->get(Connection::class),
             ),
