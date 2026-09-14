@@ -545,6 +545,7 @@ final class SynchronizationServiceTest extends TestCase
         $storedResult = [
             'operationId' => self::OPERATION_ID,
             'status' => 'accepted',
+            'commandType' => 'shopping.list.create',
             'entityId' => self::ENTITY_ID,
         ];
         $store = $this->createMock(SyncStore::class);
