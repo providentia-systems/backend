@@ -1,0 +1,53 @@
+name: Step 3 source preflight
+on:
+  pull_request:
+    paths:
+      - 'tool/step3-*'
+      - '.github/workflows/step-3-preflight.yml'
+permissions:
+  contents: read
+concurrency:
+  group: step3-preflight-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Prepare exact proposed source, never production data
+        run: python3 tool/step3-prepare.py
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5.9'
+          extensions: gd, intl, json, mbstring, pdo_sqlite, pdo_mysql, redis
+          coverage: none
+          tools: composer:2.10.2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Format changed PHP using the existing coding standard
+        run: |
+          set +e
+          vendor/bin/phpcbf $(git diff --name-only -- '*.php')
+          result=$?
+          test "$result" -eq 0 -o "$result" -eq 1
+      - name: Complete backend quality and authentication boundary
+        run: |
+          composer check
+          bash tests/Acceptance/development-auth-http-smoke.sh
+      - name: Preserve exact reviewed source and runtime
+        if: always()
+        run: |
+          mkdir -p /tmp/step3-evidence
+          git add -N src tests docs contracts tool/materialize-openapi-contract.sh
+          git diff --binary HEAD -- . ':!tool/step3-*' ':!.github/workflows/step-3-preflight.yml' > /tmp/step3-evidence/reviewed-source.patch
+          git diff --stat > /tmp/step3-evidence/source-stat.txt
+          { git rev-parse HEAD; php --version; composer --version; } > /tmp/step3-evidence/runtime.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: step3-backend-preflight
+          path: /tmp/step3-evidence/
+          retention-days: 7
