@@ -4,9 +4,13 @@ on:
     paths:
       - .step2-repair-contract.py
       - .step2-identity.patch.b64
+      - .step2-polish.py
       - .github/workflows/step-2-repair-verify.yml
 permissions:
   contents: read
+concurrency:
+  group: step2-repair-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 jobs:
   verify:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/step-1-authoritative-sync'
@@ -37,13 +41,16 @@ jobs:
           subprocess.run(['git','apply','/tmp/step2-identity.patch'],check=True)
           PY
           python3 .step2-repair-contract.py
+          python3 .step2-polish.py
           git add -N src tests
           git diff --name-only -- '*.php' > /tmp/step2-php-files
-          xargs -r vendor/bin/phpcbf < /tmp/step2-php-files || test "$?" -eq 1
+          result=0
+          xargs -r vendor/bin/phpcbf < /tmp/step2-php-files || result=$?
+          test "$result" -le 2
           git diff --check
       - name: Commit source and remove temporary transport
         run: |
-          git rm .step2-repair-contract.py .step2-identity.patch.b64 .github/workflows/step-2-repair-verify.yml
+          git rm .step2-repair-contract.py .step2-identity.patch.b64 .step2-polish.py .github/workflows/step-2-repair-verify.yml
           git add src tests contracts tool/materialize-openapi-contract.sh
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -56,6 +63,9 @@ jobs:
       - name: Static analysis
         if: always()
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G > /tmp/step2-repair-analysis.txt 2>&1
+      - name: Enforce style without suppressing remaining diagnostics
+        if: always()
+        run: xargs -r vendor/bin/phpcs --report=json < /tmp/step2-php-files > /tmp/step2-repair-style.json
       - name: Architecture and canonical contract
         if: always()
         run: |
@@ -71,6 +81,7 @@ jobs:
             /tmp/step2-repair-source.tar.gz
             /tmp/step2-repair-tests.xml
             /tmp/step2-repair-analysis.txt
+            /tmp/step2-repair-style.json
             .step2-identity.patch.b64
           include-hidden-files: true
           retention-days: 14
