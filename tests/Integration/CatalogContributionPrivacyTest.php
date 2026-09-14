@@ -46,6 +46,63 @@ final class CatalogContributionPrivacyTest extends TestCase
         $this->store = new DbalCatalogContributionStore($this->connection);
     }
 
+    public function testPersistedConsentKeepsBooleanTypesForEveryCombinationAndConsumer(): void
+    {
+        $at = new \DateTimeImmutable('2026-09-14T12:00:00+00:00');
+        self::assertNull($this->store->consent('unsaved-home'));
+        for ($mask = 0; $mask < 8; $mask++) {
+            $flags = [($mask & 1) !== 0, ($mask & 2) !== 0, ($mask & 4) !== 0];
+            $revision = 4 + $mask;
+            self::assertTrue($this->store->saveConsent(
+                'receipt-' . $mask,
+                'home-private',
+                ...[...$flags, 'catalog-sharing-v1', $revision, 'user-private', $at],
+            ));
+            $reopened = new DbalCatalogContributionStore($this->connection);
+            $consent = json_decode(json_encode($reopened->consent('home-private'), JSON_THROW_ON_ERROR), true);
+            self::assertSame($flags[0], $consent['shareProductIdentity']);
+            self::assertSame($flags[1], $consent['shareProductImages']);
+            self::assertSame($flags[2], $consent['shareStorePrices']);
+            self::assertSame($revision + 1, $consent['revision']);
+            foreach (['product_identity', 'product_image', 'store_price'] as $index => $type) {
+                $result = $reopened->createContribution(
+                    'submission-' . $mask . '-' . $index,
+                    'home-private',
+                    'receipt-' . $mask,
+                    $type,
+                    null,
+                    ['canonicalName' => 'Synthetic item'],
+                    'user-private',
+                    $at,
+                );
+                self::assertSame($flags[$index] ? 'created' : 'conflict', $result['outcome']);
+            }
+        }
+        self::assertTrue($this->store->saveConsent(
+            'withdrawal',
+            'home-private',
+            false,
+            false,
+            false,
+            'catalog-sharing-v1',
+            12,
+            'user-private',
+            $at,
+        ));
+        self::assertSame(0, (int) $this->connection->fetchOne(
+            "SELECT COUNT(*) FROM catalog_contributions WHERE moderation_status = 'pending'",
+        ));
+        self::assertSame(13, $this->store->consent('home-private')['revision']);
+    }
+
+    public function testCorruptPersistedConsentFailsClosedRatherThanBecomingTruthy(): void
+    {
+        $this->connection->executeStatement(
+            "UPDATE catalog_contribution_consents SET share_product_images = 2 WHERE home_id = 'home-private'",
+        );
+        $this->expectException(\UnexpectedValueException::class);
+        $this->store->consent('home-private');
+    }
     public function testModeratorQueueNeverSelectsHouseholdOrUserAttribution(): void
     {
         $this->insertContribution('pending', 'pending-identity', 'product_identity');
