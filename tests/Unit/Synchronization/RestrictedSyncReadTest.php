@@ -79,7 +79,10 @@ final class RestrictedSyncReadTest extends TestCase
         self::assertSame('inventory-location', $pull['changes'][0]['entityType']);
         self::assertSame(2, $cursors->decode($pull['pageCursor'], self::HOME)['position']);
         self::assertFalse($pull['hasMore']);
-        self::assertStringNotContainsString('denied-private-receipt', json_encode([$bootstrap, $pull], JSON_THROW_ON_ERROR));
+        self::assertStringNotContainsString(
+            'denied-private-receipt',
+            json_encode([$bootstrap, $pull], JSON_THROW_ON_ERROR),
+        );
     }
 
     public function testReceiptRecoveryRechecksReadPermissionWithoutChangingAcceptedOutcome(): void
@@ -139,7 +142,11 @@ final class RestrictedSyncReadTest extends TestCase
 
     private function cursors(): CursorCodec
     {
-        return new CursorCodec(str_repeat('s', 32), new FixedClock(new DateTimeImmutable('2026-09-14T12:00:00+00:00')), 3600);
+        return new CursorCodec(
+            str_repeat('s', 32),
+            new FixedClock(new DateTimeImmutable('2026-09-14T12:00:00+00:00')),
+            3600,
+        );
     }
 
     private function service(SyncStore $store, HomeStore $homes): SynchronizationService
