@@ -5,3 +5,20 @@ useDefault = true
 description = "Deterministic public catalog rule identifiers are not credentials"
 paths = ['''src/Catalog/Infrastructure/Doctrine/DbalCatalogStore\.php''']
 regexes = ['''providentia-v1-[0-9]{2}''']
+
+# Reviewed findings in historical commits d59a996 and 5c0038a. These are
+# public contract bytes and an isolated synthetic fixture, not credentials.
+# AND conditions keep other values in these files subject to the full scan.
+[[allowlists]]
+description = "Exact historical API document checksum, not an API key"
+condition = "AND"
+paths = ['''^docs/releases/step-2-response-configuration\.md$''']
+regexTarget = "secret"
+regexes = ['''^d8263a996b1382a0b0742ba4b3ca232e1d6f291644a2659d966e95b2abb038fc$''']
+
+[[allowlists]]
+description = "Exact public test-only notification key in isolated Step 2 fixture"
+condition = "AND"
+paths = ['''^tests/Acceptance/step2-http-dart\.sh$''']
+regexTarget = "secret"
+regexes = ['''^Y2ktbm90aWZpY2F0aW9uLWtleS0zMi1ieXRlcy1vayE=$''']
