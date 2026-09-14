@@ -1547,7 +1547,7 @@ assert_json 'The server-side AI provider was not enabled revision-safely.' '
 # undisclosed legacy provider/model fallback.
 profile_body="$(jq -cn '{label:"Acceptance shared profile",ownerScope:"home",
     provider:"openai-compatible",model:"acceptance-vision",
-    credential:"acceptance-shared-profile-synthetic-3333",
+    credential:"acceptance-ai-token-replacement-2222",
     estimatedCostMicros:0,expectedRevision:0}')"
 http_json POST "/api/v1/homes/${home_id}/ai/profiles" \
     201 "$homeowner_access_token" "$profile_body"
