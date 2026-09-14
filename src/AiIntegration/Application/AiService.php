@@ -962,7 +962,14 @@ final class AiService
         if ($position < 0 || $expectedRevision < 1) {
             throw new Problem(422, 'Invalid AI review', 'Candidate position and revision are invalid.');
         }
-        $this->transactions->transactional(function () use ($identity, $homeId, $extractionId, $position, $decision, $expectedRevision): void {
+        $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $extractionId,
+            $position,
+            $decision,
+            $expectedRevision,
+        ): void {
             $this->store->lockExtractionReview($homeId, $extractionId);
             if (
                 $decision === 'accepted'
@@ -1022,10 +1029,21 @@ final class AiService
         if (! in_array($decision, ['confirmed_duplicate', 'distinct'], true) || $expectedRevision < 1) {
             throw new Problem(422, 'Invalid duplicate review', 'Choose confirmed_duplicate or distinct.');
         }
-        $this->transactions->transactional(function () use ($identity, $homeId, $extractionId, $decisionId, $decision, $expectedRevision): void {
+        $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $extractionId,
+            $decisionId,
+            $decision,
+            $expectedRevision,
+        ): void {
             $this->store->lockExtractionReview($homeId, $extractionId);
             if ($this->store->hasAcceptedCandidates($homeId, $extractionId)) {
-                throw new Problem(409, 'Evidence review locked', 'Reject accepted candidates before changing their evidence.');
+                throw new Problem(
+                    409,
+                    'Evidence review locked',
+                    'Reject accepted candidates before changing their evidence.',
+                );
             }
             if (
                 ! $this->maturity->reviewObservationDecision(
@@ -1059,10 +1077,21 @@ final class AiService
         ) {
             throw new Problem(422, 'Invalid discrepancy review', 'Choose an allowed discrepancy decision.');
         }
-        $this->transactions->transactional(function () use ($identity, $homeId, $extractionId, $position, $decision, $expectedRevision): void {
+        $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $extractionId,
+            $position,
+            $decision,
+            $expectedRevision,
+        ): void {
             $this->store->lockExtractionReview($homeId, $extractionId);
             if ($this->store->hasAcceptedCandidates($homeId, $extractionId)) {
-                throw new Problem(409, 'Evidence review locked', 'Reject accepted candidates before changing their evidence.');
+                throw new Problem(
+                    409,
+                    'Evidence review locked',
+                    'Reject accepted candidates before changing their evidence.',
+                );
             }
             if (
                 ! $this->maturity->reviewExtractionDiscrepancy(
