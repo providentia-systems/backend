@@ -1,0 +1,5 @@
+from pathlib import Path
+for path in ['src/Inventory/Infrastructure/Doctrine/DbalHomeProductIdentityRepairStore.php','src/Synchronization/Infrastructure/Doctrine/DbalSyncStore.php']:
+    p=Path(path);s=p.read_text().replace('/** @param array<string, mixed> $row @return array<string, mixed> */','/**\n     * @param array<string, mixed> $row\n     * @return array<string, mixed>\n     */');p.write_text(s)
+p=Path('tests/Integration/HomeProductIdentityReconciliationTest.php');s=p.read_text().replace('$this->db->transactional($operation)', '$this->db->transactional(static fn (): mixed => $operation())');p.write_text(s)
+p=Path('tests/Unit/Catalog/CatalogImportServiceTest.php');s=p.read_text();a=s.index('public function testConfirmationPublishesEveryCreatedHomeProductToTheChangeFeed');b=s.index('\n    public function ',a+30);part=s[a:b];part=part.replace("                'productName' => null,\n",'');part=part.replace("                'privateName' => null,", "                'privateName' => null,\n                'productName' => 'Synthetic product family',");p.write_text(s[:a]+part+s[b:])
