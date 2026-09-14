@@ -568,7 +568,7 @@ final class AiSettingsPrivacyTest extends TestCase
             ->method('failExtraction');
         $maturity = $this->createStub(AiMaturityStore::class);
         $maturity->method('orchestrationPolicy')->willReturn($this->syntheticPolicy());
-        $maturity->method('providerProfiles')->willReturn([$this->syntheticProfile()]);
+        $maturity->method('providerProfiles')->willReturn([[...$this->syntheticProfile(), 'provider' => 'failing']]);
         $provider = new class implements AiProvider
         {
             public function id(): string
