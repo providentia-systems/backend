@@ -10,37 +10,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: backend
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          repository: providentia-systems/client
-          ref: 5b5a35ce212d488080a0442f0c2af34efc189c62
-          path: client
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          repository: providentia-systems/admin
-          ref: d73f3658d2ecce3852ae56ed88167718368d6815
-          path: admin
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Archive tracked source only, without credentials or runtime records
+      - name: Inspect the exact existing locked dependency, without upgrading it
         run: |
           mkdir evidence
-          for repo in backend client admin; do
-            git -C "$repo" archive --format=tar.gz --prefix="$repo/" HEAD > "evidence/$repo-head.tar.gz"
-            git -C "$repo" archive --format=tar.gz --prefix="$repo-main/" origin/main > "evidence/$repo-main.tar.gz"
-            printf '%s head=%s main=%s\n' "$repo" "$(git -C "$repo" rev-parse HEAD)" "$(git -C "$repo" rev-parse origin/main)" >> evidence/source-commits.txt
-          done
-          cat evidence/source-commits.txt
+          curl --fail --silent --show-error --location https://pub.dev/api/archives/file_picker-11.0.3.tar.gz --output evidence/file_picker-11.0.3.tar.gz
+          echo '29cc1fdb20613876cc7afc529738c1c0f11a9ca159b010edad0c566ac330847e  evidence/file_picker-11.0.3.tar.gz' | sha256sum --check
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: step3-exact-source
+          name: step3-export-saver-source
           path: evidence/
           retention-days: 1
