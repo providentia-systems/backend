@@ -58,11 +58,18 @@ final class SynchronizationService
             $envelope,
         );
 
+        $permissions = $this->readPermissions($identity, $homeId);
         $results = [];
         foreach ($validatedEnvelope->operations as $operation) {
-            $results[] = $validatedEnvelope->protocolVersion === 1
+            $result = $validatedEnvelope->protocolVersion === 1
                 ? $this->processOperation($identity, $homeId, $operation)
                 : $this->processCommand($identity, $homeId, $operation);
+            $entityType = is_array($operation) && is_string($operation['entityType'] ?? null)
+                ? $operation['entityType']
+                : (is_array($operation) && is_string($operation['commandType'] ?? null)
+                    ? SyncReadPolicy::entityForCommand($operation['commandType'])
+                    : null);
+            $results[] = SyncReadPolicy::result($result, $permissions, $entityType);
         }
 
         $highWater = $this->store->highWater($homeId);
@@ -109,8 +116,11 @@ final class SynchronizationService
             $highWater = max($after, $this->store->highWater($homeId));
         }
 
+        $permissions = $this->readPermissions($identity, $homeId);
         $changes = $this->store->changes($homeId, $after, $highWater, $this->pageSize);
-        $position = $after;
+        // Advance over the scanned page, not merely its visible records.
+        // An empty retained range is exhausted, including gaps after compaction.
+        $position = $highWater;
         if ($changes !== []) {
             $position = (int) $changes[array_key_last($changes)]['cursor'];
         }
@@ -125,7 +135,7 @@ final class SynchronizationService
             'hasMore' => $position < $highWater,
             'changes' => array_map(
                 fn (array $change): array => $this->presenter->change($homeId, $highWater, $change),
-                $changes,
+                SyncReadPolicy::filter($changes, $permissions),
             ),
         ];
     }
@@ -139,6 +149,7 @@ final class SynchronizationService
         ?int $requestedLimit = null,
     ): array {
         $this->authorization->requireMember($identity, $homeId);
+        $permissions = $this->readPermissions($identity, $homeId);
         $limit = min($this->pageSize, max(1, $requestedLimit ?? $this->pageSize));
         $afterType = null;
         $afterId = null;
@@ -195,7 +206,7 @@ final class SynchronizationService
                 $snapshot->highWater,
             ),
             'hasMore' => $snapshot->hasMore,
-            'records' => $snapshot->records,
+            'records' => SyncReadPolicy::filter($snapshot->records, $permissions),
         ];
     }
 
@@ -226,10 +237,15 @@ final class SynchronizationService
             $identity->deviceId,
             $operationIds,
         );
+        $permissions = $this->readPermissions($identity, $homeId);
         $operations = [];
         foreach ($operationIds as $operationId) {
             $operations[] = isset($stored[$operationId])
-                ? ['operationId' => $operationId, 'known' => true, 'result' => $stored[$operationId]]
+                ? [
+                    'operationId' => $operationId,
+                    'known' => true,
+                    'result' => SyncReadPolicy::result($stored[$operationId], $permissions),
+                ]
                 : ['operationId' => $operationId, 'known' => false];
         }
 
@@ -322,7 +338,11 @@ final class SynchronizationService
                         /** @var array<string, mixed> $response */
                         $response = $receipt['response'];
 
-                        return $response;
+                        return SyncReadPolicy::result(
+                            $response,
+                            $this->readPermissions($identity, $homeId),
+                            SyncReadPolicy::entityForCommand($command->commandType),
+                        );
                     }
 
                     return [
@@ -369,6 +389,24 @@ final class SynchronizationService
                 'detail' => 'The command could not be processed safely.',
             ];
         }
+    }
+
+    /** @return list<string> */
+    private function readPermissions(AuthenticatedIdentity $identity, string $homeId): array
+    {
+        $permissions = [];
+        foreach (array_unique(SyncReadPolicy::ENTITY_PERMISSIONS) as $permission) {
+            try {
+                $this->authorization->requirePermission($identity, $homeId, $permission);
+                $permissions[] = $permission;
+            } catch (Problem $problem) {
+                if ($problem->status !== 404) {
+                    throw $problem;
+                }
+            }
+        }
+
+        return $permissions;
     }
 
     private function operationId(mixed $value): string
