@@ -12,35 +12,9 @@ permissions:
   contents: read
 
 jobs:
-  source-evidence:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          persist-credentials: false
-          path: backend
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          repository: providentia-systems/client
-          ref: a03fd4eedfc4996446789a2785f09288f521c3aa
-          persist-credentials: false
-          path: client
-      - name: Retain exact tracked-source inputs, never credentials or household data
-        run: |
-          mkdir evidence
-          git -C backend rev-parse HEAD > evidence/backend-commit.txt
-          git -C client rev-parse HEAD > evidence/client-commit.txt
-          git -C backend archive --format=tar HEAD > evidence/backend-source.tar
-          git -C client archive --format=tar HEAD > evidence/client-source.tar
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: step-1-source-evidence-${{ github.sha }}
-          path: evidence/
-          if-no-files-found: error
-          retention-days: 7
-
   regressions:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -51,6 +25,11 @@ jobs:
           extensions: gd, intl, json, mbstring, pdo_sqlite, redis
           coverage: none
           tools: composer:2.10.2
+      - name: Record the resolved runtime and exact source revision
+        run: |
+          php --version
+          composer --version
+          git rev-parse HEAD
       - run: composer install --no-interaction --prefer-dist --no-progress
-      - name: Execute authorization regressions against the real application service
-        run: vendor/bin/phpunit tests/Unit/Synchronization/SyncReadAuthorizationRegressionTest.php
+      - name: Run all synchronization unit regressions
+        run: vendor/bin/phpunit tests/Unit/Synchronization
