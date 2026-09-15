@@ -1,0 +1,68 @@
+name: Apply and prove AI SQL integer normalization
+on:
+  push:
+    branches: [fix/step-1-authoritative-sync]
+    paths:
+      - .github/workflows/repair-ai-sql-integers.yml
+      - src/AiIntegration/Infrastructure/Doctrine/AiSqlIntegerProjection.php
+      - tests/Unit/AiIntegration/AiSqlIntegerProjectionTest.php
+      - tests/Integration/AiSqlIntegerProjectionTest.php
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5.9'
+          extensions: gd, intl, mbstring, pdo_sqlite, pdo_mysql, redis, sodium
+          tools: composer:2.10.2
+          coverage: none
+      - name: Install locked dependencies and record actual runtime
+        run: |
+          set -euo pipefail
+          mkdir -p var/repair-evidence
+          { php --version; composer --version; git rev-parse HEAD; } | tee var/repair-evidence/runtime.txt
+          composer install --no-interaction --prefer-dist --no-progress
+      - name: Prove the real stringifying PDO regression before the store repair
+        shell: bash
+        run: |
+          set -uo pipefail
+          vendor/bin/phpunit --colors=never --filter testStringifyingDriverPreservesJsonIntegers tests/Integration/AiSqlIntegerProjectionTest.php > var/repair-evidence/before.txt 2>&1
+          result=$?
+          cat var/repair-evidence/before.txt
+          test "$result" -eq 1
+          grep -F "Failed asserting that '3' is identical to 3" var/repair-evidence/before.txt
+      - name: Apply the small reviewed store patch
+        run: |
+          set -euo pipefail
+          git apply --check tool/repair-ai-sql-integers.patch
+          git apply tool/repair-ai-sql-integers.patch
+          vendor/bin/phpcbf src/AiIntegration/Infrastructure/Doctrine/AiSqlIntegerProjection.php tests/Unit/AiIntegration/AiSqlIntegerProjectionTest.php tests/Integration/AiSqlIntegerProjectionTest.php || { result=$?; test "$result" -eq 1; }
+      - name: Run all unchanged quality gates
+        run: |
+          set -euo pipefail
+          composer check 2>&1 | tee var/repair-evidence/after.txt
+          vendor/bin/phpunit --colors=never tests/Integration/AiSqlIntegerProjectionTest.php 2>&1 | tee var/repair-evidence/pdo-json.txt
+      - name: Publish tested source without rewriting newer work
+        run: |
+          set -euo pipefail
+          rm tool/repair-ai-sql-integers.patch .github/workflows/repair-ai-sql-integers.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/AiIntegration/Infrastructure/Doctrine/DbalAiStore.php src/AiIntegration/Infrastructure/Doctrine/AiSqlIntegerProjection.php tests/Unit/AiIntegration/AiSqlIntegerProjectionTest.php tests/Integration/AiSqlIntegerProjectionTest.php tool/repair-ai-sql-integers.patch .github/workflows/repair-ai-sql-integers.yml
+          git diff --cached --check
+          git commit -m 'fix(ai): strictly normalize persisted integer metadata across SQL drivers'
+          git push origin HEAD:refs/heads/fix/step-1-authoritative-sync
+          git rev-parse HEAD | tee var/repair-evidence/published-source.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: ai-sql-integer-regression-evidence
+          path: var/repair-evidence
+          retention-days: 90
