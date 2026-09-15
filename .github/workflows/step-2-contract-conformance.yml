@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: providentia-systems/client
-          ref: 5b5a35ce212d488080a0442f0c2af34efc189c62
+          ref: 99dd662ad6bc461d257e71c522a5e22e7c8d540d
           path: _step2_client
           persist-credentials: false
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
@@ -97,4 +97,4 @@ jobs:
             /tmp/step2-auth-check.log
             /tmp/step2-*-dart.jsonl
             /tmp/step2-*-http.log
-          retention-days: 14
+          retention-days: 90
