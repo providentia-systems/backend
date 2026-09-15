@@ -24,7 +24,7 @@ jobs:
           cp "$(readlink -f "$(command -v php)")" runtime/bin/php.real
           cp "$(readlink -f "$(command -v composer)")" runtime/composer.phar
           extdir="$(php -r 'echo ini_get("extension_dir");')"
-          for ext in ctype curl dom gd intl mbstring pdo pdo_sqlite pdo_mysql redis simplexml sqlite3 tokenizer xml xmlreader xmlwriter zip; do
+          for ext in ctype curl dom fileinfo gd iconv intl mbstring mysqlnd pdo phar igbinary msgpack pdo_sqlite pdo_mysql redis simplexml sqlite3 tokenizer xml xmlreader xmlwriter zip; do
             if [ -f "$extdir/$ext.so" ]; then
               cp "$extdir/$ext.so" runtime/ext/
               printf 'extension=%s.so\n' "$ext" >> runtime/php.ini
@@ -49,6 +49,7 @@ jobs:
           chmod +x runtime/bin/php
           runtime/bin/php -v
           runtime/bin/php -m
+          runtime/bin/php -r 'foreach (["phar", "pdo_mysql", "pdo_sqlite", "redis"] as $ext) { if (!extension_loaded($ext)) { throw new RuntimeException("Missing module: " . $ext); } }'
           runtime/bin/php runtime/composer.phar --version
           tar -czf php-runtime.tar.gz runtime
           sha256sum php-runtime.tar.gz > SHA256SUMS
