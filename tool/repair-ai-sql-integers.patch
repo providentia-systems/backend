@@ -1,0 +1,24 @@
+diff --git a/src/AiIntegration/Infrastructure/Doctrine/DbalAiStore.php b/src/AiIntegration/Infrastructure/Doctrine/DbalAiStore.php
+--- a/src/AiIntegration/Infrastructure/Doctrine/DbalAiStore.php
++++ b/src/AiIntegration/Infrastructure/Doctrine/DbalAiStore.php
+@@ -440,7 +440,10 @@
+             $parameters['viewer'] = $visibleToUserId;
+         }
+ 
+-        return $this->connection->fetchAllAssociative($sql . ' ORDER BY label, id', $parameters);
++        return array_map(
++            AiSqlIntegerProjection::normalize(...),
++            $this->connection->fetchAllAssociative($sql . ' ORDER BY label, id', $parameters),
++        );
+     }
+ 
+     public function providerProfile(string $homeId, string $profileId): ?array
+@@ -1220,7 +1223,7 @@
+     {
+         $row = $this->connection->fetchAssociative($sql, $parameters);
+ 
+-        return $row === false ? null : $row;
++        return $row === false ? null : AiSqlIntegerProjection::normalize($row);
+     }
+ 
+     private function date(DateTimeImmutable $date): string
