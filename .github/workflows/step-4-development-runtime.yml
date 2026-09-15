@@ -4,48 +4,22 @@ on:
     branches: [fix/step-1-authoritative-sync]
     paths: [.github/workflows/step-4-development-runtime.yml]
 permissions:
-  actions: read
+  contents: read
 jobs:
   prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Split the previously verified public SDK/package archive
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Fetch exactly the native release pinned by pdfium_dart 0.2.5
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --location \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header 'Accept: application/vnd.github+json' \
-            https://api.github.com/repos/providentia-systems/backend/actions/artifacts/10385971283/zip \
-            --output runtime.zip
-          printf '%s  runtime.zip\n' 1ff17fce854624755d31ca68d82b307f1e01e680cb8f0d2fdf128be7e1c012f2 | sha256sum --check
-          split --bytes=200M --numeric-suffixes runtime.zip runtime.part-
-          sha256sum runtime.part-* > SHA256SUMS
+          curl --fail --silent --show-error --location https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7811/pdfium-linux-x64.tgz --output pdfium-linux-x64.tgz
+          tar -tzf pdfium-linux-x64.tgz | grep '^lib/libpdfium.so$'
+          sha256sum pdfium-linux-x64.tgz > SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: step4-runtime-00
+          name: step4-pdfium-native
           path: |
-            runtime.part-00
+            pdfium-linux-x64.tgz
             SHA256SUMS
-          compression-level: 0
-          retention-days: 1
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: step4-runtime-01
-          path: runtime.part-01
-          compression-level: 0
-          retention-days: 1
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: step4-runtime-02
-          path: runtime.part-02
-          compression-level: 0
-          retention-days: 1
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: step4-runtime-03
-          path: runtime.part-03
-          compression-level: 0
           retention-days: 1
