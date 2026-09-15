@@ -211,6 +211,7 @@ interface AiMaturityStore
 
     public function reviewObservationDecision(
         string $homeId,
+        string $extractionId,
         string $id,
         string $decision,
         int $expectedRevision,

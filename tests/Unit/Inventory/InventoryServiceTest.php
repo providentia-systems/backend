@@ -243,6 +243,43 @@ final class InventoryServiceTest extends TestCase
         );
     }
 
+    public function testPackOnlyCreationPublishesThePersistedParentIdentity(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $store->expects(self::once())->method('createHomeProduct');
+        $record = [
+            'id' => self::PRODUCT_ID, 'productId' => self::SESSION_ID, 'packId' => self::LINE_ID,
+            'privateName' => null, 'productName' => 'Synthetic parent',
+            'originalPackText' => null, 'homeCategoryId' => null, 'status' => 'active', 'revision' => 1,
+        ];
+        $store->expects(self::once())
+            ->method('homeProduct')
+            ->with(self::HOME_ID, self::PRODUCT_ID)
+            ->willReturn($record);
+        $ids = $this->createStub(UuidGenerator::class);
+        $ids->method('generate')->willReturn(self::PRODUCT_ID);
+        $changes = $this->createMock(ChangeFeedWriter::class);
+        $changes->expects(self::once())->method('put')->with(
+            self::HOME_ID,
+            self::USER_ID,
+            'inventory-home-product',
+            self::PRODUCT_ID,
+            1,
+            self::callback(static fn (array $value): bool =>
+                $value['productId'] === self::SESSION_ID && $value['packId'] === self::LINE_ID
+                && $value['productName'] === 'Synthetic parent'),
+            self::isInstanceOf(DateTimeImmutable::class),
+        );
+        $this->service($store, $ids, $changes)->addHomeProduct(
+            $this->identity(),
+            self::HOME_ID,
+            null,
+            self::LINE_ID,
+            null,
+            null,
+        );
+    }
+
     public function testManualAdjustmentReturnsTheStoredReplayWithoutRepublishingAChange(): void
     {
         $store = $this->createMock(InventoryStore::class);

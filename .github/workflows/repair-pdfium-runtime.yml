@@ -1,0 +1,31 @@
+name: Pinned Client native test dependency
+on:
+  push:
+    branches: [fix/step-1-authoritative-sync]
+    paths: [.github/workflows/repair-pdfium-runtime.yml]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fetch the release required by locked pdfium_dart 0.2.5
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/bblanchon/pdfium-binaries/releases/tags/chromium%2F7811 > release.json
+          digest="$(jq -er '.assets[] | select(.name == "pdfium-linux-x64.tgz") | .digest | select(startswith("sha256:"))' release.json)"
+          curl --fail --silent --show-error --location https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7811/pdfium-linux-x64.tgz --output pdfium-linux-x64.tgz
+          printf '%s  pdfium-linux-x64.tgz\n' "${digest#sha256:}" > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          printf 'Source: bblanchon/pdfium-binaries chromium/7811; consumer: locked pdfium_dart 0.2.5\n' > SOURCE.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: repair-pdfium-runtime
+          path: |
+            pdfium-linux-x64.tgz
+            SHA256SUMS
+            SOURCE.txt
+          retention-days: 2

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Reporting\Application;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeAuditRecorder;
 use Providentia\Home\Application\HomePermission;
@@ -46,20 +47,26 @@ final class HomeReportService
                 'type' => 'inventory',
                 'asOf' => $asOf->format(DATE_ATOM),
                 'quantitySemantics' => 'factual-ledger-balance',
-                'data' => $this->inventory->inventoryReport($homeId),
+                'data' => $this->instantRows($this->inventory->inventoryReport($homeId), ['balanceUpdatedAt']),
             ],
             'purchases' => $this->purchaseReport($homeId, $from, $through, $asOf),
             'consumption' => [
                 'type' => 'consumption',
                 'asOf' => $asOf->format(DATE_ATOM),
                 'quantitySemantics' => 'estimated-from-complete-reliable-count-intervals',
-                'data' => $this->intelligence->latestEstimates($homeId),
+                'data' => $this->instantRows(
+                    $this->intelligence->latestEstimates($homeId),
+                    ['asOf', 'evidenceFrom', 'evidenceTo', 'nextExpectedShoppingAt'],
+                ),
             ],
             'suggestions' => [
                 'type' => 'suggestions',
                 'asOf' => $asOf->format(DATE_ATOM),
                 'quantitySemantics' => 'forecast-not-ledger-fact',
-                'data' => $this->intelligence->latestSuggestions($homeId, $asOf),
+                'data' => $this->instantRows(
+                    $this->intelligence->latestSuggestions($homeId, $asOf),
+                    ['asOf', 'expiresAt'],
+                ),
                 'priceComparisons' => $this->intelligence->latestPriceComparisons($homeId),
             ],
             default => throw new Problem(422, 'Invalid report', 'The report type is not supported.'),
@@ -144,6 +151,56 @@ final class HomeReportService
             'currencyPolicy' => 'totals-are-never-combined-across-currencies',
             'data' => $data,
         ];
+    }
+
+    /**
+     * Normalize only confirmed instant columns. Purchase/price calendar dates
+     * are intentionally not passed through this compatibility boundary.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @param list<string> $fields
+     * @return list<array<string, mixed>>
+     */
+    private function instantRows(array $rows, array $fields): array
+    {
+        $utc = new DateTimeZone('UTC');
+        foreach ($rows as &$row) {
+            foreach ($fields as $field) {
+                if (! isset($row[$field])) {
+                    continue;
+                }
+                $value = $row[$field];
+                if (! is_string($value)) {
+                    throw new \UnexpectedValueException('Invalid report instant.');
+                }
+                if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/D', $value) === 1) {
+                    $format = str_contains($value, '.') ? '!Y-m-d H:i:s.u' : '!Y-m-d H:i:s';
+                    $date = DateTimeImmutable::createFromFormat($format, $value, $utc);
+                } elseif (
+                    preg_match(
+                        '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/D',
+                        $value,
+                    ) === 1
+                ) {
+                    $format = str_contains($value, '.') ? '!Y-m-d\TH:i:s.uP' : '!Y-m-d\TH:i:sP';
+                    $date = DateTimeImmutable::createFromFormat($format, $value, $utc);
+                } else {
+                    throw new \UnexpectedValueException('Invalid report instant.');
+                }
+                $errors = DateTimeImmutable::getLastErrors();
+                if (
+                    $date === false
+                    || (is_array($errors) && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+                ) {
+                    throw new \UnexpectedValueException('Invalid report instant.');
+                }
+                $date = $date->setTimezone($utc);
+                $row[$field] = $date->format($date->format('u') === '000000' ? DATE_ATOM : 'Y-m-d\TH:i:s.uP');
+            }
+        }
+        unset($row);
+
+        return $rows;
     }
 
     private function parseDate(string $value): ?DateTimeImmutable

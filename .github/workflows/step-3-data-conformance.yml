@@ -1,0 +1,94 @@
+name: Step 3 live export conformance
+on:
+  pull_request:
+    paths: ['src/**', 'contracts/**', 'tests/**', '.github/workflows/step-3-data-conformance.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: step3-data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  live:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sqlite
+            image: mysql:8.4.6
+            health: mysqladmin ping -h 127.0.0.1 -uroot -proot --silent
+            url: sqlite:///var/step3.sqlite
+          - name: mysql
+            image: mysql:8.4.6
+            health: mysqladmin ping -h 127.0.0.1 -uroot -proot --silent
+            url: mysql://providentia:providentia@127.0.0.1:3306/providentia?charset=utf8mb4
+          - name: mariadb
+            image: mariadb:11.8.3
+            health: healthcheck.sh --connect --innodb_initialized
+            url: mysql://providentia:providentia@127.0.0.1:3306/providentia?charset=utf8mb4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_DATABASE: providentia
+          MYSQL_USER: providentia
+          MYSQL_PASSWORD: providentia
+          MYSQL_ROOT_PASSWORD: root
+          MARIADB_DATABASE: providentia
+          MARIADB_USER: providentia
+          MARIADB_PASSWORD: providentia
+          MARIADB_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "${{ matrix.health }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: ${{ matrix.url }}
+      QUEUE_REQUIRED: '0'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/client
+          ref: 99dd662ad6bc461d257e71c522a5e22e7c8d540d
+          path: _step3_client
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5.9'
+          extensions: gd, intl, json, mbstring, pdo_mysql, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.10.2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: |
+          bash _step3_client/tool/install_flutter_linux.sh "$RUNNER_TEMP/providentia-sdk"
+          echo "$RUNNER_TEMP/providentia-sdk/flutter/bin" >> "$GITHUB_PATH"
+      - working-directory: _step3_client
+        run: |
+          flutter pub get --enforce-lockfile
+          dart run build_runner build --delete-conflicting-outputs
+      - name: Actual encrypted worker and production Dart retrieval
+        run: |
+          { php --version; composer --version; flutter --version; git rev-parse HEAD; git -C _step3_client rev-parse HEAD; } > /tmp/step3-data-runtime.txt
+          bash tests/Acceptance/step3-data-http-dart.sh "$PWD/_step3_client" > /tmp/step3-data-lane.log 2>&1
+      - name: Complete email-code authentication boundary
+        if: always()
+        run: bash tests/Acceptance/development-auth-http-smoke.sh > /tmp/step3-data-auth.log 2>&1
+      - name: Retain assertions only, never session fixtures or exports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: step3-data-${{ matrix.name }}
+          path: |
+            /tmp/step3-data-runtime.txt
+            /tmp/step3-data-lane.log
+            /tmp/step3-data-request.log
+            /tmp/step3-data-retrieve.log
+            /tmp/step3-data-auth.log
+          retention-days: 90

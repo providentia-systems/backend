@@ -170,6 +170,54 @@ final class HomeReportServiceTest extends TestCase
         );
     }
 
+    public function testReportSqlInstantsAreSerializedAsUtcWithoutChangingDates(): void
+    {
+        $inventory = $this->createStub(InventoryAnalyticsReader::class);
+        $inventory->method('inventoryReport')->willReturn([
+            ['balanceUpdatedAt' => '2026-03-08 01:59:59'],
+            ['balanceUpdatedAt' => null],
+        ]);
+        $intelligence = $this->createStub(ShoppingIntelligenceReader::class);
+        $intelligence->method('latestEstimates')->willReturn([[
+            'asOf' => '2026-11-01 01:30:00',
+            'evidenceFrom' => '2026-08-01 00:00:00',
+            'evidenceTo' => null,
+            'nextExpectedShoppingAt' => '2026-09-01 23:59:59',
+        ]]);
+        $intelligence->method('latestSuggestions')->willReturn([[
+            'asOf' => '2026-08-04 12:00:00', 'expiresAt' => '2026-08-05 00:00:00',
+        ]]);
+        $intelligence->method('latestPriceComparisons')->willReturn([[
+            'priceObservedAt' => '2026-08-03',
+        ]]);
+        $service = $this->service(
+            $this->homeStore(HomeAuthorization::MEMBER),
+            $this->createStub(PurchaseAnalyticsReader::class),
+            null,
+            $inventory,
+            $intelligence,
+        );
+        $previous = date_default_timezone_get();
+        try {
+            foreach (['UTC', 'Africa/Windhoek', 'America/New_York'] as $timezone) {
+                date_default_timezone_set($timezone);
+                $report = $service->report($this->identity(), self::HOME_ID, 'inventory', null, null);
+                self::assertSame('2026-03-08T01:59:59+00:00', $report['data'][0]['balanceUpdatedAt']);
+                self::assertNull($report['data'][1]['balanceUpdatedAt']);
+                $report = $service->report($this->identity(), self::HOME_ID, 'consumption', null, null);
+                self::assertSame('2026-11-01T01:30:00+00:00', $report['data'][0]['asOf']);
+                self::assertNull($report['data'][0]['evidenceTo']);
+                self::assertSame('2026-08-01T00:00:00+00:00', $report['data'][0]['evidenceFrom']);
+                self::assertSame('2026-09-01T23:59:59+00:00', $report['data'][0]['nextExpectedShoppingAt']);
+                $report = $service->report($this->identity(), self::HOME_ID, 'suggestions', null, null);
+                self::assertSame('2026-08-05T00:00:00+00:00', $report['data'][0]['expiresAt']);
+                self::assertSame('2026-08-03', $report['priceComparisons'][0]['priceObservedAt']);
+            }
+        } finally {
+            date_default_timezone_set($previous);
+        }
+    }
+
     private function service(
         HomeStore $homes,
         PurchaseAnalyticsReader $purchases,

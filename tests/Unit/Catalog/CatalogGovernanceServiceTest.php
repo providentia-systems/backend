@@ -234,12 +234,38 @@ final class CatalogGovernanceServiceTest extends TestCase
         );
         $this->expectException(Problem::class);
         $service->decideProposal(
-            $this->identity([CatalogAuthorization::REVIEWER]),
+            $this->identity([CatalogAuthorization::CURATOR]),
             'proposal-1',
             'approve',
             'Approved public fact',
             1,
         );
+    }
+
+    public function testReviewerCannotApproveAProposalWhichPublishesGlobally(): void
+    {
+        $store = $this->createMock(CatalogGovernanceStore::class);
+        $store->expects(self::never())->method('publishProposal');
+        $store->expects(self::never())->method('decideProposal');
+        $service = new CatalogGovernanceService(
+            $store,
+            new CatalogAuthorization(),
+            $this->createStub(UuidGenerator::class),
+            new HomeFixedClock(new DateTimeImmutable('2026-08-24T12:00:00+00:00')),
+            new RecordingTransactionManager(),
+        );
+        try {
+            $service->decideProposal(
+                $this->identity([CatalogAuthorization::REVIEWER]),
+                'proposal-1',
+                'approve',
+                'Synthetic reviewed identity',
+                1,
+            );
+            self::fail('Review permission must not grant global publication.');
+        } catch (Problem $problem) {
+            self::assertSame(403, $problem->status);
+        }
     }
 
     /** @param list<string> $roles */

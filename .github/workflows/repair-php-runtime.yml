@@ -1,0 +1,62 @@
+name: Pinned PHP repair runtime
+on:
+  push:
+    branches: [fix/step-1-authoritative-sync]
+    paths: [.github/workflows/repair-php-runtime.yml]
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5.9'
+          extensions: ctype, curl, dom, gd, intl, mbstring, pdo_sqlite, pdo_mysql, redis, simplexml, sqlite3, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:2.10.2
+      - name: Archive only public runtime files and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/bin runtime/ext runtime/lib runtime/empty
+          cp "$(readlink -f "$(command -v php)")" runtime/bin/php.real
+          cp "$(readlink -f "$(command -v composer)")" runtime/composer.phar
+          extdir="$(php -r 'echo ini_get("extension_dir");')"
+          for ext in ctype curl dom fileinfo gd iconv intl mbstring mysqlnd pdo phar igbinary msgpack pdo_sqlite pdo_mysql redis simplexml sqlite3 tokenizer xml xmlreader xmlwriter zip; do
+            if [ -f "$extdir/$ext.so" ]; then
+              cp "$extdir/$ext.so" runtime/ext/
+              printf 'extension=%s.so\n' "$ext" >> runtime/php.ini
+            fi
+          done
+          printf 'memory_limit=1G\ndate.timezone=UTC\n' >> runtime/php.ini
+          for executable in runtime/bin/php.real runtime/ext/*.so; do
+            ldd "$executable" | awk '/=> \/|^\s*\// { for(i=1;i<=NF;i++) if($i ~ /^\//) print $i }'
+          done | sort -u > dependencies.txt
+          while read -r lib; do
+            case "$(basename "$lib")" in libc.so.*|ld-linux*|libm.so.*|libpthread.so.*|libdl.so.*|librt.so.*) continue;; esac
+            cp -L "$lib" runtime/lib/
+          done < dependencies.txt
+          cat > runtime/bin/php <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          root="$(cd "$(dirname "$0")/.." && pwd)"
+          export PHP_INI_SCAN_DIR="$root/empty"
+          export LD_LIBRARY_PATH="$root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          exec "$root/bin/php.real" -c "$root/php.ini" -d "extension_dir=$root/ext" "$@"
+          SH
+          chmod +x runtime/bin/php
+          runtime/bin/php -v
+          runtime/bin/php -m
+          runtime/bin/php -r 'foreach (["phar", "pdo_mysql", "pdo_sqlite", "redis"] as $ext) { if (!extension_loaded($ext)) { throw new RuntimeException("Missing module: " . $ext); } }'
+          runtime/bin/php runtime/composer.phar --version
+          tar -czf php-runtime.tar.gz runtime
+          sha256sum php-runtime.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: repair-php-runtime
+          path: |
+            php-runtime.tar.gz
+            SHA256SUMS
+          retention-days: 2

@@ -31,6 +31,7 @@ use Providentia\Synchronization\Application\SyncRequestHasher;
 use Providentia\Synchronization\Application\SyncResultPresenter;
 use Providentia\Synchronization\Application\SynchronizationService;
 use Providentia\Synchronization\Application\SyncStore;
+use Providentia\Synchronization\Application\SyncRepresentationNormalizer;
 use Providentia\Synchronization\Http\SynchronizationHandler;
 use Providentia\Synchronization\Infrastructure\Doctrine\DbalChangeFeedWriter;
 use Providentia\Synchronization\Infrastructure\Doctrine\DbalSyncStore;
@@ -72,6 +73,7 @@ final class SynchronizationFactory
                 $container->get(UuidGenerator::class),
                 $sync['offline_window_days'],
                 $sync['tombstone_retention_days'],
+                $container->get(SyncRepresentationNormalizer::class),
             ),
             $requestedName === CursorCodec::class => new CursorCodec(
                 $sync['cursor_secret'],

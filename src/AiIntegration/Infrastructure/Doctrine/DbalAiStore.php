@@ -375,6 +375,25 @@ final class DbalAiStore implements AiStore, AiMaturityStore
         return $extraction;
     }
 
+    public function lockExtractionReview(string $homeId, string $extractionId): void
+    {
+        // Portable row-write lock, including SQLite. A no-op update may report
+        // zero affected rows on MySQL; absence is handled by the scoped CAS.
+        $this->connection->executeStatement(
+            'UPDATE ai_extractions SET updated_at = updated_at WHERE home_id = :home AND id = :id',
+            ['home' => $homeId, 'id' => $extractionId],
+        );
+    }
+
+    public function hasAcceptedCandidates(string $homeId, string $extractionId): bool
+    {
+        return (int) $this->connection->fetchOne(
+            'SELECT COUNT(*) FROM ai_extraction_candidates
+             WHERE home_id = :home AND extraction_id = :id AND review_status = :status',
+            ['home' => $homeId, 'id' => $extractionId, 'status' => 'accepted'],
+        ) > 0;
+    }
+
     public function reviewCandidate(
         string $homeId,
         string $extractionId,
@@ -419,7 +438,10 @@ final class DbalAiStore implements AiStore, AiMaturityStore
             $parameters['viewer'] = $visibleToUserId;
         }
 
-        return $this->connection->fetchAllAssociative($sql . ' ORDER BY label, id', $parameters);
+        return array_map(
+            AiSqlIntegerProjection::normalize(...),
+            $this->connection->fetchAllAssociative($sql . ' ORDER BY label, id', $parameters),
+        );
     }
 
     public function providerProfile(string $homeId, string $profileId): ?array
@@ -1166,6 +1188,7 @@ final class DbalAiStore implements AiStore, AiMaturityStore
 
     public function reviewObservationDecision(
         string $homeId,
+        string $extractionId,
         string $id,
         string $decision,
         int $expectedRevision,
@@ -1175,13 +1198,16 @@ final class DbalAiStore implements AiStore, AiMaturityStore
         return $this->connection->executeStatement(
             'UPDATE ai_observation_decisions SET decision = :decision, revision = revision + 1,
                     reviewed_by_user_id = :actor, reviewed_at = :reviewed, updated_at = :updated
-             WHERE home_id = :home AND id = :id AND revision = :revision',
+             WHERE home_id = :home AND extraction_id = :extraction AND id = :id
+               AND decision_type = :type AND revision = :revision',
             [
                 'decision' => $decision,
                 'actor' => $actorUserId,
                 'reviewed' => $this->date($at),
                 'updated' => $this->date($at),
                 'home' => $homeId,
+                'extraction' => $extractionId,
+                'type' => 'visual_overlap',
                 'id' => $id,
                 'revision' => $expectedRevision,
             ],
@@ -1196,7 +1222,7 @@ final class DbalAiStore implements AiStore, AiMaturityStore
     {
         $row = $this->connection->fetchAssociative($sql, $parameters);
 
-        return $row === false ? null : $row;
+        return $row === false ? null : AiSqlIntegerProjection::normalize($row);
     }
 
     private function date(DateTimeImmutable $date): string

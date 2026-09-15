@@ -335,6 +335,10 @@ final readonly class DbalCatalogImportStore implements CatalogImportStore
                 'packId' => $packId,
                 'privateName' => $row['privateName'] === null ? null : (string) $row['privateName'],
                 'originalPackText' => $row['packText'] === null ? null : (string) $row['packText'],
+                'productName' => $productId === null ? $row['privateName'] : $this->connection->fetchOne(
+                    'SELECT canonical_name FROM products WHERE id = :id',
+                    ['id' => $productId],
+                ),
             ];
             ++$imported;
         }

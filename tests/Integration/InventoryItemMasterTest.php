@@ -39,6 +39,54 @@ final class InventoryItemMasterTest extends TestCase
         $this->store = new DbalInventoryStore($this->connection);
     }
 
+    public function testProductFamilyWithoutResolvedPackRemainsVisibleWithoutGuessingAPack(): void
+    {
+        $this->store->createHomeProduct(
+            self::PRIVATE_PRODUCT_ID,
+            self::HOME_ID,
+            self::BEANS_ID,
+            null,
+            null,
+            null,
+            'original unresolved pack wording',
+            null,
+            new DateTimeImmutable('2026-09-14T12:00:00+00:00'),
+        );
+        $reopened = new DbalInventoryStore($this->connection);
+        $page = $reopened->itemMaster(self::HOME_ID, '', null, null, 100, 0);
+        self::assertSame(4, $page['total']);
+        $family = array_values(array_filter(
+            $page['items'],
+            static fn (array $item): bool => $item['homeProductId'] === self::PRIVATE_PRODUCT_ID,
+        ));
+        self::assertCount(1, $family);
+        self::assertSame(self::BEANS_ID, $family[0]['productId']);
+        self::assertNull($family[0]['packId']);
+        self::assertSame('Baked Beans', $family[0]['canonicalName']);
+        self::assertSame('original unresolved pack wording', $family[0]['packText']);
+        self::assertSame(2, count(array_filter($page['items'], static fn (array $item): bool =>
+            $item['productId'] === self::BEANS_ID && $item['packId'] !== null)));
+    }
+
+    public function testPackOnlyCreationCannotBypassParentPublicationState(): void
+    {
+        $this->connection->executeStatement(
+            "UPDATE products SET status = 'draft' WHERE id = :id",
+            ['id' => self::BEANS_ID],
+        );
+        $this->expectException(\DomainException::class);
+        $this->store->createHomeProduct(
+            self::PRIVATE_PRODUCT_ID,
+            self::HOME_ID,
+            null,
+            self::BEANS_PACK_ONE,
+            null,
+            null,
+            '1 kg',
+            null,
+            new DateTimeImmutable('2026-09-14T12:00:00+00:00'),
+        );
+    }
     public function testPagesAreStableTypedAndExposeOnlyAuthorizedAliases(): void
     {
         $first = $this->store->itemMaster(self::HOME_ID, '', null, null, 2, 0);

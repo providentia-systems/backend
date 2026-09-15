@@ -1543,6 +1543,21 @@ assert_json 'The server-side AI provider was not enabled revision-safely.' '
     and .revision == 1
 '
 
+# Extraction uses saved, revisioned profiles and a shared policy, not an
+# undisclosed legacy provider/model fallback.
+profile_body="$(jq -cn '{label:"Acceptance shared profile",ownerScope:"home",
+    provider:"openai-compatible",model:"acceptance-vision",
+    credential:"acceptance-ai-token-replacement-2222",
+    estimatedCostMicros:0,expectedRevision:0}')"
+http_json POST "/api/v1/homes/${home_id}/ai/profiles" \
+    201 "$homeowner_access_token" "$profile_body"
+shared_profile_id="$(jq -er '.id' "$response_body")"
+policy_body="$(jq -cn --arg id "$shared_profile_id" '{extractionProfileIds:[$id],
+    validationProfileId:null,maxAttempts:2,maxTotalTokens:50000,
+    maxEstimatedCostMicros:1000000,expectedRevision:0}')"
+http_json PUT "/api/v1/homes/${home_id}/ai/policy" \
+    200 "$homeowner_access_token" "$policy_body"
+
 image_file="${evidence_dir}/acceptance-stock.png"
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' \
     | openssl base64 -d -A >"$image_file"

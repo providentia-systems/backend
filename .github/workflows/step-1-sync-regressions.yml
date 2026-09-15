@@ -1,0 +1,35 @@
+name: Step 1 synchronization regressions
+
+on:
+  pull_request:
+    paths:
+      - 'src/Synchronization/**'
+      - 'src/Home/**'
+      - 'tests/Unit/Synchronization/**'
+      - '.github/workflows/step-1-sync-regressions.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5.9'
+          extensions: gd, intl, json, mbstring, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.10.2
+      - name: Record the resolved runtime and exact source revision
+        run: |
+          php --version
+          composer --version
+          git rev-parse HEAD
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Run all synchronization unit regressions
+        run: vendor/bin/phpunit tests/Unit/Synchronization

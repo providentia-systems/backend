@@ -439,22 +439,29 @@ final class InventoryService implements InventoryMovementGateway
                     $homeCategoryId,
                     $at,
                 );
-                $this->changes?->put(
-                    $homeId,
-                    $identity->userId,
-                    'inventory-home-product',
-                    $id,
-                    1,
-                    [
-                        'productId' => $productId,
-                        'packId' => $packId,
-                        'privateName' => $privateName,
-                        'originalPackText' => $originalPackText,
-                        'homeCategoryId' => $homeCategoryId,
-                        'status' => 'active',
-                    ],
-                    $at,
-                );
+                if ($this->changes !== null) {
+                    $persisted = $this->inventory->homeProduct($homeId, $id);
+                    if ($persisted === null) {
+                        throw new \LogicException('The created home product could not be read.');
+                    }
+                    $this->changes->put(
+                        $homeId,
+                        $identity->userId,
+                        'inventory-home-product',
+                        $id,
+                        (int) $persisted['revision'],
+                        [
+                            'productId' => $persisted['productId'],
+                            'packId' => $persisted['packId'],
+                            'privateName' => $persisted['privateName'],
+                            'productName' => $persisted['productName'],
+                            'originalPackText' => $persisted['originalPackText'],
+                            'homeCategoryId' => $persisted['homeCategoryId'],
+                            'status' => $persisted['status'],
+                        ],
+                        $at,
+                    );
+                }
             });
         } catch (DomainException $error) {
             throw new Problem(422, 'Invalid item', $error->getMessage());

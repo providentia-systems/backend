@@ -1,0 +1,25 @@
+name: Step 4 development runtime
+on:
+  push:
+    branches: [fix/step-1-authoritative-sync]
+    paths: [.github/workflows/step-4-development-runtime.yml]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fetch exactly the release and digest pinned by sqlite3 3.5.0
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location https://github.com/simolus3/sqlite3.dart/releases/download/sqlite3-3.5.0/libsqlite3.x64.linux.so --output libsqlite3.so
+          printf '%s  libsqlite3.so\n' 2219febf70a5ed39a39db1bc46e00d3df0b3bb881ad36a67e2e5a0cd91ebd3a5 > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: step4-sqlite-native
+          path: |
+            libsqlite3.so
+            SHA256SUMS
+          retention-days: 1

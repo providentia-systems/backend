@@ -226,6 +226,7 @@ final class CatalogImportService
                             'productId' => $imported['productId'],
                             'packId' => $imported['packId'],
                             'privateName' => $imported['privateName'],
+                            'productName' => $imported['productName'] ?? $imported['privateName'],
                             'originalPackText' => $imported['originalPackText'],
                             'status' => 'active',
                         ],
