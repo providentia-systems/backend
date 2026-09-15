@@ -56,7 +56,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: providentia-systems/client
-          ref: b45b0dce6a778db6b070f979fcac6dbe01740662
+          ref: 99dd662ad6bc461d257e71c522a5e22e7c8d540d
           path: _step3_client
           persist-credentials: false
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
@@ -91,4 +91,4 @@ jobs:
             /tmp/step3-data-request.log
             /tmp/step3-data-retrieve.log
             /tmp/step3-data-auth.log
-          retention-days: 14
+          retention-days: 90
