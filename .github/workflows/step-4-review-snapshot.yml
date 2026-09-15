@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 25930a0e5007c5aa07be0e071c9148288a09ff8c
+          ref: ${{ github.sha }}
           path: backend
           persist-credentials: false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -24,18 +24,21 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: providentia-systems/admin
-          ref: fb22c1f6bc783178084178256afbe1a9e54a2883
+          ref: 8cf417041b2c50cc7f4368143de0e5fcd1669e61
           path: admin
           persist-credentials: false
       - name: Archive only tracked source, without credentials or runtime data
         run: |
+          set -euo pipefail
           mkdir snapshots
           for repo in backend client admin; do
+            printf '%s ' "$repo" >> snapshots/commit-set.txt
             git -C "$repo" rev-parse HEAD >> snapshots/commit-set.txt
             git -C "$repo" archive --format=tar.gz --prefix="$repo/" HEAD > "snapshots/$repo.tar.gz"
           done
+          sha256sum snapshots/*.tar.gz > snapshots/SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: step4-paired-source
           path: snapshots/
-          retention-days: 1
+          retention-days: 14
