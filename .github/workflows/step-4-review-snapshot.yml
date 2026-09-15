@@ -1,0 +1,41 @@
+name: Step 4 source review snapshot
+on:
+  push:
+    branches: [fix/step-1-authoritative-sync]
+    paths: [.github/workflows/step-4-review-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 25930a0e5007c5aa07be0e071c9148288a09ff8c
+          path: backend
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/client
+          ref: 0f896506402cccb6822db2fd9cb42bc6fc8560bc
+          path: client
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/admin
+          ref: fb22c1f6bc783178084178256afbe1a9e54a2883
+          path: admin
+          persist-credentials: false
+      - name: Archive only tracked source, without credentials or runtime data
+        run: |
+          mkdir snapshots
+          for repo in backend client admin; do
+            git -C "$repo" rev-parse HEAD >> snapshots/commit-set.txt
+            git -C "$repo" archive --format=tar.gz --prefix="$repo/" HEAD > "snapshots/$repo.tar.gz"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: step4-paired-source
+          path: snapshots/
+          retention-days: 1
