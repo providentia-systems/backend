@@ -49,9 +49,9 @@ jobs:
         if: steps.patch.outputs.applied == 'false'
         shell: bash
         run: |
-          set -uo pipefail
-          vendor/bin/phpunit --colors=never --filter testStringifyingDriverPreservesJsonIntegers tests/Integration/AiSqlIntegerProjectionTest.php > var/repair-evidence/before.txt 2>&1
-          result=$?
+          set -euo pipefail
+          result=0
+          vendor/bin/phpunit --colors=never --filter testStringifyingDriverPreservesJsonIntegers tests/Integration/AiSqlIntegerProjectionTest.php > var/repair-evidence/before.txt 2>&1 || result=$?
           cat var/repair-evidence/before.txt
           test "$result" -eq 1
           grep -F "Failed asserting that '3' is identical to 3" var/repair-evidence/before.txt
