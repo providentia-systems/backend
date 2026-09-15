@@ -438,7 +438,10 @@ final class DbalAiStore implements AiStore, AiMaturityStore
             $parameters['viewer'] = $visibleToUserId;
         }
 
-        return $this->connection->fetchAllAssociative($sql . ' ORDER BY label, id', $parameters);
+        return array_map(
+            AiSqlIntegerProjection::normalize(...),
+            $this->connection->fetchAllAssociative($sql . ' ORDER BY label, id', $parameters),
+        );
     }
 
     public function providerProfile(string $homeId, string $profileId): ?array
@@ -1219,7 +1222,7 @@ final class DbalAiStore implements AiStore, AiMaturityStore
     {
         $row = $this->connection->fetchAssociative($sql, $parameters);
 
-        return $row === false ? null : $row;
+        return $row === false ? null : AiSqlIntegerProjection::normalize($row);
     }
 
     private function date(DateTimeImmutable $date): string
