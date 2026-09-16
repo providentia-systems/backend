@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeStore;
+use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
@@ -29,6 +30,7 @@ use Providentia\Synchronization\Application\SyncResultPresenter;
 use Providentia\Synchronization\Application\SyncSnapshotPage;
 use Providentia\Synchronization\Application\SynchronizationService;
 use Providentia\Synchronization\Application\SyncStore;
+use Providentia\Synchronization\Application\SyncReadPolicy;
 
 final class SynchronizationServiceTest extends TestCase
 {
@@ -252,7 +254,7 @@ final class SynchronizationServiceTest extends TestCase
         $service = $this->service($store, HomeAuthorization::MEMBER);
         $clock = new FixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00'));
         $staleCursor = (new CursorCodec(str_repeat('s', 32), $clock, 3600))
-            ->encode(self::HOME_ID, 1, 1);
+            ->encode(self::HOME_ID, 1, 1, SyncReadPolicy::scope($this->identity(), HomePermission::all()));
 
         try {
             $service->pull($this->identity(), self::HOME_ID, 'request-stale', $staleCursor);
@@ -298,7 +300,7 @@ final class SynchronizationServiceTest extends TestCase
         $service = $this->service($store, HomeAuthorization::MEMBER);
         $clock = new FixedClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00'));
         $completedCursor = (new CursorCodec(str_repeat('s', 32), $clock, 3600))
-            ->encode(self::HOME_ID, 1, 1);
+            ->encode(self::HOME_ID, 1, 1, SyncReadPolicy::scope($this->identity(), HomePermission::all()));
 
         $response = $service->pull(
             $this->identity(),

@@ -15,7 +15,7 @@ final class SyncResultPresenter
      *
      * @return array<string, mixed>
      */
-    public function applied(string $homeId, array $result): array
+    public function applied(string $homeId, array $result, ?string $scope = null): array
     {
         if (($result['status'] ?? null) !== 'accepted') {
             return $result;
@@ -25,7 +25,7 @@ final class SyncResultPresenter
         $revision = (int) $result['serverRevision'];
         $deleted = (bool) $result['deleted'];
         $result['revision'] = $revision;
-        $result['changeCursor'] = $this->cursors->encode($homeId, $position, $position);
+        $result['changeCursor'] = $this->cursors->encode($homeId, $position, $position, $scope);
         $result['representation'] = $deleted
             ? ['id' => $result['entityId'], 'revision' => $revision, 'deleted' => true]
             : array_merge(
@@ -42,7 +42,7 @@ final class SyncResultPresenter
      *
      * @return array<string, mixed>
      */
-    public function change(string $homeId, int $highWater, array $change): array
+    public function change(string $homeId, int $highWater, array $change, ?string $scope = null): array
     {
         $position = (int) $change['cursor'];
         $deleted = $change['operationType'] === 'delete';
@@ -54,7 +54,7 @@ final class SyncResultPresenter
             );
 
         return [
-            'cursor' => $this->cursors->encode($homeId, $position, $highWater),
+            'cursor' => $this->cursors->encode($homeId, $position, $highWater, $scope),
             'entityType' => $change['entityType'],
             'entityId' => $change['entityId'],
             'operation' => $deleted ? 'delete' : 'upsert',

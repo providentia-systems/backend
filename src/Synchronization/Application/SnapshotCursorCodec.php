@@ -20,12 +20,18 @@ final class SnapshotCursorCodec
         }
     }
 
-    public function encode(string $homeId, int $highWater, string $entityType, string $entityId): string
-    {
+    public function encode(
+        string $homeId,
+        int $highWater,
+        string $entityType,
+        string $entityId,
+        ?string $scope = null,
+    ): string {
         $payload = json_encode([
             'v' => 1,
             'kind' => 'snapshot',
             'home' => $homeId,
+            'scope' => $scope,
             'highWater' => $highWater,
             'entityType' => $entityType,
             'entityId' => $entityId,
@@ -39,7 +45,7 @@ final class SnapshotCursorCodec
     }
 
     /** @return array{highWater: int, entityType: string, entityId: string} */
-    public function decode(string $cursor, string $homeId): array
+    public function decode(string $cursor, string $homeId, ?string $scope = null): array
     {
         $parts = explode('.', $cursor);
         if (count($parts) !== 2) {
@@ -56,9 +62,11 @@ final class SnapshotCursorCodec
             throw new Problem(422, 'Invalid cursor', 'The snapshot cursor is invalid.');
         }
         try {
-            /** @var array<string, mixed> $payload */
             $payload = json_decode($decoded, true, 16, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
+            throw new Problem(422, 'Invalid cursor', 'The snapshot cursor is invalid.');
+        }
+        if (! is_array($payload)) {
             throw new Problem(422, 'Invalid cursor', 'The snapshot cursor is invalid.');
         }
         if (
@@ -68,7 +76,18 @@ final class SnapshotCursorCodec
         ) {
             throw new Problem(404, 'Not found', 'The requested synchronization state is unavailable.');
         }
-        if ((int) ($payload['expiresAt'] ?? 0) <= $this->clock->now()->getTimestamp()) {
+        if ($scope !== null && (! is_string($payload['scope'] ?? null) || ! hash_equals($scope, $payload['scope']))) {
+            throw new Problem(
+                410,
+                'Synchronization scope changed',
+                'Bootstrap the currently authorized data without discarding pending operations.',
+                'https://providentia.invalid/problems/sync_resync_required',
+            );
+        }
+        if (! is_int($payload['expiresAt'] ?? null)) {
+            throw new Problem(422, 'Invalid cursor', 'The cursor expiry is invalid.');
+        }
+        if ($payload['expiresAt'] <= $this->clock->now()->getTimestamp()) {
             throw new Problem(
                 410,
                 'Snapshot expired',
@@ -76,10 +95,14 @@ final class SnapshotCursorCodec
                 'https://providentia.invalid/problems/sync_resync_required',
             );
         }
-        $highWater = (int) ($payload['highWater'] ?? -1);
+        $highWater = $payload['highWater'] ?? null;
         $entityType = $payload['entityType'] ?? null;
         $entityId = $payload['entityId'] ?? null;
-        if ($highWater < 0 || ! is_string($entityType) || $entityType === '' || ! is_string($entityId)) {
+        if (
+            ! is_int($highWater) || $highWater < 0
+            || ! is_string($entityType) || $entityType === ''
+            || ! is_string($entityId) || $entityId === ''
+        ) {
             throw new Problem(422, 'Invalid cursor', 'The snapshot cursor position is invalid.');
         }
 
