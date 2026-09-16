@@ -34,3 +34,11 @@ The new regressions cover scope grants/revocations, legacy cursors, reader isola
 ## Release and rollback
 
 Keep the existing PR and earlier repairs. Coordinate release with the client recovery/cache work. Do not reset household records, pending operations or receipts. Reverting this repair restores permission-insensitive cursor behavior; application rollback must not be mistaken for revoking already disclosed or user-saved data.
+
+## Retry semantics and independent-reader acceptance follow-up
+
+Both push protocols now preserve HTTP failure semantics: 401 remains a request-level authentication failure; 408/425/429 and 5xx return retryable operation outcomes; 403/404 remain authorization failures; 409/412 remain conflicts; invalid requests remain validation errors. Transient internal details are not disclosed. The operation ID is never replaced, and no failed command is recorded as accepted.
+
+The deployed headless scenario previously reused the owner's cursor under a different member's credentials. It now asserts that this is rejected with safe-bootstrap HTTP 410, exhausts the second installation's own snapshot, and retains the original assertions proving that later edits reach that installation and that lost-response retries do not undo edits. No acceptance assertions or workflow gates were removed.
+
+Local follow-up validation: 658 tests / 3,857 assertions passed, plus PHPCS, serial PHPStan, architecture, canonical OpenAPI validation, and Bash syntax. The added failure matrix covers both protocols for 14 HTTP statuses. Docker is not installed in the local execution container; the source-Compose headless journey must pass on the final GitHub source commit. These local checks do not replace that result.

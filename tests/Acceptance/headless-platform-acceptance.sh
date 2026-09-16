@@ -676,7 +676,31 @@ assert_json 'Typed private category/product creation did not acknowledge both du
     .protocolVersion == 2 and (.results | length == 2)
     and all(.results[]; .status == "accepted" and .result.id == .entityId)
 '
-private_sync_cursor="$(jq -er '.highWaterCursor' "$response_body")"
+owner_sync_cursor="$(jq -er '.highWaterCursor' "$response_body")"
+# Cursors are scoped to their authenticated reader. A second installation must
+# establish its own frozen snapshot before observing later edits incrementally.
+http_json GET "/api/v1/homes/${home_id}/sync/pull?cursor=${owner_sync_cursor}" \
+    410 "$member_access_token"
+assert_problem_json
+assert_json 'A cursor from another installation did not require safe recovery.' '
+    .type == "https://providentia.invalid/problems/sync_resync_required"
+'
+member_snapshot_path="/api/v1/homes/${home_id}/sync/bootstrap"
+while true; do
+    http_json GET "$member_snapshot_path" 200 "$member_access_token"
+    assert_json 'The second installation did not receive a valid snapshot page.' '
+        (.records | type == "array") and (.hasMore | type == "boolean")
+    '
+    if [[ "$(jq -r '.hasMore' "$response_body")" == false ]]; then
+        private_sync_cursor="$(jq -er '.snapshotCursor | strings | select(length > 0)' "$response_body")"
+        break
+    fi
+    member_page_cursor="$(jq -er '.pageCursor | strings | select(length > 0)' "$response_body")"
+    next_snapshot_path="/api/v1/homes/${home_id}/sync/bootstrap?cursor=${member_page_cursor}"
+    [[ "$next_snapshot_path" != "$member_snapshot_path" ]] \
+        || fail 'The second installation snapshot cursor did not advance.'
+    member_snapshot_path="$next_snapshot_path"
+done
 http_json GET "/api/v1/admin/homes/${home_id}/records/products" 200 "$admin_access_token"
 assert_json 'An unshared private product was missing from authorized Admin inspection.' '
     .data | any(.id == $productId and .private_name == "Draft beans" and .home_category_id == $categoryId)
