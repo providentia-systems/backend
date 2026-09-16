@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Synchronization\Application;
 
 use Providentia\Home\Application\HomePermission;
+use Providentia\Identity\Application\AuthenticatedIdentity;
 
 /** An explicit allowlist, shared by snapshot, change-feed and receipt reads. */
 final class SyncReadPolicy
@@ -61,6 +62,29 @@ final class SyncReadPolicy
         'shopping.list-line.checked' => 'shopping-list-line',
         'shopping.suggestion-feedback.create' => 'shopping-suggestion-feedback',
     ];
+
+    /**
+     * Bind resumable reads to the authenticated reader and classified read set.
+     * Session rotation does not invalidate a device's cursor; changing account,
+     * device, policy or readable domains does. Permission ordering is irrelevant.
+     *
+     * @param list<string> $permissions
+     */
+    public static function scope(AuthenticatedIdentity $identity, array $permissions): string
+    {
+        $permissions = array_values(array_unique(array_intersect(
+            $permissions,
+            array_values(self::ENTITY_PERMISSIONS),
+        )));
+        sort($permissions, SORT_STRING);
+
+        return hash('sha256', json_encode([
+            'policy' => self::ENTITY_PERMISSIONS,
+            'user' => $identity->userId,
+            'device' => $identity->deviceId,
+            'permissions' => $permissions,
+        ], JSON_THROW_ON_ERROR));
+    }
 
     public static function entityForCommand(string $commandType): ?string
     {

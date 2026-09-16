@@ -59,10 +59,11 @@ final class SynchronizationService
         );
 
         $permissions = $this->readPermissions($identity, $homeId);
+        $scope = SyncReadPolicy::scope($identity, $permissions);
         $results = [];
         foreach ($validatedEnvelope->operations as $operation) {
             $result = $validatedEnvelope->protocolVersion === 1
-                ? $this->processOperation($identity, $homeId, $operation)
+                ? $this->processOperation($identity, $homeId, $operation, $scope)
                 : $this->processCommand($identity, $homeId, $operation);
             $entityType = is_array($operation) && is_string($operation['entityType'] ?? null)
                 ? $operation['entityType']
@@ -73,6 +74,7 @@ final class SynchronizationService
         }
 
         $highWater = $this->store->highWater($homeId);
+        $this->requireUnchangedReadScope($identity, $homeId, $scope);
 
         return [
             'protocolVersion' => $validatedEnvelope->protocolVersion,
@@ -80,7 +82,7 @@ final class SynchronizationService
             'requestId' => $requestId,
             'serverTime' => $this->clock->now()->format(DATE_ATOM),
             'results' => $results,
-            'highWaterCursor' => $this->cursors->encode($homeId, $highWater, $highWater),
+            'highWaterCursor' => $this->cursors->encode($homeId, $highWater, $highWater, $scope),
         ];
     }
 
@@ -101,7 +103,9 @@ final class SynchronizationService
             );
         }
 
-        $decoded = $this->cursors->decode($cursor, $homeId);
+        $permissions = $this->readPermissions($identity, $homeId);
+        $scope = SyncReadPolicy::scope($identity, $permissions);
+        $decoded = $this->cursors->decode($cursor, $homeId, $scope);
         $after = $decoded['position'];
         $highWater = $decoded['highWater'];
         if ($after < $this->store->minimumAvailableCursor($homeId)) {
@@ -116,7 +120,6 @@ final class SynchronizationService
             $highWater = max($after, $this->store->highWater($homeId));
         }
 
-        $permissions = $this->readPermissions($identity, $homeId);
         $changes = $this->store->changes($homeId, $after, $highWater, $this->pageSize);
         // Advance over the scanned page, not merely its visible records.
         // An empty retained range is exhausted, including gaps after compaction.
@@ -124,17 +127,18 @@ final class SynchronizationService
         if ($changes !== []) {
             $position = (int) $changes[array_key_last($changes)]['cursor'];
         }
+        $this->requireUnchangedReadScope($identity, $homeId, $scope);
         $this->acknowledge($identity, $homeId, $position);
 
         return [
             'protocolVersion' => 1,
             'requestId' => $requestId,
             'fromCursor' => $cursor,
-            'pageCursor' => $this->cursors->encode($homeId, $position, $highWater),
-            'highWaterCursor' => $this->cursors->encode($homeId, $highWater, $highWater),
+            'pageCursor' => $this->cursors->encode($homeId, $position, $highWater, $scope),
+            'highWaterCursor' => $this->cursors->encode($homeId, $highWater, $highWater, $scope),
             'hasMore' => $position < $highWater,
             'changes' => array_map(
-                fn (array $change): array => $this->presenter->change($homeId, $highWater, $change),
+                fn (array $change): array => $this->presenter->change($homeId, $highWater, $change, $scope),
                 SyncReadPolicy::filter($changes, $permissions),
             ),
         ];
@@ -150,6 +154,7 @@ final class SynchronizationService
     ): array {
         $this->authorization->requireMember($identity, $homeId);
         $permissions = $this->readPermissions($identity, $homeId);
+        $scope = SyncReadPolicy::scope($identity, $permissions);
         $limit = min($this->pageSize, max(1, $requestedLimit ?? $this->pageSize));
         $afterType = null;
         $afterId = null;
@@ -158,7 +163,7 @@ final class SynchronizationService
         } else {
             $snapshotCursors = $this->snapshotCursors
                 ?? throw new \LogicException('Snapshot cursor support is not configured.');
-            $decoded = $snapshotCursors->decode($pageCursor, $homeId);
+            $decoded = $snapshotCursors->decode($pageCursor, $homeId, $scope);
             $highWater = $decoded['highWater'];
             $afterType = $decoded['entityType'];
             $afterId = $decoded['entityId'];
@@ -170,6 +175,7 @@ final class SynchronizationService
             $afterId,
             $limit,
         );
+        $this->requireUnchangedReadScope($identity, $homeId, $scope);
         $incrementalCursor = null;
         $nextPageCursor = null;
         if ($snapshot->hasMore) {
@@ -185,12 +191,14 @@ final class SynchronizationService
                 $snapshot->highWater,
                 (string) $last['entityType'],
                 (string) $last['entityId'],
+                $scope,
             );
         } else {
             $incrementalCursor = $this->cursors->encode(
                 $homeId,
                 $snapshot->highWater,
                 $snapshot->highWater,
+                $scope,
             );
             $this->acknowledge($identity, $homeId, $snapshot->highWater);
         }
@@ -204,6 +212,7 @@ final class SynchronizationService
                 $homeId,
                 $snapshot->highWater,
                 $snapshot->highWater,
+                $scope,
             ),
             'hasMore' => $snapshot->hasMore,
             'records' => SyncReadPolicy::filter($snapshot->records, $permissions),
@@ -231,13 +240,15 @@ final class SynchronizationService
             fn (mixed $id): string => $this->operationId($id),
             $operationIds,
         )));
+        $permissions = $this->readPermissions($identity, $homeId);
+        $scope = SyncReadPolicy::scope($identity, $permissions);
         $stored = $this->store->operationStatuses(
             $homeId,
             $identity->userId,
             $identity->deviceId,
             $operationIds,
         );
-        $permissions = $this->readPermissions($identity, $homeId);
+        $this->requireUnchangedReadScope($identity, $homeId, $scope);
         $operations = [];
         foreach ($operationIds as $operationId) {
             $operations[] = isset($stored[$operationId])
@@ -257,6 +268,7 @@ final class SynchronizationService
         AuthenticatedIdentity $identity,
         string $homeId,
         mixed $operation,
+        string $scope,
     ): array {
         if (! is_array($operation)) {
             return ['status' => 'validation_error', 'detail' => 'Operation must be an object.'];
@@ -283,6 +295,7 @@ final class SynchronizationService
                     $this->hasher->hash($validated),
                     $this->clock->now(),
                 ),
+                $scope,
             );
         } catch (Problem $problem) {
             return [
@@ -388,6 +401,24 @@ final class SynchronizationService
                 'status' => 'retryable_failure',
                 'detail' => 'The command could not be processed safely.',
             ];
+        }
+    }
+
+    /** A concurrent revocation must not publish or acknowledge an old read scope. */
+    private function requireUnchangedReadScope(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $scope,
+    ): void {
+        $this->authorization->requireMember($identity, $homeId);
+        $current = SyncReadPolicy::scope($identity, $this->readPermissions($identity, $homeId));
+        if (! hash_equals($scope, $current)) {
+            throw new Problem(
+                410,
+                'Synchronization scope changed',
+                'Bootstrap the currently authorized data without discarding pending operations.',
+                'https://providentia.invalid/problems/sync_resync_required',
+            );
         }
     }
 

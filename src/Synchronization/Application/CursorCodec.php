@@ -20,12 +20,13 @@ final class CursorCodec
         }
     }
 
-    public function encode(string $homeId, int $position, int $highWater): string
+    public function encode(string $homeId, int $position, int $highWater, ?string $scope = null): string
     {
         $now = $this->clock->now();
         $payload = json_encode([
             'v' => 1,
             'home' => $homeId,
+            'scope' => $scope,
             'position' => $position,
             'highWater' => $highWater,
             'expiresAt' => $now->add(new DateInterval('PT' . $this->ttlSeconds . 'S'))->getTimestamp(),
@@ -36,7 +37,7 @@ final class CursorCodec
     }
 
     /** @return array{position: int, highWater: int} */
-    public function decode(string $cursor, string $homeId): array
+    public function decode(string $cursor, string $homeId, ?string $scope = null): array
     {
         $parts = explode('.', $cursor);
         if (count($parts) !== 2) {
@@ -53,15 +54,28 @@ final class CursorCodec
             throw new Problem(422, 'Invalid cursor', 'The synchronization cursor is invalid.');
         }
         try {
-            /** @var array<string, mixed> $payload */
             $payload = json_decode($decoded, true, 16, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
+            throw new Problem(422, 'Invalid cursor', 'The synchronization cursor is invalid.');
+        }
+        if (! is_array($payload)) {
             throw new Problem(422, 'Invalid cursor', 'The synchronization cursor is invalid.');
         }
         if (($payload['v'] ?? null) !== 1 || ($payload['home'] ?? null) !== $homeId) {
             throw new Problem(404, 'Not found', 'The requested synchronization state is unavailable.');
         }
-        if ((int) ($payload['expiresAt'] ?? 0) <= $this->clock->now()->getTimestamp()) {
+        if ($scope !== null && (! is_string($payload['scope'] ?? null) || ! hash_equals($scope, $payload['scope']))) {
+            throw new Problem(
+                410,
+                'Synchronization scope changed',
+                'Bootstrap the currently authorized data without discarding pending operations.',
+                'https://providentia.invalid/problems/sync_resync_required',
+            );
+        }
+        if (! is_int($payload['expiresAt'] ?? null)) {
+            throw new Problem(422, 'Invalid cursor', 'The cursor expiry is invalid.');
+        }
+        if ($payload['expiresAt'] <= $this->clock->now()->getTimestamp()) {
             throw new Problem(
                 410,
                 'Cursor expired',
@@ -69,9 +83,9 @@ final class CursorCodec
                 'https://providentia.invalid/problems/sync_resync_required',
             );
         }
-        $position = (int) ($payload['position'] ?? -1);
-        $highWater = (int) ($payload['highWater'] ?? -1);
-        if ($position < 0 || $highWater < $position) {
+        $position = $payload['position'] ?? null;
+        $highWater = $payload['highWater'] ?? null;
+        if (! is_int($position) || ! is_int($highWater) || $position < 0 || $highWater < $position) {
             throw new Problem(422, 'Invalid cursor', 'The synchronization cursor position is invalid.');
         }
 

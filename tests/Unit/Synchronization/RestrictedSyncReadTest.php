@@ -19,6 +19,7 @@ use Providentia\Synchronization\Application\SyncEntityPolicyRegistry;
 use Providentia\Synchronization\Application\SyncEnvelopeValidator;
 use Providentia\Synchronization\Application\SyncOperationValidator;
 use Providentia\Synchronization\Application\SyncRequestHasher;
+use Providentia\Synchronization\Application\SyncReadPolicy;
 use Providentia\Synchronization\Application\SyncResultPresenter;
 use Providentia\Synchronization\Application\SyncSnapshotPage;
 use Providentia\Synchronization\Application\SyncStore;
@@ -74,7 +75,15 @@ final class RestrictedSyncReadTest extends TestCase
         $bootstrap = $service->bootstrap($this->identity(), self::HOME, 'bootstrap');
         self::assertSame([$location], $bootstrap['records']);
         $cursors = $this->cursors();
-        $pull = $service->pull($this->identity(), self::HOME, 'pull', $cursors->encode(self::HOME, 0, 0));
+        $pull = $service->pull($this->identity(), self::HOME, 'pull', $cursors->encode(
+            self::HOME,
+            0,
+            0,
+            SyncReadPolicy::scope(
+                $this->identity(),
+                $authorization->effectivePermissions($this->identity(), self::HOME),
+            ),
+        ));
         self::assertCount(1, $pull['changes']);
         self::assertSame('inventory-location', $pull['changes'][0]['entityType']);
         self::assertSame(2, $cursors->decode($pull['pageCursor'], self::HOME)['position']);
@@ -127,6 +136,98 @@ final class RestrictedSyncReadTest extends TestCase
         );
         $this->expectException(Problem::class);
         $this->service($store, $homes)->bootstrap($administrator, self::HOME, 'bootstrap');
+    }
+
+    public function testGrantInvalidatesAnIncrementalCursorBeforeReadingOrAcknowledging(): void
+    {
+        $store = $this->createMock(SyncStore::class);
+        $store->method('highWater')->willReturn(2);
+        $store->method('captureSnapshotPage')->willReturn(new SyncSnapshotPage(2, [], false));
+        $store->expects(self::once())->method('acknowledgeCursor'); // Initial bootstrap only.
+        $store->expects(self::never())->method('changes');
+        $service = $this->service($store, $this->homes());
+        $bootstrap = $service->bootstrap($this->identity(), self::HOME, 'before-grant');
+        $this->allowPurchases = true;
+
+        try {
+            $service->pull($this->identity(), self::HOME, 'after-grant', $bootstrap['snapshotCursor']);
+            self::fail('An old cursor silently skipped newly readable records.');
+        } catch (Problem $problem) {
+            self::assertSame(410, $problem->status);
+            self::assertSame('https://providentia.invalid/problems/sync_resync_required', $problem->type);
+        }
+    }
+
+    public function testRevocationInvalidatesAnInProgressSnapshot(): void
+    {
+        $this->allowPurchases = true;
+        $store = $this->createMock(SyncStore::class);
+        $store->method('highWater')->willReturn(2);
+        $store->expects(self::once())->method('captureSnapshotPage')->willReturn(new SyncSnapshotPage(2, [[
+            'entityType' => 'inventory-location',
+            'entityId' => self::ENTITY,
+        ]], true));
+        $store->expects(self::never())->method('acknowledgeCursor');
+        $service = $this->service($store, $this->homes());
+        $first = $service->bootstrap($this->identity(), self::HOME, 'before-revocation');
+        $this->allowPurchases = false;
+
+        try {
+            $service->bootstrap($this->identity(), self::HOME, 'after-revocation', $first['pageCursor']);
+            self::fail('A snapshot continued under an obsolete read scope.');
+        } catch (Problem $problem) {
+            self::assertSame(410, $problem->status);
+        }
+    }
+
+    public function testMidReadRevocationFencesSnapshotAndDoesNotAcknowledgeIt(): void
+    {
+        $this->allowPurchases = true;
+        $store = $this->createMock(SyncStore::class);
+        $store->method('highWater')->willReturn(2);
+        $store->expects(self::once())->method('captureSnapshotPage')->willReturnCallback(function (): SyncSnapshotPage {
+            $this->allowPurchases = false;
+            return new SyncSnapshotPage(2, [[
+                'entityType' => 'purchasing-receipt',
+                'entityId' => self::ENTITY,
+                'representation' => ['notes' => 'revoked-private-value'],
+            ]], false);
+        });
+        $store->expects(self::never())->method('acknowledgeCursor');
+        $service = $this->service($store, $this->homes());
+
+        try {
+            $service->bootstrap($this->identity(), self::HOME, 'revocation-during-read');
+            self::fail('A revoked response was released.');
+        } catch (Problem $problem) {
+            self::assertSame(410, $problem->status);
+            self::assertStringNotContainsString('revoked-private-value', $problem->getMessage());
+        }
+    }
+
+    public function testMidReadRevocationFencesOperationReceipts(): void
+    {
+        $this->allowPurchases = true;
+        $store = $this->createStub(SyncStore::class);
+        $store->method('operationStatuses')->willReturnCallback(function (): array {
+            $this->allowPurchases = false;
+            return [self::OPERATION => [
+                'operationId' => self::OPERATION,
+                'status' => 'accepted',
+                'commandType' => 'purchasing.receipt.commit',
+                'result' => ['notes' => 'revoked-private-value'],
+            ]];
+        });
+        $service = $this->service($store, $this->homes());
+        $identity = $this->identity();
+
+        try {
+            $service->operationStatuses($identity, self::HOME, $identity->deviceId, [self::OPERATION]);
+            self::fail('A revoked receipt response was released.');
+        } catch (Problem $problem) {
+            self::assertSame(410, $problem->status);
+            self::assertStringNotContainsString('revoked-private-value', $problem->getMessage());
+        }
     }
 
     private function homes(): HomeStore
