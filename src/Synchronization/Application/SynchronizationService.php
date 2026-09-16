@@ -298,13 +298,7 @@ final class SynchronizationService
                 $scope,
             );
         } catch (Problem $problem) {
-            return [
-                'operationId' => (string) ($operation['operationId'] ?? ''),
-                'status' => in_array($problem->status, [403, 404], true)
-                    ? 'authorization_failure'
-                    : 'validation_error',
-                'detail' => $problem->getMessage(),
-            ];
+            return $this->problemResult((string) ($operation['operationId'] ?? ''), $problem);
         } catch (Throwable) {
             return [
                 'operationId' => (string) ($operation['operationId'] ?? ''),
@@ -386,15 +380,7 @@ final class SynchronizationService
                 return $response;
             });
         } catch (Problem $problem) {
-            return [
-                'operationId' => (string) ($operation['operationId'] ?? ''),
-                'status' => match (true) {
-                    in_array($problem->status, [403, 404], true) => 'authorization_failure',
-                    $problem->status === 409 => 'conflict',
-                    default => 'validation_error',
-                },
-                'detail' => $problem->getMessage(),
-            ];
+            return $this->problemResult((string) ($operation['operationId'] ?? ''), $problem);
         } catch (Throwable) {
             return [
                 'operationId' => (string) ($operation['operationId'] ?? ''),
@@ -402,6 +388,32 @@ final class SynchronizationService
                 'detail' => 'The command could not be processed safely.',
             ];
         }
+    }
+
+    /** @return array{operationId: string, status: string, detail: string} */
+    private function problemResult(string $operationId, Problem $problem): array
+    {
+        // Authentication belongs to the request, not to a terminal outbox result.
+        // Earlier accepted operations remain recoverable through their receipts.
+        if ($problem->status === 401) {
+            throw $problem;
+        }
+        $status = match (true) {
+            $problem->status >= 500,
+            in_array($problem->status, [408, 425, 429], true) => 'retryable_failure',
+            in_array($problem->status, [403, 404], true) => 'authorization_failure',
+            in_array($problem->status, [409, 412], true) => 'conflict',
+            default => 'validation_error',
+        };
+
+        return [
+            'operationId' => $operationId,
+            'status' => $status,
+            // Service failures can contain driver, provider or connection details.
+            'detail' => $status === 'retryable_failure'
+                ? 'The service could not process this operation. Retry the same operation.'
+                : $problem->getMessage(),
+        ];
     }
 
     /** A concurrent revocation must not publish or acknowledge an old read scope. */
