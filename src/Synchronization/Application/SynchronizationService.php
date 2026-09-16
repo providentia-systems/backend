@@ -437,6 +437,7 @@ final class SynchronizationService
     /** @return list<string> */
     private function readPermissions(AuthenticatedIdentity $identity, string $homeId): array
     {
+        $this->authorization->requireMember($identity, $homeId);
         $permissions = [];
         foreach (array_unique(SyncReadPolicy::ENTITY_PERMISSIONS) as $permission) {
             try {

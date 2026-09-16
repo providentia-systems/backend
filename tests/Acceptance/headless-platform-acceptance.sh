@@ -676,31 +676,53 @@ assert_json 'Typed private category/product creation did not acknowledge both du
     .protocolVersion == 2 and (.results | length == 2)
     and all(.results[]; .status == "accepted" and .result.id == .entityId)
 '
-owner_sync_cursor="$(jq -er '.highWaterCursor' "$response_body")"
-# Cursors are scoped to their authenticated reader. A second installation must
-# establish its own frozen snapshot before observing later edits incrementally.
-http_json GET "/api/v1/homes/${home_id}/sync/pull?cursor=${owner_sync_cursor}" \
+private_sync_cursor="$(jq -er '.highWaterCursor' "$response_body")"
+# Cursors are reader/device scoped. A second installation must bootstrap itself,
+# not borrow the owner's cursor, even when both memberships can read these rows.
+http_json GET "/api/v1/homes/${home_id}/sync/pull?cursor=${private_sync_cursor}" \
     410 "$member_access_token"
 assert_problem_json
-assert_json 'A cursor from another installation did not require safe recovery.' '
+assert_json 'A cursor transferred to another reader did not require safe resynchronization.' '
     .type == "https://providentia.invalid/problems/sync_resync_required"
+    and (has("changes") | not) and (has("records") | not)
 '
-member_snapshot_path="/api/v1/homes/${home_id}/sync/bootstrap"
-while true; do
+member_sync_cursor=''
+member_snapshot_path="/api/v1/homes/${home_id}/sync/bootstrap?limit=1"
+member_snapshot_records='[]'
+member_snapshot_seen='[]'
+for member_snapshot_page in $(seq 1 1000); do
     http_json GET "$member_snapshot_path" 200 "$member_access_token"
-    assert_json 'The second installation did not receive a valid snapshot page.' '
+    assert_json 'A member bootstrap page did not preserve the pagination contract.' '
         (.records | type == "array") and (.hasMore | type == "boolean")
+        and (if .hasMore then
+            .snapshotCursor == null and (.pageCursor | type == "string" and length > 0)
+        else
+            .pageCursor == null and (.snapshotCursor | type == "string" and length > 0)
+        end)
     '
-    if [[ "$(jq -r '.hasMore' "$response_body")" == false ]]; then
-        private_sync_cursor="$(jq -er '.snapshotCursor | strings | select(length > 0)' "$response_body")"
+    member_snapshot_records="$(jq -cn --argjson prior "$member_snapshot_records" \
+        --slurpfile page "$response_body" '$prior + $page[0].records')"
+    if [[ "$(jq -r '.hasMore' "$response_body")" == 'false' ]]; then
+        member_sync_cursor="$(jq -er '.snapshotCursor' "$response_body")"
         break
     fi
-    member_page_cursor="$(jq -er '.pageCursor | strings | select(length > 0)' "$response_body")"
-    next_snapshot_path="/api/v1/homes/${home_id}/sync/bootstrap?cursor=${member_page_cursor}"
-    [[ "$next_snapshot_path" != "$member_snapshot_path" ]] \
-        || fail 'The second installation snapshot cursor did not advance.'
-    member_snapshot_path="$next_snapshot_path"
+    member_page_cursor="$(jq -er '.pageCursor' "$response_body")"
+    jq -en --argjson seen "$member_snapshot_seen" --arg cursor "$member_page_cursor" \
+        '$seen | index($cursor) == null' >/dev/null \
+        || fail 'A member bootstrap cursor repeated without making progress.'
+    member_snapshot_seen="$(jq -cn --argjson seen "$member_snapshot_seen" \
+        --arg cursor "$member_page_cursor" '$seen + [$cursor]')"
+    member_snapshot_path="/api/v1/homes/${home_id}/sync/bootstrap?limit=1&cursor=${member_page_cursor}"
 done
+[[ -n "$member_sync_cursor" ]] || fail 'Member bootstrap exceeded the bounded fixture page count.'
+[[ "$member_snapshot_page" -gt 1 ]] || fail 'The member bootstrap did not exercise multiple pages.'
+jq -en --argjson records "$member_snapshot_records" \
+    --arg productId "$home_product_id" --arg categoryId "$home_category_id" '
+    ($records | any(.entityType == "inventory-home-category" and .entityId == $categoryId
+        and .revision == 1 and .representation.name == "Draft pantry"))
+    and ($records | any(.entityType == "inventory-home-product" and .entityId == $productId
+        and .revision == 1 and .representation.privateName == "Draft beans"))
+' >/dev/null || fail 'Reader-specific bootstrap omitted the original private category or product.'
 http_json GET "/api/v1/admin/homes/${home_id}/records/products" 200 "$admin_access_token"
 assert_json 'An unshared private product was missing from authorized Admin inspection.' '
     .data | any(.id == $productId and .private_name == "Draft beans" and .home_category_id == $categoryId)
@@ -720,7 +742,7 @@ http_json PATCH "/api/v1/admin/homes/${home_id}/products/${home_product_id}" \
 assert_json 'Admin product editing did not increment the private product revision.' '
     .id == $productId and .privateName == "Acceptance baked beans" and .revision == 2
 ' --arg productId "$home_product_id"
-http_json GET "/api/v1/homes/${home_id}/sync/pull?cursor=${private_sync_cursor}" \
+http_json GET "/api/v1/homes/${home_id}/sync/pull?cursor=${member_sync_cursor}" \
     200 "$member_access_token"
 assert_json 'Admin edits were not published to another authorized installation through the home change feed.' '
     (.changes | any(.entityType == "inventory-home-category" and .entityId == $categoryId

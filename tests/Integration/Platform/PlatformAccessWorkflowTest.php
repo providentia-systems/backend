@@ -12,6 +12,7 @@ use Doctrine\Migrations\Configuration\Migration\ConfigurationArray;
 use Doctrine\Migrations\DependencyFactory;
 use Doctrine\Migrations\MigratorConfiguration;
 use Doctrine\Migrations\Version\Version;
+use Laminas\Diactoros\ServerRequest;
 use Laminas\ServiceManager\ServiceManager;
 use PHPUnit\Framework\TestCase;
 use Providentia\Access\Application\AccessService;
@@ -31,10 +32,15 @@ use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\EmailLoginService;
 use Providentia\Identity\Application\NotificationOutbox;
 use Providentia\Identity\Application\ProfileMediaService;
+use Providentia\Identity\Http\BearerAuthenticationMiddleware;
 use Providentia\Inventory\Application\InventoryService;
 use Providentia\Identity\Infrastructure\Cli\SystemOwnerCommand;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
+use Providentia\SharedKernel\Http\ProblemDetailsMiddleware;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Server\RequestHandlerInterface;
+use Psr\Log\NullLogger;
 use Symfony\Component\Console\Tester\CommandTester;
 
 final class PlatformAccessWorkflowTest extends TestCase
@@ -1252,6 +1258,135 @@ final class PlatformAccessWorkflowTest extends TestCase
             'Beans',
             $this->db->fetchOne('SELECT canonical_name FROM products WHERE id = ?', [$globalProductId]),
         );
+    }
+
+    public function testReaderScopedHttpBootstrapRecoversBeforeReceivingOperatorEdits(): void
+    {
+        $admin = $this->systemOwner();
+        [$owner, $home] = $this->ownedHome('cursor-owner@example.test');
+        $homeId = $home['id'];
+        $group = $this->homeGroup($admin, true, 3);
+        $this->access()->assign($admin, FeatureCatalog::HOME, $homeId, $group['id'], 1);
+        [$member] = $this->ownedHome('cursor-member@example.test', false);
+        $invitation = $this->homes()->invite($owner, $homeId, 'cursor-member@example.test', 'member');
+        $this->homes()->acceptInvitationById($member, $invitation['invitationId'], 1);
+        $inventory = $this->container->get(InventoryService::class);
+        $category = $inventory->createHomeCategory($owner, $homeId, 'Draft pantry');
+        $product = $inventory->addHomeProduct(
+            $owner,
+            $homeId,
+            null,
+            null,
+            'Draft beans',
+            'Draft pack',
+            $category['id'],
+        );
+
+        $ownerBootstrap = $this->syncHttp($owner, $homeId, 'bootstrap');
+        self::assertSame(200, $ownerBootstrap->getStatusCode());
+        $ownerData = $this->syncJson($ownerBootstrap);
+        self::assertFalse($ownerData['hasMore']);
+        self::assertIsString($ownerData['snapshotCursor']);
+        $crossReader = $this->syncHttp($member, $homeId, 'pull', ['cursor' => $ownerData['snapshotCursor']]);
+        self::assertSame(410, $crossReader->getStatusCode());
+        self::assertSame('application/problem+json', $crossReader->getHeaderLine('Content-Type'));
+        $problem = $this->syncJson($crossReader);
+        self::assertSame('https://providentia.invalid/problems/sync_resync_required', $problem['type']);
+        self::assertArrayNotHasKey('changes', $problem);
+        self::assertArrayNotHasKey('records', $problem);
+        self::assertSame(0, (int) $this->db->fetchOne(
+            'SELECT COUNT(*) FROM sync_cursors WHERE home_id = ? AND user_id = ? AND device_id = ?',
+            [$homeId, $member->userId, $member->deviceId],
+        ));
+
+        $memberCursor = null;
+        $pageCursor = null;
+        $seen = [];
+        $records = [];
+        for ($page = 0; $page < 20; ++$page) {
+            $query = ['limit' => '1'];
+            if ($pageCursor !== null) {
+                $query['cursor'] = $pageCursor;
+            }
+            $response = $this->syncHttp($member, $homeId, 'bootstrap', $query);
+            self::assertSame(200, $response->getStatusCode());
+            $data = $this->syncJson($response);
+            self::assertIsArray($data['records']);
+            $records = [...$records, ...$data['records']];
+            self::assertIsBool($data['hasMore']);
+            if (! $data['hasMore']) {
+                self::assertNull($data['pageCursor']);
+                self::assertIsString($data['snapshotCursor']);
+                $memberCursor = $data['snapshotCursor'];
+                break;
+            }
+            self::assertNull($data['snapshotCursor']);
+            self::assertIsString($data['pageCursor']);
+            self::assertNotContains($data['pageCursor'], $seen);
+            $pageCursor = $data['pageCursor'];
+            $seen[] = $pageCursor;
+        }
+        self::assertIsString($memberCursor, 'A bounded bootstrap must finish with its own incremental cursor.');
+        self::assertNotEmpty($seen, 'The database-backed snapshot must exercise multiple pages.');
+        self::assertNotSame($ownerData['snapshotCursor'], $memberCursor);
+        self::assertContains($category['id'], array_column($records, 'entityId'));
+        self::assertContains($product['id'], array_column($records, 'entityId'));
+        $acknowledged = $this->db->fetchOne(
+            'SELECT last_acknowledged_cursor FROM sync_cursors WHERE home_id = ? AND user_id = ? AND device_id = ?',
+            [$homeId, $member->userId, $member->deviceId],
+        );
+        self::assertNotFalse($acknowledged);
+
+        $operator = $this->container->get(OperatorInventoryService::class);
+        $operator->updateCategory($admin, $homeId, $category['id'], [
+            'name' => 'Acceptance pantry', 'expectedRevision' => 1, 'reason' => 'Acceptance category correction',
+        ]);
+        $operator->updateProduct($admin, $homeId, $product['id'], [
+            'privateName' => 'Acceptance baked beans', 'originalPackText' => '400 g tin',
+            'expectedRevision' => 1, 'reason' => 'Acceptance product correction',
+        ]);
+        $pull = $this->syncHttp($member, $homeId, 'pull', ['cursor' => $memberCursor]);
+        self::assertSame(200, $pull->getStatusCode());
+        $changes = $this->syncJson($pull);
+        self::assertFalse($changes['hasMore']);
+        self::assertIsArray($changes['changes']);
+        $byId = array_column($changes['changes'], null, 'entityId');
+        self::assertSame(2, $byId[$category['id']]['revision']);
+        self::assertSame('Acceptance pantry', $byId[$category['id']]['representation']['name']);
+        self::assertSame(2, $byId[$product['id']]['revision']);
+        self::assertSame('Acceptance baked beans', $byId[$product['id']]['representation']['privateName']);
+        self::assertSame('400 g tin', $byId[$product['id']]['representation']['originalPackText']);
+        self::assertGreaterThan((int) $acknowledged, (int) $this->db->fetchOne(
+            'SELECT last_acknowledged_cursor FROM sync_cursors WHERE home_id = ? AND user_id = ? AND device_id = ?',
+            [$homeId, $member->userId, $member->deviceId],
+        ));
+    }
+
+    /** @param array<string, string> $query */
+    private function syncHttp(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $action,
+        array $query = [],
+    ): ResponseInterface {
+        // Real handlers, middleware, authorization, migrations and SQLite storage.
+        // Identity is supplied from the real login flow; this is not a socket/Compose test.
+        $handler = $this->container->get('synchronization.' . $action);
+        self::assertInstanceOf(RequestHandlerInterface::class, $handler);
+        $request = (new ServerRequest([], [], '/api/v1/homes/' . $homeId . '/sync/' . $action, 'GET'))
+            ->withAttribute(BearerAuthenticationMiddleware::ATTRIBUTE, $identity)
+            ->withAttribute('homeId', $homeId)
+            ->withHeader('X-Request-Id', 'scope-http-regression')
+            ->withQueryParams($query);
+        return (new ProblemDetailsMiddleware(false, new NullLogger()))->process($request, $handler);
+    }
+
+    /** @return array<string, mixed> */
+    private function syncJson(ResponseInterface $response): array
+    {
+        $data = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($data);
+        return $data;
     }
 
     /** @return array{AuthenticatedIdentity, array<string, mixed>} */
