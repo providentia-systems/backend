@@ -1,0 +1,65 @@
+name: Split verified test runtime
+on:
+  push:
+    branches: [fix/step-1-authoritative-sync]
+    paths: [.github/workflows/repair-runtime-chunks.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  chunks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download only the already verified runtime and split its bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: providentia-systems/backend
+        run: |
+          set -euo pipefail
+          mkdir runtime parts
+          gh run download 35072180795 --name finalization-flutter-runtime --dir runtime
+          (cd runtime && sha256sum -c SHA256SUMS)
+          tar -C runtime -cf - . | split -b 400M -d -a 2 - parts/runtime.tar.part-
+          (cd parts && sha256sum runtime.tar.part-* > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-part-00
+          path: parts/runtime.tar.part-00
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-part-01
+          path: parts/runtime.tar.part-01
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-part-02
+          path: parts/runtime.tar.part-02
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-part-03
+          path: parts/runtime.tar.part-03
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-part-04
+          path: parts/runtime.tar.part-04
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-checksums
+          path: parts/SHA256SUMS
+          retention-days: 2
+          if-no-files-found: error
