@@ -1,0 +1,273 @@
+diff --git a/docs/releases/sync-read-scope-repair.md b/docs/releases/sync-read-scope-repair.md
+index 27008a6..6ba731f 100644
+--- a/docs/releases/sync-read-scope-repair.md
++++ b/docs/releases/sync-read-scope-repair.md
+@@ -34,3 +34,11 @@ The new regressions cover scope grants/revocations, legacy cursors, reader isola
+ ## Release and rollback
+ 
+ Keep the existing PR and earlier repairs. Coordinate release with the client recovery/cache work. Do not reset household records, pending operations or receipts. Reverting this repair restores permission-insensitive cursor behavior; application rollback must not be mistaken for revoking already disclosed or user-saved data.
++
++## Retry semantics and independent-reader acceptance follow-up
++
++Both push protocols now preserve HTTP failure semantics: 401 remains a request-level authentication failure; 408/425/429 and 5xx return retryable operation outcomes; 403/404 remain authorization failures; 409/412 remain conflicts; invalid requests remain validation errors. Transient internal details are not disclosed. The operation ID is never replaced, and no failed command is recorded as accepted.
++
++The deployed headless scenario previously reused the owner's cursor under a different member's credentials. It now asserts that this is rejected with safe-bootstrap HTTP 410, exhausts the second installation's own snapshot, and retains the original assertions proving that later edits reach that installation and that lost-response retries do not undo edits. No acceptance assertions or workflow gates were removed.
++
++Local follow-up validation: 658 tests / 3,857 assertions passed, plus PHPCS, serial PHPStan, architecture, canonical OpenAPI validation, and Bash syntax. The added failure matrix covers both protocols for 14 HTTP statuses. Docker is not installed in the local execution container; the source-Compose headless journey must pass on the final GitHub source commit. These local checks do not replace that result.
+diff --git a/src/Synchronization/Application/SynchronizationService.php b/src/Synchronization/Application/SynchronizationService.php
+index 401a2dd..1756b59 100644
+--- a/src/Synchronization/Application/SynchronizationService.php
++++ b/src/Synchronization/Application/SynchronizationService.php
+@@ -298,13 +298,7 @@ final class SynchronizationService
+                 $scope,
+             );
+         } catch (Problem $problem) {
+-            return [
+-                'operationId' => (string) ($operation['operationId'] ?? ''),
+-                'status' => in_array($problem->status, [403, 404], true)
+-                    ? 'authorization_failure'
+-                    : 'validation_error',
+-                'detail' => $problem->getMessage(),
+-            ];
++            return $this->problemResult((string) ($operation['operationId'] ?? ''), $problem);
+         } catch (Throwable) {
+             return [
+                 'operationId' => (string) ($operation['operationId'] ?? ''),
+@@ -386,15 +380,7 @@ final class SynchronizationService
+                 return $response;
+             });
+         } catch (Problem $problem) {
+-            return [
+-                'operationId' => (string) ($operation['operationId'] ?? ''),
+-                'status' => match (true) {
+-                    in_array($problem->status, [403, 404], true) => 'authorization_failure',
+-                    $problem->status === 409 => 'conflict',
+-                    default => 'validation_error',
+-                },
+-                'detail' => $problem->getMessage(),
+-            ];
++            return $this->problemResult((string) ($operation['operationId'] ?? ''), $problem);
+         } catch (Throwable) {
+             return [
+                 'operationId' => (string) ($operation['operationId'] ?? ''),
+@@ -404,6 +390,32 @@ final class SynchronizationService
+         }
+     }
+ 
++    /** @return array{operationId: string, status: string, detail: string} */
++    private function problemResult(string $operationId, Problem $problem): array
++    {
++        // Authentication belongs to the request, not to a terminal outbox result.
++        // Earlier accepted operations remain recoverable through their receipts.
++        if ($problem->status === 401) {
++            throw $problem;
++        }
++        $status = match (true) {
++            $problem->status >= 500,
++            in_array($problem->status, [408, 425, 429], true) => 'retryable_failure',
++            in_array($problem->status, [403, 404], true) => 'authorization_failure',
++            in_array($problem->status, [409, 412], true) => 'conflict',
++            default => 'validation_error',
++        };
++
++        return [
++            'operationId' => $operationId,
++            'status' => $status,
++            // Service failures can contain driver, provider or connection details.
++            'detail' => $status === 'retryable_failure'
++                ? 'The service could not process this operation. Retry the same operation.'
++                : $problem->getMessage(),
++        ];
++    }
++
+     /** A concurrent revocation must not publish or acknowledge an old read scope. */
+     private function requireUnchangedReadScope(
+         AuthenticatedIdentity $identity,
+diff --git a/tests/Acceptance/headless-platform-acceptance.sh b/tests/Acceptance/headless-platform-acceptance.sh
+index dff254e..7229e5d 100755
+--- a/tests/Acceptance/headless-platform-acceptance.sh
++++ b/tests/Acceptance/headless-platform-acceptance.sh
+@@ -676,7 +676,31 @@ assert_json 'Typed private category/product creation did not acknowledge both du
+     .protocolVersion == 2 and (.results | length == 2)
+     and all(.results[]; .status == "accepted" and .result.id == .entityId)
+ '
+-private_sync_cursor="$(jq -er '.highWaterCursor' "$response_body")"
++owner_sync_cursor="$(jq -er '.highWaterCursor' "$response_body")"
++# Cursors are scoped to their authenticated reader. A second installation must
++# establish its own frozen snapshot before observing later edits incrementally.
++http_json GET "/api/v1/homes/${home_id}/sync/pull?cursor=${owner_sync_cursor}" \
++    410 "$member_access_token"
++assert_problem_json
++assert_json 'A cursor from another installation did not require safe recovery.' '
++    .type == "https://providentia.invalid/problems/sync_resync_required"
++'
++member_snapshot_path="/api/v1/homes/${home_id}/sync/bootstrap"
++while true; do
++    http_json GET "$member_snapshot_path" 200 "$member_access_token"
++    assert_json 'The second installation did not receive a valid snapshot page.' '
++        (.records | type == "array") and (.hasMore | type == "boolean")
++    '
++    if [[ "$(jq -r '.hasMore' "$response_body")" == false ]]; then
++        private_sync_cursor="$(jq -er '.snapshotCursor | strings | select(length > 0)' "$response_body")"
++        break
++    fi
++    member_page_cursor="$(jq -er '.pageCursor | strings | select(length > 0)' "$response_body")"
++    next_snapshot_path="/api/v1/homes/${home_id}/sync/bootstrap?cursor=${member_page_cursor}"
++    [[ "$next_snapshot_path" != "$member_snapshot_path" ]] \
++        || fail 'The second installation snapshot cursor did not advance.'
++    member_snapshot_path="$next_snapshot_path"
++done
+ http_json GET "/api/v1/admin/homes/${home_id}/records/products" 200 "$admin_access_token"
+ assert_json 'An unshared private product was missing from authorized Admin inspection.' '
+     .data | any(.id == $productId and .private_name == "Draft beans" and .home_category_id == $categoryId)
+diff --git a/tests/Unit/Synchronization/SyncFailureClassificationTest.php b/tests/Unit/Synchronization/SyncFailureClassificationTest.php
+new file mode 100644
+index 0000000..d749328
+--- /dev/null
++++ b/tests/Unit/Synchronization/SyncFailureClassificationTest.php
+@@ -0,0 +1,145 @@
++<?php
++
++declare(strict_types=1);
++
++namespace ProvidentiaTest\Unit\Synchronization;
++
++use DateTimeImmutable;
++use PHPUnit\Framework\Attributes\DataProvider;
++use PHPUnit\Framework\TestCase;
++use Providentia\Home\Application\HomeAuthorization;
++use Providentia\Home\Application\HomeStore;
++use Providentia\Identity\Application\AuthenticatedIdentity;
++use Providentia\SharedKernel\Application\Problem;
++use Providentia\SharedKernel\Application\TransactionManager;
++use Providentia\Synchronization\Application\CursorCodec;
++use Providentia\Synchronization\Application\PrivateNoteSyncEntityPolicy;
++use Providentia\Synchronization\Application\SyncCommandDispatcher;
++use Providentia\Synchronization\Application\SyncCommandHasher;
++use Providentia\Synchronization\Application\SyncCommandValidator;
++use Providentia\Synchronization\Application\SyncEntityPolicyRegistry;
++use Providentia\Synchronization\Application\SyncEnvelopeValidator;
++use Providentia\Synchronization\Application\SyncOperationValidator;
++use Providentia\Synchronization\Application\SyncRequestHasher;
++use Providentia\Synchronization\Application\SyncResultPresenter;
++use Providentia\Synchronization\Application\SyncStore;
++use Providentia\Synchronization\Application\SynchronizationService;
++use ProvidentiaTest\Support\AccessFixture;
++
++final class SyncFailureClassificationTest extends TestCase
++{
++    private const ID = '01912345-6789-7abc-8def-0123456789ab';
++
++    #[DataProvider('failures')]
++    public function testBothProtocolsKeepFailureSemantics(int $protocol, int $httpStatus, string $outcome): void
++    {
++        $problem = new Problem($httpStatus, 'Synthetic failure', 'Synthetic domain or internal service detail');
++        $store = $this->createMock(SyncStore::class);
++        $store->method('highWater')->willReturn(0);
++        $store->method('operationReceipt')->willReturn(null);
++        $store->expects(self::never())->method('recordCommandReceipt');
++        $dispatcher = $this->createMock(SyncCommandDispatcher::class);
++        if ($protocol === 1) {
++            $store->expects(self::once())->method('apply')->willThrowException($problem);
++            $dispatcher->expects(self::never())->method('dispatch');
++        } else {
++            $store->expects(self::never())->method('apply');
++            $dispatcher->expects(self::once())->method('dispatch')->willThrowException($problem);
++        }
++        $homes = $this->createStub(HomeStore::class);
++        $homes->method('membership')->willReturn(['status' => 'active', 'role' => HomeAuthorization::MEMBER]);
++        $clock = new FixedClock(new DateTimeImmutable('2026-09-16T00:00:00Z'));
++        $cursors = new CursorCodec(str_repeat('s', 32), $clock, 3600);
++        $transactions = $this->createStub(TransactionManager::class);
++        $transactions->method('transactional')->willReturnCallback(
++            static fn (callable $operation): mixed => $operation(),
++        );
++        $service = new SynchronizationService(
++            $store,
++            $cursors,
++            new HomeAuthorization($homes, AccessFixture::create()),
++            $clock,
++            new SyncEnvelopeValidator(100),
++            new SyncOperationValidator(new SyncEntityPolicyRegistry([new PrivateNoteSyncEntityPolicy()]), 65536),
++            new SyncRequestHasher(),
++            new SyncResultPresenter($cursors),
++            100,
++            new SyncCommandValidator(65536),
++            $dispatcher,
++            new SyncCommandHasher(),
++            $transactions,
++        );
++        $operation = [
++            'operationId' => self::ID,
++            'entityId' => self::ID,
++            'baseRevision' => null,
++            'clientTimestamp' => '2026-09-16T00:00:00Z',
++            'payloadSchemaVersion' => 1,
++            ...($protocol === 1
++                ? ['entityType' => 'private-note', 'operationType' => 'put', 'payload' => ['body' => 'Synthetic note']]
++                : [
++                    'commandType' => 'shopping.list.create',
++                    'payload' => ['name' => 'Synthetic list', 'kind' => 'manual'],
++                ]),
++        ];
++        try {
++            $response = $service->push(
++                new AuthenticatedIdentity(self::ID, self::ID, self::ID, null, []),
++                self::ID,
++                'failure-classification',
++                self::ID,
++                [
++                    'protocolVersion' => $protocol,
++                    'batchId' => self::ID,
++                    'deviceId' => self::ID,
++                    'lastPulledCursor' => null,
++                    'operations' => [$operation],
++                ],
++            );
++            self::assertNotSame(
++                'request_authentication',
++                $outcome,
++                'Authentication must not terminally reject intent.',
++            );
++            self::assertSame(self::ID, $response['results'][0]['operationId']);
++            self::assertSame($outcome, $response['results'][0]['status']);
++            if ($outcome === 'retryable_failure') {
++                self::assertStringNotContainsString('internal service detail', $response['results'][0]['detail']);
++                self::assertStringContainsString('Retry the same operation', $response['results'][0]['detail']);
++            } else {
++                self::assertSame($problem->getMessage(), $response['results'][0]['detail']);
++            }
++        } catch (Problem $actual) {
++            self::assertSame('request_authentication', $outcome);
++            self::assertSame($problem, $actual);
++            self::assertSame(401, $actual->status);
++        }
++    }
++
++    /** @return iterable<string, array{int, int, string}> */
++    public static function failures(): iterable
++    {
++        foreach ([1, 2] as $protocol) {
++            foreach (
++                [
++                    400 => 'validation_error',
++                    401 => 'request_authentication',
++                    403 => 'authorization_failure',
++                    404 => 'authorization_failure',
++                    408 => 'retryable_failure',
++                    409 => 'conflict',
++                    412 => 'conflict',
++                    422 => 'validation_error',
++                    425 => 'retryable_failure',
++                    429 => 'retryable_failure',
++                    500 => 'retryable_failure',
++                    502 => 'retryable_failure',
++                    503 => 'retryable_failure',
++                    504 => 'retryable_failure',
++                ] as $status => $outcome
++            ) {
++                yield "protocol $protocol / HTTP $status" => [$protocol, $status, $outcome];
++            }
++        }
++    }
++}
