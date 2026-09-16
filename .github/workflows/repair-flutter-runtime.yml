@@ -1,0 +1,48 @@
+name: Recover pinned Flutter test runtime
+on:
+  push:
+    branches: [fix/step-1-authoritative-sync]
+    paths: [.github/workflows/repair-flutter-runtime.yml]
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/client
+          ref: 99dd662ad6bc461d257e71c522a5e22e7c8d540d
+          path: client
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/admin
+          ref: 8cf417041b2c50cc7f4368143de0e5fcd1669e61
+          path: admin
+          persist-credentials: false
+      - name: Verify SDK, resolve locked packages, and warm native test assets
+        run: |
+          set -euo pipefail
+          bash client/tool/install_flutter_linux.sh "$RUNNER_TEMP/sdk"
+          export PATH="$RUNNER_TEMP/sdk/flutter/bin:$PATH"
+          export PUB_CACHE="$RUNNER_TEMP/pub-cache"
+          for repo in client admin; do
+            (cd "$repo" && flutter pub get --enforce-lockfile)
+          done
+          (cd client && dart run build_runner build && flutter test test/core/database/drift_local_sync_repository_test.dart)
+          mkdir runtime
+          tar -C "$RUNNER_TEMP/sdk" -czf runtime/flutter.tar.gz flutter
+          tar -C "$RUNNER_TEMP" -czf runtime/pub-cache.tar.gz pub-cache
+          tar -C client -czf runtime/client-dart-tool.tar.gz .dart_tool
+          flutter --version > runtime/versions.txt
+          cd runtime
+          sha256sum *.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: finalization-flutter-runtime
+          path: runtime/
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
