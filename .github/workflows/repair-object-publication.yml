@@ -1,0 +1,125 @@
+name: Prepare reviewed repair objects
+on:
+  push:
+    branches: [fix/step-1-authoritative-sync]
+    paths: [.github/repair-publication.patch]
+permissions:
+  contents: read
+jobs:
+  objects:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify and prepare exactly the locally tested Git tree, without updating any ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 32fae85d15be3cb3b6a6087d4fe34328d7e0f2b1
+          printf '%s  .github/repair-publication.patch\n' 750740d6455ea2a0560e9f175069c691ebf37f082fd9fdc0be527604cdb90a7d | sha256sum -c -
+          git apply --check --index .github/repair-publication.patch
+          git apply --index .github/repair-publication.patch
+          git rm .github/repair-publication.patch .github/workflows/repair-object-publication.yml
+          test "$(git write-tree)" = 48d16770cf4f5a61b6d1c6a80f5c5c63b73290ec
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess, urllib.request
+          base = '32fae85d15be3cb3b6a6087d4fe34328d7e0f2b1'
+          def git(*args):
+              return subprocess.check_output(['git', *args]).decode().strip()
+          def post(endpoint, body):
+              request = urllib.request.Request(
+                  'https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/git/' + endpoint,
+                  data=json.dumps(body).encode(), method='POST',
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json',
+                           'Content-Type': 'application/json',
+                           'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return json.load(response)
+          entries = []
+          paths = git('diff', '--cached', '--name-only', base).splitlines()
+          allowed = {'docs/releases/sync-read-scope-repair.md',
+                     'src/Synchronization/Application/SynchronizationService.php',
+                     'tests/Acceptance/headless-platform-acceptance.sh',
+                     'tests/Unit/Synchronization/SyncFailureClassificationTest.php'}
+          if set(paths) != allowed:
+              raise RuntimeError('Unexpected publication scope')
+          for path in paths:
+              raw = pathlib.Path(path).read_bytes()
+              blob = post('blobs', {'content': base64.b64encode(raw).decode(), 'encoding': 'base64'})
+              if blob['sha'] != git('rev-parse', ':' + path):
+                  raise RuntimeError('Published blob differs from the tested file: ' + path)
+              mode = git('ls-files', '-s', path).split()[0]
+              entries.append({'path': path, 'mode': mode, 'type': 'blob', 'sha': blob['sha']})
+          tree = post('trees', {'base_tree': git('rev-parse', base + '^{tree}'), 'tree': entries})
+          if tree['sha'] != '48d16770cf4f5a61b6d1c6a80f5c5c63b73290ec':
+              raise RuntimeError('Published tree differs from the locally tested tree')
+          result = {'parent': os.environ['GITHUB_SHA'], 'base': base, 'tree': tree['sha'], 'entries': entries}
+          pathlib.Path('publication.json').write_text(json.dumps(result, indent=2) + '\n')
+          print(json.dumps(result, indent=2))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reviewed-repair-objects
+          path: publication.json
+          retention-days: 14
+          if-no-files-found: error
+  workspaces:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/client
+          ref: 99dd662ad6bc461d257e71c522a5e22e7c8d540d
+          path: client
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/admin
+          ref: 8cf417041b2c50cc7f4368143de0e5fcd1669e61
+          path: admin
+          persist-credentials: false
+      - name: Archive tracked app source without credentials
+        run: |
+          set -euo pipefail
+          mkdir source
+          for repo in client admin; do
+            git -C "$repo" rev-parse HEAD > "source/$repo.commit"
+            git -C "$repo" archive --format=tar.gz --prefix="$repo/" HEAD > "source/$repo.tar.gz"
+          done
+          cd source
+          sha256sum *.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: finalization-app-source
+          path: source/
+          retention-days: 14
+      - name: Recover the pinned SDK and locked packages
+        run: |
+          set -euo pipefail
+          bash client/tool/install_flutter_linux.sh "$RUNNER_TEMP/sdk"
+          export PATH="$RUNNER_TEMP/sdk/flutter/bin:$PATH"
+          export PUB_CACHE="$RUNNER_TEMP/pub-cache"
+          for repo in client admin; do
+            (cd "$repo" && flutter pub get --enforce-lockfile && dart run build_runner build --delete-conflicting-outputs)
+          done
+          mkdir runtime
+          tar -C "$RUNNER_TEMP/sdk" -czf runtime/flutter.tar.gz flutter
+          tar -C "$RUNNER_TEMP" -czf runtime/pub-cache.tar.gz pub-cache
+          flutter --version > runtime/versions.txt
+          cd runtime
+          sha256sum *.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: finalization-flutter-runtime
+          path: runtime/
+          retention-days: 2
+          compression-level: 0
