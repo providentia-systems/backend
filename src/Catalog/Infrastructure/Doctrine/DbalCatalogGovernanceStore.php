@@ -12,6 +12,7 @@ use Doctrine\DBAL\Platforms\SQLitePlatform;
 use DomainException;
 use Providentia\Catalog\Application\CatalogGovernanceStore;
 use Providentia\Catalog\Application\CatalogMaintenanceStore;
+use Providentia\Catalog\Application\CatalogMaintenanceSearch;
 use Providentia\Catalog\Application\CatalogMergeHomeProductGateway;
 use Providentia\SharedKernel\Application\UuidGenerator;
 
@@ -103,8 +104,12 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
         };
     }
 
-    public function entities(string $type, int $offset, ?string $productId = null): array
-    {
+    public function entities(
+        string $type,
+        int $offset,
+        ?string $productId = null,
+        string $query = '',
+    ): array {
         $definition = $this->entityDefinition($type);
         $where = $type === 'alias' ? ["scope = 'global'", 'home_id IS NULL'] : [];
         if ($productId !== null) {
@@ -117,13 +122,19 @@ final class DbalCatalogGovernanceStore implements CatalogGovernanceStore, Catalo
                 default => throw new DomainException('This entity type has no product relationship.'),
             };
         }
+        $params = $productId === null ? [] : ['product' => $productId];
+        $search = CatalogMaintenanceSearch::where($query, $definition['fields']);
+        if ($search['sql'] !== '') {
+            $where[] = $search['sql'];
+            $params += $search['params'];
+        }
         $rows = $this->connection->fetchAllAssociative(
             'SELECT * FROM ' .
                 $definition['table'] .
                 ($where === [] ? '' : ' WHERE ' . implode(' AND ', $where)) .
                 ' ORDER BY id LIMIT 100 OFFSET ' .
                 max(0, $offset),
-            $productId === null ? [] : ['product' => $productId],
+            $params,
         );
         return array_map(fn(array $row): array => $this->entityRepresentation($type, $row), $rows);
     }

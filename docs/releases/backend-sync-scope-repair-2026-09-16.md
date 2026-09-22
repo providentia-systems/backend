@@ -73,7 +73,7 @@ belong to superseded local trees and are not the result for this rebased commit.
 
 No migration, household-data rewrite, cursor format, API schema, dependency lock
 or workflow-configuration change. API 2.1.0 retains canonical digest
-`f6591ae866efbcc9e661528c7f595da0d7093d959d64c66c09b0c5be1dcb7c58`.
+`13ccdc2d37e73955394a7b7c52da6d9ff7aeefdfd763ac809876737867d15c44`.
 The inherited HTTP 410 safe-bootstrap response still requires paired client
 recovery that preserves pending/ambiguous outbox intent, removes inaccessible
 cache entries, resets the appropriate cursor and fences late responses.

@@ -21,8 +21,13 @@ final readonly class CatalogMaintenanceService
     }
 
     /** @return list<array<string, mixed>> */
-    public function list(AuthenticatedIdentity $identity, string $type, int $offset, ?string $productId = null): array
-    {
+    public function list(
+        AuthenticatedIdentity $identity,
+        string $type,
+        int $offset,
+        ?string $productId = null,
+        string $query = '',
+    ): array {
         $this->authorization->requireReviewer($identity);
         $this->type($type);
         if (
@@ -35,7 +40,10 @@ final readonly class CatalogMaintenanceService
         ) {
             throw new Problem(422, 'Invalid product filter', 'Choose a catalog product and related entity type.');
         }
-        return $this->store->entities($type, max(0, $offset), $productId);
+        if (mb_strlen($query) > 191) {
+            throw new Problem(422, 'Invalid catalog search', 'Search text must not exceed 191 characters.');
+        }
+        return $this->store->entities($type, max(0, $offset), $productId, trim($query));
     }
 
     /** @param array<string, mixed> $body
