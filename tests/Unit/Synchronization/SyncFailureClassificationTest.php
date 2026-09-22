@@ -31,9 +31,14 @@ final class SyncFailureClassificationTest extends TestCase
     private const ID = '01912345-6789-7abc-8def-0123456789ab';
 
     #[DataProvider('failures')]
-    public function testBothProtocolsKeepFailureSemantics(int $protocol, int $httpStatus, string $outcome): void
-    {
-        $problem = new Problem($httpStatus, 'Synthetic failure', 'Synthetic domain or internal service detail');
+    public function testBothProtocolsKeepFailureSemantics(
+        int $protocol,
+        int $httpStatus,
+        string $outcome,
+        string $type = 'about:blank',
+        ?string $code = null,
+    ): void {
+        $problem = new Problem($httpStatus, 'Synthetic failure', 'Synthetic domain or internal service detail', $type);
         $store = $this->createMock(SyncStore::class);
         $store->method('highWater')->willReturn(0);
         $store->method('operationReceipt')->willReturn(null);
@@ -103,6 +108,12 @@ final class SyncFailureClassificationTest extends TestCase
             );
             self::assertSame(self::ID, $response['results'][0]['operationId']);
             self::assertSame($outcome, $response['results'][0]['status']);
+            if ($code !== null) {
+                self::assertSame($code, $response['results'][0]['code']);
+            }
+            if ($httpStatus === 404 && $type === 'about:blank') {
+                self::assertSame('resource_unavailable', $response['results'][0]['code']);
+            }
             if ($outcome === 'retryable_failure') {
                 self::assertStringNotContainsString('internal service detail', $response['results'][0]['detail']);
                 self::assertStringContainsString('Retry the same operation', $response['results'][0]['detail']);
@@ -116,16 +127,31 @@ final class SyncFailureClassificationTest extends TestCase
         }
     }
 
-    /** @return iterable<string, array{int, int, string}> */
+    /** @return iterable<string, array{int, int, string, 3?: string, 4?: string}> */
     public static function failures(): iterable
     {
         foreach ([1, 2] as $protocol) {
             foreach (
                 [
+                'sync_device_mismatch' => [403, 'device_binding_mismatch'],
+                'sync_home_access_denied' => [404, 'home_access_denied'],
+                'sync_permission_denied' => [404, 'permission_denied'],
+                ] as $type => [$status, $code]
+            ) {
+                yield "protocol $protocol / $type" => [
+                    $protocol,
+                    $status,
+                    'authorization_failure',
+                    'https://providentia.invalid/problems/' . $type,
+                    $code,
+                ];
+            }
+            foreach (
+                [
                     400 => 'validation_error',
                     401 => 'request_authentication',
                     403 => 'authorization_failure',
-                    404 => 'authorization_failure',
+                    404 => 'validation_error',
                     408 => 'retryable_failure',
                     409 => 'conflict',
                     412 => 'conflict',
