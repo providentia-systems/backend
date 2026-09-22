@@ -233,7 +233,10 @@ final class InventoryItemMasterTest extends TestCase
             self::OTHER_CATEGORY_ID,
         );
         self::assertSame('category-unavailable', $denied['status']);
-        self::assertSame(1, (int) $this->store->homeProduct(self::HOME_ID, self::HOME_PRODUCT_ID)['revision']);
+        $unchanged = $this->store->homeProduct(self::HOME_ID, self::HOME_PRODUCT_ID);
+        self::assertNotNull($unchanged);
+        self::assertArrayHasKey('revision', $unchanged);
+        self::assertSame(1, (int) $unchanged['revision']);
         $this->insertPrivateCategory();
         $mixed = $this->store->updateHomeProduct(
             self::HOME_ID,
