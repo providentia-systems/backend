@@ -33,6 +33,7 @@ final class SyncEnvelopeValidator
                 403,
                 'Device mismatch',
                 'The synchronization device does not match the session.',
+                SyncProblemClassifier::DEVICE_MISMATCH,
             );
         }
 
