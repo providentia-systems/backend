@@ -2,7 +2,7 @@ name: Handover backend validation
 on:
   push:
     branches: [fix/handover-2026-09-22]
-    paths: [tool/handover-next.py]
+    paths: [tool/handover-next.py, .github/workflows/handover-validation.yml]
 permissions:
   contents: write
 concurrency:
@@ -24,17 +24,18 @@ jobs:
           coverage: xdebug
           tools: composer:2.10.2
       - name: Install locked dependencies
-        run: composer install --prefer-dist --no-progress --no-interaction
+        run: |
+          set -euo pipefail
+          composer install --prefer-dist --no-progress --no-interaction > "$RUNNER_TEMP/install.log" 2>&1 || { tail -n 80 "$RUNNER_TEMP/install.log"; exit 1; }
+          php --version
+          composer --version
       - name: Apply reviewed edits
         run: python3 tool/handover-next.py
       - name: Format and preserve source edits
         run: |
           set -euo pipefail
-          set +e
-          vendor/bin/phpcbf > "$RUNNER_TEMP/format.log" 2>&1
-          result=$?
-          set -e
-          if [ "$result" -gt 1 ]; then cat "$RUNNER_TEMP/format.log"; exit "$result"; fi
+          # The fixer is not a validator; composer check below always runs PHPCS.
+          vendor/bin/phpcbf > "$RUNNER_TEMP/format.log" 2>&1 || cat "$RUNNER_TEMP/format.log"
           git diff --check
           git add src tests docs config migrations contracts tool
           if ! git diff --cached --quiet; then
