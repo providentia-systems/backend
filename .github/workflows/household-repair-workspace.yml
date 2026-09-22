@@ -1,0 +1,69 @@
+name: Household metadata repair workspace
+
+on:
+  push:
+    branches: [fix/client-household-workflows]
+    paths: [.github/workflows/household-repair-workspace.yml, tool/household-repair.py, tool/household-repair-*.b64]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: household-metadata-repair
+  cancel-in-progress: false
+
+jobs:
+  repair-and-check:
+    if: github.ref == 'refs/heads/fix/client-household-workflows'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: fix/client-household-workflows
+      - name: Apply the exact reviewed source patch
+        run: python3 tool/household-repair.py
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: gd, intl, json, mbstring, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.10.2
+      - name: Resolve the existing lockfile
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Format only changed PHP source
+        shell: bash
+        run: |
+          mapfile -t paths < <({ git diff --name-only; git ls-files --others --exclude-standard; } | grep '\.php$' | sort -u)
+          if ((${#paths[@]})); then
+            set +e
+            vendor/bin/phpcbf "${paths[@]}"
+            result=$?
+            set -e
+            test "$result" -le 1
+          fi
+          git diff --check
+      - name: Commit only application, contract and regression-test changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- src migrations tests contracts tool/materialize-openapi-contract.sh
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix: persist household product overrides, units and global categories'
+            git push origin HEAD:fix/client-household-workflows
+          fi
+      - name: Run the existing complete PHP quality command
+        run: composer check
+      - name: Export the exact source and validation state
+        if: always()
+        run: |
+          mkdir -p /tmp/household-evidence
+          git rev-parse HEAD > /tmp/household-evidence/commit.txt
+          git archive --format=tar HEAD > /tmp/household-evidence/backend.tar
+          git diff > /tmp/household-evidence/uncommitted.patch
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: household-backend-source-evidence
+          path: /tmp/household-evidence/
+          retention-days: 2
