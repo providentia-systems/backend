@@ -41,4 +41,39 @@ final class CatalogMaintenanceServiceTest extends TestCase
             }
         }
     }
+
+    public function testReviewerSearchPreservesProductFilterAndPagination(): void
+    {
+        $store = $this->createMock(CatalogMaintenanceStore::class);
+        $store->expects(self::once())->method('entities')
+            ->with('pack', 100, 'product-id', 'Rice')
+            ->willReturn([]);
+        $service = new CatalogMaintenanceService(
+            $store,
+            new CatalogAuthorization(),
+            new HomeFixedClock(new DateTimeImmutable('2026-09-22T12:00:00Z')),
+            new RecordingTransactionManager(),
+        );
+        $identity = new AuthenticatedIdentity('user', 'session', 'device', null, [], ['catalog.review']);
+        self::assertSame([], $service->list($identity, 'pack', 100, 'product-id', '  Rice  '));
+    }
+
+    public function testOversizedSearchCannotReachTheDatabase(): void
+    {
+        $store = $this->createMock(CatalogMaintenanceStore::class);
+        $store->expects(self::never())->method('entities');
+        $service = new CatalogMaintenanceService(
+            $store,
+            new CatalogAuthorization(),
+            new HomeFixedClock(new DateTimeImmutable('2026-09-22T12:00:00Z')),
+            new RecordingTransactionManager(),
+        );
+        $identity = new AuthenticatedIdentity('user', 'session', 'device', null, [], ['catalog.review']);
+        try {
+            $service->list($identity, 'category', 0, null, str_repeat('x', 192));
+            self::fail('Oversized search was accepted.');
+        } catch (Problem $problem) {
+            self::assertSame(422, $problem->status);
+        }
+    }
 }

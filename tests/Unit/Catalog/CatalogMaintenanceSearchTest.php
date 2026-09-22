@@ -7,7 +7,7 @@ namespace ProvidentiaTest\Unit\Catalog;
 use Doctrine\DBAL\DriverManager;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Providentia\Catalog\Application\CatalogMaintenanceSearch;
+use Providentia\Catalog\Infrastructure\Doctrine\CatalogMaintenanceSearch;
 
 final class CatalogMaintenanceSearchTest extends TestCase
 {
