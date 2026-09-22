@@ -38,7 +38,7 @@ final class OperatorInventoryService
     public function createProduct(AuthenticatedIdentity $actor, string $homeId, array $input): array
     {
         $this->authorizeInput($actor, $homeId, $input, true, [
-            'productId', 'packId', 'privateName', 'originalPackText', 'homeCategoryId',
+            'productId', 'packId', 'privateName', 'originalPackText', 'homeCategoryId', 'globalCategoryId', 'unit',
         ]);
         $id = (string) $input['id'];
         return $this->mutate($actor, $homeId, 'product', $id, $input, function () use (
@@ -56,6 +56,8 @@ final class OperatorInventoryService
                 $this->nullableText($input, 'originalPackText'),
                 $this->nullableText($input, 'homeCategoryId'),
                 $id,
+                $this->nullableText($input, 'globalCategoryId'),
+                $this->nullableText($input, 'unit') ?? 'units',
             );
         });
     }
@@ -71,7 +73,7 @@ final class OperatorInventoryService
         array $input,
     ): array {
         $this->authorizeInput($actor, $homeId, $input, false, [
-            'privateName', 'originalPackText', 'homeCategoryId', 'status',
+            'privateName', 'originalPackText', 'homeCategoryId', 'status', 'globalCategoryId', 'unit',
         ]);
         return $this->mutate($actor, $homeId, 'product', $id, $input, function () use (
             $actor,
@@ -91,6 +93,9 @@ final class OperatorInventoryService
                 $this->nullableText($input, 'homeCategoryId'),
                 $this->nullableText($input, 'status'),
                 (int) $input['expectedRevision'],
+                array_key_exists('globalCategoryId', $input),
+                $this->nullableText($input, 'globalCategoryId'),
+                $this->nullableText($input, 'unit'),
             );
         });
     }

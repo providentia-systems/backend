@@ -5,8 +5,8 @@ set -Eeuo pipefail
 readonly root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly archive="$root/contracts/source/providentia-v1.json.gz"
 readonly output="$root/contracts/openapi/providentia-v1.json"
-readonly archive_sha256='bd106bdfd980823459ec3c769e8aad14cf6c2a2473b38c4708f9e59e635b34cd'
-readonly output_sha256='13ccdc2d37e73955394a7b7c52da6d9ff7aeefdfd763ac809876737867d15c44'
+readonly archive_sha256='d20ba3f9b769b5e30e59f38ecb83816ff6825a9bb646509440fb731cfc012ff1'
+readonly output_sha256='ef5714a6298326d6fb449b966117e8b61c74de67d1bfc274ad8ec431aecd802d'
 
 sha256_file() {
   sha256sum "$1" | cut -d' ' -f1
@@ -38,7 +38,7 @@ node -e '
       .filter((method) => path?.[method]).length,
     0,
   );
-  if (contract.info?.version !== "2.1.0"
+  if (contract.info?.version !== "2.2.0"
       || Object.keys(contract.paths ?? {}).length !== 194
       || operations !== 235
       || Object.keys(contract.components?.schemas ?? {}).length !== 285
@@ -49,10 +49,10 @@ node -e '
       || contract.paths?.["/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/lines/{lineId}"]
           ?.put?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref
           !== "#/components/schemas/StockCountLine") {
-    throw new Error("The materialized OpenAPI document is not complete Providentia API 2.1.0.");
+    throw new Error("The materialized OpenAPI document is not complete Providentia API 2.2.0.");
   }
 ' "$temporary"
 
 mv "$temporary" "$output"
 trap - EXIT
-echo 'Materialized Providentia API 2.1.0 contract.'
+echo 'Materialized Providentia API 2.2.0 contract.'

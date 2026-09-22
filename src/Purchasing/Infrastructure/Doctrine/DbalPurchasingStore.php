@@ -113,7 +113,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
                     rl.unit_price AS unitPrice, rl.line_total AS lineTotal,
                     rl.home_product_id AS homeProductId,
                     hp.product_id AS productId, hp.pack_id AS packId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
                     rl.approval_status AS approvalStatus, rl.revision,
                     rl.created_at AS createdAt, rl.updated_at AS updatedAt
              FROM receipt_lines rl

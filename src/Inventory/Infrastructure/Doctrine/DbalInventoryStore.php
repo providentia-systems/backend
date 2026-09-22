@@ -288,9 +288,11 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         $pattern = '%' . mb_strtolower($query) . '%';
         $globalWhere = 'p.status = :published AND pk.status <> :archived
             AND (:home_category_empty = :empty OR hc.id = :home_category)
-            AND (:category_empty = :empty OR c.id = :category)
+            AND (:category_empty = :empty OR (hc.id IS NULL AND COALESCE(gc.id, c.id) = :category))
             AND (:query_empty = :empty OR p.normalized_name LIKE :pattern
                  OR p.normalized_brand LIKE :pattern
+                 OR hp.normalized_private_name LIKE :pattern
+                 OR hp.original_pack_text LIKE :pattern
                  OR pk.original_pack_text LIKE :pattern
                  OR EXISTS (
                      SELECT 1 FROM product_aliases a
@@ -303,7 +305,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                  ))';
         $privateWhere = 'hp.home_id = :home AND hp.status = :home_product_status
             AND hp.pack_id IS NULL
-            AND (:category_empty = :empty OR p.category_id = :category)
+            AND (:category_empty = :empty OR (hc.id IS NULL AND COALESCE(gc.id, c.id) = :category))
             AND (:home_category_empty = :empty OR hc.id = :home_category)
             AND (:query_empty = :empty OR hp.normalized_private_name LIKE :pattern
                  OR p.normalized_name LIKE :pattern OR p.normalized_brand LIKE :pattern
@@ -314,6 +316,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'archived' => 'archived',
             'home_product_status' => 'active',
             'unresolved_name' => 'Unresolved catalog product',
+            'units' => 'units',
             'category_empty' => $categoryId ?? '',
             'category' => $categoryId ?? '',
             'home_category_empty' => $homeCategoryId ?? '',
@@ -326,13 +329,18 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'home_scope' => 'home',
         ];
         $union = 'SELECT pk.id AS packId, pk.variant_id AS variantId, p.id AS productId,
-                         p.canonical_name AS canonicalName, p.brand,
-                         c.id AS categoryId, NULL AS homeCategoryId,
-                         c.canonical_name AS categoryName, :global_scope AS categorySource,
-                         pk.original_pack_text AS packText, pk.status AS packStatus,
+                         COALESCE(hp.private_name, p.canonical_name) AS canonicalName, p.brand,
+                         CASE WHEN hc.id IS NULL THEN COALESCE(gc.id, c.id) ELSE NULL END AS categoryId,
+                         hc.id AS homeCategoryId,
+                         COALESCE(hc.name, gc.canonical_name, c.canonical_name) AS categoryName,
+                         CASE WHEN hc.id IS NOT NULL THEN :home_scope ELSE :global_scope END AS categorySource,
+                         COALESCE(hp.original_pack_text, pk.original_pack_text) AS packText, pk.status AS packStatus,
+                         p.canonical_name AS catalogName, pk.original_pack_text AS catalogPackText,
+                         c.id AS catalogCategoryId, c.canonical_name AS catalogCategoryName,
+                         hp.global_category_id AS globalCategoryId, COALESCE(hp.unit, :units) AS unit,
                          hp.id AS homeProductId, hp.status AS homeProductStatus,
                          COALESCE(ib.quantity, 0) AS quantity,
-                         p.normalized_name AS sortName, p.normalized_brand AS sortBrand
+                         COALESCE(hp.normalized_private_name, p.normalized_name) AS sortName, p.normalized_brand AS sortBrand
                   FROM product_packs pk
                   INNER JOIN products p ON p.id = pk.product_id
                   INNER JOIN categories c ON c.id = p.category_id
@@ -342,6 +350,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                         WHERE hp2.home_id = :home AND hp2.pack_id = pk.id
                           AND hp2.status = :home_product_status
                     )
+                  LEFT JOIN categories gc ON gc.id = hp.global_category_id
                   LEFT JOIN home_categories hc
                     ON hc.id = hp.home_category_id AND hc.home_id = hp.home_id
                   LEFT JOIN inventory_balances ib
@@ -351,18 +360,22 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                   SELECT NULL AS packId, NULL AS variantId, hp.product_id AS productId,
                          COALESCE(hp.private_name, p.canonical_name, :unresolved_name) AS canonicalName,
                          COALESCE(p.brand, :empty) AS brand,
-                         CASE WHEN hc.id IS NULL THEN c.id ELSE NULL END AS categoryId,
-                         hc.id AS homeCategoryId, COALESCE(hc.name, c.canonical_name) AS categoryName,
+                         CASE WHEN hc.id IS NULL THEN COALESCE(gc.id, c.id) ELSE NULL END AS categoryId,
+                         hc.id AS homeCategoryId, COALESCE(hc.name, gc.canonical_name, c.canonical_name) AS categoryName,
                          CASE WHEN hc.id IS NOT NULL THEN :home_scope
-                              WHEN c.id IS NOT NULL THEN :global_scope ELSE NULL END AS categorySource,
+                              WHEN COALESCE(gc.id, c.id) IS NOT NULL THEN :global_scope ELSE NULL END AS categorySource,
                          COALESCE(hp.original_pack_text, :empty) AS packText,
-                         NULL AS packStatus, hp.id AS homeProductId,
+                         NULL AS packStatus,
+                         p.canonical_name AS catalogName, NULL AS catalogPackText,
+                         c.id AS catalogCategoryId, c.canonical_name AS catalogCategoryName,
+                         hp.global_category_id AS globalCategoryId, hp.unit, hp.id AS homeProductId,
                          hp.status AS homeProductStatus, COALESCE(ib.quantity, 0) AS quantity,
                          COALESCE(hp.normalized_private_name, p.normalized_name, :empty) AS sortName,
                          COALESCE(p.normalized_brand, :empty) AS sortBrand
                   FROM home_products hp
                   LEFT JOIN products p ON p.id = hp.product_id
                   LEFT JOIN categories c ON c.id = p.category_id
+                  LEFT JOIN categories gc ON gc.id = hp.global_category_id
                   LEFT JOIN home_categories hc
                     ON hc.id = hp.home_category_id AND hc.home_id = hp.home_id
                   LEFT JOIN inventory_balances ib
@@ -470,14 +483,15 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
 
         $rows = $this->connection->fetchAllAssociative(
             'SELECT hp.id AS homeProductId, hp.product_id AS productId, hp.pack_id AS packId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
                     COALESCE(p.brand, :empty) AS brand,
-                    c.id AS categoryId, hc.id AS homeCategoryId,
-                    COALESCE(hc.name, c.canonical_name) AS category,
-                    COALESCE(hc.name, c.canonical_name) AS categoryName,
+                    CASE WHEN hc.id IS NULL THEN COALESCE(gc.id, c.id) ELSE NULL END AS categoryId,
+                    hc.id AS homeCategoryId, hp.global_category_id AS globalCategoryId, hp.unit,
+                    COALESCE(hc.name, gc.canonical_name, c.canonical_name) AS category,
+                    COALESCE(hc.name, gc.canonical_name, c.canonical_name) AS categoryName,
                     CASE WHEN hc.id IS NOT NULL THEN :home_scope
-                         WHEN c.id IS NOT NULL THEN :global_scope ELSE NULL END AS categorySource,
-                    COALESCE(pk.original_pack_text, hp.original_pack_text, :empty) AS packText,
+                         WHEN COALESCE(gc.id, c.id) IS NOT NULL THEN :global_scope ELSE NULL END AS categorySource,
+                    COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
                     COALESCE(ib.quantity, 0) AS quantity,
                     COALESCE(ib.revision, 0) AS balanceRevision,
                     sp.minimum_quantity AS minimumQuantity,
@@ -486,6 +500,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
              FROM home_products hp
              LEFT JOIN products p ON p.id = hp.product_id
              LEFT JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories gc ON gc.id = hp.global_category_id
              LEFT JOIN home_categories hc
                ON hc.id = hp.home_category_id AND hc.home_id = hp.home_id
              LEFT JOIN product_packs pk ON pk.id = hp.pack_id
@@ -494,7 +509,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
              LEFT JOIN stock_threshold_preferences sp
                ON sp.home_id = hp.home_id AND sp.home_product_id = hp.id
              WHERE hp.home_id = :home AND hp.status = :status
-               AND (:category_empty = :empty OR c.id = :category)
+               AND (:category_empty = :empty OR (hc.id IS NULL AND COALESCE(gc.id, c.id) = :category))
                AND (:home_category_empty = :empty OR hc.id = :home_category)
                AND (:query_empty = :empty
                     OR p.normalized_name LIKE :pattern
@@ -545,8 +560,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     {
         return $this->connection->fetchAllAssociative(
             'SELECT hp.id AS homeProductId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
-                    COALESCE(pk.original_pack_text, hp.original_pack_text, :empty) AS packText,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
+                    COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
                     COALESCE(ib.quantity, 0) AS factualQuantity,
                     ib.revision AS balanceRevision,
                     ib.last_movement_id AS lastMovementId,
@@ -573,8 +588,9 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'SELECT hp.id, hp.home_id AS homeId, hp.product_id AS productId,
                     hp.pack_id AS packId, hp.private_name AS privateName,
                     hp.original_pack_text AS originalPackText,
-                    hp.home_category_id AS homeCategoryId, hp.status, hp.revision,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName
+                    hp.home_category_id AS homeCategoryId, hp.global_category_id AS globalCategoryId,
+                    hp.unit, hp.status, hp.revision,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName
              FROM home_products hp
              LEFT JOIN products p ON p.id = hp.product_id
              WHERE hp.home_id = :home AND hp.id = :id'
@@ -593,6 +609,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         ?string $originalPackText,
         ?string $homeCategoryId,
         DateTimeImmutable $at,
+        ?string $globalCategoryId = null,
+        string $unit = 'units',
     ): void {
         if ($productId !== null) {
             $catalogProduct = $this->connection->fetchOne(
@@ -629,6 +647,12 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                 throw new \DomainException('The selected private category is unavailable.');
             }
         }
+        if ($homeCategoryId !== null && $globalCategoryId !== null) {
+            throw new \DomainException('Choose a global or a local category, not both.');
+        }
+        if ($globalCategoryId !== null && ! $this->publishedGlobalCategory($globalCategoryId)) {
+            throw new \DomainException('The selected global category is unavailable.');
+        }
         $now = $this->date($at);
         $this->connection->insert('home_products', [
             'id' => $id,
@@ -639,6 +663,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'normalized_private_name' => $normalizedPrivateName,
             'original_pack_text' => $originalPackText,
             'home_category_id' => $homeCategoryId,
+            'global_category_id' => $globalCategoryId,
+            'unit' => $unit,
             'status' => 'active',
             'revision' => 1,
             'created_at' => $now,
@@ -659,12 +685,16 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         ?string $status,
         int $expectedRevision,
         DateTimeImmutable $at,
+        bool $globalCategoryProvided = false,
+        ?string $globalCategoryId = null,
+        ?string $unit = null,
     ): array {
         $productSql = 'SELECT id, product_id AS productId, pack_id AS packId,
                               private_name AS privateName,
                               normalized_private_name AS normalizedPrivateName,
                               original_pack_text AS originalPackText,
-                              home_category_id AS homeCategoryId, status, revision
+                              home_category_id AS homeCategoryId, global_category_id AS globalCategoryId,
+                              unit, status, revision
                        FROM home_products
                        WHERE home_id = :home AND id = :id';
         $parameters = ['home' => $homeId, 'id' => $homeProductId];
@@ -678,13 +708,16 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         if ((int) $row['revision'] !== $expectedRevision) {
             return ['status' => 'revision-conflict'];
         }
-        if (
-            ($row['productId'] !== null || $row['packId'] !== null)
-            && ($privateNameProvided || $originalPackTextProvided)
-        ) {
-            return ['status' => 'catalog-product'];
+        if ($row['productId'] === null && $row['packId'] === null && $privateNameProvided && $privateName === null) {
+            return ['status' => 'name-required'];
         }
-        $nextCategoryId = $homeCategoryProvided ? $homeCategoryId : $row['homeCategoryId'];
+        $nextCategoryId = $homeCategoryProvided ? $homeCategoryId
+            : ($globalCategoryProvided && $globalCategoryId !== null ? null : $row['homeCategoryId']);
+        $nextGlobalCategoryId = $globalCategoryProvided ? $globalCategoryId
+            : ($homeCategoryProvided && $homeCategoryId !== null ? null : $row['globalCategoryId']);
+        if ($nextCategoryId !== null && $nextGlobalCategoryId !== null) {
+            return ['status' => 'category-conflict'];
+        }
         if ($nextCategoryId !== null) {
             $category = $this->one(
                 $this->forUpdate('SELECT id FROM home_categories
@@ -694,6 +727,12 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             if ($category === null) {
                 return ['status' => 'category-unavailable'];
             }
+        }
+        if (
+            $nextGlobalCategoryId !== null && $nextGlobalCategoryId !== $row['globalCategoryId']
+            && ! $this->publishedGlobalCategory($nextGlobalCategoryId)
+        ) {
+            return ['status' => 'category-unavailable'];
         }
         // Category changes take the category lock before the product lock, the
         // same order used while archiving a category. Re-read the product under
@@ -705,13 +744,16 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         if ((int) $row['revision'] !== $expectedRevision) {
             return ['status' => 'revision-conflict'];
         }
-        if (
-            ($row['productId'] !== null || $row['packId'] !== null)
-            && ($privateNameProvided || $originalPackTextProvided)
-        ) {
-            return ['status' => 'catalog-product'];
+        if ($row['productId'] === null && $row['packId'] === null && $privateNameProvided && $privateName === null) {
+            return ['status' => 'name-required'];
         }
-        $nextCategoryId = $homeCategoryProvided ? $homeCategoryId : $row['homeCategoryId'];
+        $nextCategoryId = $homeCategoryProvided ? $homeCategoryId
+            : ($globalCategoryProvided && $globalCategoryId !== null ? null : $row['homeCategoryId']);
+        $nextGlobalCategoryId = $globalCategoryProvided ? $globalCategoryId
+            : ($homeCategoryProvided && $homeCategoryId !== null ? null : $row['globalCategoryId']);
+        if ($nextCategoryId !== null && $nextGlobalCategoryId !== null) {
+            return ['status' => 'category-conflict'];
+        }
         $nextStatus = $status ?? (string) $row['status'];
         if ($nextStatus === 'archived' && (string) $row['status'] !== 'archived') {
             $balance = $this->connection->fetchOne(
@@ -759,6 +801,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'normalized_private_name' => $nextNormalizedPrivateName,
             'original_pack_text' => $nextPackText,
             'home_category_id' => $nextCategoryId,
+            'global_category_id' => $nextGlobalCategoryId,
+            'unit' => $unit ?? $row['unit'],
             'status' => $nextStatus,
             'revision' => $expectedRevision + 1,
             'updated_at' => $now,
@@ -776,11 +820,21 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                 'privateName' => $nextPrivateName,
                 'originalPackText' => $nextPackText,
                 'homeCategoryId' => $nextCategoryId,
+                'globalCategoryId' => $nextGlobalCategoryId,
+                'unit' => $unit ?? $row['unit'],
                 'status' => $nextStatus,
                 'revision' => $expectedRevision + 1,
                 'updatedAt' => $this->atom($now),
             ],
         ];
+    }
+
+    private function publishedGlobalCategory(string $id): bool
+    {
+        return $this->one(
+            $this->forUpdate('SELECT id FROM categories WHERE id = :id AND status = :status'),
+            ['id' => $id, 'status' => 'published'],
+        ) !== null;
     }
 
     public function appendMovement(
@@ -880,7 +934,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     {
         return $this->connection->fetchAllAssociative(
             'SELECT sm.id, sm.home_product_id AS homeProductId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
                     sm.movement_type AS movementType, sm.quantity_delta AS quantityDelta,
                     sm.source_type AS sourceType, sm.source_id AS sourceId,
                     sm.reason, sm.actor_user_id AS actorUserId,
@@ -993,8 +1047,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     {
         return $this->connection->fetchAllAssociative(
             'SELECT sl.id, sl.home_product_id AS homeProductId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
-                    COALESCE(pk.original_pack_text, hp.original_pack_text, :empty) AS packText,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
+                    COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
                     sl.quantity, sl.confidence, sl.source, sl.notes, sl.status,
                     sl.revision, sl.counted_by_user_id AS countedByUserId,
                     sl.created_at AS createdAt, sl.updated_at AS updatedAt
@@ -1267,8 +1321,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         ) ?? [];
         $summary['recentStock'] = $this->connection->fetchAllAssociative(
             'SELECT hp.id AS homeProductId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
-                    COALESCE(pk.original_pack_text, hp.original_pack_text, :empty) AS packText,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
+                    COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
                     ib.quantity, ib.updated_at AS updatedAt
              FROM inventory_balances ib
              INNER JOIN home_products hp

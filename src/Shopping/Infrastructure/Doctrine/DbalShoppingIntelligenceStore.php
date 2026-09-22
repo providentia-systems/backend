@@ -23,8 +23,8 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
     {
         $rows = $this->connection->fetchAllAssociative(
             'SELECT hp.id AS homeProductId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
-                    COALESCE(pk.original_pack_text, hp.original_pack_text, :empty) AS packText,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
+                    COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
                     hp.pack_id AS packId,
                     pk.normalized_base_amount AS currentPackBase,
                     COALESCE(
@@ -341,7 +341,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
     {
         $rows = $this->connection->fetchAllAssociative(
             'SELECT ce.id, ce.home_product_id AS homeProductId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
                     ce.method, ce.daily_rate AS dailyRate,
                     ce.variability, ce.sample_intervals AS sampleIntervals,
                     ce.coverage_days AS coverageDays,
@@ -380,8 +380,8 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
     {
         return $this->connection->fetchAllAssociative(
             'SELECT ss.id, ss.home_product_id AS homeProductId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
-                    COALESCE(pk.original_pack_text, hp.original_pack_text, :empty) AS packText,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
+                    COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
                     ss.expected_demand AS expectedDemand, ss.safety_stock AS safetyStock,
                     ss.factual_stock AS factualStock, ss.usable_stock AS usableStock,
                     ss.required_quantity AS requiredQuantity,
@@ -420,7 +420,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         return $this->connection->fetchAllAssociative(
             'SELECT spo.suggestion_id AS suggestionId,
                     ss.home_product_id AS homeProductId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
                     spo.pack_id AS packId, pk.original_pack_text AS packText,
                     spo.store_id AS storeId, st.name AS storeName,
                     spo.currency, spo.pack_count AS packCount,

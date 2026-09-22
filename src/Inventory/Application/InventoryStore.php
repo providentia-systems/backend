@@ -99,13 +99,15 @@ interface InventoryStore
         ?string $originalPackText,
         ?string $homeCategoryId,
         DateTimeImmutable $at,
+        ?string $globalCategoryId = null,
+        string $unit = 'units',
     ): void;
 
     /**
      * @return array{status: 'updated', record: array<string, mixed>}
      *     |array{
      *         status: 'not-found'|'revision-conflict'|'category-unavailable'
-     *             |'balance-not-zero'|'product-in-use'|'catalog-product'
+     *             |'balance-not-zero'|'product-in-use'|'name-required'|'category-conflict'
      *     }
      */
     public function updateHomeProduct(
@@ -121,6 +123,9 @@ interface InventoryStore
         ?string $status,
         int $expectedRevision,
         DateTimeImmutable $at,
+        bool $globalCategoryProvided = false,
+        ?string $globalCategoryId = null,
+        ?string $unit = null,
     ): array;
 
     /** @return array<string, mixed> */

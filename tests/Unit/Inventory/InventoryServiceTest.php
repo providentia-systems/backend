@@ -950,6 +950,95 @@ final class InventoryServiceTest extends TestCase
             );
     }
 
+
+    public function testHouseholdMetadataIsForwardedAndPublishedToSyncWithoutStockMutation(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $store->expects(self::never())->method('appendMovement');
+        $store->method('homeProduct')->willReturn(['status' => 'active']);
+        $record = [
+            'id' => self::PRODUCT_ID, 'productId' => self::SESSION_ID, 'packId' => self::LINE_ID,
+            'privateName' => 'My name', 'originalPackText' => 'Home jar', 'homeCategoryId' => null,
+            'globalCategoryId' => self::MOVEMENT_ID, 'unit' => 'kg', 'status' => 'active', 'revision' => 3,
+        ];
+        $store->expects(self::once())->method('updateHomeProduct')->with(
+            self::HOME_ID,
+            self::PRODUCT_ID,
+            true,
+            'My name',
+            'my name',
+            true,
+            'Home jar',
+            true,
+            null,
+            null,
+            2,
+            self::isInstanceOf(DateTimeImmutable::class),
+            true,
+            self::MOVEMENT_ID,
+            'kg',
+        )->willReturn(['status' => 'updated', 'record' => $record]);
+        $changes = $this->createMock(ChangeFeedWriter::class);
+        $changes->expects(self::once())->method('put')->with(
+            self::HOME_ID,
+            self::USER_ID,
+            'inventory-home-product',
+            self::PRODUCT_ID,
+            3,
+            self::callback(static fn (array $data): bool =>
+                $data['privateName'] === 'My name' && $data['globalCategoryId'] === self::MOVEMENT_ID
+                && $data['unit'] === 'kg' && $data['productId'] === self::SESSION_ID),
+            self::isInstanceOf(DateTimeImmutable::class),
+        );
+        self::assertSame($record, $this->service($store, null, $changes)->updateHomeProduct(
+            $this->identity(),
+            self::HOME_ID,
+            self::PRODUCT_ID,
+            true,
+            ' My name ',
+            true,
+            ' Home jar ',
+            true,
+            null,
+            null,
+            2,
+            true,
+            self::MOVEMENT_ID,
+            'kg',
+        ));
+    }
+
+    #[DataProvider('invalidHouseholdMetadata')]
+    public function testInvalidHouseholdMetadataDoesNotReachPersistence(
+        ?string $globalCategoryId,
+        ?string $homeCategoryId,
+        string $unit,
+    ): void {
+        $store = $this->createMock(InventoryStore::class);
+        $store->expects(self::never())->method('createHomeProduct');
+        $this->expectException(Problem::class);
+        $this->service($store)->addHomeProduct(
+            $this->identity(),
+            self::HOME_ID,
+            null,
+            null,
+            'Private',
+            null,
+            $homeCategoryId,
+            null,
+            $globalCategoryId,
+            $unit,
+        );
+    }
+
+    /** @return iterable<string, array{?string, ?string, string}> */
+    public static function invalidHouseholdMetadata(): iterable
+    {
+        yield 'invalid global ID' => ['not-a-uuid', null, 'units'];
+        yield 'conflicting categories' => [self::MOVEMENT_ID, self::LINE_ID, 'units'];
+        yield 'invalid unit' => [null, null, 'invalid'];
+    }
+
     private function service(
         InventoryStore $inventory,
         ?UuidGenerator $ids = null,

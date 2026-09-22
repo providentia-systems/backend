@@ -72,7 +72,7 @@ final class PurchasingReceiptUnresolvedTest extends TestCase
             )',
         );
         $this->connection->executeStatement(
-            'CREATE TABLE home_products (
+            'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\',
                 id VARCHAR(36) NOT NULL,
                 home_id VARCHAR(36) NOT NULL,
                 pack_id VARCHAR(36) NULL,

@@ -67,6 +67,8 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->nullableString($payload, 'originalPackText'),
                 $this->nullableString($payload, 'homeCategoryId'),
                 $command->entityId,
+                $this->nullableString($payload, 'globalCategoryId'),
+                $this->nullableString($payload, 'unit') ?? 'units',
             ),
             'inventory.home-product.update' => $this->inventory->updateHomeProduct(
                 $identity,
@@ -80,6 +82,9 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->nullableString($payload, 'homeCategoryId'),
                 $this->nullableString($payload, 'status'),
                 $this->revision($command),
+                array_key_exists('globalCategoryId', $payload),
+                $this->nullableString($payload, 'globalCategoryId'),
+                $this->nullableString($payload, 'unit'),
             ),
             'inventory.adjustment.create' => $this->inventory->manualAdjustment(
                 $identity,

@@ -14,7 +14,7 @@ final class CatalogContributionSourceReaderTest extends TestCase
     {
         $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         $connection->executeStatement(
-            'CREATE TABLE home_products (
+            'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\',
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, product_id TEXT NULL,
                 pack_id TEXT NULL, status TEXT NOT NULL
             )',

@@ -381,6 +381,19 @@ final class InventoryService implements InventoryMovementGateway
         );
     }
 
+    private function validateHouseholdMetadata(?string $globalCategoryId, ?string $homeCategoryId, ?string $unit): void
+    {
+        if ($globalCategoryId !== null && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $globalCategoryId) !== 1) {
+            throw new Problem(422, 'Invalid category', 'Global category must be a UUID.');
+        }
+        if ($globalCategoryId !== null && $homeCategoryId !== null && $homeCategoryId !== '') {
+            throw new Problem(422, 'Invalid category', 'Choose a global or a local category, not both.');
+        }
+        if ($unit !== null && ! in_array($unit, ['units', 'g', 'kg', 'ml', 'l'], true)) {
+            throw new Problem(422, 'Invalid unit', 'Choose units, g, kg, ml or l.');
+        }
+    }
+
     /** @return array{id: string} */
     public function addHomeProduct(
         AuthenticatedIdentity $identity,
@@ -391,6 +404,8 @@ final class InventoryService implements InventoryMovementGateway
         ?string $originalPackText,
         ?string $homeCategoryId = null,
         ?string $requestedId = null,
+        ?string $globalCategoryId = null,
+        string $unit = 'units',
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
         if ($productId !== null && $productId === '') {
@@ -402,7 +417,9 @@ final class InventoryService implements InventoryMovementGateway
         if ($homeCategoryId === '') {
             $homeCategoryId = null;
         }
+        $this->validateHouseholdMetadata($globalCategoryId, $homeCategoryId, $unit);
         $privateName = $privateName === null ? null : trim($privateName);
+        $privateName = $privateName === '' ? null : $privateName;
         if ($productId === null && $packId === null && ($privateName === null || $privateName === '')) {
             throw new Problem(422, 'Invalid item', 'Choose a catalog product or provide a private product name.');
         }
@@ -424,6 +441,8 @@ final class InventoryService implements InventoryMovementGateway
                 $privateName,
                 $originalPackText,
                 $homeCategoryId,
+                $globalCategoryId,
+                $unit,
                 $identity,
                 $at,
             ): void {
@@ -438,6 +457,8 @@ final class InventoryService implements InventoryMovementGateway
                     $originalPackText,
                     $homeCategoryId,
                     $at,
+                    $globalCategoryId,
+                    $unit,
                 );
                 if ($this->changes !== null) {
                     $persisted = $this->inventory->homeProduct($homeId, $id);
@@ -457,6 +478,8 @@ final class InventoryService implements InventoryMovementGateway
                             'productName' => $persisted['productName'],
                             'originalPackText' => $persisted['originalPackText'],
                             'homeCategoryId' => $persisted['homeCategoryId'],
+                            'globalCategoryId' => $persisted['globalCategoryId'] ?? null,
+                            'unit' => $persisted['unit'] ?? 'units',
                             'status' => $persisted['status'],
                         ],
                         $at,
@@ -483,16 +506,23 @@ final class InventoryService implements InventoryMovementGateway
         ?string $homeCategoryId,
         ?string $status,
         int $expectedRevision,
+        bool $globalCategoryProvided = false,
+        ?string $globalCategoryId = null,
+        ?string $unit = null,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
         if ($expectedRevision < 1) {
             throw new Problem(422, 'Invalid item', 'A positive expected revision is required.');
         }
-        if (! $privateNameProvided && ! $originalPackTextProvided && ! $homeCategoryProvided && $status === null) {
+        if (
+            ! $privateNameProvided && ! $originalPackTextProvided && ! $homeCategoryProvided
+            && ! $globalCategoryProvided && $unit === null && $status === null
+        ) {
             throw new Problem(422, 'Invalid item', 'Provide at least one product change.');
         }
-        if ($privateNameProvided) {
-            $privateName = trim((string) $privateName);
+        $this->validateHouseholdMetadata($globalCategoryId, $homeCategoryId, $unit);
+        if ($privateNameProvided && $privateName !== null) {
+            $privateName = trim($privateName);
             if ($privateName === '' || mb_strlen($privateName) > 191) {
                 throw new Problem(422, 'Invalid item', 'Private product name must contain 1 to 191 characters.');
             }
@@ -520,6 +550,9 @@ final class InventoryService implements InventoryMovementGateway
             $originalPackText,
             $homeCategoryProvided,
             $homeCategoryId,
+            $globalCategoryProvided,
+            $globalCategoryId,
+            $unit,
             $status,
             $expectedRevision,
             $at,
@@ -534,7 +567,7 @@ final class InventoryService implements InventoryMovementGateway
                 $homeProductId,
                 $privateNameProvided,
                 $privateName,
-                $privateNameProvided ? $this->normalize((string) $privateName) : null,
+                $privateNameProvided && $privateName !== null ? $this->normalize($privateName) : null,
                 $originalPackTextProvided,
                 $originalPackText,
                 $homeCategoryProvided,
@@ -542,6 +575,9 @@ final class InventoryService implements InventoryMovementGateway
                 $status,
                 $expectedRevision,
                 $at,
+                $globalCategoryProvided,
+                $globalCategoryId,
+                $unit,
             );
             if ($result['status'] === 'updated') {
                 $record = $result['record'];
@@ -557,6 +593,8 @@ final class InventoryService implements InventoryMovementGateway
                         'privateName' => $record['privateName'],
                         'originalPackText' => $record['originalPackText'],
                         'homeCategoryId' => $record['homeCategoryId'],
+                        'globalCategoryId' => $record['globalCategoryId'] ?? null,
+                        'unit' => $record['unit'] ?? 'units',
                         'status' => $record['status'],
                     ],
                     $at,
@@ -577,7 +615,7 @@ final class InventoryService implements InventoryMovementGateway
             'category-unavailable' => throw new Problem(
                 422,
                 'Invalid category',
-                'The private category is unavailable.',
+                'The selected category is unavailable.',
             ),
             'balance-not-zero' => throw new Problem(
                 409,
@@ -589,11 +627,8 @@ final class InventoryService implements InventoryMovementGateway
                 'Product in use',
                 'Finish active counts and draft receipts before archiving this product.',
             ),
-            'catalog-product' => throw new Problem(
-                422,
-                'Catalog product',
-                'Only home-private products can be edited here.',
-            ),
+            'name-required' => throw new Problem(422, 'Invalid item', 'A private product requires a name.'),
+            'category-conflict' => throw new Problem(422, 'Invalid category', 'Choose a global or a local category, not both.'),
             default => throw new \LogicException('Unknown home-product update result.'),
         };
     }

@@ -31,7 +31,7 @@ final class HomeProductIdentityReconciliationTest extends TestCase
             [
             'CREATE TABLE products (id TEXT PRIMARY KEY, canonical_name TEXT NOT NULL)',
             'CREATE TABLE product_packs (id TEXT PRIMARY KEY, product_id TEXT NOT NULL)',
-            'CREATE TABLE home_products (id TEXT PRIMARY KEY, home_id TEXT NOT NULL, product_id TEXT,
+            'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\', id TEXT PRIMARY KEY, home_id TEXT NOT NULL, product_id TEXT,
              pack_id TEXT, private_name TEXT, original_pack_text TEXT, home_category_id TEXT,
              status TEXT, revision INTEGER NOT NULL, updated_at TEXT)',
             'CREATE TABLE stock_history (id TEXT PRIMARY KEY, home_product_id TEXT, quantity TEXT,

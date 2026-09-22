@@ -88,13 +88,16 @@ final class InventoryHandler implements RequestHandlerInterface
                 isset($body['privateName']) ? (string) $body['privateName'] : null,
                 isset($body['originalPackText']) ? (string) $body['originalPackText'] : null,
                 isset($body['homeCategoryId']) ? (string) $body['homeCategoryId'] : null,
+                null,
+                isset($body['globalCategoryId']) ? (string) $body['globalCategoryId'] : null,
+                (string) ($body['unit'] ?? 'units'),
             ), 201),
             'items.update' => new JsonResponse($this->inventory->updateHomeProduct(
                 $identity,
                 $homeId,
                 (string) $request->getAttribute('homeProductId', ''),
                 array_key_exists('privateName', $body),
-                array_key_exists('privateName', $body) ? (string) $body['privateName'] : null,
+                isset($body['privateName']) ? (string) $body['privateName'] : null,
                 array_key_exists('originalPackText', $body),
                 array_key_exists('originalPackText', $body) && $body['originalPackText'] !== null
                     ? (string) $body['originalPackText']
@@ -105,6 +108,9 @@ final class InventoryHandler implements RequestHandlerInterface
                     : null,
                 array_key_exists('status', $body) ? (string) $body['status'] : null,
                 (int) ($body['expectedRevision'] ?? 0),
+                array_key_exists('globalCategoryId', $body),
+                isset($body['globalCategoryId']) ? (string) $body['globalCategoryId'] : null,
+                isset($body['unit']) ? (string) $body['unit'] : null,
             )),
             'stock.list' => new JsonResponse(['data' => $this->inventory->stock(
                 $identity,

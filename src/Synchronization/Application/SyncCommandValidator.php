@@ -108,14 +108,14 @@ final class SyncCommandValidator
             ),
             'inventory.home-product.create' => $this->shape(
                 $payload,
-                ['productId', 'packId', 'privateName', 'originalPackText', 'homeCategoryId'],
+                ['productId', 'packId', 'privateName', 'originalPackText', 'homeCategoryId', 'globalCategoryId', 'unit'],
                 ['productId', 'packId', 'privateName', 'originalPackText', 'homeCategoryId'],
                 false,
                 $baseRevision,
             ),
             'inventory.home-product.update' => $this->shape(
                 $payload,
-                ['privateName', 'originalPackText', 'homeCategoryId', 'status'],
+                ['privateName', 'originalPackText', 'homeCategoryId', 'status', 'globalCategoryId', 'unit'],
                 [],
                 true,
                 $baseRevision,
@@ -336,9 +336,12 @@ final class SyncCommandValidator
     /** @param array<string, mixed> $payload */
     private function validateFieldTypes(string $type, array $payload): void
     {
+        if (array_key_exists('unit', $payload) && ! in_array($payload['unit'], ['units', 'g', 'kg', 'ml', 'l'], true)) {
+            throw new Problem(422, 'Invalid unit', 'Choose units, g, kg, ml or l.');
+        }
         $uuidFields = match ($type) {
-            'inventory.home-product.create' => ['productId', 'packId', 'homeCategoryId'],
-            'inventory.home-product.update' => ['homeCategoryId'],
+            'inventory.home-product.create' => ['productId', 'packId', 'homeCategoryId', 'globalCategoryId'],
+            'inventory.home-product.update' => ['homeCategoryId', 'globalCategoryId'],
             'inventory.count-session.create' => ['locationId'],
             'inventory.count-line.upsert' => ['sessionId', 'homeProductId'],
             'inventory.count-line.remove' => ['sessionId'],

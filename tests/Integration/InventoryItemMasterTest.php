@@ -39,6 +39,245 @@ final class InventoryItemMasterTest extends TestCase
         $this->store = new DbalInventoryStore($this->connection);
     }
 
+
+    public function testLinkedHouseholdOverridesPreserveCatalogIdentityAndBalances(): void
+    {
+        $beforeCatalog = $this->connection->fetchAllAssociative('SELECT * FROM products ORDER BY id');
+        $beforePacks = $this->connection->fetchAllAssociative('SELECT * FROM product_packs ORDER BY id');
+        $beforeBalances = $this->connection->fetchAllAssociative('SELECT * FROM inventory_balances ORDER BY home_id');
+        $at = new DateTimeImmutable('2026-09-22T12:00:00Z');
+        $result = $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::HOME_PRODUCT_ID,
+            true,
+            'My beans',
+            'my beans',
+            true,
+            'Home jar',
+            false,
+            null,
+            null,
+            1,
+            $at,
+            true,
+            self::OTHER_CATEGORY_ID,
+            'kg',
+        );
+        self::assertSame('updated', $result['status']);
+        self::assertSame(2, $result['record']['revision']);
+        self::assertSame(self::BEANS_ID, $result['record']['productId']);
+        self::assertSame(self::BEANS_PACK_ONE, $result['record']['packId']);
+        self::assertSame('kg', $result['record']['unit']);
+        $reopened = new DbalInventoryStore($this->connection);
+        $page = $reopened->itemMaster(self::HOME_ID, 'my beans', self::OTHER_CATEGORY_ID, null, 100, 0);
+        self::assertSame(1, $page['total']);
+        $item = $page['items'][0];
+        self::assertSame('My beans', $item['canonicalName']);
+        self::assertSame('Baked Beans', $item['catalogName']);
+        self::assertSame('Home jar', $item['packText']);
+        self::assertSame('1 kg', $item['catalogPackText']);
+        self::assertSame(self::OTHER_CATEGORY_ID, $item['categoryId']);
+        self::assertSame(self::CATEGORY_ID, $item['catalogCategoryId']);
+        self::assertSame('kg', $item['unit']);
+        self::assertSame('3.50000000', $item['quantity']);
+        self::assertSame($beforeCatalog, $this->connection->fetchAllAssociative('SELECT * FROM products ORDER BY id'));
+        self::assertSame($beforePacks, $this->connection->fetchAllAssociative('SELECT * FROM product_packs ORDER BY id'));
+        self::assertSame($beforeBalances, $this->connection->fetchAllAssociative('SELECT * FROM inventory_balances ORDER BY home_id'));
+        self::assertSame(0, $this->store->itemMaster(self::OTHER_HOME_ID, 'my beans', null, null, 100, 0)['total']);
+        $stale = $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::HOME_PRODUCT_ID,
+            true,
+            'Stale edit',
+            'stale edit',
+            false,
+            null,
+            false,
+            null,
+            null,
+            1,
+            $at,
+        );
+        self::assertSame('revision-conflict', $stale['status']);
+        $reset = $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::HOME_PRODUCT_ID,
+            true,
+            null,
+            null,
+            true,
+            null,
+            true,
+            null,
+            null,
+            2,
+            $at,
+            true,
+            null,
+        );
+        self::assertSame('updated', $reset['status']);
+        $inherited = $reopened->itemMaster(self::HOME_ID, 'baked', self::CATEGORY_ID, null, 100, 0)['items'];
+        $row = array_values(array_filter($inherited, static fn (array $row): bool =>
+            $row['homeProductId'] === self::HOME_PRODUCT_ID))[0];
+        self::assertSame('Baked Beans', $row['canonicalName']);
+        self::assertSame('1 kg', $row['packText']);
+        self::assertNull($row['globalCategoryId']);
+        self::assertSame('kg', $row['unit']);
+    }
+
+    public function testPrivateProductUsesGlobalCategoryWithoutAnyLocalCategories(): void
+    {
+        self::assertSame(0, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM home_categories'));
+        $at = new DateTimeImmutable('2026-09-22T12:00:00Z');
+        $this->store->createHomeProduct(
+            self::PRIVATE_PRODUCT_ID,
+            self::HOME_ID,
+            null,
+            null,
+            'Apples',
+            'apples',
+            'Loose',
+            null,
+            $at,
+            self::OTHER_CATEGORY_ID,
+            'kg',
+        );
+        $page = $this->store->itemMaster(self::HOME_ID, 'apples', self::OTHER_CATEGORY_ID, null, 100, 0);
+        self::assertSame(1, $page['total']);
+        $item = $page['items'][0];
+        self::assertNull($item['productId']);
+        self::assertNull($item['catalogName']);
+        self::assertNull($item['catalogCategoryId']);
+        self::assertSame(self::OTHER_CATEGORY_ID, $item['categoryId']);
+        self::assertSame('global', $item['categorySource']);
+        self::assertSame('kg', $item['unit']);
+        $this->insertPrivateCategory();
+        $local = $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::PRIVATE_PRODUCT_ID,
+            true,
+            'Green apples',
+            'green apples',
+            false,
+            null,
+            true,
+            self::HOME_CATEGORY_ID,
+            null,
+            1,
+            $at,
+        );
+        self::assertSame('updated', $local['status']);
+        self::assertNull($local['record']['globalCategoryId']);
+        self::assertSame(self::HOME_CATEGORY_ID, $local['record']['homeCategoryId']);
+        self::assertSame('kg', $local['record']['unit']);
+        $global = $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::PRIVATE_PRODUCT_ID,
+            false,
+            null,
+            null,
+            false,
+            null,
+            false,
+            null,
+            null,
+            2,
+            $at,
+            true,
+            self::CATEGORY_ID,
+        );
+        self::assertSame('updated', $global['status']);
+        self::assertNull($global['record']['homeCategoryId']);
+        self::assertSame(self::CATEGORY_ID, $global['record']['globalCategoryId']);
+        $nameless = $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::PRIVATE_PRODUCT_ID,
+            true,
+            null,
+            null,
+            false,
+            null,
+            false,
+            null,
+            null,
+            3,
+            $at,
+        );
+        self::assertSame('name-required', $nameless['status']);
+    }
+
+    public function testGlobalCategorySelectionRejectsUnpublishedAndMixedScopes(): void
+    {
+        $at = new DateTimeImmutable('2026-09-22T12:00:00Z');
+        $this->connection->update('categories', ['status' => 'draft'], ['id' => self::OTHER_CATEGORY_ID]);
+        $denied = $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::HOME_PRODUCT_ID,
+            false,
+            null,
+            null,
+            false,
+            null,
+            false,
+            null,
+            null,
+            1,
+            $at,
+            true,
+            self::OTHER_CATEGORY_ID,
+        );
+        self::assertSame('category-unavailable', $denied['status']);
+        self::assertSame(1, (int) $this->store->homeProduct(self::HOME_ID, self::HOME_PRODUCT_ID)['revision']);
+        $this->insertPrivateCategory();
+        $mixed = $this->store->updateHomeProduct(
+            self::HOME_ID,
+            self::HOME_PRODUCT_ID,
+            false,
+            null,
+            null,
+            false,
+            null,
+            true,
+            self::HOME_CATEGORY_ID,
+            null,
+            1,
+            $at,
+            true,
+            self::CATEGORY_ID,
+        );
+        self::assertSame('category-conflict', $mixed['status']);
+        $foreign = $this->store->updateHomeProduct(
+            self::OTHER_HOME_ID,
+            self::HOME_PRODUCT_ID,
+            true,
+            'Unauthorized',
+            'unauthorized',
+            false,
+            null,
+            false,
+            null,
+            null,
+            1,
+            $at,
+            true,
+            self::CATEGORY_ID,
+        );
+        self::assertSame('not-found', $foreign['status']);
+        $this->expectException(\DomainException::class);
+        $this->store->createHomeProduct(
+            self::PRIVATE_PRODUCT_ID,
+            self::HOME_ID,
+            null,
+            null,
+            'Apples',
+            'apples',
+            null,
+            null,
+            $at,
+            self::OTHER_CATEGORY_ID,
+        );
+    }
+
     public function testProductFamilyWithoutResolvedPackRemainsVisibleWithoutGuessingAPack(): void
     {
         $this->store->createHomeProduct(
@@ -219,10 +458,12 @@ final class InventoryItemMasterTest extends TestCase
         self::assertSame(1, $filtered['total']);
         $item = $filtered['items'][0];
         self::assertSame(self::BEANS_PACK_ONE, $item['packId']);
-        self::assertSame(self::CATEGORY_ID, $item['categoryId']);
-        self::assertSame('Canned', $item['categoryName']);
-        self::assertSame('global', $item['categorySource']);
-        self::assertNull($item['homeCategoryId']);
+        self::assertNull($item['categoryId']);
+        self::assertSame('Dry goods', $item['categoryName']);
+        self::assertSame('home', $item['categorySource']);
+        self::assertSame(self::HOME_CATEGORY_ID, $item['homeCategoryId']);
+        self::assertSame(self::CATEGORY_ID, $item['catalogCategoryId']);
+        self::assertSame('Canned', $item['catalogCategoryName']);
         self::assertSame(
             0,
             $this->store->itemMaster(self::OTHER_HOME_ID, '', null, self::HOME_CATEGORY_ID, 100, 0)['total'],
@@ -236,7 +477,7 @@ final class InventoryItemMasterTest extends TestCase
         $stock = $this->store->stock(self::HOME_ID, '', null, self::HOME_CATEGORY_ID, 100, 0);
         self::assertCount(1, $stock);
         self::assertSame(self::HOME_CATEGORY_ID, $stock[0]['homeCategoryId']);
-        self::assertSame(self::CATEGORY_ID, $stock[0]['categoryId']);
+        self::assertNull($stock[0]['categoryId']);
         self::assertSame('home', $stock[0]['categorySource']);
         self::assertSame('Dry goods', $stock[0]['categoryName']);
         self::assertSame('Dry goods', $stock[0]['category']);
@@ -480,7 +721,7 @@ final class InventoryItemMasterTest extends TestCase
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT NULL,
                 UNIQUE (home_id, normalized_name)
             )',
-            'CREATE TABLE home_products (
+            'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\',
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, product_id TEXT NULL, pack_id TEXT NULL,
                 private_name TEXT NULL, normalized_private_name TEXT NULL,
                 original_pack_text TEXT NULL, home_category_id TEXT NULL,

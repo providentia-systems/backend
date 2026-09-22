@@ -51,7 +51,7 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
     {
         return $this->connection->fetchAllAssociative(
             'SELECT sll.id, sll.home_product_id AS homeProductId,
-                    COALESCE(p.canonical_name, hp.private_name, sll.description) AS productName,
+                    COALESCE(hp.private_name, p.canonical_name, sll.description) AS productName,
                     sll.description, sll.source, sll.quantity_to_buy AS quantityToBuy,
                     sll.explanation, sll.confidence, sll.checked_at AS checkedAt,
                     sll.archived_at AS archivedAt, sll.suggestion_id AS suggestionId,
@@ -302,8 +302,8 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
     {
         return $this->connection->fetchAllAssociative(
             'SELECT hp.id AS homeProductId,
-                    COALESCE(p.canonical_name, hp.private_name) AS productName,
-                    COALESCE(pk.original_pack_text, hp.original_pack_text, :empty) AS packText,
+                    COALESCE(hp.private_name, p.canonical_name) AS productName,
+                    COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
                     COALESCE(ib.quantity, 0) AS currentQuantity,
                     COALESCE(SUM(CASE WHEN r.id IS NOT NULL THEN rl.quantity ELSE 0 END), 0)
                         AS threeMonthPurchases,
