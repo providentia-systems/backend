@@ -32,7 +32,8 @@ final class StockPreferenceLifecycleTest extends TestCase
     {
         $this->connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         $this->connection->executeStatement(
-            'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\', id TEXT PRIMARY KEY, home_id TEXT, product_id TEXT, status TEXT)',
+            'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\',
+                id TEXT PRIMARY KEY, home_id TEXT, product_id TEXT, status TEXT)',
         );
         $columns = 'minimum_quantity TEXT, always_keep INTEGER, never_suggest INTEGER,
             preferred_pack_id TEXT, lead_time_days INTEGER, target_coverage_days INTEGER, snooze_until TEXT';

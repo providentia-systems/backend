@@ -383,7 +383,8 @@ final class InventoryService implements InventoryMovementGateway
 
     private function validateHouseholdMetadata(?string $globalCategoryId, ?string $homeCategoryId, ?string $unit): void
     {
-        if ($globalCategoryId !== null && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $globalCategoryId) !== 1) {
+        $uuidPattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
+        if ($globalCategoryId !== null && preg_match($uuidPattern, $globalCategoryId) !== 1) {
             throw new Problem(422, 'Invalid category', 'Global category must be a UUID.');
         }
         if ($globalCategoryId !== null && $homeCategoryId !== null && $homeCategoryId !== '') {
@@ -628,7 +629,11 @@ final class InventoryService implements InventoryMovementGateway
                 'Finish active counts and draft receipts before archiving this product.',
             ),
             'name-required' => throw new Problem(422, 'Invalid item', 'A private product requires a name.'),
-            'category-conflict' => throw new Problem(422, 'Invalid category', 'Choose a global or a local category, not both.'),
+            'category-conflict' => throw new Problem(
+                422,
+                'Invalid category',
+                'Choose a global or a local category, not both.',
+            ),
             default => throw new \LogicException('Unknown home-product update result.'),
         };
     }
