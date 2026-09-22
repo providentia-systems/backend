@@ -58,7 +58,9 @@ final readonly class DbalHomeProductIdentityRepairStore implements HomeProductId
                 'productId' => $candidate['productId'], 'packId' => $row['pack_id'],
                 'privateName' => $row['private_name'], 'productName' => $candidate['productName'],
                 'originalPackText' => $row['original_pack_text'],
-                'homeCategoryId' => $row['home_category_id'] ?? null, 'status' => $row['status'],
+                'homeCategoryId' => $row['home_category_id'] ?? null,
+                'globalCategoryId' => $row['global_category_id'] ?? null,
+                'unit' => $row['unit'] ?? 'units', 'status' => $row['status'],
             ],
         ];
     }

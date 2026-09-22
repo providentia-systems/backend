@@ -194,7 +194,7 @@ final class CatalogMergeStoreTest extends TestCase
                 normalized_alias VARCHAR(191) NOT NULL, scope VARCHAR(16) NOT NULL,
                 status VARCHAR(32) NOT NULL
             )',
-            'CREATE TABLE home_products (
+            'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\',
                 id VARCHAR(36) PRIMARY KEY, product_id VARCHAR(36) NULL
             )',
             'CREATE TABLE catalog_icons (

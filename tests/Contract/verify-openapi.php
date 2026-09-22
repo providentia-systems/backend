@@ -1262,6 +1262,13 @@ $requiredItemMasterFields = [
     'homeProductId',
     'homeProductStatus',
     'quantity',
+    'globalCategoryId',
+    'unit',
+    'catalogName',
+    'catalogPackText',
+    'catalogCategoryId',
+    'catalogCategoryName',
+
 ];
 if (
     ($itemMasterResponseSchema['$ref'] ?? null) !== '#/components/schemas/HomeItemMasterPage'
@@ -1356,7 +1363,7 @@ if (
     ?? null) !== 1
     || ($contract['components']['schemas']['SyncPushRequestV2']['properties']['protocolVersion']['const']
     ?? null) !== 2
-    || ($contract['info']['version'] ?? '') !== '2.1.0'
+    || ($contract['info']['version'] ?? '') !== '2.2.0'
     || stripos($source, 'magic-link') !== false
     || stripos($source, 'magiclink') !== false
     || isset($contract['paths']['/api/v1/auth/magic-links'])

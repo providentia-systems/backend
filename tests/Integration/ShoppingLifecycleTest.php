@@ -45,7 +45,7 @@ final class ShoppingLifecycleTest extends TestCase
              revision INTEGER, created_at TEXT, updated_at TEXT)',
         );
         $this->connection->executeStatement(
-            'CREATE TABLE home_products (id TEXT, home_id TEXT, private_name TEXT, product_id TEXT, status TEXT)',
+            'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\', id TEXT, home_id TEXT, private_name TEXT, product_id TEXT, status TEXT)',
         );
         $this->connection->executeStatement('CREATE TABLE products (id TEXT, canonical_name TEXT)');
         foreach (

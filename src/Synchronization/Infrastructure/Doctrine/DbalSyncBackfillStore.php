@@ -88,7 +88,7 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'SELECT t.home_id, t.id AS entity_id, t.revision,
                         NULL AS actor_user_id, t.updated_at AS changed_at,
                         t.product_id, t.pack_id, t.private_name,
-                        t.home_category_id,
+                        t.home_category_id, t.global_category_id, t.unit,
                         t.original_pack_text, t.status
                  FROM home_products t'
                 . $missing('inventory-home-product') . 't.id)',
@@ -210,6 +210,8 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'privateName' => $this->nullableString($row['private_name']),
                 'originalPackText' => $this->nullableString($row['original_pack_text']),
                 'homeCategoryId' => $this->nullableString($row['home_category_id']),
+                'globalCategoryId' => $this->nullableString($row['global_category_id']),
+                'unit' => (string) $row['unit'],
                 'status' => (string) $row['status'],
             ],
             'inventory-location' => [

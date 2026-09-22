@@ -237,7 +237,7 @@ final class SynchronizationBackfillTest extends TestCase
             'CREATE TABLE home_categories (
                 id TEXT, home_id TEXT, name TEXT, status TEXT, revision INTEGER, updated_at TEXT
             )',
-            'CREATE TABLE home_products (
+            'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\',
                 id TEXT, home_id TEXT, product_id TEXT, pack_id TEXT, private_name TEXT,
                 original_pack_text TEXT, home_category_id TEXT, status TEXT,
                 revision INTEGER, updated_at TEXT

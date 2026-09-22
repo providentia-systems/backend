@@ -271,7 +271,7 @@ final class BaselineImportParityTest extends TestCase
                 closed_by_user_id TEXT NOT NULL, closed_at TEXT NOT NULL,
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )',
-            'CREATE TABLE home_products (
+            'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\',
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, product_id TEXT NULL, pack_id TEXT NULL,
                 private_name TEXT NULL, normalized_private_name TEXT NULL,
                 original_pack_text TEXT NOT NULL, status TEXT NOT NULL, revision INTEGER NOT NULL,
