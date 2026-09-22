@@ -51,7 +51,7 @@ final class SynchronizationService
         string $idempotencyKey,
         array $envelope,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->requireMember($identity, $homeId);
         $validatedEnvelope = $this->envelopes->validate(
             $identity->deviceId,
             $idempotencyKey,
@@ -93,7 +93,7 @@ final class SynchronizationService
         string $requestId,
         ?string $cursor,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->requireMember($identity, $homeId);
         if ($cursor === null || $cursor === '') {
             throw new Problem(
                 410,
@@ -152,7 +152,7 @@ final class SynchronizationService
         ?string $pageCursor = null,
         ?int $requestedLimit = null,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->requireMember($identity, $homeId);
         $permissions = $this->readPermissions($identity, $homeId);
         $scope = SyncReadPolicy::scope($identity, $permissions);
         $limit = min($this->pageSize, max(1, $requestedLimit ?? $this->pageSize));
@@ -229,9 +229,14 @@ final class SynchronizationService
         string $deviceId,
         array $operationIds,
     ): array {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->requireMember($identity, $homeId);
         if (! hash_equals($identity->deviceId, $deviceId)) {
-            throw new Problem(403, 'Device mismatch', 'Operation receipts are bound to the authenticated device.');
+            throw new Problem(
+                403,
+                'Device mismatch',
+                'Operation receipts are bound to the authenticated device.',
+                SyncProblemClassifier::DEVICE_MISMATCH,
+            );
         }
         if ($operationIds === [] || count($operationIds) > 100) {
             throw new Problem(422, 'Invalid operation status request', 'Request between 1 and 100 operation IDs.');
@@ -276,11 +281,12 @@ final class SynchronizationService
 
         try {
             $validated = $this->operations->validate($operation);
-            $membership = $this->authorization->requireMember($identity, $homeId);
+            $membership = $this->requireMember($identity, $homeId);
             if ((string) $membership['role'] === HomeAuthorization::VIEWER) {
                 return [
                     'operationId' => $validated->operationId,
                     'status' => 'authorization_failure',
+                    'code' => 'permission_denied',
                     'detail' => 'The current home role is read-only.',
                 ];
             }
@@ -390,30 +396,30 @@ final class SynchronizationService
         }
     }
 
-    /** @return array{operationId: string, status: string, detail: string} */
+    /** @return array{operationId: string, status: string, code: string, detail: string} */
     private function problemResult(string $operationId, Problem $problem): array
     {
-        // Authentication belongs to the request, not to a terminal outbox result.
-        // Earlier accepted operations remain recoverable through their receipts.
-        if ($problem->status === 401) {
-            throw $problem;
-        }
-        $status = match (true) {
-            $problem->status >= 500,
-            in_array($problem->status, [408, 425, 429], true) => 'retryable_failure',
-            in_array($problem->status, [403, 404], true) => 'authorization_failure',
-            in_array($problem->status, [409, 412], true) => 'conflict',
-            default => 'validation_error',
-        };
+        return SyncProblemClassifier::result($operationId, $problem);
+    }
 
-        return [
-            'operationId' => $operationId,
-            'status' => $status,
-            // Service failures can contain driver, provider or connection details.
-            'detail' => $status === 'retryable_failure'
-                ? 'The service could not process this operation. Retry the same operation.'
-                : $problem->getMessage(),
-        ];
+    /** @return array<string, mixed> */
+    private function requireMember(AuthenticatedIdentity $identity, string $homeId): array
+    {
+        try {
+            return $this->authorization->requireMember($identity, $homeId);
+        } catch (Problem $problem) {
+            if ($problem->status !== 404) {
+                throw $problem;
+            }
+            // Only this membership check establishes the home-access classification.
+            // The public 404 remains non-enumerating and carries no resource details.
+            throw new Problem(
+                404,
+                'Not found',
+                'The requested resource is unavailable.',
+                SyncProblemClassifier::HOME_ACCESS_DENIED,
+            );
+        }
     }
 
     /** A concurrent revocation must not publish or acknowledge an old read scope. */
@@ -422,7 +428,7 @@ final class SynchronizationService
         string $homeId,
         string $scope,
     ): void {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->requireMember($identity, $homeId);
         $current = SyncReadPolicy::scope($identity, $this->readPermissions($identity, $homeId));
         if (! hash_equals($scope, $current)) {
             throw new Problem(
@@ -437,7 +443,7 @@ final class SynchronizationService
     /** @return list<string> */
     private function readPermissions(AuthenticatedIdentity $identity, string $homeId): array
     {
-        $this->authorization->requireMember($identity, $homeId);
+        $this->requireMember($identity, $homeId);
         $permissions = [];
         foreach (array_unique(SyncReadPolicy::ENTITY_PERMISSIONS) as $permission) {
             try {

@@ -64,7 +64,12 @@ final class HomeAuthorization implements HomePermissionAuthorizer
             ? $this->access->allows(FeatureCatalog::HOME, $homeId, $permission)
             : $this->access->homePermission($homeId, $identity->userId, $permission, $inherited);
         if (! $allowed) {
-            throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+            throw new Problem(
+                404,
+                'Not found',
+                'The requested resource is unavailable.',
+                'https://providentia.invalid/problems/sync_permission_denied',
+            );
         }
 
         return $membership;
