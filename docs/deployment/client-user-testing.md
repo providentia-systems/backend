@@ -1,6 +1,6 @@
 # Client, home and administrator testing
 
-This runbook tests the pre-release API 2.1.0 implementation. Use matching
+This runbook tests the pre-release API 2.2.0 implementation. Use matching
 backend, homeowner and administrator builds when testing. Both clients request a numeric email code, the backend emails it, and the person
 enters the eight digits in the requesting client. The backend has no browser
 login page and no account password surface.
