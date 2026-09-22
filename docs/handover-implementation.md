@@ -1,3 +1,7 @@
+# Historical handover subset: synchronization and catalog search
+
+This record describes backend PR #24 and its contemporaneous contract/checks. It is retained as historical evidence, not the current feature-completion list. For the subsequent household metadata implementation and API 2.2.0 deployment requirements, read [Household workflows](household-workflows.md). Historical queue recovery and separate publication/moderation work remain distinct.
+
 # Handover implementation record — 22 September 2026
 
 ## Scope
