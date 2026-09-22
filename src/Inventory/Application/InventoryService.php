@@ -421,7 +421,7 @@ final class InventoryService implements InventoryMovementGateway
         $this->validateHouseholdMetadata($globalCategoryId, $homeCategoryId, $unit);
         $privateName = $privateName === null ? null : trim($privateName);
         $privateName = $privateName === '' ? null : $privateName;
-        if ($productId === null && $packId === null && ($privateName === null || $privateName === '')) {
+        if ($productId === null && $packId === null && $privateName === null) {
             throw new Problem(422, 'Invalid item', 'Choose a catalog product or provide a private product name.');
         }
         if ($privateName !== null && mb_strlen($privateName) > 191) {
