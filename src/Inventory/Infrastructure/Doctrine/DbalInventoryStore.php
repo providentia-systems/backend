@@ -340,7 +340,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                          hp.global_category_id AS globalCategoryId, COALESCE(hp.unit, :units) AS unit,
                          hp.id AS homeProductId, hp.status AS homeProductStatus,
                          COALESCE(ib.quantity, 0) AS quantity,
-                         COALESCE(hp.normalized_private_name, p.normalized_name) AS sortName, p.normalized_brand AS sortBrand
+                         COALESCE(hp.normalized_private_name, p.normalized_name) AS sortName,
+                         p.normalized_brand AS sortBrand
                   FROM product_packs pk
                   INNER JOIN products p ON p.id = pk.product_id
                   INNER JOIN categories c ON c.id = p.category_id

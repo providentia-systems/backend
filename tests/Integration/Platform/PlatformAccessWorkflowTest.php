@@ -59,7 +59,7 @@ final class PlatformAccessWorkflowTest extends TestCase
             ->ensureInitialized();
         $plan = $migrations->getMigrationPlanCalculator()
             ->getPlanUntilVersion(
-                new Version('Providentia\Migrations\Version20260912000100'),
+                new Version('Providentia\Migrations\Version20260922000100'),
             );
         $migrations->getMigrator()
             ->migrate($plan, new MigratorConfiguration());

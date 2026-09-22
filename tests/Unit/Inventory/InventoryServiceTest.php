@@ -959,7 +959,7 @@ final class InventoryServiceTest extends TestCase
         $record = [
             'id' => self::PRODUCT_ID, 'productId' => self::SESSION_ID, 'packId' => self::LINE_ID,
             'privateName' => 'My name', 'originalPackText' => 'Home jar', 'homeCategoryId' => null,
-            'globalCategoryId' => self::MOVEMENT_ID, 'unit' => 'kg', 'status' => 'active', 'revision' => 3,
+            'globalCategoryId' => '01912345-6789-7abc-8def-9123456789ab', 'unit' => 'kg', 'status' => 'active', 'revision' => 3,
         ];
         $store->expects(self::once())->method('updateHomeProduct')->with(
             self::HOME_ID,
@@ -975,7 +975,7 @@ final class InventoryServiceTest extends TestCase
             2,
             self::isInstanceOf(DateTimeImmutable::class),
             true,
-            self::MOVEMENT_ID,
+            '01912345-6789-7abc-8def-9123456789ab',
             'kg',
         )->willReturn(['status' => 'updated', 'record' => $record]);
         $changes = $this->createMock(ChangeFeedWriter::class);
@@ -986,7 +986,7 @@ final class InventoryServiceTest extends TestCase
             self::PRODUCT_ID,
             3,
             self::callback(static fn (array $data): bool =>
-                $data['privateName'] === 'My name' && $data['globalCategoryId'] === self::MOVEMENT_ID
+                $data['privateName'] === 'My name' && $data['globalCategoryId'] === '01912345-6789-7abc-8def-9123456789ab'
                 && $data['unit'] === 'kg' && $data['productId'] === self::SESSION_ID),
             self::isInstanceOf(DateTimeImmutable::class),
         );
@@ -1003,7 +1003,7 @@ final class InventoryServiceTest extends TestCase
             null,
             2,
             true,
-            self::MOVEMENT_ID,
+            '01912345-6789-7abc-8def-9123456789ab',
             'kg',
         ));
     }
@@ -1035,7 +1035,7 @@ final class InventoryServiceTest extends TestCase
     public static function invalidHouseholdMetadata(): iterable
     {
         yield 'invalid global ID' => ['not-a-uuid', null, 'units'];
-        yield 'conflicting categories' => [self::MOVEMENT_ID, self::LINE_ID, 'units'];
+        yield 'conflicting categories' => ['01912345-6789-7abc-8def-9123456789ab', self::LINE_ID, 'units'];
         yield 'invalid unit' => [null, null, 'invalid'];
     }
 

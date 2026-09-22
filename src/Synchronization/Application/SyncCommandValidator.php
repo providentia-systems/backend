@@ -108,7 +108,8 @@ final class SyncCommandValidator
             ),
             'inventory.home-product.create' => $this->shape(
                 $payload,
-                ['productId', 'packId', 'privateName', 'originalPackText', 'homeCategoryId', 'globalCategoryId', 'unit'],
+                ['productId', 'packId', 'privateName', 'originalPackText',
+                    'homeCategoryId', 'globalCategoryId', 'unit'],
                 ['productId', 'packId', 'privateName', 'originalPackText', 'homeCategoryId'],
                 false,
                 $baseRevision,

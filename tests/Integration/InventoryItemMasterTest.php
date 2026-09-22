@@ -81,8 +81,14 @@ final class InventoryItemMasterTest extends TestCase
         self::assertSame('kg', $item['unit']);
         self::assertSame('3.50000000', $item['quantity']);
         self::assertSame($beforeCatalog, $this->connection->fetchAllAssociative('SELECT * FROM products ORDER BY id'));
-        self::assertSame($beforePacks, $this->connection->fetchAllAssociative('SELECT * FROM product_packs ORDER BY id'));
-        self::assertSame($beforeBalances, $this->connection->fetchAllAssociative('SELECT * FROM inventory_balances ORDER BY home_id'));
+        self::assertSame(
+            $beforePacks,
+            $this->connection->fetchAllAssociative('SELECT * FROM product_packs ORDER BY id'),
+        );
+        self::assertSame(
+            $beforeBalances,
+            $this->connection->fetchAllAssociative('SELECT * FROM inventory_balances ORDER BY home_id'),
+        );
         self::assertSame(0, $this->store->itemMaster(self::OTHER_HOME_ID, 'my beans', null, null, 100, 0)['total']);
         $stale = $this->store->updateHomeProduct(
             self::HOME_ID,
@@ -700,7 +706,9 @@ final class InventoryItemMasterTest extends TestCase
     private function schema(): array
     {
         return [
-            'CREATE TABLE categories (id TEXT PRIMARY KEY, canonical_name TEXT NOT NULL)',
+            'CREATE TABLE categories (
+                id TEXT PRIMARY KEY, canonical_name TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'published\'
+            )',
             'CREATE TABLE products (
                 id TEXT PRIMARY KEY, category_id TEXT NOT NULL, canonical_name TEXT NOT NULL,
                 normalized_name TEXT NOT NULL, brand TEXT NOT NULL,
