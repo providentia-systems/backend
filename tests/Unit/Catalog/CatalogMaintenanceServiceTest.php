@@ -44,9 +44,10 @@ final class CatalogMaintenanceServiceTest extends TestCase
 
     public function testReviewerSearchPreservesProductFilterAndPagination(): void
     {
+        $productId = '0198a0b1-c2d3-7e4f-8123-456789abcdef';
         $store = $this->createMock(CatalogMaintenanceStore::class);
         $store->expects(self::once())->method('entities')
-            ->with('pack', 100, 'product-id', 'Rice')
+            ->with('pack', 100, $productId, 'Rice')
             ->willReturn([]);
         $service = new CatalogMaintenanceService(
             $store,
@@ -55,7 +56,7 @@ final class CatalogMaintenanceServiceTest extends TestCase
             new RecordingTransactionManager(),
         );
         $identity = new AuthenticatedIdentity('user', 'session', 'device', null, [], ['catalog.review']);
-        self::assertSame([], $service->list($identity, 'pack', 100, 'product-id', '  Rice  '));
+        self::assertSame([], $service->list($identity, 'pack', 100, $productId, '  Rice  '));
     }
 
     public function testOversizedSearchCannotReachTheDatabase(): void
