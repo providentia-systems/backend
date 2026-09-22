@@ -23,7 +23,8 @@ final class SyncProblemClassifierTest extends TestCase
             [422, 'about:blank', 'validation_error', 'invalid_command'],
         ];
         foreach ($cases as [$httpStatus, $type, $status, $code]) {
-            $result = SyncProblemClassifier::result('operation', new Problem($httpStatus, 'Failure', 'Safe detail.', $type));
+            $problem = new Problem($httpStatus, 'Failure', 'Safe detail.', $type);
+            $result = SyncProblemClassifier::result('operation', $problem);
             self::assertSame([
                 'operationId' => 'operation',
                 'status' => $status,
@@ -47,7 +48,8 @@ final class SyncProblemClassifierTest extends TestCase
     public function testTransientFailuresNeverExposeInfrastructureDetails(): void
     {
         foreach ([408, 425, 429, 500, 503] as $status) {
-            $result = SyncProblemClassifier::result('operation', new Problem($status, 'Driver', 'secret database credentials'));
+            $problem = new Problem($status, 'Driver', 'secret database credentials');
+            $result = SyncProblemClassifier::result('operation', $problem);
             self::assertSame('retryable_failure', $result['status']);
             self::assertSame('service_unavailable', $result['code']);
             self::assertStringNotContainsString('secret', $result['detail']);

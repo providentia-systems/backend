@@ -55,7 +55,10 @@ final class SyncEnvelopeValidatorTest extends TestCase
             self::fail('Another session device was accepted.');
         } catch (Problem $problem) {
             self::assertSame(403, $problem->status);
-            self::assertSame(\Providentia\Synchronization\Application\SyncProblemClassifier::DEVICE_MISMATCH, $problem->type);
+            self::assertSame(
+                \Providentia\Synchronization\Application\SyncProblemClassifier::DEVICE_MISMATCH,
+                $problem->type,
+            );
         }
 
         $this->expectException(Problem::class);
