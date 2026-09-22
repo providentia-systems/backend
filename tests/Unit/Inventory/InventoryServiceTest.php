@@ -959,7 +959,8 @@ final class InventoryServiceTest extends TestCase
         $record = [
             'id' => self::PRODUCT_ID, 'productId' => self::SESSION_ID, 'packId' => self::LINE_ID,
             'privateName' => 'My name', 'originalPackText' => 'Home jar', 'homeCategoryId' => null,
-            'globalCategoryId' => '01912345-6789-7abc-8def-9123456789ab', 'unit' => 'kg', 'status' => 'active', 'revision' => 3,
+            'globalCategoryId' => '01912345-6789-7abc-8def-9123456789ab',
+            'unit' => 'kg', 'status' => 'active', 'revision' => 3,
         ];
         $store->expects(self::once())->method('updateHomeProduct')->with(
             self::HOME_ID,
@@ -986,7 +987,8 @@ final class InventoryServiceTest extends TestCase
             self::PRODUCT_ID,
             3,
             self::callback(static fn (array $data): bool =>
-                $data['privateName'] === 'My name' && $data['globalCategoryId'] === '01912345-6789-7abc-8def-9123456789ab'
+                $data['privateName'] === 'My name'
+                && $data['globalCategoryId'] === '01912345-6789-7abc-8def-9123456789ab'
                 && $data['unit'] === 'kg' && $data['productId'] === self::SESSION_ID),
             self::isInstanceOf(DateTimeImmutable::class),
         );

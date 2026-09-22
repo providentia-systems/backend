@@ -362,7 +362,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                          COALESCE(hp.private_name, p.canonical_name, :unresolved_name) AS canonicalName,
                          COALESCE(p.brand, :empty) AS brand,
                          CASE WHEN hc.id IS NULL THEN COALESCE(gc.id, c.id) ELSE NULL END AS categoryId,
-                         hc.id AS homeCategoryId, COALESCE(hc.name, gc.canonical_name, c.canonical_name) AS categoryName,
+                         hc.id AS homeCategoryId,
+                         COALESCE(hc.name, gc.canonical_name, c.canonical_name) AS categoryName,
                          CASE WHEN hc.id IS NOT NULL THEN :home_scope
                               WHEN COALESCE(gc.id, c.id) IS NOT NULL THEN :global_scope ELSE NULL END AS categorySource,
                          COALESCE(hp.original_pack_text, :empty) AS packText,

@@ -1246,11 +1246,20 @@ final class PlatformAccessWorkflowTest extends TestCase
             'expectedRevision' => 0,
             'reason' => 'Set household classification',
         ]);
+        $operator->updateProduct($admin, $home['id'], $created['id'], [
+            'privateName' => 'My household beans',
+            'reason' => 'Correct the household display name only',
+            'expectedRevision' => 1,
+        ]);
+        self::assertSame(
+            'My household beans',
+            $this->db->fetchOne('SELECT private_name FROM home_products WHERE id = ?', [$created['id']]),
+        );
         $this->problem(
-            422,
+            409,
             fn() => $operator->updateProduct($admin, $home['id'], $created['id'], [
-                'privateName' => 'Overwrite catalog name',
-                'reason' => 'Invalid global identity edit',
+                'privateName' => 'Stale household edit',
+                'reason' => 'A stale revision must still be refused',
                 'expectedRevision' => 1,
             ]),
         );
