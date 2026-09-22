@@ -27,6 +27,10 @@ final readonly class CatalogMaintenanceHandler implements RequestHandlerInterfac
         }
         $type = (string) $request->getAttribute('entityType', '');
         if ($request->getMethod() === 'GET') {
+            $query = $request->getQueryParams()['q'] ?? '';
+            if (! is_string($query)) {
+                throw new HttpProblem(422, 'Invalid search', 'Catalog search must be plain text.');
+            }
             return new JsonResponse([
                 'data' => $this->service->list(
                     $identity,
@@ -34,6 +38,7 @@ final readonly class CatalogMaintenanceHandler implements RequestHandlerInterfac
                     (int) ($request->getQueryParams()['offset'] ?? 0),
                     isset($request->getQueryParams()['productId'])
                         ? (string) $request->getQueryParams()['productId'] : null,
+                    $query,
                 ),
             ]);
         }
