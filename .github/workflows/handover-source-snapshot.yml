@@ -1,0 +1,44 @@
+name: Handover source review snapshot
+on:
+  push:
+    branches: [fix/handover-2026-09-22]
+    paths: [.github/workflows/handover-source-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          path: backend
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/client
+          ref: e491419f7c1d3694303f4277204385bd4bca21e8
+          path: client
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/admin
+          ref: f8d189a99f9e824840994b9595d4c06779d40a09
+          path: admin
+          persist-credentials: false
+      - name: Archive tracked source only, without credentials or runtime data
+        run: |
+          set -euo pipefail
+          mkdir snapshots
+          for repo in backend client admin; do
+            printf '%s ' "$repo" >> snapshots/commit-set.txt
+            git -C "$repo" rev-parse HEAD >> snapshots/commit-set.txt
+            git -C "$repo" archive --format=tar.gz --prefix="$repo/" HEAD > "snapshots/$repo.tar.gz"
+          done
+          (cd snapshots && sha256sum *.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: handover-paired-source
+          path: snapshots/
+          retention-days: 3
