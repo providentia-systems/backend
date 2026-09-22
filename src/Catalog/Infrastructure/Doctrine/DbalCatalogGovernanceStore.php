@@ -12,7 +12,6 @@ use Doctrine\DBAL\Platforms\SQLitePlatform;
 use DomainException;
 use Providentia\Catalog\Application\CatalogGovernanceStore;
 use Providentia\Catalog\Application\CatalogMaintenanceStore;
-use Providentia\Catalog\Application\CatalogMaintenanceSearch;
 use Providentia\Catalog\Application\CatalogMergeHomeProductGateway;
 use Providentia\SharedKernel\Application\UuidGenerator;
 
