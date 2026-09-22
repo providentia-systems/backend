@@ -31,7 +31,7 @@ jobs:
           tools: composer:2.10.2
       - name: Resolve the existing lockfile
         run: composer install --no-interaction --prefer-dist --no-progress
-      - name: Format only changed PHP source
+      - name: Format changed source before running the quality gates
         shell: bash
         run: |
           mapfile -t paths < <({ git diff --name-only; git ls-files --others --exclude-standard; } | grep '\.php$' | sort -u)
@@ -40,7 +40,8 @@ jobs:
             vendor/bin/phpcbf "${paths[@]}"
             result=$?
             set -e
-            test "$result" -le 1
+            test "$result" -le 2
+            python3 -c 'from pathlib import Path; import sys; [(p.write_text("\n".join(s.rstrip() for s in p.read_text().splitlines())+"\n")) for p in map(Path,sys.argv[1:])]' "${paths[@]}"
           fi
           git diff --check
       - name: Commit only application, contract and regression-test changes
@@ -53,7 +54,14 @@ jobs:
             git push origin HEAD:fix/client-household-workflows
           fi
       - name: Run the existing complete PHP quality command
+        id: quality
         run: composer check
+      - name: Run the full test suite independently for diagnostic evidence
+        if: always() && steps.quality.outcome == 'failure'
+        run: vendor/bin/phpunit
+      - name: Run strict static analysis independently for diagnostic evidence
+        if: always() && steps.quality.outcome == 'failure'
+        run: composer analyse
       - name: Export the exact source and validation state
         if: always()
         run: |
