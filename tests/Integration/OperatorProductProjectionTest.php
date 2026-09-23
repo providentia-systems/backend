@@ -17,7 +17,7 @@ final class OperatorProductProjectionTest extends TestCase
     protected function setUp(): void
     {
         $this->db = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
-        foreach ([
+        $schemas = [
             'CREATE TABLE home_products (id TEXT PRIMARY KEY, home_id TEXT, product_id TEXT, pack_id TEXT,
                 private_name TEXT, original_pack_text TEXT, home_category_id TEXT, global_category_id TEXT,
                 unit TEXT DEFAULT \'units\', status TEXT DEFAULT \'active\', revision INTEGER DEFAULT 1)',
@@ -26,7 +26,8 @@ final class OperatorProductProjectionTest extends TestCase
             'CREATE TABLE product_packs (id TEXT PRIMARY KEY, product_id TEXT, original_pack_text TEXT, status TEXT)',
             'CREATE TABLE categories (id TEXT PRIMARY KEY, canonical_name TEXT, status TEXT)',
             'CREATE TABLE home_categories (id TEXT PRIMARY KEY, home_id TEXT, name TEXT)',
-        ] as $sql) {
+        ];
+        foreach ($schemas as $sql) {
             $this->db->executeStatement($sql);
         }
         $this->db->insert('categories', ['id' => 'food', 'canonical_name' => 'Food', 'status' => 'published']);
