@@ -67,7 +67,6 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
         // Enumerated tables only: no arbitrary SQL, token or credential access.
         $table = match ($collection) {
             'categories' => 'home_categories',
-            'products' => 'home_products',
             'locations' => 'home_locations',
             'stores' => 'stores',
             'stock' => 'inventory_balances',
@@ -91,7 +90,8 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
                     . 'avatarSource,
                 p.avatar_revision AS avatarRevision FROM '
                     . 'home_memberships m INNER JOIN users u ON u.id = m.user_id'
-                    . '\n                LEFT JOIN user_profiles p ON p.user_id = m.user_id '
+                    . '
+                LEFT JOIN user_profiles p ON p.user_id = m.user_id '
                     . 'WHERE m.home_id = ? ORDER BY m.user_id LIMIT 100 OFFSET ')
                     . max(0, $offset),
                 [$homeId],
