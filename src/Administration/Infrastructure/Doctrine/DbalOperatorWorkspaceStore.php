@@ -54,6 +54,9 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
         string $collection,
         int $offset,
     ): array {
+        if ($collection === 'products') {
+            return $this->productRecords($homeId, $offset);
+        }
         if ($collection === 'sharing') {
             return $this->connection->fetchAllAssociative(
                 'SELECT id, contribution_type, moderation_status, revision, created_at, updated_at '
@@ -88,8 +91,7 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
                     . 'avatarSource,
                 p.avatar_revision AS avatarRevision FROM '
                     . 'home_memberships m INNER JOIN users u ON u.id = m.user_id'
-                    . '
-                LEFT JOIN user_profiles p ON p.user_id = m.user_id '
+                    . '\n                LEFT JOIN user_profiles p ON p.user_id = m.user_id '
                     . 'WHERE m.home_id = ? ORDER BY m.user_id LIMIT 100 OFFSET ')
                     . max(0, $offset),
                 [$homeId],
@@ -104,6 +106,42 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
         return $this->connection->fetchAllAssociative(
             'SELECT ' . $columns . ' FROM ' . $table . ' WHERE home_id = ? ORDER BY ' . $order
                 . ' LIMIT 100 OFFSET ' . max(0, $offset),
+            [$homeId],
+        );
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function productRecords(string $homeId, int $offset): array
+    {
+        // Preserve the raw household fields for revision-bound editing. The
+        // resolved columns are read-only, including archived catalog identities.
+        return $this->connection->fetchAllAssociative(
+            "SELECT hp.*,
+                COALESCE(NULLIF(TRIM(hp.private_name), ''), NULLIF(TRIM(p.canonical_name), ''),
+                    'Unresolved product') AS name,
+                COALESCE(p.brand, '') AS brand,
+                COALESCE(NULLIF(TRIM(hp.original_pack_text), ''), NULLIF(TRIM(pk.original_pack_text), ''),
+                    'Not specified') AS pack_text,
+                CASE WHEN hp.home_category_id IS NOT NULL
+                    THEN COALESCE(hc.name, 'Unavailable local category')
+                    WHEN hp.global_category_id IS NOT NULL
+                    THEN COALESCE(gc.canonical_name, 'Unavailable global category')
+                    ELSE COALESCE(c.canonical_name, 'Uncategorized') END AS category_name,
+                CASE WHEN hp.home_category_id IS NOT NULL THEN 'Local'
+                    WHEN hp.global_category_id IS NOT NULL OR c.id IS NOT NULL THEN 'Global'
+                    ELSE '' END AS category_scope,
+                CASE WHEN hp.product_id IS NOT NULL AND p.id IS NULL THEN 'Missing catalog product'
+                    WHEN hp.pack_id IS NOT NULL AND pk.id IS NULL THEN 'Missing or mismatched catalog pack'
+                    WHEN hp.product_id IS NOT NULL AND hp.pack_id IS NULL THEN 'Catalog product; no pack selected'
+                    WHEN hp.product_id IS NOT NULL THEN 'Catalog linked'
+                    ELSE 'Private product' END AS catalog_reference
+             FROM home_products hp
+             LEFT JOIN products p ON p.id = hp.product_id
+             LEFT JOIN product_packs pk ON pk.id = hp.pack_id AND pk.product_id = hp.product_id
+             LEFT JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories gc ON gc.id = hp.global_category_id
+             LEFT JOIN home_categories hc ON hc.id = hp.home_category_id AND hc.home_id = hp.home_id
+             WHERE hp.home_id = ? ORDER BY hp.id LIMIT 100 OFFSET " . max(0, $offset),
             [$homeId],
         );
     }
