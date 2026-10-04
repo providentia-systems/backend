@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Providentia\SharedKernel\Http;
 
+use Doctrine\DBAL\Exception\RetryableException;
 use Laminas\Diactoros\Response\JsonResponse;
 use Providentia\SharedKernel\Application\Problem;
 use Psr\Http\Message\ResponseInterface;
@@ -27,12 +28,20 @@ final class ProblemDetailsMiddleware implements MiddlewareInterface
             return $handler->handle($request);
         } catch (Throwable $error) {
             $requestId = $this->requestId($request);
+            $retryable = $error instanceof RetryableException;
 
             if ($error instanceof Problem) {
                 $status = $error->status;
                 $type = $error->type;
                 $title = $error->title;
                 $detail = $error->getMessage();
+            } elseif ($retryable) {
+                $status = 503;
+                $type = 'about:blank';
+                $title = 'Database temporarily busy';
+                // Never expose SQL or connection details, including in debug
+                // mode. The caller retains its original idempotency identity.
+                $detail = 'The database is temporarily busy. Retry the same operation after a short delay.';
             } else {
                 $status = 500;
                 $type = 'about:blank';
@@ -65,6 +74,7 @@ final class ProblemDetailsMiddleware implements MiddlewareInterface
             ], $status, [
                 'Content-Type' => 'application/problem+json',
                 'X-Request-Id' => $requestId,
+                ...($retryable ? ['Retry-After' => '1'] : []),
             ]);
         }
     }
