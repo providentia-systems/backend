@@ -8,6 +8,7 @@ use Closure;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
+use InvalidArgumentException;
 use PDO;
 use Psr\Container\ContainerInterface;
 use RuntimeException;
@@ -26,7 +27,7 @@ final class ConnectionFactory
 
     public function __invoke(ContainerInterface $container): Connection
     {
-        /** @var array{database: array{url: string}} $config */
+        /** @var array{database: array{url: string, sqlite_busy_timeout_seconds?: mixed}} $config */
         $config = $container->get('config');
 
         $parser = new DsnParser([
@@ -37,6 +38,16 @@ final class ConnectionFactory
 
         $parameters = $parser->parse($config['database']['url']);
         $this->assertPdoDriverIsAvailable((string) ($parameters['driver'] ?? ''));
+        if (($parameters['driver'] ?? null) === 'pdo_sqlite') {
+            $timeout = $config['database']['sqlite_busy_timeout_seconds'] ?? 5;
+            if (! is_int($timeout) || $timeout < 0 || $timeout > 30) {
+                throw new InvalidArgumentException('SQLite busy timeout must be an integer from 0 to 30 seconds.');
+            }
+            // PDO installs SQLite's busy handler on every connection, including
+            // reconnects. Do not retry arbitrary ORM transactions here: they
+            // may have external effects and a failed EntityManager is closed.
+            $parameters['driverOptions'][PDO::ATTR_TIMEOUT] = $timeout;
+        }
 
         return DriverManager::getConnection($parameters);
     }
