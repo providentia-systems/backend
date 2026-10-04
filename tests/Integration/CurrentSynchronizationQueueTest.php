@@ -99,17 +99,17 @@ final class CurrentSynchronizationQueueTest extends TestCase
 
     public function testRolledBackMutationLeavesNeitherChangeFeedNorOutboxEvent(): void
     {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Simulated business rollback.');
         try {
             $this->connection->transactional(function (): void {
                 $this->writer()->put('home', 'actor', 'home-product', 'product', 1, [], $this->at());
                 throw new RuntimeException('Simulated business rollback.');
             });
-            self::fail('Expected the transaction to roll back.');
-        } catch (RuntimeException $error) {
-            self::assertSame('Simulated business rollback.', $error->getMessage());
+        } finally {
+            self::assertSame(0, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM change_log'));
+            self::assertSame(0, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM outbox_messages'));
         }
-        self::assertSame(0, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM change_log'));
-        self::assertSame(0, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM outbox_messages'));
     }
 
     public function testInvalidCurrentNotificationIsRetainedForReviewInsteadOfMarkedProcessed(): void
