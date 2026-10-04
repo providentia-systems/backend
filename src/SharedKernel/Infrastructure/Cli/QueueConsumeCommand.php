@@ -16,6 +16,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
+use UnexpectedValueException;
 
 #[AsCommand(name: 'queue:consume', description: 'Consume and idempotently dispatch asynchronous messages.')]
 final class QueueConsumeCommand extends Command
@@ -48,13 +49,17 @@ final class QueueConsumeCommand extends Command
                 continue;
             }
             $handled = true;
-
             $messageId = $transportMessage->getMessageId() ?: hash('sha256', $transportMessage->getBody());
             try {
-                /** @var array{id: string, type: string, occurredAt: string, payload: array<string, mixed>} $message */
                 $message = json_decode($transportMessage->getBody(), true, 512, JSON_THROW_ON_ERROR);
-                if (($message['id'] ?? '') === '' || ($message['type'] ?? '') === '') {
-                    throw new \UnexpectedValueException('Message envelope identity or type is invalid.');
+                if (
+                    ! is_array($message) ||
+                    ! is_string($message['id'] ?? null) ||
+                    $message['id'] === '' ||
+                    ! is_string($message['type'] ?? null) ||
+                    $message['type'] === ''
+                ) {
+                    throw new UnexpectedValueException('Message envelope identity or type is invalid.');
                 }
                 $messageId = $message['id'];
                 $handlers = [
@@ -63,28 +68,37 @@ final class QueueConsumeCommand extends Command
                     'synchronization.record-changed.v2' => 'synchronization-notification',
                 ];
                 if (! isset($handlers[$message['type']])) {
-                    throw new \UnexpectedValueException('No handler is registered for ' . $message['type']);
+                    throw new UnexpectedValueException('No handler is registered for ' . $message['type']);
                 }
-
+                if ($message['type'] === 'synchronization.record-changed.v2') {
+                    $this->validateNotification($message['payload'] ?? null);
+                }
                 $handlerName = $handlers[$message['type']];
-                $this->connection->transactional(function (Connection $connection) use (
-                    $messageId,
-                    $handlerName,
-                ): void {
-                    $connection->insert('async_processed_messages', [
-                        'message_id' => $messageId,
-                        'processed_at' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))
-                            ->format('Y-m-d H:i:s.u'),
-                        'handler_name' => $handlerName,
-                    ]);
+                try {
+                    $this->connection->transactional(function (Connection $connection) use (
+                        $messageId,
+                        $handlerName,
+                    ): void {
+                        $connection->insert('async_processed_messages', [
+                            'message_id' => $messageId,
+                            'processed_at' => $this->timestamp(),
+                            'handler_name' => $handlerName,
+                        ]);
+                        $this->resolveFailures($messageId);
+                    });
+                    $output->writeln('Processed ' . $messageId);
+                } catch (UniqueConstraintViolationException $error) {
+                    $recordedHandler = $this->connection->fetchOne(
+                        'SELECT handler_name FROM async_processed_messages WHERE message_id = :id',
+                        ['id' => $messageId],
+                    );
+                    if ($recordedHandler !== $handlerName) {
+                        throw $error;
+                    }
                     $this->resolveFailures($messageId);
-                });
+                    $output->writeln('Acknowledged duplicate ' . $messageId);
+                }
                 $consumer->acknowledge($transportMessage);
-                $output->writeln('Processed ' . $messageId);
-            } catch (UniqueConstraintViolationException) {
-                $this->resolveFailures($messageId);
-                $consumer->acknowledge($transportMessage);
-                $output->writeln('Acknowledged duplicate ' . $messageId);
             } catch (Throwable $error) {
                 $failed = true;
                 $this->connection->executeStatement(
@@ -94,8 +108,7 @@ final class QueueConsumeCommand extends Command
                     [
                         'id' => Uuid::uuid7()->toString(),
                         'source' => mb_substr($messageId, 0, 36),
-                        'failed' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))
-                            ->format('Y-m-d H:i:s.u'),
+                        'failed' => $this->timestamp(),
                         'reason' => mb_substr($error->getMessage(), 0, 2000),
                     ],
                 );
@@ -107,15 +120,34 @@ final class QueueConsumeCommand extends Command
         return $handled && ! $failed ? Command::SUCCESS : Command::FAILURE;
     }
 
+    private function validateNotification(mixed $payload): void
+    {
+        if (! is_array($payload)) {
+            throw new UnexpectedValueException('A synchronization notification requires an object payload.');
+        }
+        foreach (['homeId', 'entityType', 'entityId'] as $field) {
+            if (! is_string($payload[$field] ?? null) || trim($payload[$field]) === '') {
+                throw new UnexpectedValueException('Invalid synchronization notification ' . $field . '.');
+            }
+        }
+        foreach (['revision', 'cursor'] as $field) {
+            if (! is_int($payload[$field] ?? null) || $payload[$field] < 1) {
+                throw new UnexpectedValueException('Invalid synchronization notification ' . $field . '.');
+            }
+        }
+    }
+
     private function resolveFailures(string $messageId): void
     {
         $this->connection->executeStatement(
             'UPDATE async_failed_messages SET resolved_at = :resolved
              WHERE source_message_id = :message AND resolved_at IS NULL',
-            [
-                'resolved' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format('Y-m-d H:i:s.u'),
-                'message' => $messageId,
-            ],
+            ['resolved' => $this->timestamp(), 'message' => $messageId],
         );
+    }
+
+    private function timestamp(): string
+    {
+        return (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format('Y-m-d H:i:s.u');
     }
 }
