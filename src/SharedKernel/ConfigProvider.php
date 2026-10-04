@@ -17,6 +17,7 @@ use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\FoundationProofService;
 use Providentia\SharedKernel\Application\FoundationRecordStore;
 use Providentia\SharedKernel\Application\ReadinessService;
+use Providentia\SharedKernel\Application\RetryableFailureClassifier;
 use Providentia\SharedKernel\Application\SecureTokenGenerator;
 use Providentia\SharedKernel\Application\Health\DatabaseReadinessProbe;
 use Providentia\SharedKernel\Application\Health\QueueReadinessProbe;
@@ -38,6 +39,7 @@ use Providentia\SharedKernel\Infrastructure\Cli\QueueConsumeCommand;
 use Providentia\SharedKernel\Infrastructure\Clock\SystemClock;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineOutboxStore;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineFoundationRecordStore;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineRetryableFailureClassifier;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineTransactionManager;
 use Providentia\SharedKernel\Infrastructure\Factory\AdapterFactory;
 use Providentia\SharedKernel\Infrastructure\Factory\ApplicationServiceFactory;
@@ -70,6 +72,7 @@ final class ConfigProvider
                     FoundationRecordStore::class => DoctrineFoundationRecordStore::class,
                     OutboxStore::class => DoctrineOutboxStore::class,
                     TransactionManager::class => DoctrineTransactionManager::class,
+                    RetryableFailureClassifier::class => DoctrineRetryableFailureClassifier::class,
                     DatabaseReadinessProbe::class => DoctrineDatabaseReadinessProbe::class,
                     QueueReadinessProbe::class => EnqueueQueueReadinessProbe::class,
                     QueueMetricsProbe::class => RedisQueueMetricsProbe::class,
@@ -86,6 +89,7 @@ final class ConfigProvider
                     RamseyUuidGenerator::class => InvokableFactory::class,
                     NativeSecureTokenGenerator::class => InvokableFactory::class,
                     StderrJsonLogger::class => InvokableFactory::class,
+                    DoctrineRetryableFailureClassifier::class => InvokableFactory::class,
                     EnqueueAsyncMessageBus::class => AdapterFactory::class,
                     DoctrineFoundationRecordStore::class => AdapterFactory::class,
                     DoctrineTransactionManager::class => AdapterFactory::class,
