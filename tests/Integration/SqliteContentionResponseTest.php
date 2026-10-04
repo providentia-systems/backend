@@ -69,15 +69,16 @@ final class SqliteContentionResponseTest extends TestCase
         $holder->insert('writer_guard', ['id' => 'lock-held']);
         $attempts = 0;
         $handler = $this->createMock(RequestHandlerInterface::class);
-        $handler->method('handle')->willReturnCallback(
+        $handler->expects(self::exactly(3))->method('handle')->willReturnCallback(
             static function () use ($writer, &$attempts): ResponseInterface {
                 ++$attempts;
                 return $writer->transactional(static function (Connection $connection): ResponseInterface {
                     $id = 'same-original-operation';
-                    if ($connection->fetchOne(
+                    $recordedId = $connection->fetchOne(
                         'SELECT operation_id FROM operation_receipts WHERE operation_id = :id',
                         ['id' => $id],
-                    ) !== false) {
+                    );
+                    if ($recordedId !== false) {
                         return new EmptyResponse(204);
                     }
                     $connection->insert('business_effects', ['operation_id' => $id]);
