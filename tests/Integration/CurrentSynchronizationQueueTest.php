@@ -30,7 +30,7 @@ final class CurrentSynchronizationQueueTest extends TestCase
     protected function setUp(): void
     {
         $this->connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
-        foreach ([
+        $statements = [
             'CREATE TABLE change_log (id INTEGER PRIMARY KEY AUTOINCREMENT, home_id TEXT,
              entity_type TEXT, entity_id TEXT, operation_type TEXT, revision INTEGER,
              payload_schema_version INTEGER, payload_json TEXT, changed_by_user_id TEXT, changed_at TEXT)',
@@ -40,7 +40,8 @@ final class CurrentSynchronizationQueueTest extends TestCase
             'CREATE TABLE async_processed_messages (message_id TEXT PRIMARY KEY, processed_at TEXT, handler_name TEXT)',
             'CREATE TABLE async_failed_messages (id TEXT PRIMARY KEY, source_message_id TEXT,
              failed_at TEXT, reason TEXT, resolved_at TEXT)',
-        ] as $sql) {
+        ];
+        foreach ($statements as $sql) {
             $this->connection->executeStatement($sql);
         }
     }
