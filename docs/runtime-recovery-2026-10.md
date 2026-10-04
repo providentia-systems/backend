@@ -107,6 +107,15 @@ For an uncertain network outcome, query operation status before treating it as
 rejected or creating any replacement operation. Retry-After is a delay hint, not
 permission to duplicate a business operation.
 
+SQLite reader locks can also reject the outer `COMMIT` after writes have
+succeeded inside a transaction. The SQLite connection adapter rolls back before
+propagating the original retryable error, discarding the connection only if
+cleanup fails. This
+keeps the native connection and DBAL transaction state aligned and avoids
+mistaking uncommitted queue processing or failure-review rows for durable work.
+If neither processing nor failure recording can commit, the consumer does not
+acknowledge the broker message. A later delivery retains its original identity.
+
 ## Regression evidence
 
 The standard PHP suite includes:
@@ -122,6 +131,9 @@ The standard PHP suite includes:
   identity-preserving retry of an illustrative transactional effect and unchanged
   revision-conflict handling. This is not a replacement for the domain receipt
   and stock regression suites.
+- `SqliteCommitSafetyTest`: a real reader lock at commit time, native rollback
+  and reconnection, safe retryable HTTP output, no broker acknowledgment without
+  a durable record, and nested savepoint success/rollback.
 
 Run `composer check` for formatting, static analysis, the PHP suite, architecture
 and canonical contract checks. Retain the existing production-database, broker,
