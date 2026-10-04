@@ -7,6 +7,7 @@ namespace Providentia\SharedKernel\Infrastructure\Factory;
 use Providentia\SharedKernel\Application\Async\OutboxStore;
 use Providentia\SharedKernel\Application\Async\QueueMetricsProbe;
 use Providentia\SharedKernel\Application\ReadinessService;
+use Providentia\SharedKernel\Application\RetryableFailureClassifier;
 use Providentia\SharedKernel\Application\SystemInformationProvider;
 use Providentia\SharedKernel\Http\Health\LivenessHandler;
 use Providentia\SharedKernel\Http\Health\ReadinessHandler;
@@ -40,6 +41,7 @@ final class HttpHandlerFactory
             ProblemDetailsMiddleware::class => new ProblemDetailsMiddleware(
                 $config['app']['debug'],
                 $container->get(LoggerInterface::class),
+                $container->get(RetryableFailureClassifier::class),
             ),
             SystemInfoHandler::class => new SystemInfoHandler(
                 $container->get(SystemInformationProvider::class),
