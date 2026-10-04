@@ -11,6 +11,7 @@ use Laminas\Diactoros\ServerRequest;
 use PHPUnit\Framework\TestCase;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Http\ProblemDetailsMiddleware;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DoctrineRetryableFailureClassifier;
 use Providentia\SharedKernel\Infrastructure\Factory\ConnectionFactory;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -99,7 +100,7 @@ final class SqliteContentionResponseTest extends TestCase
             }),
         );
         // Even a development response must not disclose SQL, paths or data.
-        $middleware = new ProblemDetailsMiddleware(true, $logger);
+        $middleware = new ProblemDetailsMiddleware(true, $logger, new DoctrineRetryableFailureClassifier());
         $request = (new ServerRequest([], [], '/test/contention', 'POST'))
             ->withHeader('X-Request-Id', 'contention-regression');
         try {
@@ -135,7 +136,11 @@ final class SqliteContentionResponseTest extends TestCase
         $handler->expects(self::once())->method('handle')->willThrowException(
             new Problem(409, 'Revision conflict', 'Refresh before changing this item.'),
         );
-        $response = (new ProblemDetailsMiddleware(false, new NullLogger()))->process(
+        $response = (new ProblemDetailsMiddleware(
+            false,
+            new NullLogger(),
+            new DoctrineRetryableFailureClassifier(),
+        ))->process(
             new ServerRequest([], [], '/test/conflict', 'POST'),
             $handler,
         );
