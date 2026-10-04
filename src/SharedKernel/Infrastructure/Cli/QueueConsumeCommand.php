@@ -60,6 +60,7 @@ final class QueueConsumeCommand extends Command
                 $handlers = [
                     'foundation.recorded.v1' => 'foundation-proof',
                     'synchronization.record-changed.v1' => 'synchronization-notification',
+                    'synchronization.record-changed.v2' => 'synchronization-notification',
                 ];
                 if (! isset($handlers[$message['type']])) {
                     throw new \UnexpectedValueException('No handler is registered for ' . $message['type']);
@@ -76,10 +77,12 @@ final class QueueConsumeCommand extends Command
                             ->format('Y-m-d H:i:s.u'),
                         'handler_name' => $handlerName,
                     ]);
+                    $this->resolveFailures($messageId);
                 });
                 $consumer->acknowledge($transportMessage);
                 $output->writeln('Processed ' . $messageId);
             } catch (UniqueConstraintViolationException) {
+                $this->resolveFailures($messageId);
                 $consumer->acknowledge($transportMessage);
                 $output->writeln('Acknowledged duplicate ' . $messageId);
             } catch (Throwable $error) {
@@ -102,5 +105,17 @@ final class QueueConsumeCommand extends Command
         } while (! $input->getOption('once'));
 
         return $handled && ! $failed ? Command::SUCCESS : Command::FAILURE;
+    }
+
+    private function resolveFailures(string $messageId): void
+    {
+        $this->connection->executeStatement(
+            'UPDATE async_failed_messages SET resolved_at = :resolved
+             WHERE source_message_id = :message AND resolved_at IS NULL',
+            [
+                'resolved' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format('Y-m-d H:i:s.u'),
+                'message' => $messageId,
+            ],
+        );
     }
 }
