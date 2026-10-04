@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Providentia\SharedKernel\Http;
 
-use Doctrine\DBAL\Exception\RetryableException;
 use Laminas\Diactoros\Response\JsonResponse;
 use Providentia\SharedKernel\Application\Problem;
+use Providentia\SharedKernel\Application\RetryableFailureClassifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -19,6 +19,7 @@ final class ProblemDetailsMiddleware implements MiddlewareInterface
     public function __construct(
         private readonly bool $debug,
         private readonly LoggerInterface $logger,
+        private readonly ?RetryableFailureClassifier $retryableFailures = null,
     ) {
     }
 
@@ -28,7 +29,7 @@ final class ProblemDetailsMiddleware implements MiddlewareInterface
             return $handler->handle($request);
         } catch (Throwable $error) {
             $requestId = $this->requestId($request);
-            $retryable = $error instanceof RetryableException;
+            $retryable = $this->retryableFailures?->isRetryable($error) ?? false;
 
             if ($error instanceof Problem) {
                 $status = $error->status;
