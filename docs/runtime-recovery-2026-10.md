@@ -26,6 +26,24 @@ maximum quantities, tenant isolation, commit replay and server restart. Install
 `jsonschema[format]==4.26.0`; missing format checkers fail rather than silently
 skipping validation. The CI lane runs on SQLite, MySQL and MariaDB.
 
+For the retained real Client/Drift receipt and shopping acceptance, prepare a
+separate Client checkout at `21567ada32dcf343e4e777daf10d1a67a7de6128`, install its
+pinned Flutter runtime, run `flutter pub get --enforce-lockfile` and
+`dart run build_runner build --delete-conflicting-outputs`, then run from the
+backend root:
+
+```sh
+bash tests/Acceptance/runtime-response-contracts.sh /absolute/path/to/client
+```
+
+The wrapper owns a fresh synthetic database, local PHP server and a temporary
+Client test file. It refuses to overwrite an existing test file or use another
+listener on its port, and cleans up its own fixture/server/file afterward. The
+five cases cover lost and malformed commit responses, unavailable status lookup,
+real revision conflict, process/database reopen, checked shopping readback and
+exactly-once stock effects. They use real generated adapters and Drift; they do
+not establish mobile hardware or graphical accessibility acceptance.
+
 ## Exact decimal storage on SQLite
 
 SQLite NUMERIC affinity cannot represent every decimal accepted by API 2.2.0.

@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Providentia\Synchronization\Application\SyncStore;
 use Providentia\Synchronization\Application\SyncRepresentationNormalizer;
 use Providentia\Synchronization\Application\SyncCommand;
@@ -403,10 +404,17 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
         int $position,
         DateTimeImmutable $at,
     ): void {
-        $updated = $this->connection->executeStatement(
-            'UPDATE sync_cursors SET last_acknowledged_cursor = :cursor,
-                    schema_version = :schema, updated_at = :at
-             WHERE home_id = :home AND user_id = :user AND device_id = :device',
+        // MySQL reports zero changed rows for an identical acknowledgement in
+        // the same second. An atomic upsert avoids treating that as a missing
+        // row, and also handles simultaneous first acknowledgements safely.
+        $conflict = $this->connection->getDatabasePlatform() instanceof SQLitePlatform
+            ? 'ON CONFLICT (home_id, user_id, device_id) DO UPDATE SET '
+            : 'ON DUPLICATE KEY UPDATE ';
+        $this->connection->executeStatement(
+            'INSERT INTO sync_cursors
+                (home_id, user_id, device_id, last_acknowledged_cursor, schema_version, updated_at)
+             VALUES (:home, :user, :device, :cursor, :schema, :at) '
+                . $conflict . 'last_acknowledged_cursor = :cursor, schema_version = :schema, updated_at = :at',
             [
                 'cursor' => $position,
                 'schema' => 1,
@@ -416,16 +424,6 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                 'device' => $deviceId,
             ],
         );
-        if ($updated === 0) {
-            $this->connection->insert('sync_cursors', [
-                'home_id' => $homeId,
-                'user_id' => $userId,
-                'device_id' => $deviceId,
-                'last_acknowledged_cursor' => $position,
-                'schema_version' => 1,
-                'updated_at' => $this->date($at),
-            ]);
-        }
     }
 
     public function operationReceipt(string $operationId): ?array
