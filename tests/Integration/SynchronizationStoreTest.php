@@ -413,6 +413,24 @@ final class SynchronizationStoreTest extends TestCase
         self::assertSame(1, $this->tableRowCount('change_log'));
     }
 
+    public function testRepeatedCursorAcknowledgementsWithinOneSecondAreIdempotentAndDeviceScoped(): void
+    {
+        $at = new DateTimeImmutable('2026-10-05T08:00:00Z');
+        foreach ([1, 1, 2, 2] as $position) {
+            $this->store->acknowledgeCursor(self::HOME_ID, self::USER_ID, self::DEVICE_ONE, $position, $at);
+        }
+        $this->store->acknowledgeCursor(self::HOME_ID, self::USER_ID, self::DEVICE_TWO, 1, $at);
+        self::assertSame(2, $this->tableRowCount('sync_cursors'));
+        self::assertSame(2, (int) $this->connection->fetchOne(
+            'SELECT last_acknowledged_cursor FROM sync_cursors WHERE device_id = ?',
+            [self::DEVICE_ONE],
+        ));
+        self::assertSame(1, (int) $this->connection->fetchOne(
+            'SELECT last_acknowledged_cursor FROM sync_cursors WHERE device_id = ?',
+            [self::DEVICE_TWO],
+        ));
+    }
+
     public function testExpiredTombstoneCompactionAdvancesTheResyncBoundaryAtomically(): void
     {
         $at = new DateTimeImmutable('2026-07-30T12:00:00+00:00');
