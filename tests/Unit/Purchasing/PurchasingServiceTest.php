@@ -405,6 +405,15 @@ final class PurchasingServiceTest extends TestCase
 
     public function testCommittedReceiptIsAnIdempotentReplayWithoutDuplicateMovements(): void
     {
+        $receipt = [
+            'id' => self::RECEIPT_ID,
+            'homeId' => self::HOME_ID,
+            'purchaseDate' => '2026-08-03',
+            'currency' => 'NAD',
+            'source' => 'manual',
+            'status' => 'committed',
+            'revision' => 8,
+        ];
         $purchases = $this->createMock(PurchasingStore::class);
         $purchases->expects(self::once())
             ->method('receipt')
@@ -413,14 +422,12 @@ final class PurchasingServiceTest extends TestCase
                 self::RECEIPT_ID,
             )
             ->willReturn(
-                [
-                'id' => self::RECEIPT_ID,
-                'status' => 'committed',
-                'revision' => 8,
-                ],
+                $receipt,
             );
-        $purchases->expects(self::never())
-            ->method('receiptLines');
+        $purchases->expects(self::once())
+            ->method('receiptLines')
+            ->with(self::HOME_ID, self::RECEIPT_ID)
+            ->willReturn([]);
         $purchases->expects(self::never())
             ->method('markReceiptCommitted');
         $inventory = $this->createMock(InventoryMovementGateway::class);
@@ -428,6 +435,8 @@ final class PurchasingServiceTest extends TestCase
             ->method('recordApprovedInbound');
         self::assertSame(
             [
+                ...$receipt,
+                'lines' => [],
                 'receiptId' => self::RECEIPT_ID,
                 'movements' => 0,
             ],
@@ -474,6 +483,7 @@ final class PurchasingServiceTest extends TestCase
     {
         $receipt = [
             'id' => self::RECEIPT_ID,
+            'homeId' => self::HOME_ID,
             'status' => 'draft',
             'revision' => 4,
             'storeId' => self::STORE_ID,
@@ -486,6 +496,10 @@ final class PurchasingServiceTest extends TestCase
         ];
         $line = [
             'id' => self::LINE_ID,
+            'receiptId' => self::RECEIPT_ID,
+            'lineNumber' => 1,
+            'rawDescription' => '3 pantry items',
+            'revision' => 2,
             'approvalStatus' => 'approved',
             'homeProductId' => self::PRODUCT_ID,
             'quantity' => '3',
@@ -493,28 +507,29 @@ final class PurchasingServiceTest extends TestCase
             'unitPrice' => '12.50',
             'lineTotal' => '37.50',
         ];
+        $committedReceipt = [...$receipt, 'status' => 'committed', 'revision' => 5];
+        $lines = [
+            $line,
+            [
+                'id' => '01912345-6789-7abc-bdef-1123456789ab',
+                'receiptId' => self::RECEIPT_ID,
+                'lineNumber' => 2,
+                'revision' => 2,
+                'approvalStatus' => 'unresolved',
+                'homeProductId' => null,
+                'rawDescription' => 'Unmatched handwritten item',
+                'quantity' => '1',
+                'unitPrice' => null,
+                'lineTotal' => '5.00',
+            ],
+        ];
         $purchases = $this->createMock(PurchasingStore::class);
-        $purchases->method('receipt')
+        $purchases->expects(self::exactly(2))->method('receipt')
             ->with(self::HOME_ID, self::RECEIPT_ID)
-            ->willReturn(
-                $receipt,
-            );
-        $purchases->method('receiptLines')
+            ->willReturnOnConsecutiveCalls($receipt, $committedReceipt);
+        $purchases->expects(self::exactly(2))->method('receiptLines')
             ->with(self::HOME_ID, self::RECEIPT_ID)
-            ->willReturn(
-                [
-                $line,
-                [
-                    'id' => '01912345-6789-7abc-bdef-1123456789ab',
-                    'approvalStatus' => 'unresolved',
-                    'homeProductId' => null,
-                    'rawDescription' => 'Unmatched handwritten item',
-                    'quantity' => '1',
-                    'unitPrice' => null,
-                    'lineTotal' => '5.00',
-                ],
-                ],
-            );
+            ->willReturn($lines);
         $purchases->expects(self::once())
             ->method('recordPriceObservation')
             ->with(
@@ -563,6 +578,8 @@ final class PurchasingServiceTest extends TestCase
             );
         self::assertSame(
             [
+                ...$committedReceipt,
+                'lines' => $lines,
                 'receiptId' => self::RECEIPT_ID,
                 'movements' => 1,
             ],

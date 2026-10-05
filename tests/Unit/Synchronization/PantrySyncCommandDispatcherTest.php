@@ -117,7 +117,15 @@ final class PantrySyncCommandDispatcherTest extends TestCase
             ),
         );
 
-        self::assertSame(['id' => self::LIST_ID, 'revision' => 1], $result);
+        self::assertSame([
+            'id' => self::LIST_ID,
+            'homeId' => self::HOME_ID,
+            'name' => 'Weekly shop',
+            'kind' => 'manual',
+            'status' => 'open',
+            'revision' => 1,
+            'lines' => [],
+        ], $result);
     }
 
     public function testInventoryAdjustmentCarriesTheClientOperationIdToTheLedger(): void
@@ -236,7 +244,7 @@ final class PantrySyncCommandDispatcherTest extends TestCase
             ->method('receipt')
             ->with(self::HOME_ID, self::RECEIPT_ID)
             ->willReturn(['id' => self::RECEIPT_ID, 'status' => 'committed', 'revision' => 4]);
-        $purchases->expects(self::never())->method('receiptLines');
+        $purchases->expects(self::once())->method('receiptLines')->willReturn([]);
         $purchases->expects(self::never())->method('markReceiptCommitted');
 
         $result = $this->dispatcher(
@@ -256,7 +264,14 @@ final class PantrySyncCommandDispatcherTest extends TestCase
             ),
         );
 
-        self::assertSame(['receiptId' => self::RECEIPT_ID, 'movements' => 0], $result);
+        self::assertSame([
+            'id' => self::RECEIPT_ID,
+            'status' => 'committed',
+            'revision' => 4,
+            'lines' => [],
+            'receiptId' => self::RECEIPT_ID,
+            'movements' => 0,
+        ], $result);
     }
 
     public function testReceiptLineUnresolvedCommandUsesRevisionedPurchasingDecision(): void

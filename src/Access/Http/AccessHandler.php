@@ -7,6 +7,7 @@ namespace Providentia\Access\Http;
 use Laminas\Diactoros\Response\JsonResponse;
 use Providentia\Access\Application\AccessService;
 use Providentia\Access\Domain\FeatureCatalog;
+use Providentia\SharedKernel\Http\JsonObjectMaps;
 use Providentia\SharedKernel\Http\RequestIdentity;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -50,15 +51,18 @@ final class AccessHandler implements RequestHandlerInterface
         }
         return new JsonResponse(
             match ($this->action) {
-                'get' => $this->access->assignment(
+                'get' => self::serialize($this->access->assignment(
                     $identity,
                     (string) $request->getAttribute('scope', ''),
                     (string) $request->getAttribute('subjectId', ''),
-                ),
+                )),
                 'list' => [
-                    'data' => $this->access->groups(
-                        $identity,
-                        isset($query['scope']) ? (string) $query['scope'] : null,
+                    'data' => array_map(
+                        self::serialize(...),
+                        $this->access->groups(
+                            $identity,
+                            isset($query['scope']) ? (string) $query['scope'] : null,
+                        ),
                     ),
                 ],
                 'delete' => $this->access->deleteGroup(
@@ -66,13 +70,22 @@ final class AccessHandler implements RequestHandlerInterface
                     (string) $request->getAttribute('groupId', ''),
                     $body,
                 ),
-                'create', 'update' => $this->access->saveGroup(
+                'create', 'update' => self::serialize($this->access->saveGroup(
                     $identity,
                     $this->action === 'create' ? null : (string) $request->getAttribute('groupId', ''),
                     $body,
-                ),
+                )),
                 default => throw new \LogicException('Unknown access action.'),
             },
         );
+    }
+
+    /**
+     * @param array<string, mixed> $access
+     * @return array<string, mixed>
+     */
+    private static function serialize(array $access): array
+    {
+        return JsonObjectMaps::serialize($access, ['features', 'limits', 'rolePermissions']);
     }
 }

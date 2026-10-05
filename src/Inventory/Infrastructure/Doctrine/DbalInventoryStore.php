@@ -8,11 +8,13 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalSql;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Providentia\Inventory\Application\InventoryAnalyticsReader;
 use Providentia\Inventory\Application\InventoryStore;
 use Providentia\Inventory\Application\InventorySummaryReader;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalProjection;
 
 final class DbalInventoryStore implements InventoryStore, InventorySummaryReader, InventoryAnalyticsReader
 {
@@ -907,7 +909,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         ]);
         $updated = $this->connection->executeStatement(
             'UPDATE inventory_balances
-             SET quantity = quantity + :delta, last_movement_id = :movement,
+             SET quantity = ' . DecimalSql::add($this->connection, 'quantity', ':delta') . ',
+                 last_movement_id = :movement,
                  revision = revision + 1, updated_at = :updated
              WHERE home_id = :home AND home_product_id = :product',
             [
@@ -934,8 +937,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
 
     public function movements(string $homeId, ?string $homeProductId, int $limit, int $offset): array
     {
-        return $this->connection->fetchAllAssociative(
-            'SELECT sm.id, sm.home_product_id AS homeProductId,
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT sm.id, sm.home_id AS homeId, sm.home_product_id AS homeProductId,
                     COALESCE(hp.private_name, p.canonical_name) AS productName,
                     sm.movement_type AS movementType, sm.quantity_delta AS quantityDelta,
                     sm.source_type AS sourceType, sm.source_id AS sourceId,
@@ -955,6 +958,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                 'empty' => '',
             ],
         );
+        return array_map($this->movementRecord(...), $rows);
     }
 
     public function balance(string $homeId, string $homeProductId): ?array
@@ -1270,7 +1274,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     {
         $this->connection->delete('inventory_balances', ['home_id' => $homeId]);
         $rows = $this->connection->fetchAllAssociative(
-            'SELECT sm.home_product_id, SUM(sm.quantity_delta) AS quantity,
+            'SELECT sm.home_product_id, ' . DecimalSql::sum($this->connection, 'sm.quantity_delta') . ' AS quantity,
                     MAX(sm.id) AS last_movement_id
              FROM stock_movements sm
              WHERE sm.home_id = :home
@@ -1289,7 +1293,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             ]);
         }
         $total = $this->connection->fetchOne(
-            'SELECT COALESCE(SUM(quantity), 0) FROM inventory_balances WHERE home_id = :home',
+            'SELECT COALESCE(' . DecimalSql::sum($this->connection, 'quantity') . ', 0)
+             FROM inventory_balances WHERE home_id = :home',
             ['home' => $homeId],
         );
 
@@ -1303,14 +1308,15 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                 (SELECT COUNT(*) FROM product_packs WHERE status <> :archived) AS itemMasterCount,
                 (SELECT COUNT(*) FROM home_products
                  WHERE home_id = :home AND status = :active) AS countedProductCount,
-                (SELECT COALESCE(SUM(quantity), 0) FROM inventory_balances
+                (SELECT COALESCE(' . DecimalSql::sum($this->connection, 'quantity') . ', 0) FROM inventory_balances
                  WHERE home_id = :home) AS countedQuantity,
                 (SELECT COUNT(*) FROM inventory_balances ib
                  INNER JOIN stock_threshold_preferences sp
                    ON sp.home_id = ib.home_id AND sp.home_product_id = ib.home_product_id
                  WHERE ib.home_id = :home AND sp.never_suggest = :not_never
                    AND sp.minimum_quantity IS NOT NULL
-                   AND ib.quantity < sp.minimum_quantity) AS belowConfiguredMinimumCount,
+                   AND ' . DecimalSql::lessThan($this->connection, 'ib.quantity', 'sp.minimum_quantity') . ')
+                    AS belowConfiguredMinimumCount,
                 (SELECT COUNT(*) FROM stock_count_sessions
                  WHERE home_id = :home AND status = :open) AS openCountSessionCount',
             [
@@ -1344,8 +1350,10 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     private function movementResult(string $homeId, string $movementId, bool $replayed): array
     {
         $row = $this->one(
-            'SELECT sm.id, sm.home_product_id AS homeProductId,
+            'SELECT sm.id, sm.home_id AS homeId, sm.home_product_id AS homeProductId,
                     sm.quantity_delta AS quantityDelta, sm.movement_type AS movementType,
+                    sm.source_type AS sourceType, sm.source_id AS sourceId,
+                    sm.reason, sm.actor_user_id AS actorUserId, sm.occurred_at AS occurredAt,
                     ib.quantity AS balance, ib.revision AS balanceRevision
              FROM stock_movements sm
              INNER JOIN inventory_balances ib
@@ -1357,7 +1365,19 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             throw new \RuntimeException('Committed stock movement is unavailable.');
         }
         $row['replayed'] = $replayed;
+        $row['balance'] = DecimalProjection::string($row['balance']);
+        $row['balanceRevision'] = (int) $row['balanceRevision'];
 
+        return $this->movementRecord($row);
+    }
+
+    /** @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function movementRecord(array $row): array
+    {
+        $row['quantityDelta'] = DecimalProjection::string($row['quantityDelta']);
+        $row['occurredAt'] = $this->atom((string) $row['occurredAt']);
         return $row;
     }
 

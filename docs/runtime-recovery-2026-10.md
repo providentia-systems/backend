@@ -1,8 +1,54 @@
 # Runtime recovery: synchronization notifications and database contention
 
 This document describes the behavior introduced by the October 2026 runtime
-repair branch. It does not certify unrelated receipt/shopping response-contract
-findings as fixed. API 2.2.0 and the client-operation protocol remain unchanged.
+repair branch. API 2.2.0 and the client-operation protocol remain unchanged.
+
+## Receipt, shopping and access response contracts
+
+Receipt and shopping creation now acknowledge full resources, including their
+required identifiers and revisions. Receipt commit acknowledges the persisted
+committed receipt; repeated commit preserves the existing identity and creates
+no additional stock effect. Stock movement and receipt-history responses include
+their home identifiers. Database decimal quantities and amounts are projected
+as plain strings, and shopping lines expose an actual JSON `checked` boolean.
+
+These projections also apply to receipt approval/commit synchronization output.
+Previously retained numeric synchronization payloads are normalized when read,
+without rewriting historical change-log rows. Sync timestamps use UTC RFC3339.
+Empty access features, limits and role-permission maps serialize as objects;
+permission lists remain arrays. Internal authorization maps remain unchanged.
+
+`tests/Acceptance/runtime-response-contracts.sh` starts a real local HTTP server
+against a guarded disposable fixture and validates all 15 originally reported
+endpoint-method pairs plus adjustment creation and receipt history against the
+unchanged OpenAPI schemas. It also checks synchronization, nulls, tiny decimals,
+maximum quantities, tenant isolation, commit replay and server restart. Install
+`jsonschema[format]==4.26.0`; missing format checkers fail rather than silently
+skipping validation. The CI lane runs on SQLite, MySQL and MariaDB.
+
+## Exact decimal storage on SQLite
+
+SQLite NUMERIC affinity cannot represent every decimal accepted by API 2.2.0.
+For example, `999999999.99999999` previously rounded to `1000000000` before a
+serializer could read it. Migration `Version20261005000100` stores the affected
+SQLite decimal columns as text, preserving new exact strings. MySQL and MariaDB
+keep their native DECIMAL columns. SQLite arithmetic, aggregates and numeric
+comparisons use exact decimal functions; they must not use floating-point `+`,
+`SUM` or lexical text comparisons on these columns.
+
+Take and verify a backup before applying the migration, stop writers, and use a
+dedicated migration connection. The migration refuses to run with SQLite
+foreign-key enforcement enabled inside the migration transaction because table
+rebuilds could cascade-delete related data. It preserves foreign-key definitions,
+indexes and triggers and checks foreign-key integrity before and after copying.
+Normal application connection settings are not changed by this migration.
+
+Existing values are preserved at their stored precision, including legacy
+nonnumeric confidence labels. No migration can recover precision already lost
+by historical NUMERIC storage; reconcile suspicious historical values with
+their original source records. Downgrade refuses values that would lose
+precision on conversion back to NUMERIC. Keep the exact-text schema or restore
+the verified pre-migration backup rather than forcing a lossy downgrade.
 
 ## Notification consumption
 

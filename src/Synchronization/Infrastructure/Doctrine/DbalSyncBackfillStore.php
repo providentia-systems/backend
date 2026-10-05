@@ -6,6 +6,7 @@ namespace Providentia\Synchronization\Infrastructure\Doctrine;
 
 use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalProjection;
 use Providentia\Synchronization\Application\SyncBackfillRecord;
 use Providentia\Synchronization\Application\SyncBackfillStore;
 
@@ -185,13 +186,13 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
             ],
             'inventory-balance' => [
                 'homeProductId' => (string) $row['entity_id'],
-                'quantity' => (string) $row['quantity'],
+                'quantity' => DecimalProjection::string($row['quantity']),
                 'lastMovementId' => (string) $row['last_movement_id'],
             ],
             'inventory-count-line' => [
                 'sessionId' => (string) $row['session_id'],
                 'homeProductId' => (string) $row['home_product_id'],
-                'quantity' => (string) $row['quantity'],
+                'quantity' => DecimalProjection::string($row['quantity']),
                 'confidence' => $this->nullableString($row['confidence']),
                 'source' => (string) $row['source'],
                 'notes' => (string) $row['notes'],
@@ -223,7 +224,7 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'storeId' => $this->nullableString($row['store_id']),
                 'purchaseDate' => (string) $row['purchase_date'],
                 'currency' => (string) $row['currency'],
-                'totalAmount' => $this->nullableString($row['total_amount']),
+                'totalAmount' => $this->nullableDecimal($row['total_amount']),
                 'status' => (string) $row['status'],
                 'source' => (string) $row['source'],
                 'sourceReference' => $this->nullableString($row['source_reference']),
@@ -232,10 +233,10 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
             'purchasing-receipt-line' => [
                 'receiptId' => (string) $row['receipt_id'],
                 'rawDescription' => (string) $row['raw_description'],
-                'quantity' => (string) $row['quantity'],
+                'quantity' => DecimalProjection::string($row['quantity']),
                 'originalPackText' => $this->nullableString($row['original_pack_text']),
-                'unitPrice' => $this->nullableString($row['unit_price']),
-                'lineTotal' => $this->nullableString($row['line_total']),
+                'unitPrice' => $this->nullableDecimal($row['unit_price']),
+                'lineTotal' => $this->nullableDecimal($row['line_total']),
                 'homeProductId' => $this->nullableString($row['home_product_id']),
                 'approvalStatus' => (string) $row['approval_status'],
             ],
@@ -246,7 +247,7 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
             ],
             'shopping-stock-preference' => [
                 'homeProductId' => (string) $row['entity_id'],
-                'minimumQuantity' => $this->nullableString($row['minimum_quantity']),
+                'minimumQuantity' => $this->nullableDecimal($row['minimum_quantity']),
                 'alwaysKeep' => (bool) $row['always_keep'],
                 'neverSuggest' => (bool) $row['never_suggest'],
                 'preferredPackId' => $this->nullableString($row['preferred_pack_id']),
@@ -263,7 +264,7 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
             'shopping-suggestion-feedback' => [
                 'suggestionId' => (string) $row['suggestion_id'],
                 'decision' => (string) $row['decision'],
-                'resultQuantity' => $this->nullableString($row['result_quantity']),
+                'resultQuantity' => $this->nullableDecimal($row['result_quantity']),
                 'reason' => (string) $row['reason'],
             ],
             'shopping-list-line' => [
@@ -271,7 +272,7 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'homeProductId' => $this->nullableString($row['home_product_id']),
                 'description' => (string) $row['description'],
                 'source' => (string) $row['source'],
-                'quantityToBuy' => (string) $row['quantity_to_buy'],
+                'quantityToBuy' => DecimalProjection::string($row['quantity_to_buy']),
                 'explanation' => (string) $row['explanation'],
                 'confidence' => $this->nullableString($row['confidence']),
                 'checkedAt' => $this->nullableString($row['checked_at']),
@@ -292,6 +293,11 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
             $this->nullableString($row['actor_user_id']),
             new DateTimeImmutable((string) $row['changed_at']),
         );
+    }
+
+    private function nullableDecimal(mixed $value): ?string
+    {
+        return $value === null ? null : DecimalProjection::string($value);
     }
 
     private function nullableString(mixed $value): ?string

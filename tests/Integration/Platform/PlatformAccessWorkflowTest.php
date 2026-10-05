@@ -59,7 +59,7 @@ final class PlatformAccessWorkflowTest extends TestCase
             ->ensureInitialized();
         $plan = $migrations->getMigrationPlanCalculator()
             ->getPlanUntilVersion(
-                new Version('Providentia\Migrations\Version20260922000100'),
+                new Version('Providentia\Migrations\Version20261005000100'),
             );
         $migrations->getMigrator()
             ->migrate($plan, new MigratorConfiguration());
@@ -1369,6 +1369,196 @@ final class PlatformAccessWorkflowTest extends TestCase
             'SELECT last_acknowledged_cursor FROM sync_cursors WHERE home_id = ? AND user_id = ? AND device_id = ?',
             [$homeId, $member->userId, $member->deviceId],
         ));
+    }
+
+    public function testAccountProfileHttpSerializesEmptyAndPopulatedAccessMaps(): void
+    {
+        $identity = $this->login('profile-maps@example.test');
+        $profile = $this->httpObject($identity, 'profile.get', new ServerRequest([], [], '/api/v1/me/profile', 'GET'));
+        $this->assertProfileObject($profile, $identity);
+        self::assertSame([], (array) $profile->accountAccess->features);
+        self::assertSame([], (array) $profile->administratorAccess->features);
+
+        $this->onboard($identity);
+        $profile = $this->httpObject($identity, 'profile.get', new ServerRequest([], [], '/api/v1/me/profile', 'GET'));
+        $this->assertProfileObject($profile, $identity);
+        self::assertTrue($profile->accountAccess->features->{'homes.create'});
+        self::assertSame(-1, $profile->accountAccess->limits->{'homes.joined'});
+
+        $admin = $this->systemOwner();
+        $profile = $this->httpObject($admin, 'profile.get', new ServerRequest([], [], '/api/v1/me/profile', 'GET'));
+        $this->assertProfileObject($profile, $admin);
+        self::assertTrue($profile->administratorAccess->features->{'groups.manage'});
+    }
+
+    public function testAccountProfileWritesHttpSerializeAccessMaps(): void
+    {
+        $identity = $this->login('profile-write-maps@example.test');
+        $policy = $this->container->get(CountryService::class)->registrationPolicy('NA');
+        $input = [
+            'displayName' => 'HTTP profile',
+            'countryCode' => 'NA',
+            'expectedRevision' => 1,
+            'policyAccepted' => true,
+            'policyId' => $policy['id'],
+            'policyRevision' => $policy['revision'],
+        ];
+        $profile = $this->httpObject($identity, 'profile.onboard', (
+            new ServerRequest([], [], '/api/v1/me/onboarding', 'POST')
+        )->withParsedBody($input));
+        $this->assertProfileObject($profile, $identity);
+        self::assertTrue($profile->onboardingComplete);
+        self::assertSame(2, $profile->revision);
+
+        $profile = $this->httpObject($identity, 'profile.update', (
+            new ServerRequest([], [], '/api/v1/me/profile', 'PATCH')
+        )->withParsedBody([...$input, 'displayName' => 'Updated profile', 'expectedRevision' => 2]));
+        $this->assertProfileObject($profile, $identity);
+        self::assertSame('Updated profile', $profile->displayName);
+        self::assertSame(3, $profile->revision);
+    }
+
+    public function testCurrentUserHttpSerializesNestedProfileAccessMaps(): void
+    {
+        $identity = $this->login('bootstrap-maps@example.test');
+        $request = new ServerRequest([], [], '/api/v1/me', 'GET');
+        $bootstrap = $this->httpObject($identity, 'identity.me', $request);
+        $this->assertProfileObject($bootstrap->profile, $identity);
+        self::assertSame([], $bootstrap->homes);
+        self::assertSame([], $bootstrap->pendingInvitations);
+        self::assertSame([], $bootstrap->platformRoles);
+
+        $this->onboard($identity);
+        $bootstrap = $this->httpObject($identity, 'identity.me', $request);
+        $this->assertProfileObject($bootstrap->profile, $identity);
+        self::assertTrue($bootstrap->profile->accountAccess->features->{'homes.create'});
+
+        $admin = $this->systemOwner();
+        $bootstrap = $this->httpObject($admin, 'identity.me', $request);
+        $this->assertProfileObject($bootstrap->profile, $admin);
+        self::assertTrue($bootstrap->profile->administratorAccess->features->{'groups.manage'});
+    }
+
+    public function testAccessGroupHttpSerializesEmptyAndPopulatedMaps(): void
+    {
+        $admin = $this->systemOwner();
+        $empty = [
+            'scope' => 'home',
+            'name' => 'Empty HTTP group',
+            'features' => [],
+            'limits' => [],
+            'delegablePermissions' => [],
+            'rolePermissions' => [],
+            'expectedRevision' => 0,
+        ];
+        $populated = [
+            ...$empty,
+            'name' => 'Populated HTTP group',
+            'features' => ['inventory.read' => true, 'inventory.write' => false],
+            'limits' => ['products.total' => -1, 'categories.total' => 0],
+            'delegablePermissions' => ['inventory.read'],
+            'rolePermissions' => ['member' => ['inventory.read'], 'viewer' => []],
+        ];
+        foreach ([$empty, $populated] as $input) {
+            $group = $this->httpObject($admin, 'access.create', (
+                new ServerRequest([], [], '/api/v1/admin/access/groups', 'POST')
+            )->withParsedBody($input));
+            $this->assertAccessObject($group, $input);
+            self::assertSame(1, $group->revision);
+            foreach ([$populated, $empty] as $revision => $updated) {
+                $group = $this->httpObject($admin, 'access.update', (
+                    new ServerRequest([], [], '/api/v1/admin/access/groups/' . $group->id, 'PUT')
+                )->withAttribute('groupId', $group->id)
+                    ->withParsedBody([...$updated, 'expectedRevision' => $revision + 1]));
+                $this->assertAccessObject($group, $updated);
+                self::assertSame($revision + 2, $group->revision);
+            }
+        }
+
+        $list = $this->httpObject(
+            $admin,
+            'access.list',
+            new ServerRequest([], [], '/api/v1/admin/access/groups', 'GET'),
+        );
+        self::assertIsArray($list->data);
+        $expected = array_column($this->access()->groups($admin, null), null, 'id');
+        self::assertCount(count($expected), $list->data);
+        foreach ($list->data as $group) {
+            $this->assertAccessObject($group, $expected[$group->id]);
+        }
+    }
+
+    public function testEffectiveAccessHttpSerializesEmptyAndPopulatedMaps(): void
+    {
+        $admin = $this->systemOwner();
+        [$identity, $home] = $this->ownedHome('effective-maps@example.test');
+        $subjects = [['admin', $identity->userId], ['account', $identity->userId], ['home', $home['id']]];
+        foreach ($subjects as [$scope, $id]) {
+            $access = $this->httpObject($admin, 'access.get', (
+                new ServerRequest([], [], '/api/v1/admin/access/' . $scope . '/' . $id, 'GET')
+            )->withAttribute('scope', $scope)->withAttribute('subjectId', $id));
+            $this->assertAccessObject($access, $this->access()->effective($scope, $id));
+        }
+        self::assertTrue($this->access()->allows('home', $home['id'], 'inventory.read'));
+        self::assertFalse($this->access()->allows('admin', $identity->userId, 'groups.manage'));
+    }
+
+    public function testAccessCatalogHttpKeepsFeatureAndLimitArrays(): void
+    {
+        $admin = $this->systemOwner();
+        $catalog = $this->httpObject(
+            $admin,
+            'access.catalog',
+            new ServerRequest([], [], '/api/v1/admin/access/catalog'),
+        );
+        self::assertIsArray($catalog->data);
+        foreach ($catalog->data as $scope) {
+            self::assertSame(FeatureCatalog::features($scope->scope), $scope->features);
+            self::assertSame(FeatureCatalog::limits($scope->scope), $scope->limits);
+        }
+    }
+
+    private function httpObject(
+        AuthenticatedIdentity $identity,
+        string $service,
+        ServerRequest $request,
+    ): \stdClass {
+        $handler = $this->container->get($service);
+        self::assertInstanceOf(RequestHandlerInterface::class, $handler);
+        $response = $handler->handle($request->withAttribute(BearerAuthenticationMiddleware::ATTRIBUTE, $identity));
+        self::assertSame(200, $response->getStatusCode());
+        if (str_starts_with($service, 'profile.')) {
+            self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
+        }
+        // Decode as objects: associative decoding cannot distinguish {} from [].
+        $data = json_decode((string) $response->getBody(), false, 512, JSON_THROW_ON_ERROR);
+        self::assertInstanceOf(\stdClass::class, $data);
+        return $data;
+    }
+
+    private function assertProfileObject(\stdClass $profile, AuthenticatedIdentity $identity): void
+    {
+        $expected = $this->container->get(AccountProfileService::class)->get($identity);
+        foreach (['accountAccess', 'administratorAccess'] as $field) {
+            $this->assertAccessObject($profile->{$field}, $expected[$field]);
+        }
+        self::assertIsArray($profile->emails);
+        self::assertSame(
+            $expected,
+            json_decode(json_encode($profile, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR),
+        );
+    }
+
+    /** @param array<string, mixed> $expected */
+    private function assertAccessObject(\stdClass $access, array $expected): void
+    {
+        foreach (['features', 'limits', 'rolePermissions'] as $field) {
+            self::assertIsArray($expected[$field], 'Application maps remain arrays.');
+            self::assertInstanceOf(\stdClass::class, $access->{$field}, $field . ' must be a JSON object.');
+            self::assertSame($expected[$field], (array) $access->{$field});
+        }
+        self::assertIsArray($access->delegablePermissions);
+        self::assertSame($expected['delegablePermissions'], $access->delegablePermissions);
     }
 
     /** @param array<string, string> $query */

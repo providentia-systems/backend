@@ -10,6 +10,8 @@ use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use Providentia\Home\Application\HomeAuthorization;
 use Providentia\Home\Application\HomeStore;
+use Providentia\Home\Application\HomePermission;
+use Providentia\Home\Application\HomePermissionAuthorizer;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\ChangeFeedWriter;
 use Providentia\SharedKernel\Application\Clock;
@@ -39,7 +41,7 @@ final class ShoppingLifecycleTest extends TestCase
         );
         $this->connection->executeStatement(
             'CREATE TABLE shopping_list_lines (id TEXT PRIMARY KEY, home_id TEXT, shopping_list_id TEXT,
-             home_product_id TEXT, description TEXT, source TEXT, quantity_to_buy TEXT,
+             home_product_id TEXT, description TEXT, source TEXT, quantity_to_buy NUMERIC,
              explanation TEXT, confidence TEXT, checked_at TEXT, archived_at TEXT,
              suggestion_id TEXT, selected_pack_id TEXT,
              revision INTEGER, created_at TEXT, updated_at TEXT)',
@@ -249,5 +251,48 @@ final class ShoppingLifecycleTest extends TestCase
         $list = $this->store->shoppingList('home', 'list');
         self::assertNotNull($list);
         self::assertSame('open', $list['status']);
+    }
+
+    public function testWriteOnlyAcknowledgmentsAndReadbackHaveCompleteTypedResources(): void
+    {
+        $identity = new AuthenticatedIdentity('actor', 'session', 'device', 'home', []);
+        $authorization = $this->createMock(HomePermissionAuthorizer::class);
+        $authorization->expects(self::exactly(3))->method('requirePermission')
+            ->with($identity, 'home', HomePermission::SHOPPING_WRITE)->willReturn([]);
+        $clock = $this->createStub(Clock::class);
+        $clock->method('now')->willReturn($this->at);
+        $transactions = $this->createStub(TransactionManager::class);
+        $transactions->method('transactional')->willReturnCallback(
+            fn (callable $operation): mixed => $this->connection->transactional(static fn (): mixed => $operation()),
+        );
+        $service = new ShoppingService(
+            $this->store,
+            $authorization,
+            new LegacySuggestionPolicy(),
+            new SequenceUuidGenerator(),
+            $clock,
+            $transactions,
+        );
+        $list = $service->createList($identity, 'home', 'Contract list', 'manual');
+        self::assertSame('home', $list['homeId']);
+        self::assertSame('Contract list', $list['name']);
+        self::assertSame('manual', $list['kind']);
+        self::assertSame('open', $list['status']);
+        self::assertSame(1, $list['revision']);
+        self::assertSame([], $list['lines']);
+        $line = $service->addLine($identity, 'home', $list['id'], 1, null, 'Tiny quantity', '0.00000001');
+        self::assertSame('Tiny quantity', $line['description']);
+        self::assertSame('0.00000001', $line['quantityToBuy']);
+        self::assertSame(1, $line['revision']);
+        self::assertFalse($line['checked']);
+        $service->setChecked($identity, 'home', $list['id'], $line['id'], true, 1);
+        $readback = $this->store->lines('home', $list['id'])[0];
+        self::assertTrue($readback['checked']);
+        self::assertSame('0.00000001', $readback['quantityToBuy']);
+        self::assertSame(2, $readback['revision']);
+        self::assertSame('home', $this->store->lists('home')[0]['homeId']);
+        self::assertNull($this->store->shoppingList('other-home', $list['id']));
+        self::assertNull($this->store->line('other-home', $list['id'], $line['id']));
+        self::assertSame([], $this->store->lines('other-home', $list['id']));
     }
 }

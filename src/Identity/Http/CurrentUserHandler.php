@@ -25,6 +25,9 @@ final class CurrentUserHandler implements RequestHandlerInterface
             throw new HttpProblem(401, 'Authentication required', 'A valid access credential is required.');
         }
 
-        return new JsonResponse($this->currentUser->bootstrap($identity));
+        $result = $this->currentUser->bootstrap($identity);
+        $result['profile'] = AccountProfileResponse::serialize($result['profile']);
+
+        return new JsonResponse($result);
     }
 }
