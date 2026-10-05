@@ -29,6 +29,18 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         int $limit,
         int $offset,
     ): array {
+        $filters = ['r.home_id = :home'];
+        $parameters = ['home' => $homeId];
+        foreach (['from_date' => [$from, '>='], 'to_date' => [$to, '<=']] as $key => [$date, $operator]) {
+            if ($date !== null && $date !== '') {
+                $filters[] = 'r.purchase_date ' . $operator . ' :' . $key;
+                $parameters[$key] = $date;
+            }
+        }
+        if ($storeId !== null && $storeId !== '') {
+            $filters[] = 'r.store_id = :store';
+            $parameters['store'] = $storeId;
+        }
         $rows = $this->connection->fetchAllAssociative(
             'SELECT r.id, r.home_id AS homeId, r.store_id AS storeId, s.name AS storeName,
                     r.purchase_date AS purchaseDate, r.currency,
@@ -39,25 +51,13 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
              FROM receipts r
              LEFT JOIN stores s ON s.id = r.store_id AND s.home_id = r.home_id
              LEFT JOIN receipt_lines rl ON rl.receipt_id = r.id AND rl.home_id = r.home_id
-             WHERE r.home_id = :home
-               AND (:from_empty = :empty OR r.purchase_date >= :from_date)
-               AND (:to_empty = :empty OR r.purchase_date <= :to_date)
-               AND (:store_empty = :empty OR r.store_id = :store)
+             WHERE ' . implode(' AND ', $filters) . '
              GROUP BY r.id, r.home_id, r.store_id, s.name, r.purchase_date, r.currency,
                       r.total_amount, r.status, r.source, r.source_reference,
                       r.notes, r.revision, r.committed_at, r.created_at
              ORDER BY r.purchase_date DESC, s.name, r.id
              LIMIT ' . $limit . ' OFFSET ' . $offset,
-            [
-                'home' => $homeId,
-                'from_empty' => $from ?? '',
-                'from_date' => $from ?? '',
-                'to_empty' => $to ?? '',
-                'to_date' => $to ?? '',
-                'store_empty' => $storeId ?? '',
-                'store' => $storeId ?? '',
-                'empty' => '',
-            ],
+            $parameters,
         );
 
         return array_map($this->receiptProjection(...), $rows);

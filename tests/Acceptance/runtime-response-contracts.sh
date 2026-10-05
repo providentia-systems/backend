@@ -54,7 +54,8 @@ for phase in "${phases[@]}"; do
       cat "var/runtime-response-$phase-http.log" >&2
       exit 1
     fi
-    if curl --fail --silent "http://127.0.0.1:$port/health/live" >/dev/null; then
+    if grep -Fq "Development Server (http://127.0.0.1:$port) started" "var/runtime-response-$phase-http.log" \
+      && curl --fail --silent "http://127.0.0.1:$port/health/live" >/dev/null; then
       kill -0 "$pid" 2>/dev/null || { echo 'The owned test server failed to bind.' >&2; exit 1; }
       ready=1
       break

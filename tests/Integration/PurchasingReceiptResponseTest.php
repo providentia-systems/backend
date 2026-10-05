@@ -182,6 +182,18 @@ final class PurchasingReceiptResponseTest extends TestCase
         self::assertSame('12.5', $published[2][2]['totalAmount']);
     }
 
+    public function testOptionalHistoryFiltersKeepDateBoundsAndTenantIsolation(): void
+    {
+        $this->seedReceipt();
+        foreach ([[null, null], ['', ''], ['2026-10-05', null], [null, '2026-10-05']] as [$from, $to]) {
+            self::assertCount(1, $this->store->receipts(self::HOME, $from, $to, null, 10, 0));
+        }
+        self::assertSame([], $this->store->receipts(self::HOME, '2026-10-06', null, null, 10, 0));
+        self::assertSame([], $this->store->receipts(self::HOME, null, '2026-10-04', null, 10, 0));
+        self::assertSame([], $this->store->receipts(self::HOME, null, null, 'other-store', 10, 0));
+        self::assertSame([], $this->store->receipts('other-home', null, null, null, 10, 0));
+    }
+
     private function seedReceipt(): void
     {
         $this->store->createReceipt(
