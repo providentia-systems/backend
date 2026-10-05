@@ -7,6 +7,7 @@ namespace Providentia\Shopping\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalSql;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use DomainException;
 use Providentia\Shopping\Application\ShoppingIntelligenceStore;
@@ -28,7 +29,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                     hp.pack_id AS packId,
                     pk.normalized_base_amount AS currentPackBase,
                     COALESCE(
-                        (SELECT SUM(sm.quantity_delta)
+                        (SELECT ' . DecimalSql::sum($this->connection, 'sm.quantity_delta') . '
                          FROM stock_movements sm
                          WHERE sm.home_id = hp.home_id
                            AND sm.home_product_id = hp.id
@@ -129,7 +130,8 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
              FROM stock_movements
              WHERE home_id = :home AND occurred_at <= :as_of
                AND created_at <= :as_of
-               AND quantity_delta > 0 AND movement_type <> :count_type
+               AND ' . DecimalSql::greaterThan($this->connection, 'quantity_delta', '0') . '
+               AND movement_type <> :count_type
              ORDER BY home_product_id, occurred_at, id',
             [
                 'home' => $homeId,
@@ -145,7 +147,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
             'SELECT DISTINCT home_product_id AS homeProductId, occurred_at AS occurredAt
              FROM stock_movements
              WHERE home_id = :home AND source_type = :source
-               AND quantity_delta > 0 AND occurred_at <= :as_of
+               AND ' . DecimalSql::greaterThan($this->connection, 'quantity_delta', '0') . ' AND occurred_at <= :as_of
                AND created_at <= :as_of
              ORDER BY home_product_id, occurred_at',
             [
@@ -441,7 +443,8 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                    WHERE home_id = :home AND status = :status
                    ORDER BY as_of DESC, id DESC LIMIT 1
                )
-             ORDER BY productName, spo.currency, spo.effective_total, spo.pack_id',
+             ORDER BY productName, spo.currency, '
+                . DecimalSql::order($this->connection, 'spo.effective_total') . ', spo.pack_id',
             ['home' => $homeId, 'status' => 'completed'],
         );
     }
@@ -474,7 +477,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                     price_observed_at AS priceObservedAt, selected, reason
              FROM suggestion_pack_options
              WHERE home_id = :home AND suggestion_id = :suggestion
-             ORDER BY currency, effective_total, pack_id',
+             ORDER BY currency, ' . DecimalSql::order($this->connection, 'effective_total') . ', pack_id',
             ['home' => $homeId, 'suggestion' => $suggestionId],
         );
         unset($row['factorsJson'], $row['limitationsJson']);
@@ -690,7 +693,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
             'SELECT DISTINCT home_product_id AS homeProductId
              FROM stock_movements
              WHERE home_id = :home AND source_type = :source
-               AND quantity_delta > 0
+               AND ' . DecimalSql::greaterThan($this->connection, 'quantity_delta', '0') . '
                AND occurred_at > :after AND occurred_at <= :through
              ORDER BY home_product_id',
             [

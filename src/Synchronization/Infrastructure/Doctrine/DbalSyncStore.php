@@ -16,6 +16,7 @@ use Providentia\Synchronization\Application\SyncSnapshot;
 use Providentia\Synchronization\Application\SyncSnapshotPage;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\SharedKernel\Application\Health\SyncMetricsProbe;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalProjection;
 
 final class DbalSyncStore implements SyncStore, SyncMetricsProbe
 {
@@ -327,7 +328,7 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                     ['id' => (string) $row['entity_id'], 'revision' => (int) $row['revision']],
                     $this->decodedRepresentation($homeId, $row),
                 ),
-                'serverTimestamp' => (string) $row['changed_at'],
+                'serverTimestamp' => $this->atom((string) $row['changed_at']),
             ], $rows),
             $hasMore,
         );
@@ -352,7 +353,7 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
             'revision' => (int) $row['revision'],
             'payloadSchemaVersion' => (int) $row['payload_schema_version'],
             'payload' => $this->decodedRepresentation($homeId, $row),
-            'changedAt' => (string) $row['changed_at'],
+            'changedAt' => $this->atom((string) $row['changed_at']),
         ], $rows);
     }
 
@@ -364,7 +365,26 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
     {
         /** @var array<string, mixed> $payload */
         $payload = (array) json_decode((string) $row['payload_json'], true, 64, JSON_THROW_ON_ERROR);
-        if ($this->representations === null || ($row['operation_type'] ?? null) === 'delete') {
+        if (($row['operation_type'] ?? null) === 'delete') {
+            return $payload;
+        }
+        // Older SQLite-produced feed rows may retain JSON numbers. Normalize
+        // their read projection without rewriting immutable historical payloads.
+        $decimals = match ((string) $row['entity_type']) {
+            'inventory-balance', 'inventory-count-line' => ['quantity'],
+            'purchasing-receipt' => ['totalAmount'],
+            'purchasing-receipt-line' => ['quantity', 'unitPrice', 'lineTotal'],
+            'shopping-list-line' => ['quantityToBuy'],
+            'shopping-stock-preference' => ['minimumQuantity'],
+            'shopping-suggestion-feedback' => ['resultQuantity'],
+            default => [],
+        };
+        foreach ($decimals as $field) {
+            if (isset($payload[$field])) {
+                $payload[$field] = DecimalProjection::string($payload[$field]);
+            }
+        }
+        if ($this->representations === null) {
             return $payload;
         }
 
@@ -670,5 +690,10 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
     private function date(DateTimeImmutable $date): string
     {
         return $date->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    }
+
+    private function atom(string $date): string
+    {
+        return (new DateTimeImmutable($date, new DateTimeZone('UTC')))->format(DATE_ATOM);
     }
 }

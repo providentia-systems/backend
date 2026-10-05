@@ -7,11 +7,13 @@ namespace Providentia\Purchasing\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalSql;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Providentia\Purchasing\Application\PurchaseAnalyticsReader;
 use Providentia\Purchasing\Application\PurchaseSummaryReader;
 use Providentia\Purchasing\Application\PurchasingStore;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalProjection;
 
 final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReader, PurchaseAnalyticsReader
 {
@@ -27,8 +29,8 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         int $limit,
         int $offset,
     ): array {
-        return $this->connection->fetchAllAssociative(
-            'SELECT r.id, r.store_id AS storeId, s.name AS storeName,
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT r.id, r.home_id AS homeId, r.store_id AS storeId, s.name AS storeName,
                     r.purchase_date AS purchaseDate, r.currency,
                     r.total_amount AS totalAmount, r.status, r.source,
                     r.source_reference AS sourceReference, r.notes, r.revision,
@@ -41,7 +43,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
                AND (:from_empty = :empty OR r.purchase_date >= :from_date)
                AND (:to_empty = :empty OR r.purchase_date <= :to_date)
                AND (:store_empty = :empty OR r.store_id = :store)
-             GROUP BY r.id, r.store_id, s.name, r.purchase_date, r.currency,
+             GROUP BY r.id, r.home_id, r.store_id, s.name, r.purchase_date, r.currency,
                       r.total_amount, r.status, r.source, r.source_reference,
                       r.notes, r.revision, r.committed_at, r.created_at
              ORDER BY r.purchase_date DESC, s.name, r.id
@@ -57,6 +59,8 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
                 'empty' => '',
             ],
         );
+
+        return array_map($this->receiptProjection(...), $rows);
     }
 
     public function purchaseFacts(
@@ -69,7 +73,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
                     r.store_id AS storeId, s.name AS storeName,
                     COALESCE(
                         r.total_amount,
-                        (SELECT SUM(rl.line_total) FROM receipt_lines rl
+                        (SELECT ' . DecimalSql::sum($this->connection, 'rl.line_total') . ' FROM receipt_lines rl
                          WHERE rl.receipt_id = r.id AND rl.home_id = r.home_id
                            AND rl.approval_status <> \'removed\')
                     ) AS totalAmount
@@ -89,7 +93,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
 
     public function receipt(string $homeId, string $receiptId): ?array
     {
-        return $this->one(
+        $row = $this->one(
             'SELECT r.id, r.home_id AS homeId, r.store_id AS storeId,
                     s.name AS storeName, r.purchase_date AS purchaseDate,
                     r.currency, r.total_amount AS totalAmount, r.status,
@@ -102,12 +106,14 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
              WHERE r.home_id = :home AND r.id = :id',
             ['home' => $homeId, 'id' => $receiptId],
         );
+
+        return $row === null ? null : $this->receiptProjection($row);
     }
 
     public function receiptLines(string $homeId, string $receiptId): array
     {
-        return $this->connection->fetchAllAssociative(
-            'SELECT rl.id, rl.line_number AS lineNumber,
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT rl.id, rl.receipt_id AS receiptId, rl.line_number AS lineNumber,
                     rl.raw_description AS rawDescription, rl.quantity,
                     rl.original_pack_text AS originalPackText,
                     rl.unit_price AS unitPrice, rl.line_total AS lineTotal,
@@ -124,12 +130,14 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
              ORDER BY rl.line_number, rl.id',
             ['home' => $homeId, 'receipt' => $receiptId],
         );
+
+        return array_map($this->lineProjection(...), $rows);
     }
 
     public function receiptLine(string $homeId, string $receiptId, string $lineId): ?array
     {
-        return $this->one(
-            'SELECT id, receipt_id AS receiptId, raw_description AS rawDescription,
+        $row = $this->one(
+            'SELECT id, receipt_id AS receiptId, line_number AS lineNumber, raw_description AS rawDescription,
                     quantity, original_pack_text AS originalPackText,
                     unit_price AS unitPrice, line_total AS lineTotal,
                     home_product_id AS homeProductId,
@@ -138,6 +146,8 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
              WHERE home_id = :home AND receipt_id = :receipt AND id = :id',
             ['home' => $homeId, 'receipt' => $receiptId, 'id' => $lineId],
         );
+
+        return $row === null ? null : $this->lineProjection($row);
     }
 
     public function stores(string $homeId, bool $includeArchived = false): array
@@ -650,10 +660,14 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         $cutoff = (new DateTimeImmutable('now', new DateTimeZone('UTC')))
             ->modify('-' . $recentDays . ' days')
             ->format('Y-m-d');
+        $spend = DecimalSql::sum(
+            $this->connection,
+            "CASE WHEN rl.approval_status <> 'removed' THEN rl.line_total END",
+        );
         $row = $this->one(
             'SELECT COUNT(DISTINCT r.id) AS receiptCount,
                     COUNT(CASE WHEN rl.approval_status <> \'removed\' THEN rl.id END) AS lineCount,
-                    COALESCE(SUM(CASE WHEN rl.approval_status <> \'removed\' THEN rl.line_total END), 0) AS spend
+                    COALESCE(' . $spend . ', 0) AS spend
              FROM receipts r
              LEFT JOIN receipt_lines rl ON rl.receipt_id = r.id AND rl.home_id = r.home_id
              WHERE r.home_id = :home AND r.purchase_date >= :cutoff
@@ -662,6 +676,40 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         );
 
         return $row ?? ['receiptCount' => 0, 'lineCount' => 0, 'spend' => '0'];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function receiptProjection(array $row): array
+    {
+        $row['revision'] = (int) $row['revision'];
+        if ($row['totalAmount'] !== null) {
+            $row['totalAmount'] = DecimalProjection::string($row['totalAmount']);
+        }
+        if (isset($row['lineCount'])) {
+            $row['lineCount'] = (int) $row['lineCount'];
+        }
+
+        return $row;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function lineProjection(array $row): array
+    {
+        $row['revision'] = (int) $row['revision'];
+        $row['lineNumber'] = (int) $row['lineNumber'];
+        foreach (['quantity', 'unitPrice', 'lineTotal'] as $field) {
+            if ($row[$field] !== null) {
+                $row[$field] = DecimalProjection::string($row[$field]);
+            }
+        }
+
+        return $row;
     }
 
     /**

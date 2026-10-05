@@ -379,7 +379,38 @@ final class SynchronizationStoreTest extends TestCase
         self::assertSame('Weekly', $changes[0]['payload']['name']);
         self::assertSame('shopping-list', $snapshot->records[0]['entityType']);
         self::assertSame('Weekly', $snapshot->records[0]['representation']['name']);
+        self::assertSame('2026-07-30T12:00:00+00:00', $changes[0]['changedAt']);
+        self::assertSame('2026-07-30T12:00:00+00:00', $snapshot->records[0]['serverTimestamp']);
         self::assertSame(1, $this->tableRowCount('outbox_messages'));
+    }
+
+    public function testRetainedNumericReceiptPayloadsAreReadableWithoutRewritingHistory(): void
+    {
+        $payload = ['receiptId' => self::ENTITY_ID, 'rawDescription' => 'Synthetic rice',
+            'quantity' => 0.00000001, 'unitPrice' => 25.5, 'lineTotal' => null,
+            'approvalStatus' => 'approved'];
+        $writer = new DbalChangeFeedWriter($this->connection, new SequenceUuidGenerator());
+        $cursor = $writer->put(
+            self::HOME_ID,
+            self::USER_ID,
+            'purchasing-receipt-line',
+            self::ENTITY_ID,
+            2,
+            $payload,
+            new DateTimeImmutable('2026-10-05T07:00:00Z'),
+        );
+        $stored = $this->connection->fetchOne('SELECT payload_json FROM change_log');
+        $changes = $this->store->changes(self::HOME_ID, 0, $cursor, 10);
+        $snapshot = $this->store->captureSnapshotPage(self::HOME_ID, $cursor, null, null, 10);
+        foreach ([$changes[0]['payload'], $snapshot->records[0]['representation']] as $representation) {
+            self::assertSame('0.00000001', $representation['quantity']);
+            self::assertSame('25.5', $representation['unitPrice']);
+            self::assertNull($representation['lineTotal']);
+            self::assertSame('approved', $representation['approvalStatus']);
+        }
+        self::assertSame($stored, $this->connection->fetchOne('SELECT payload_json FROM change_log'));
+        self::assertSame([], $this->store->changes('other-home', 0, $cursor, 10));
+        self::assertSame(1, $this->tableRowCount('change_log'));
     }
 
     public function testExpiredTombstoneCompactionAdvancesTheResyncBoundaryAtomically(): void

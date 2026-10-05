@@ -42,7 +42,7 @@ final class AccountProfileHandler implements RequestHandlerInterface
             'email-primary', 'email-remove' => $this->changeEmail($request, $body),
             default => throw new \LogicException('Unknown profile action.'),
         };
-        return new JsonResponse($result, 200, ['Cache-Control' => 'no-store']);
+        return new JsonResponse(AccountProfileResponse::serialize($result), 200, ['Cache-Control' => 'no-store']);
     }
 
     /**

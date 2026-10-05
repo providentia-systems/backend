@@ -226,7 +226,7 @@ final class PurchasingService
         return ['id' => $id];
     }
 
-    /** @return array{id: string, revision: int} */
+    /** @return array<string, mixed> */
     public function createReceipt(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -254,7 +254,7 @@ final class PurchasingService
         $sourceReference = $sourceReference === '' ? null : $sourceReference;
         $at = $this->clock->now();
         try {
-            $this->transactions->transactional(function () use (
+            return $this->transactions->transactional(function () use (
                 $id,
                 $homeId,
                 $storeId,
@@ -265,7 +265,7 @@ final class PurchasingService
                 $notes,
                 $identity,
                 $at,
-            ): void {
+            ): array {
                 $this->purchases->createReceipt(
                     $id,
                     $homeId,
@@ -297,15 +297,15 @@ final class PurchasingService
                     ],
                     $at,
                 );
+
+                return $this->persistedReceipt($homeId, $id);
             });
         } catch (DomainException $error) {
             throw new Problem(422, 'Invalid receipt', $error->getMessage());
         }
-
-        return ['id' => $id, 'revision' => 1];
     }
 
-    /** @return array{id: string} */
+    /** @return array<string, mixed> */
     public function addLine(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -334,7 +334,7 @@ final class PurchasingService
             throw new Problem(422, 'Invalid receipt line', 'A unit price or line total is required.');
         }
         $id = $this->identifier($requestedId);
-        $this->transactions->transactional(function () use (
+        return $this->transactions->transactional(function () use (
             $id,
             $homeId,
             $receiptId,
@@ -346,7 +346,7 @@ final class PurchasingService
             $lineTotal,
             $identity,
             $receipt,
-        ): void {
+        ): array {
             $lines = $this->purchases->receiptLines($homeId, $receiptId);
             if (
                 ! $this->purchases->addReceiptLine(
@@ -401,9 +401,13 @@ final class PurchasingService
                 ],
                 $this->clock->now(),
             );
-        });
+            $line = $this->purchases->receiptLine($homeId, $receiptId, $id);
+            if ($line === null) {
+                throw new \RuntimeException('The created receipt line is unavailable.');
+            }
 
-        return ['id' => $id];
+            return $line;
+        });
     }
 
     public function approveLine(
@@ -834,7 +838,7 @@ final class PurchasingService
         );
     }
 
-    /** @return array{receiptId: string, movements: int} */
+    /** @return array<string, mixed> */
     public function commit(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -854,29 +858,13 @@ final class PurchasingService
                 throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
             }
             if ((string) $receipt['status'] === 'committed') {
-                return ['receiptId' => $receiptId, 'movements' => 0];
+                $receipt['lines'] = $this->purchases->receiptLines($homeId, $receiptId);
+
+                return [...$receipt, 'receiptId' => $receiptId, 'movements' => 0];
             }
             if ((string) $receipt['status'] !== 'draft' || (int) $receipt['revision'] !== $expectedRevision) {
                 throw new Problem(409, 'Revision conflict', 'The receipt changed on another device.');
             }
-            $this->changes?->put(
-                $homeId,
-                $identity->userId,
-                'purchasing-receipt',
-                $receiptId,
-                $expectedRevision + 1,
-                [
-                    'storeId' => $receipt['storeId'] ?? null,
-                    'purchaseDate' => (string) $receipt['purchaseDate'],
-                    'currency' => (string) $receipt['currency'],
-                    'totalAmount' => $receipt['totalAmount'] ?? null,
-                    'status' => 'committed',
-                    'source' => (string) ($receipt['source'] ?? 'manual'),
-                    'sourceReference' => $receipt['sourceReference'] ?? null,
-                    'notes' => (string) ($receipt['notes'] ?? ''),
-                ],
-                $this->clock->now(),
-            );
             $lines = array_values(array_filter(
                 $this->purchases->receiptLines($homeId, $receiptId),
                 static fn (array $line): bool => $line['approvalStatus'] !== 'removed',
@@ -935,7 +923,27 @@ final class PurchasingService
                 throw new Problem(409, 'Revision conflict', 'The receipt changed on another device.');
             }
 
-            return ['receiptId' => $receiptId, 'movements' => $movements];
+            $receipt = $this->persistedReceipt($homeId, $receiptId);
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'purchasing-receipt',
+                $receiptId,
+                (int) $receipt['revision'],
+                [
+                    'storeId' => $receipt['storeId'] ?? null,
+                    'purchaseDate' => (string) $receipt['purchaseDate'],
+                    'currency' => (string) $receipt['currency'],
+                    'totalAmount' => $receipt['totalAmount'] ?? null,
+                    'status' => 'committed',
+                    'source' => (string) ($receipt['source'] ?? 'manual'),
+                    'sourceReference' => $receipt['sourceReference'] ?? null,
+                    'notes' => (string) ($receipt['notes'] ?? ''),
+                ],
+                $this->clock->now(),
+            );
+
+            return [...$receipt, 'receiptId' => $receiptId, 'movements' => $movements];
         });
     }
 
@@ -945,6 +953,18 @@ final class PurchasingService
         $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_READ);
 
         return $this->purchases->summary($homeId, min(365, max(1, $recentDays)));
+    }
+
+    /** @return array<string, mixed> */
+    private function persistedReceipt(string $homeId, string $receiptId): array
+    {
+        $receipt = $this->purchases->receipt($homeId, $receiptId);
+        if ($receipt === null) {
+            throw new \RuntimeException('The persisted receipt is unavailable.');
+        }
+        $receipt['lines'] = $this->purchases->receiptLines($homeId, $receiptId);
+
+        return $receipt;
     }
 
     /** @return array<string, mixed> */

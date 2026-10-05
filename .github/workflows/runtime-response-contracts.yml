@@ -1,0 +1,135 @@
+name: Runtime response contracts
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'contracts/**'
+      - 'migrations/**'
+      - 'config/**'
+      - 'public/**'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'tool/**'
+      - 'tools/**'
+      - 'tests/**'
+      - '.github/workflows/runtime-response-contracts.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: runtime-contracts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  receipt-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/client
+          ref: 21567ada32dcf343e4e777daf10d1a67a7de6128
+          path: _runtime_client
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5.9'
+          extensions: gd, intl, json, mbstring, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.10.2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Install pinned Client Flutter runtime
+        run: |
+          bash _runtime_client/tool/install_flutter_linux.sh "$RUNNER_TEMP/providentia-sdk"
+          echo "$RUNNER_TEMP/providentia-sdk/flutter/bin" >> "$GITHUB_PATH"
+      - working-directory: _runtime_client
+        run: |
+          flutter pub get --enforce-lockfile
+          dart run build_runner build --delete-conflicting-outputs
+      - name: Real receipt commit with lost responses, persistent recovery and conflict
+        run: |
+          { php --version; flutter --version; git rev-parse HEAD; git -C _runtime_client rev-parse HEAD; } > /tmp/runtime-receipt-runtime.txt
+          bash tests/Acceptance/runtime-response-contracts.sh "$PWD/_runtime_client" > /tmp/runtime-receipt-check.log 2>&1
+      - name: Preserve sanitized acceptance output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-receipt-recovery
+          path: |
+            /tmp/runtime-receipt-runtime.txt
+            /tmp/runtime-receipt-check.log
+            var/runtime-response-receipt-http.log
+          retention-days: 30
+  http:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sqlite
+            image: mysql:8.4.6
+            health: mysqladmin ping -h 127.0.0.1 -uroot -proot --silent
+            url: sqlite:///var/runtime-response.sqlite
+          - name: mysql
+            image: mysql:8.4.6
+            health: mysqladmin ping -h 127.0.0.1 -uroot -proot --silent
+            url: mysql://providentia:providentia@127.0.0.1:3306/providentia?charset=utf8mb4
+          - name: mariadb
+            image: mariadb:11.8.3
+            health: healthcheck.sh --connect --innodb_initialized
+            url: mysql://providentia:providentia@127.0.0.1:3306/providentia?charset=utf8mb4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_DATABASE: providentia
+          MYSQL_USER: providentia
+          MYSQL_PASSWORD: providentia
+          MYSQL_ROOT_PASSWORD: root
+          MARIADB_DATABASE: providentia
+          MARIADB_USER: providentia
+          MARIADB_PASSWORD: providentia
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "${{ matrix.health }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: ${{ matrix.url }}
+      PROVIDENTIA_RESPONSE_ISOLATED_DATABASE: '1'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5.9'
+          extensions: gd, intl, json, mbstring, pdo_mysql, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.10.2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Install pinned JSON Schema validator with format assertions
+        run: |
+          python3 -m venv "$RUNNER_TEMP/response-validator"
+          "$RUNNER_TEMP/response-validator/bin/pip" install 'jsonschema[format]==4.26.0'
+          echo "$RUNNER_TEMP/response-validator/bin" >> "$GITHUB_PATH"
+      - name: Verify actual HTTP responses and replay across server restart
+        run: |
+          { php --version; composer --version; python3 --version; git rev-parse HEAD; } > /tmp/runtime-response-runtime.txt
+          bash tests/Acceptance/runtime-response-contracts.sh > /tmp/runtime-response-check.log 2>&1
+      - name: Preserve validation results without session fixtures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-response-${{ matrix.name }}
+          path: |
+            /tmp/runtime-response-runtime.txt
+            /tmp/runtime-response-check.log
+            var/runtime-response-*-http.log
+          retention-days: 30

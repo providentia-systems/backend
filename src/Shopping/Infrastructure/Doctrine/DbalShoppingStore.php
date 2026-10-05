@@ -7,7 +7,9 @@ namespace Providentia\Shopping\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalSql;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalProjection;
 use Providentia\Shopping\Application\ShoppingStore;
 use Providentia\Shopping\Application\ShoppingSummaryReader;
 
@@ -19,8 +21,8 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
 
     public function lists(string $homeId): array
     {
-        return $this->connection->fetchAllAssociative(
-            'SELECT sl.id, sl.name, sl.kind, sl.status, sl.revision,
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT sl.id, sl.home_id AS homeId, sl.name, sl.kind, sl.status, sl.revision,
                     sl.created_by_user_id AS createdByUserId,
                     sl.created_at AS createdAt, sl.updated_at AS updatedAt,
                     COUNT(sll.id) AS lineCount,
@@ -29,27 +31,29 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
              LEFT JOIN shopping_list_lines sll
                ON sll.shopping_list_id = sl.id AND sll.home_id = sl.home_id AND sll.archived_at IS NULL
              WHERE sl.home_id = :home
-             GROUP BY sl.id, sl.name, sl.kind, sl.status, sl.revision,
+             GROUP BY sl.id, sl.home_id, sl.name, sl.kind, sl.status, sl.revision,
                       sl.created_by_user_id, sl.created_at, sl.updated_at
              ORDER BY sl.updated_at DESC, sl.id',
             ['home' => $homeId],
         );
+        return array_map($this->listRecord(...), $rows);
     }
 
     public function shoppingList(string $homeId, string $listId): ?array
     {
-        return $this->one(
-            'SELECT id, name, kind, status, revision,
+        $row = $this->one(
+            'SELECT id, home_id AS homeId, name, kind, status, revision,
                     created_by_user_id AS createdByUserId,
                     created_at AS createdAt, updated_at AS updatedAt
              FROM shopping_lists WHERE home_id = :home AND id = :id',
             ['home' => $homeId, 'id' => $listId],
         );
+        return $row === null ? null : $this->listRecord($row);
     }
 
     public function lines(string $homeId, string $listId): array
     {
-        return $this->connection->fetchAllAssociative(
+        $rows = $this->connection->fetchAllAssociative(
             'SELECT sll.id, sll.home_product_id AS homeProductId,
                     COALESCE(hp.private_name, p.canonical_name, sll.description) AS productName,
                     sll.description, sll.source, sll.quantity_to_buy AS quantityToBuy,
@@ -66,11 +70,12 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
                       productName, sll.id',
             ['home' => $homeId, 'list' => $listId],
         );
+        return array_map($this->lineRecord(...), $rows);
     }
 
     public function line(string $homeId, string $listId, string $lineId): ?array
     {
-        return $this->one(
+        $row = $this->one(
             'SELECT id, shopping_list_id AS listId, home_product_id AS homeProductId,
                     description, source, quantity_to_buy AS quantityToBuy, explanation, confidence,
                     checked_at AS checkedAt, archived_at AS archivedAt, revision,
@@ -78,6 +83,7 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
              FROM shopping_list_lines WHERE home_id = :home AND shopping_list_id = :list AND id = :id',
             ['home' => $homeId, 'list' => $listId, 'id' => $lineId],
         );
+        return $row === null ? null : $this->lineRecord($row);
     }
 
     public function createList(
@@ -300,12 +306,14 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
 
     public function legacySuggestionCandidates(string $homeId): array
     {
+        $purchases = DecimalSql::sum($this->connection, 'CASE WHEN r.id IS NOT NULL THEN rl.quantity ELSE 0 END');
+        $positive = DecimalSql::greaterThan($this->connection, 'COALESCE(' . $purchases . ', 0)', '0');
         return $this->connection->fetchAllAssociative(
             'SELECT hp.id AS homeProductId,
                     COALESCE(hp.private_name, p.canonical_name) AS productName,
                     COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
                     COALESCE(ib.quantity, 0) AS currentQuantity,
-                    COALESCE(SUM(CASE WHEN r.id IS NOT NULL THEN rl.quantity ELSE 0 END), 0)
+                    COALESCE(' . $purchases . ', 0)
                         AS threeMonthPurchases,
                     COALESCE(stp.never_suggest, 0) AS neverSuggest
              FROM home_products hp
@@ -325,7 +333,7 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
              GROUP BY hp.id, p.canonical_name, hp.private_name,
                       pk.original_pack_text, hp.original_pack_text,
                       ib.quantity, stp.never_suggest
-             HAVING COALESCE(SUM(CASE WHEN r.id IS NOT NULL THEN rl.quantity ELSE 0 END), 0) > 0
+             HAVING ' . $positive . '
              ORDER BY productName, packText, hp.id',
             [
                 'empty' => '',
@@ -377,5 +385,30 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
     private function date(DateTimeImmutable $date): string
     {
         return $date->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    }
+
+    /** @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function listRecord(array $row): array
+    {
+        $row['revision'] = (int) $row['revision'];
+        foreach (['lineCount', 'checkedCount'] as $field) {
+            if (array_key_exists($field, $row)) {
+                $row[$field] = (int) $row[$field];
+            }
+        }
+        return $row;
+    }
+
+    /** @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function lineRecord(array $row): array
+    {
+        $row['revision'] = (int) $row['revision'];
+        $row['quantityToBuy'] = DecimalProjection::string($row['quantityToBuy']);
+        $row['checked'] = $row['checkedAt'] !== null;
+        return $row;
     }
 }

@@ -55,7 +55,7 @@ final class ShoppingService
         return $list;
     }
 
-    /** @return array{id: string, revision: int} */
+    /** @return array<string, mixed> */
     public function createList(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -86,10 +86,18 @@ final class ShoppingService
             );
         });
 
-        return ['id' => $id, 'revision' => 1];
+        return [
+            'id' => $id,
+            'homeId' => $homeId,
+            'name' => $name,
+            'kind' => $kind,
+            'status' => 'open',
+            'revision' => 1,
+            'lines' => [],
+        ];
     }
 
-    /** @return array{id: string} */
+    /** @return array<string, mixed> */
     public function addLine(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -117,7 +125,7 @@ final class ShoppingService
         }
         $id = $this->identifier($requestedId);
         try {
-            $this->transactions->transactional(function () use (
+            return $this->transactions->transactional(function () use (
                 $id,
                 $homeId,
                 $listId,
@@ -128,7 +136,7 @@ final class ShoppingService
                 $identity,
                 $list,
                 $suggestionId,
-            ): void {
+            ): array {
                 if (
                     ! $this->shopping->addLine(
                         $id,
@@ -148,7 +156,7 @@ final class ShoppingService
                     throw new Problem(409, 'Revision conflict', 'The shopping list changed on another device.');
                 }
                 $at = $this->clock->now();
-                $this->publishLine($identity, $homeId, $listId, $id);
+                $line = $this->publishLine($identity, $homeId, $listId, $id);
                 if ($suggestionId !== null) {
                     $this->recordSuggestionOutcome($identity, $homeId, $suggestionId, $quantity, $id);
                 }
@@ -165,12 +173,11 @@ final class ShoppingService
                     ],
                     $at,
                 );
+                return $line;
             });
         } catch (DomainException $error) {
             throw new Problem(422, 'Invalid list line', $error->getMessage());
         }
-
-        return ['id' => $id];
     }
 
     public function setChecked(
@@ -333,17 +340,19 @@ final class ShoppingService
         );
     }
 
+    /** @return array<string, mixed> */
     private function publishLine(
         AuthenticatedIdentity $identity,
         string $homeId,
         string $listId,
         string $lineId,
-    ): void {
+    ): array {
         $line = $this->shopping->line($homeId, $listId, $lineId);
         if ($line === null) {
             throw new \RuntimeException('The updated shopping-list line is unavailable.');
         }
         $revision = (int) $line['revision'];
+        $record = $line;
         unset($line['id'], $line['revision']);
         $line['listId'] = $listId;
         $line['checked'] = ($line['checkedAt'] ?? null) !== null;
@@ -357,6 +366,7 @@ final class ShoppingService
             $line,
             $this->clock->now(),
         );
+        return $record;
     }
 
     private function publishList(AuthenticatedIdentity $identity, string $homeId, string $listId): void
