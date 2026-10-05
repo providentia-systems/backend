@@ -49,7 +49,16 @@ for phase in "${phases[@]}"; do
   pid=$!
   ready=0
   for attempt in $(seq 1 50); do
-    if curl --fail --silent "http://127.0.0.1:$port/health/live" >/dev/null; then ready=1; break; fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo 'The owned test server exited before becoming ready.' >&2
+      cat "var/runtime-response-$phase-http.log" >&2
+      exit 1
+    fi
+    if curl --fail --silent "http://127.0.0.1:$port/health/live" >/dev/null; then
+      kill -0 "$pid" 2>/dev/null || { echo 'The owned test server failed to bind.' >&2; exit 1; }
+      ready=1
+      break
+    fi
     sleep 0.1
   done
   test "$ready" = 1
