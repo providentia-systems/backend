@@ -20,6 +20,7 @@ import 'package:providentia/features/purchasing/presentation/purchasing_controll
 import 'package:providentia/features/reporting/application/household_report_service.dart';
 import 'package:providentia/features/reporting/application/reporting_controller.dart';
 import 'package:providentia/features/reporting/infrastructure/generated_household_report_repository.dart';
+import 'package:providentia/features/shopping/presentation/shopping_controller.dart';
 import 'package:providentia_api_client/providentia_api_client.dart';
 
 void main() {
@@ -334,6 +335,142 @@ void main() {
       timeout: const Timeout(Duration(minutes: 2)),
     );
   }
+
+  test(
+    'real shopping controller preserves readback and checked lifecycle',
+    () async {
+      final client = http.Client();
+      addTearDown(client.close);
+      final api = ProvidentiaApiClient(
+        baseUri: base,
+        httpClient: client,
+        defaultHeaders: headers,
+      );
+      final directory = await Directory.systemTemp.createTemp(
+        'providentia-shopping-live-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final file = File('${directory.path}/projection.sqlite');
+      var database = AppDatabase(NativeDatabase(file));
+      addTearDown(() => database.close());
+      DriftHouseholdRepository repository() => DriftHouseholdRepository(
+        database,
+        deviceId: session['deviceId']! as String,
+        originatingAccountId: session['userId']! as String,
+      );
+      var household = repository();
+      var controller = ShoppingController(repository: household, homeId: home)
+        ..start();
+      addTearDown(() => controller.dispose());
+      Future<void> sync() async {
+        final outcome = await SyncCoordinator(
+          local: DriftLocalSyncRepository(database),
+          remote: SessionBoundSyncGateway(
+            delegate: GeneratedSyncGateway(api),
+            homeId: home,
+            deviceId: session['deviceId']! as String,
+            accountId: session['userId']! as String,
+            isCurrent: () => true,
+          ),
+          connectivity: const _Online(),
+        ).synchronize(home);
+        expect(
+          outcome.status,
+          SyncRunStatus.completed,
+          reason: outcome.safeMessage,
+        );
+        final selected = controller.state.list?.id;
+        final rows = await database.select(database.localRecords).get();
+        final row = rows
+            .where(
+              (row) =>
+                  row.entityType == 'shopping-list' && row.entityId == selected,
+            )
+            .firstOrNull;
+        if (row != null) {
+          await _until(() => controller.state.list?.revision == row.revision);
+        }
+        expect(controller.state.safeError, isNull);
+      }
+
+      await sync();
+      expect(
+        await controller.createList('Synthetic shopping lifecycle'),
+        isTrue,
+      );
+      final listId = controller.state.list!.id;
+      await sync();
+      expect(
+        await controller.addManual('Synthetic apples', quantity: 2),
+        isTrue,
+      );
+      await sync();
+      await _until(() => controller.state.list?.lines.length == 1);
+      final lineId = controller.state.list!.lines.single.id;
+      expect(controller.state.list!.lines.single.quantity, 2);
+      expect(controller.state.list!.lines.single.checked, isFalse);
+      await controller.toggle(lineId);
+      await sync();
+      await _until(() => controller.state.list!.lines.single.checked);
+      expect(
+        await controller.editLine(
+          controller.state.list!.lines.single,
+          name: 'Synthetic apples edited',
+          quantity: 2.5,
+        ),
+        isTrue,
+      );
+      await sync();
+      final url = base.resolve('/api/v1/homes/$home/shopping-lists/$listId');
+      final actual = _object(
+        jsonDecode((await client.get(url, headers: headers)).body),
+      );
+      final actualLine = _object((actual['lines']! as List).single);
+      expect(actualLine['id'], lineId);
+      expect(actualLine['checked'], isTrue);
+      expect(actualLine['quantityToBuy'], isA<String>());
+      expect(num.parse(actualLine['quantityToBuy']! as String), 2.5);
+      expect(actualLine['description'], 'Synthetic apples edited');
+      controller.dispose();
+      await database.close();
+      database = AppDatabase(NativeDatabase(file));
+      household = repository();
+      controller = ShoppingController(repository: household, homeId: home)
+        ..start();
+      await _until(() => controller.lists.any((list) => list.id == listId));
+      controller.selectList(listId);
+      expect(controller.state.list!.lines.single.checked, isTrue);
+      expect(controller.state.list!.lines.single.quantity, 2.5);
+      expect(
+        await controller.editLine(
+          controller.state.list!.lines.single,
+          archived: true,
+        ),
+        isTrue,
+      );
+      await sync();
+      await _until(() => controller.state.list!.activeLines.isEmpty);
+      expect(
+        await controller.editLine(
+          controller.state.list!.lines.single,
+          archived: false,
+        ),
+        isTrue,
+      );
+      await sync();
+      await _until(() => controller.state.list!.activeLines.length == 1);
+      expect(await controller.updateList(archived: true), isTrue);
+      await sync();
+      expect(await controller.updateList(archived: false), isTrue);
+      await sync();
+      final finalList = _object(
+        jsonDecode((await client.get(url, headers: headers)).body),
+      );
+      expect(finalList['status'], 'open');
+      expect((_object((finalList['lines']! as List).single))['id'], lineId);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 }
 
 Map<String, Object?> _object(Object? value) =>

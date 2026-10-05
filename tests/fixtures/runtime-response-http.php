@@ -10,7 +10,10 @@ use Providentia\Identity\Application\AuthenticationService;
 
 // Reuse the guarded, empty-database-only fixture and real session issuance.
 require __DIR__ . '/step2-http.php';
-$output = $argv[1];
+$output = $_SERVER['argv'][1] ?? '';
+if (! is_string($output) || $output === '') {
+    throw new RuntimeException('An ephemeral fixture path is required.');
+}
 $json = file_get_contents($output);
 if ($json === false) {
     throw new RuntimeException('The ephemeral fixture is unavailable.');

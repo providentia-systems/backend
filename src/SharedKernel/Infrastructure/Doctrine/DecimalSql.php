@@ -7,14 +7,14 @@ namespace Providentia\SharedKernel\Infrastructure\Doctrine;
 use Brick\Math\BigDecimal;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
-use PDO;
+use Pdo\Sqlite;
 use RuntimeException;
 use WeakMap;
 
 /** Exact arithmetic for SQLite's text decimals; native DECIMAL SQL on MySQL/MariaDB. */
 final class DecimalSql
 {
-    /** @var null|WeakMap<PDO, true> */
+    /** @var null|WeakMap<Sqlite, true> */
     private static ?WeakMap $registered = null;
 
     // Pass only developer-owned SQL fragments. Construct expressions for each
@@ -61,11 +61,11 @@ final class DecimalSql
         }
 
         $native = $connection->getNativeConnection();
-        if (! $native instanceof PDO) {
+        if (! $native instanceof Sqlite) {
             throw new RuntimeException('Exact SQLite decimal SQL requires the PDO SQLite driver.');
         }
         if (self::$registered === null) {
-            /** @var WeakMap<PDO, true> $registered */
+            /** @var WeakMap<Sqlite, true> $registered */
             $registered = new WeakMap();
             self::$registered = $registered;
         }
@@ -73,7 +73,7 @@ final class DecimalSql
             return true;
         }
 
-        $sum = $native->sqliteCreateAggregate(
+        $sum = $native->createAggregate(
             'providentia_decimal_sum',
             static function (?string $total, int $row, mixed $value): ?string {
                 if ($value === null) {
@@ -84,33 +84,33 @@ final class DecimalSql
             static fn (?string $total, int $rows): ?string => $total,
             1,
         );
-        $add = $native->sqliteCreateFunction(
+        $add = $native->createFunction(
             'providentia_decimal_add',
             static fn (mixed $left, mixed $right): ?string => $left === null || $right === null
                 ? null
                 : (string) self::decimal($left)->plus(self::decimal($right)),
             2,
-            PDO::SQLITE_DETERMINISTIC,
+            Sqlite::DETERMINISTIC,
         );
-        $lessThan = $native->sqliteCreateFunction(
+        $lessThan = $native->createFunction(
             'providentia_decimal_less_than',
             static fn (mixed $left, mixed $right): ?int => $left === null || $right === null
                 ? null
                 : (int) (self::decimal($left)->compareTo(self::decimal($right)) < 0),
             2,
-            PDO::SQLITE_DETERMINISTIC,
+            Sqlite::DETERMINISTIC,
         );
-        $greaterThan = $native->sqliteCreateFunction(
+        $greaterThan = $native->createFunction(
             'providentia_decimal_greater_than',
             static fn (mixed $left, mixed $right): ?int => $left === null || $right === null
                 ? null
                 : (int) (self::decimal($left)->compareTo(self::decimal($right)) > 0),
             2,
-            PDO::SQLITE_DETERMINISTIC,
+            Sqlite::DETERMINISTIC,
         );
         // SQLite handles NULL ordering itself and invokes the collation only
         // for text values, preserving SQL's ascending/descending NULL behavior.
-        $order = $native->sqliteCreateCollation(
+        $order = $native->createCollation(
             'providentia_decimal',
             static fn (string $left, string $right): int => self::decimal($left)->compareTo(self::decimal($right)),
         );
