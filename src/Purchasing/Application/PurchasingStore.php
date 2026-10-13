@@ -93,6 +93,7 @@ interface PurchasingStore
         DateTimeImmutable $at,
     ): bool;
 
+    /** @param array<string, mixed> $purchase */
     public function addReceiptLine(
         string $id,
         string $homeId,
@@ -105,8 +106,33 @@ interface PurchasingStore
         ?string $unitPrice,
         ?string $lineTotal,
         DateTimeImmutable $at,
+        array $purchase = [],
     ): bool;
 
+    /** @return array<string, mixed>|null */
+    public function purchaseProduct(string $homeId, string $homeProductId, ?string $packId): ?array;
+
+    /** @param array<string, mixed> $fields */
+    public function applyReceiptLine(
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        array $fields,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+        bool $bumpReceipt = true,
+    ): bool;
+
+    /** @param array<string, mixed> $fields */
+    public function updateReceiptMetadata(
+        string $homeId,
+        string $receiptId,
+        array $fields,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool;
+
+    /** @param array<string, mixed> $pack */
     public function approveReceiptLine(
         string $matchId,
         string $homeId,
@@ -116,6 +142,7 @@ interface PurchasingStore
         int $expectedRevision,
         string $actorUserId,
         DateTimeImmutable $at,
+        array $pack = [],
     ): bool;
 
     public function markReceiptLineUnresolved(

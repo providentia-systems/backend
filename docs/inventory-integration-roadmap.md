@@ -117,7 +117,7 @@ draft/match/explicit commit, plus one-to-eight-image stock counting through an
 ordinary pre-opened count session. Receipt matching can select the complete
 offline item master, add a published pack, create a private product, or persist
 an unresolved human decision. Approved and unresolved lines complete review,
-but receipt commit creates effects only for approved lines. It never publishes
+but receipt commit creates effects only for approved imported lines that have not already affected stock. Deliberately selected manual purchases use the immediate purchase command and completion never applies their quantities again. It never publishes
 a global alias or general sanitized catalog proposal. Stock uses verified
 direct-local AI on supported native platforms when the user explicitly selects
 it; that route fails closed if unavailable or invalid, and server-proxy use

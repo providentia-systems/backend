@@ -37,6 +37,7 @@ final class ConfigProvider
                     'purchasing.cancel' => PurchasingFactory::class,
                     'purchasing.lines.update' => PurchasingFactory::class,
                     'purchasing.lines.remove' => PurchasingFactory::class,
+                    'purchasing.lines.purchase' => PurchasingFactory::class,
                     'purchasing.lines.create' => PurchasingFactory::class,
                     'purchasing.lines.approve' => PurchasingFactory::class,
                     'purchasing.lines.unresolve' => PurchasingFactory::class,

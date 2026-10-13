@@ -335,9 +335,9 @@ foreach ($contract['paths'] as $pathTemplate => $pathItem) {
         }
     }
 }
-if (count($contract['paths']) !== 194 || $operationCount !== 235) {
+if (count($contract['paths']) !== 195 || $operationCount !== 236) {
     throw new RuntimeException(
-        'API 2.1 must expose exactly 194 paths and 235 operations.',
+        'API 2.1 must expose exactly 195 paths and 236 operations.',
     );
 }
 // Zero-password guarantee: no human-account password, registration, or
@@ -1268,6 +1268,8 @@ $requiredItemMasterFields = [
     'catalogPackText',
     'catalogCategoryId',
     'catalogCategoryName',
+    'normalizedBaseAmount',
+    'normalizedBaseUnit',
 
 ];
 if (

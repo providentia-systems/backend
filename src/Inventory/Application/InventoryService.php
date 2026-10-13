@@ -1154,6 +1154,28 @@ final class InventoryService implements InventoryMovementGateway
         );
     }
 
+    public function recordPurchaseCorrection(
+        string $actorUserId,
+        string $homeId,
+        string $homeProductId,
+        string $quantityDelta,
+        string $sourceId,
+        string $reason,
+        DateTimeImmutable $occurredAt,
+    ): array {
+        return $this->recordMovement(
+            $actorUserId,
+            $homeId,
+            $homeProductId,
+            'purchase-correction',
+            DecimalQuantity::delta($quantityDelta)->toString(),
+            'receipt-line-correction',
+            $sourceId,
+            $reason,
+            $occurredAt,
+        );
+    }
+
     /** @return list<array<string, mixed>> */
     public function movements(
         AuthenticatedIdentity $identity,

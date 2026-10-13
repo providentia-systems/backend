@@ -1090,6 +1090,11 @@ return static function (Application $app): void {
         'api.purchasing.summary',
     );
     $app->post(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}/purchases',
+        [BearerAuthenticationMiddleware::class, 'purchasing.lines.purchase'],
+        'api.purchasing.receipt-lines.purchase',
+    );
+    $app->post(
         '/api/v1/homes/{homeId}/receipts/{receiptId}/lines',
         [
             BearerAuthenticationMiddleware::class,

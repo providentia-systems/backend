@@ -35,3 +35,7 @@ The canonical JSON SHA-256 is `ef5714a6298326d6fb449b966117e8b61c74de67d1bfc274a
 Deploy the backend first and run the normal migration command, `php bin/doctrine-migrations migrations:migrate --no-interaction`. Migration Version20260922000100 adds nullable global_category_id and unit defaulting to units. It neither rewrites stock quantities nor deletes history. Preserve recoverable database/application backups; do not reset existing data. Then rebuild/install the matching Client and Admin against the intended API origin. A merged source branch alone does not update an installed executable.
 
 Existing quality, coverage, mutation, database/broker, contract, security and native build/package checks remain required. Final PR-head checks are build evidence; production acceptance separately requires matching installed versions, readable Admin product columns, category selection with zero local categories, metadata edits that survive sync/restart and another device, and quantity-only entry/layout checks. No production migration, deployment or merge is performed by these PRs.
+
+## Purchases and receipts
+
+See [Purchase entry and corrections](purchase-entry-and-corrections.md) for immediate confirmed manual additions, exact pack quantities, offline stale-measure checks, reviewed imports and reversal-based corrections.

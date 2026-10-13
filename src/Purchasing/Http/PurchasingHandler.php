@@ -97,6 +97,7 @@ final class PurchasingHandler implements RequestHandlerInterface
                 ),
                 201,
             ),
+            'lines.purchase' => $this->purchaseLine($identity, $homeId, $receiptId, $body),
             'lines.create' => new JsonResponse(
                 $this->purchases->addLine(
                     $identity,
@@ -118,6 +119,49 @@ final class PurchasingHandler implements RequestHandlerInterface
             ),
             default => throw new \LogicException('Unknown purchasing action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function purchaseLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        array $body,
+    ): ResponseInterface {
+        $fields = ['id', 'expectedReceiptRevision', 'homeProductId', 'packId', 'rawDescription',
+            'quantity', 'originalPackText', 'unitPrice', 'lineTotal', 'unit', 'stockQuantityPerPack'];
+        if (array_diff(array_keys($body), $fields) !== [] || array_diff($fields, array_keys($body)) !== []) {
+            throw new HttpProblem(422, 'Invalid purchase', 'Provide exactly the confirmed purchase fields.');
+        }
+        if (!is_int($body['expectedReceiptRevision']) || $body['expectedReceiptRevision'] < 1) {
+            throw new HttpProblem(422, 'Invalid purchase', 'A positive expectedReceiptRevision is required.');
+        }
+        foreach (array_diff($fields, ['expectedReceiptRevision']) as $field) {
+            if ($body[$field] !== null && !is_string($body[$field])) {
+                throw new HttpProblem(422, 'Invalid purchase', 'Purchase fields must be strings or nullable values.');
+            }
+        }
+        foreach (['id', 'homeProductId', 'rawDescription', 'quantity', 'unit', 'stockQuantityPerPack'] as $field) {
+            if (!is_string($body[$field])) {
+                throw new HttpProblem(422, 'Invalid purchase', 'Product, description and quantity are required.');
+            }
+        }
+        return new JsonResponse($this->purchases->purchaseLine(
+            $identity,
+            $homeId,
+            $receiptId,
+            $body['expectedReceiptRevision'],
+            $body['homeProductId'],
+            $body['packId'],
+            $body['rawDescription'],
+            $body['quantity'],
+            $body['originalPackText'],
+            $body['unitPrice'],
+            $body['lineTotal'],
+            $body['unit'],
+            $body['stockQuantityPerPack'],
+            $body['id'],
+        ), 201);
     }
 
     /** @param array<string, mixed> $body */
@@ -184,6 +228,23 @@ final class PurchasingHandler implements RequestHandlerInterface
         ServerRequestInterface $request,
         array $body,
     ): ResponseInterface {
+        $packFields = ['packId', 'unit', 'stockQuantityPerPack'];
+        $provided = array_intersect(array_keys($body), $packFields);
+        if ($provided !== [] && count($provided) !== 3) {
+            throw new HttpProblem(
+                422,
+                'Invalid pack review',
+                'Provide packId, unit and stockQuantityPerPack together.',
+            );
+        }
+        foreach ($provided as $field) {
+            if ($body[$field] !== null && !is_string($body[$field])) {
+                throw new HttpProblem(422, 'Invalid pack review', 'Pack review fields must be text or null.');
+            }
+        }
+        if ($provided !== [] && (!is_string($body['unit']) || !is_string($body['stockQuantityPerPack']))) {
+            throw new HttpProblem(422, 'Invalid pack review', 'Stock unit and conversion factor cannot be null.');
+        }
         $this->purchases->approveLine(
             $identity,
             $homeId,
@@ -191,6 +252,9 @@ final class PurchasingHandler implements RequestHandlerInterface
             (string) $request->getAttribute('lineId', ''),
             (string) ($body['homeProductId'] ?? ''),
             (int) ($body['expectedRevision'] ?? 0),
+            $body['packId'] ?? null,
+            $body['unit'] ?? null,
+            $body['stockQuantityPerPack'] ?? null,
         );
 
         return new EmptyResponse(204);

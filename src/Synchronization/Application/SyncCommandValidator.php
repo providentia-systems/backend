@@ -195,9 +195,18 @@ final class SyncCommandValidator
                 true,
                 $baseRevision,
             ),
+            'purchasing.receipt-line.purchase' => $this->shape(
+                $payload,
+                ['receiptId', 'homeProductId', 'packId', 'rawDescription', 'quantity',
+                    'originalPackText', 'unitPrice', 'lineTotal', 'unit', 'stockQuantityPerPack'],
+                ['receiptId', 'homeProductId', 'packId', 'rawDescription', 'quantity',
+                    'originalPackText', 'unitPrice', 'lineTotal', 'unit', 'stockQuantityPerPack'],
+                true,
+                $baseRevision,
+            ),
             'purchasing.receipt-line.approve' => $this->shape(
                 $payload,
-                ['receiptId', 'homeProductId'],
+                ['receiptId', 'homeProductId', 'packId', 'unit', 'stockQuantityPerPack'],
                 ['receiptId', 'homeProductId'],
                 true,
                 $baseRevision,
@@ -287,10 +296,26 @@ final class SyncCommandValidator
             }
         }
 
+        if ($type === 'purchasing.receipt-line.approve') {
+            $packFields = ['packId', 'unit', 'stockQuantityPerPack'];
+            $provided = array_intersect(array_keys($payload), $packFields);
+            if (
+                $provided !== [] && (count($provided) !== 3 || !is_string($payload['unit'])
+                || !is_string($payload['stockQuantityPerPack']))
+            ) {
+                throw new Problem(
+                    422,
+                    'Invalid pack review',
+                    'Provide the pack, stock unit and exact factor together.',
+                );
+            }
+        }
+
         if (
             in_array(
                 $type,
                 [
+                    'purchasing.receipt-line.purchase',
                     'purchasing.receipt.update',
                     'purchasing.receipt.cancel',
                     'purchasing.receipt-line.update',
@@ -350,7 +375,8 @@ final class SyncCommandValidator
             'purchasing.receipt-line.create', 'purchasing.receipt-line.update', 'purchasing.receipt-line.remove' => [
                 'receiptId',
             ],
-            'purchasing.receipt-line.approve' => ['receiptId', 'homeProductId'],
+            'purchasing.receipt-line.purchase' => ['receiptId', 'homeProductId', 'packId'],
+            'purchasing.receipt-line.approve' => ['receiptId', 'homeProductId', 'packId'],
             'purchasing.receipt-line.unresolve' => ['receiptId'],
             'shopping.preference.put' => ['preferredPackId'],
             'shopping.list-line.create' => ['listId', 'homeProductId', 'suggestionId'],

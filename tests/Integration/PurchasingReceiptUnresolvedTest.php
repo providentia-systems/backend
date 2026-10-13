@@ -40,7 +40,8 @@ final class PurchasingReceiptUnresolvedTest extends TestCase
             )',
         );
         $this->connection->executeStatement(
-            'CREATE TABLE receipt_lines (
+            'CREATE TABLE receipt_lines (selected_pack_id TEXT, stock_quantity TEXT,
+                 stock_quantity_per_pack TEXT, stock_unit TEXT,
                 id VARCHAR(36) NOT NULL,
                 home_id VARCHAR(36) NOT NULL,
                 receipt_id VARCHAR(36) NOT NULL,

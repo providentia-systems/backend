@@ -125,18 +125,20 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
     public function inboundMovements(string $homeId, DateTimeImmutable $asOf): array
     {
         return $this->connection->fetchAllAssociative(
-            'SELECT home_product_id AS homeProductId, quantity_delta AS quantity,
-                    occurred_at AS occurredAt
-             FROM stock_movements
-             WHERE home_id = :home AND occurred_at <= :as_of
-               AND created_at <= :as_of
-               AND ' . DecimalSql::greaterThan($this->connection, 'quantity_delta', '0') . '
-               AND movement_type <> :count_type
-             ORDER BY home_product_id, occurred_at, id',
+            'SELECT sm.home_product_id AS homeProductId,
+                    ' . $this->netPurchaseQuantity(':as_of') . ' AS quantity,
+                    sm.occurred_at AS occurredAt
+             FROM stock_movements sm
+             WHERE sm.home_id = :home AND sm.occurred_at <= :as_of
+               AND sm.created_at <= :as_of
+               AND ' . DecimalSql::greaterThan($this->connection, 'sm.quantity_delta', '0') . '
+               AND sm.movement_type <> :count_type AND sm.source_type <> :correction_source
+             ORDER BY sm.home_product_id, sm.occurred_at, sm.id',
             [
                 'home' => $homeId,
                 'as_of' => $this->date($asOf),
                 'count_type' => 'count-reconciliation',
+                'correction_source' => 'receipt-line-correction',
             ],
         );
     }
@@ -145,14 +147,16 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
     {
         return $this->connection->fetchAllAssociative(
             'SELECT DISTINCT home_product_id AS homeProductId, occurred_at AS occurredAt
-             FROM stock_movements
+             FROM stock_movements sm
              WHERE home_id = :home AND source_type = :source
-               AND ' . DecimalSql::greaterThan($this->connection, 'quantity_delta', '0') . ' AND occurred_at <= :as_of
+               AND ' . DecimalSql::greaterThan($this->connection, $this->netPurchaseQuantity(':as_of'), '0') . '
+               AND occurred_at <= :as_of
                AND created_at <= :as_of
              ORDER BY home_product_id, occurred_at',
             [
                 'home' => $homeId,
                 'source' => 'receipt-line',
+                'correction_source' => 'receipt-line-correction',
                 'as_of' => $this->date($asOf),
             ],
         );
@@ -182,6 +186,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                AND current_pack.normalized_base_amount IS NOT NULL
                AND po.observed_at <= :as_of
                AND po.created_at <= :as_of
+               AND (po.superseded_at IS NULL OR po.superseded_at > :as_of)
              ORDER BY hp.id, candidate.id, po.currency, po.store_id, po.observed_at DESC, po.id DESC',
             [
                 'pack_status' => 'published',
@@ -691,14 +696,15 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
     ): array {
         return $this->connection->fetchAllAssociative(
             'SELECT DISTINCT home_product_id AS homeProductId
-             FROM stock_movements
+             FROM stock_movements sm
              WHERE home_id = :home AND source_type = :source
-               AND ' . DecimalSql::greaterThan($this->connection, 'quantity_delta', '0') . '
+               AND ' . DecimalSql::greaterThan($this->connection, $this->netPurchaseQuantity(':through'), '0') . '
                AND occurred_at > :after AND occurred_at <= :through
              ORDER BY home_product_id',
             [
                 'home' => $homeId,
                 'source' => 'receipt-line',
+                'correction_source' => 'receipt-line-correction',
                 'after' => $this->date($after),
                 'through' => $this->date($through),
             ],
@@ -814,6 +820,17 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         unset($row['cutoffsJson'], $row['metricsJson'], $row['limitationsJson']);
 
         return $row;
+    }
+
+    private function netPurchaseQuantity(string $through): string
+    {
+        $corrections = '(SELECT COALESCE(' . DecimalSql::sum($this->connection, 'c.quantity_delta') . ', 0)
+                        FROM stock_movements c WHERE c.home_id = sm.home_id
+                          AND c.home_product_id = sm.home_product_id
+                          AND c.source_type = :correction_source
+                          AND SUBSTR(c.source_id, 1, 36) = sm.source_id
+                          AND c.occurred_at <= ' . $through . ' AND c.created_at <= ' . $through . ')';
+        return DecimalSql::add($this->connection, 'sm.quantity_delta', $corrections);
     }
 
     /**

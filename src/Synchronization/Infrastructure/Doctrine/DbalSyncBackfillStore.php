@@ -132,7 +132,8 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                         r.created_by_user_id AS actor_user_id, t.updated_at AS changed_at,
                         t.receipt_id, t.raw_description, t.quantity,
                         t.original_pack_text, t.unit_price, t.line_total,
-                        t.home_product_id, t.approval_status
+                        t.home_product_id, t.approval_status, t.selected_pack_id,
+                        t.stock_quantity, t.stock_quantity_per_pack, t.stock_unit
                  FROM receipt_lines t
                  INNER JOIN receipts r ON r.id = t.receipt_id AND r.home_id = t.home_id'
                 . $missing('purchasing-receipt-line') . 't.id)',
@@ -239,6 +240,10 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'lineTotal' => $this->nullableDecimal($row['line_total']),
                 'homeProductId' => $this->nullableString($row['home_product_id']),
                 'approvalStatus' => (string) $row['approval_status'],
+                'packId' => $this->nullableString($row['selected_pack_id']),
+                'stockQuantity' => $this->nullableDecimal($row['stock_quantity']),
+                'stockQuantityPerPack' => $this->nullableDecimal($row['stock_quantity_per_pack']),
+                'stockUnit' => $this->nullableString($row['stock_unit']),
             ],
             'purchasing-store' => [
                 'name' => (string) $row['name'],

@@ -337,6 +337,9 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                          COALESCE(hc.name, gc.canonical_name, c.canonical_name) AS categoryName,
                          CASE WHEN hc.id IS NOT NULL THEN :home_scope ELSE :global_scope END AS categorySource,
                          COALESCE(hp.original_pack_text, pk.original_pack_text) AS packText, pk.status AS packStatus,
+                         pk.normalized_base_amount AS normalizedBaseAmount,
+                         CASE u.dimension WHEN \'mass\' THEN \'g\' WHEN \'volume\' THEN \'ml\'
+                              WHEN \'count\' THEN :units ELSE NULL END AS normalizedBaseUnit,
                          p.canonical_name AS catalogName, pk.original_pack_text AS catalogPackText,
                          c.id AS catalogCategoryId, c.canonical_name AS catalogCategoryName,
                          hp.global_category_id AS globalCategoryId, COALESCE(hp.unit, :units) AS unit,
@@ -346,6 +349,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                          p.normalized_brand AS sortBrand
                   FROM product_packs pk
                   INNER JOIN products p ON p.id = pk.product_id
+                  LEFT JOIN units u ON u.id = pk.unit_id
                   INNER JOIN categories c ON c.id = p.category_id
                   LEFT JOIN home_products hp
                     ON hp.id = (
@@ -370,6 +374,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                               WHEN COALESCE(gc.id, c.id) IS NOT NULL THEN :global_scope ELSE NULL END AS categorySource,
                          COALESCE(hp.original_pack_text, :empty) AS packText,
                          NULL AS packStatus,
+                         NULL AS normalizedBaseAmount, NULL AS normalizedBaseUnit,
                          p.canonical_name AS catalogName, NULL AS catalogPackText,
                          c.id AS catalogCategoryId, c.canonical_name AS catalogCategoryName,
                          hp.global_category_id AS globalCategoryId, hp.unit, hp.id AS homeProductId,
@@ -408,6 +413,9 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                 ? null
                 : (string) $item['homeProductStatus'];
             $item['quantity'] = (string) $item['quantity'];
+            $item['normalizedBaseAmount'] = $item['normalizedBaseAmount'] === null
+                ? null
+                : (string) $item['normalizedBaseAmount'];
             unset($item['variantId'], $item['sortName'], $item['sortBrand']);
         }
         unset($item);
