@@ -205,11 +205,34 @@ const pins = {
   xdebug: '3.5.3',
   node: '22.14.0',
   nodeMinimum: '18.19.0',
+  webGo: '1.26.9',
+  caddy: '2.11.4',
+  goNet: '0.60.0',
+  goCrypto: '0.57.0',
+  goText: '0.42.0',
+  goGrpc: '1.83.2',
 };
 for (const [name, value] of Object.entries(pins)) {
   if (manifest.runtime?.[name] !== value) {
     throw new Error(`Agent environment ${name} pin is not ${value}.`);
   }
+}
+const productionDockerfile = fs.readFileSync('Dockerfile.production', 'utf8');
+for (const [argument, value] of Object.entries({
+  GO_IMAGE: `golang:${manifest.runtime.webGo}-alpine3.23`,
+  CADDY_VERSION: manifest.runtime.caddy,
+  GO_NET_VERSION: manifest.runtime.goNet,
+  GO_CRYPTO_VERSION: manifest.runtime.goCrypto,
+  GO_TEXT_VERSION: manifest.runtime.goText,
+  GO_GRPC_VERSION: manifest.runtime.goGrpc,
+})) {
+  if (!productionDockerfile.includes(`ARG ${argument}=${value}\n`)) {
+    throw new Error(`Production web-image ${argument} does not match the pinned manifest.`);
+  }
+}
+if (!manifest.containerImages.includes(`golang:${manifest.runtime.webGo}-alpine3.23`)
+    || !productionDockerfile.includes('golang.org/x/net@v${GO_NET_VERSION}')) {
+  throw new Error('Production web-image patched Go and HTTP/2 module must be explicit build inputs.');
 }
 for (const domain of ['nodejs.org', 'repo.packagist.org', 'pecl.php.net', 'registry-1.docker.io', 'ghcr.io']) {
   if (!manifest.networkAllowlist?.includes(domain)) {

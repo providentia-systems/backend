@@ -76,6 +76,22 @@ and a non-HTTPS public URL. Implicit-TLS SMTP verifies
 the peer certificate and hostname. Development Mailpit remains plaintext on the
 private Compose network and must never be used as a production profile.
 
+The Caddy web image is rebuilt with Go 1.26.9 and `golang.org/x/net` 0.60.0 to
+address the October 2026 HTTP/2, HTTP Range and TLS denial-of-service findings
+CVE-2026-78669, CVE-2026-78667 and CVE-2026-97031. Go 1.26.9 is a patch release
+within the existing builder series; Caddy remains 2.11.4. The tagged `x/net`
+module requires `x/crypto` 0.57.0 and `x/text` 0.42.0, so those compatible pins
+move together. Go's checksum database remains enabled and production CI checks
+the compiled binary's Go/module versions before the existing image scans.
+
+Primary evidence:
+[Go release history](https://go.dev/doc/devel/release#go1.26),
+[HTTP/2 advisory](https://pkg.go.dev/vuln/GO-2026-6611),
+[HTTP Range advisory](https://pkg.go.dev/vuln/GO-2026-6609),
+[TLS advisory](https://pkg.go.dev/vuln/GO-2026-6607),
+[tagged x/net requirements](https://github.com/golang/net/blob/v0.60.0/go.mod),
+and the [official Go image manifest](https://github.com/docker-library/official-images/blob/master/library/golang).
+
 ## Known limitations and acceptance boundary
 
 - Passkeys and MFA are not active. Email-code verification, installation binding, session
