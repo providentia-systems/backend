@@ -108,6 +108,7 @@ final class SyncCursorScopeTest extends TestCase
             self::fail('Malformed signed claims were coerced.');
         } catch (Problem $problem) {
             self::assertSame(422, $problem->status);
+            self::assertSame('https://providentia.invalid/problems/sync_cursor_invalid', $problem->type);
         }
     }
 

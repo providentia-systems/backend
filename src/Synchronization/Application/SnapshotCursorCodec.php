@@ -49,25 +49,25 @@ final class SnapshotCursorCodec
     {
         $parts = explode('.', $cursor);
         if (count($parts) !== 2) {
-            throw new Problem(422, 'Invalid cursor', 'The snapshot cursor is malformed.');
+            throw $this->invalidCursor('The snapshot cursor is malformed.');
         }
         [$encoded, $signature] = $parts;
         $expected = $this->base64Url(hash_hmac('sha256', $encoded, $this->secret, true));
         if (! hash_equals($expected, $signature)) {
-            throw new Problem(422, 'Invalid cursor', 'The snapshot cursor is invalid.');
+            throw $this->invalidCursor('The snapshot cursor is invalid.');
         }
         $padding = str_repeat('=', (4 - strlen($encoded) % 4) % 4);
         $decoded = base64_decode(strtr($encoded . $padding, '-_', '+/'), true);
         if ($decoded === false) {
-            throw new Problem(422, 'Invalid cursor', 'The snapshot cursor is invalid.');
+            throw $this->invalidCursor('The snapshot cursor is invalid.');
         }
         try {
             $payload = json_decode($decoded, true, 16, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
-            throw new Problem(422, 'Invalid cursor', 'The snapshot cursor is invalid.');
+            throw $this->invalidCursor('The snapshot cursor is invalid.');
         }
         if (! is_array($payload)) {
-            throw new Problem(422, 'Invalid cursor', 'The snapshot cursor is invalid.');
+            throw $this->invalidCursor('The snapshot cursor is invalid.');
         }
         if (
             ($payload['v'] ?? null) !== 1
@@ -85,7 +85,7 @@ final class SnapshotCursorCodec
             );
         }
         if (! is_int($payload['expiresAt'] ?? null)) {
-            throw new Problem(422, 'Invalid cursor', 'The cursor expiry is invalid.');
+            throw $this->invalidCursor('The cursor expiry is invalid.');
         }
         if ($payload['expiresAt'] <= $this->clock->now()->getTimestamp()) {
             throw new Problem(
@@ -103,10 +103,20 @@ final class SnapshotCursorCodec
             || ! is_string($entityType) || $entityType === ''
             || ! is_string($entityId) || $entityId === ''
         ) {
-            throw new Problem(422, 'Invalid cursor', 'The snapshot cursor position is invalid.');
+            throw $this->invalidCursor('The snapshot cursor position is invalid.');
         }
 
         return ['highWater' => $highWater, 'entityType' => $entityType, 'entityId' => $entityId];
+    }
+
+    private function invalidCursor(string $detail): Problem
+    {
+        return new Problem(
+            422,
+            'Invalid cursor',
+            $detail,
+            'https://providentia.invalid/problems/sync_cursor_invalid',
+        );
     }
 
     private function base64Url(string $value): string
