@@ -50,6 +50,7 @@ final class SyncReadPolicy
         'purchasing.receipt.cancel' => 'purchasing-receipt',
         'purchasing.receipt.commit' => 'purchasing-receipt',
         'purchasing.receipt-line.create' => 'purchasing-receipt-line',
+        'purchasing.receipt-line.purchase' => 'purchasing-receipt-line',
         'purchasing.receipt-line.update' => 'purchasing-receipt-line',
         'purchasing.receipt-line.remove' => 'purchasing-receipt-line',
         'purchasing.receipt-line.approve' => 'purchasing-receipt-line',

@@ -139,6 +139,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                 'as_of' => $this->date($asOf),
                 'count_type' => 'count-reconciliation',
                 'correction_source' => 'receipt-line-correction',
+                'source' => 'receipt-line',
             ],
         );
     }
@@ -827,7 +828,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         $corrections = '(SELECT COALESCE(' . DecimalSql::sum($this->connection, 'c.quantity_delta') . ', 0)
                         FROM stock_movements c WHERE c.home_id = sm.home_id
                           AND c.home_product_id = sm.home_product_id
-                          AND c.source_type = :correction_source
+                          AND c.source_type = :correction_source AND sm.source_type = :source
                           AND SUBSTR(c.source_id, 1, 36) = sm.source_id
                           AND c.occurred_at <= ' . $through . ' AND c.created_at <= ' . $through . ')';
         return DecimalSql::add($this->connection, 'sm.quantity_delta', $corrections);

@@ -58,6 +58,24 @@ final class SyncReadPolicyTest extends TestCase
         self::assertSame($stored, SyncReadPolicy::result($stored, [HomePermission::PURCHASES_READ]));
     }
 
+    public function testConfirmedPurchaseAcknowledgementUsesPurchaseReadPermission(): void
+    {
+        $receipt = [
+            'operationId' => 'purchase-operation',
+            'status' => 'accepted',
+            'commandType' => 'purchasing.receipt-line.purchase',
+            'result' => ['stockQuantity' => '5', 'lineTotal' => '50'],
+        ];
+        self::assertSame('purchasing-receipt-line', SyncReadPolicy::entityForCommand(
+            'purchasing.receipt-line.purchase',
+        ));
+        self::assertSame($receipt, SyncReadPolicy::result($receipt, [HomePermission::PURCHASES_READ]));
+        self::assertSame(
+            ['operationId' => 'purchase-operation', 'status' => 'accepted'],
+            SyncReadPolicy::result($receipt, [HomePermission::INVENTORY_READ]),
+        );
+    }
+
     public function testUnclassifiedReceiptsAndFutureCommandsFailClosedEvenForAnOwner(): void
     {
         $receipt = ['operationId' => 'operation', 'status' => 'accepted', 'entityId' => 'private'];
