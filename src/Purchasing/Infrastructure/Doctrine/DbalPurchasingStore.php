@@ -118,7 +118,10 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
                     rl.original_pack_text AS originalPackText,
                     rl.unit_price AS unitPrice, rl.line_total AS lineTotal,
                     rl.home_product_id AS homeProductId,
-                    hp.product_id AS productId, hp.pack_id AS packId,
+                    hp.product_id AS productId, CASE WHEN rl.stock_quantity_per_pack IS NULL THEN hp.pack_id
+                         ELSE rl.selected_pack_id END AS packId,
+                    rl.stock_quantity AS stockQuantity, rl.stock_quantity_per_pack AS stockQuantityPerPack,
+                    rl.stock_unit AS stockUnit,
                     COALESCE(hp.private_name, p.canonical_name) AS productName,
                     rl.approval_status AS approvalStatus, rl.revision,
                     rl.created_at AS createdAt, rl.updated_at AS updatedAt
@@ -140,7 +143,9 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
             'SELECT id, receipt_id AS receiptId, line_number AS lineNumber, raw_description AS rawDescription,
                     quantity, original_pack_text AS originalPackText,
                     unit_price AS unitPrice, line_total AS lineTotal,
-                    home_product_id AS homeProductId,
+                    home_product_id AS homeProductId, selected_pack_id AS packId,
+                    stock_quantity AS stockQuantity, stock_quantity_per_pack AS stockQuantityPerPack,
+                    stock_unit AS stockUnit,
                     approval_status AS approvalStatus, revision
              FROM receipt_lines
              WHERE home_id = :home AND receipt_id = :receipt AND id = :id',
@@ -365,14 +370,14 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
             return false;
         }
         $line = $this->connection->fetchAssociative(
-            $this->forUpdate('SELECT revision, approval_status FROM receipt_lines
+            $this->forUpdate('SELECT revision, approval_status, stock_quantity FROM receipt_lines
              WHERE home_id = ? AND receipt_id = ? AND id = ?'),
             [$homeId, $receiptId, $lineId],
         );
         if (
             $line === false ||
             (int) $line['revision'] !== $expectedRevision ||
-            $line['approval_status'] === 'removed'
+            $line['approval_status'] === 'removed' || $line['stock_quantity'] !== null
         ) {
             return false;
         }
@@ -381,6 +386,9 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
             [
                 ...$fields,
                 'home_product_id' => null,
+                'selected_pack_id' => null,
+                'stock_quantity_per_pack' => null,
+                'stock_unit' => null,
                 'revision' => $expectedRevision + 1,
                 'updated_at' => $this->date($at),
             ],
@@ -412,6 +420,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         ?string $unitPrice,
         ?string $lineTotal,
         DateTimeImmutable $at,
+        array $purchase = [],
     ): bool {
         $now = $this->date($at);
         $updated = $this->connection->executeStatement(
@@ -444,11 +453,119 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
             'revision' => 1,
             'created_at' => $now,
             'updated_at' => $now,
+            ...$purchase,
         ]);
 
         return true;
     }
 
+    public function purchaseProduct(string $homeId, string $homeProductId, ?string $packId): ?array
+    {
+        $product = $this->one(
+            $this->forUpdate('SELECT hp.id, hp.product_id AS productId, hp.unit, hp.pack_id AS homePackId,
+                    base.normalized_base_amount AS homeBaseAmount, base_unit.dimension AS homeDimension
+             FROM home_products hp LEFT JOIN product_packs base ON base.id = hp.pack_id
+             LEFT JOIN units base_unit ON base_unit.id = base.unit_id
+             WHERE hp.home_id = :home AND hp.id = :id AND hp.status = :status'),
+            ['home' => $homeId, 'id' => $homeProductId, 'status' => 'active'],
+        );
+        if ($product === null || $packId === null) {
+            return $product;
+        }
+        $pack = $this->one(
+            $this->forUpdate('SELECT pk.normalized_base_amount AS normalizedBaseAmount,
+                    pk.original_pack_text AS packText, u.dimension
+             FROM product_packs pk LEFT JOIN units u ON u.id = pk.unit_id
+             WHERE pk.id = :pack AND pk.product_id = :product AND pk.status = :status'),
+            ['pack' => $packId, 'product' => $product['productId'], 'status' => 'published'],
+        );
+        if ($pack === null) {
+            throw new \DomainException('Select a published pack belonging to this product.');
+        }
+        return [...$product, ...$pack];
+    }
+
+    public function applyReceiptLine(
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        array $fields,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+        bool $bumpReceipt = true,
+    ): bool {
+        $receipt = $this->connection->fetchAssociative(
+            $this->forUpdate('SELECT status FROM receipts WHERE home_id = ? AND id = ?'),
+            [$homeId, $receiptId],
+        );
+        if ($receipt === false || !in_array($receipt['status'], ['draft', 'committed'], true)) {
+            return false;
+        }
+        $updated = $this->connection->update('receipt_lines', [
+            ...$fields,
+            'revision' => $expectedRevision + 1,
+            'updated_at' => $this->date($at),
+        ], [
+            'home_id' => $homeId, 'receipt_id' => $receiptId, 'id' => $lineId, 'revision' => $expectedRevision,
+            'approval_status' => 'approved',
+        ]);
+        if ($updated !== 1) {
+            return false;
+        }
+        if ($bumpReceipt) {
+            $this->connection->executeStatement(
+                'UPDATE receipts SET revision = revision + 1, updated_at = ? WHERE home_id = ? AND id = ?',
+                [$this->date($at), $homeId, $receiptId],
+            );
+        }
+        // Corrected price evidence belongs to the current receipt-line snapshot.
+        $this->connection->executeStatement(
+            'UPDATE price_observations SET superseded_at = ?
+             WHERE home_id = ? AND receipt_line_id = ? AND superseded_at IS NULL',
+            [$this->date($at), $homeId, $lineId],
+        );
+        return true;
+    }
+
+    public function updateReceiptMetadata(
+        string $homeId,
+        string $receiptId,
+        array $fields,
+        int $expectedRevision,
+        DateTimeImmutable $at,
+    ): bool {
+        $receipt = $this->receipt($homeId, $receiptId);
+        if (isset($fields['store_id'])) {
+            $store = $this->store($homeId, (string) $fields['store_id']);
+            if (
+                $store === null
+                || ($store['status'] !== 'active' && $fields['store_id'] !== ($receipt['storeId'] ?? null))
+            ) {
+                throw new \DomainException('Choose an active store from this home.');
+            }
+        }
+        $updated = $this->connection->executeStatement(
+            'UPDATE receipts SET store_id = :store, total_amount = :total, notes = :notes,
+             revision = revision + 1, updated_at = :at
+             WHERE home_id = :home AND id = :id AND revision = :revision
+               AND status IN (:draft, :committed)',
+            [
+                'store' => $fields['store_id'], 'total' => $fields['total_amount'], 'notes' => $fields['notes'],
+                'at' => $this->date($at), 'home' => $homeId, 'id' => $receiptId, 'revision' => $expectedRevision,
+                'draft' => 'draft', 'committed' => 'committed',
+            ],
+        );
+        if ($updated === 1 && $fields['store_id'] !== ($receipt['storeId'] ?? null)) {
+            $this->connection->executeStatement(
+                'UPDATE price_observations SET superseded_at = ? WHERE home_id = ? AND superseded_at IS NULL
+                 AND receipt_line_id IN (SELECT id FROM receipt_lines WHERE home_id = ? AND receipt_id = ?)',
+                [$this->date($at), $homeId, $homeId, $receiptId],
+            );
+        }
+        return $updated === 1;
+    }
+
+    /** @param array<string, mixed> $pack */
     public function approveReceiptLine(
         string $matchId,
         string $homeId,
@@ -458,6 +575,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         int $expectedRevision,
         string $actorUserId,
         DateTimeImmutable $at,
+        array $pack = [],
     ): bool {
         $product = $this->one(
             $this->forUpdate('SELECT id FROM home_products
@@ -473,7 +591,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
              SET home_product_id = :product, approval_status = :approved,
                  revision = revision + 1, updated_at = :updated
              WHERE id = :id AND home_id = :home AND receipt_id = :receipt
-               AND approval_status <> \'removed\' AND revision = :revision
+               AND approval_status <> \'removed\' AND stock_quantity IS NULL AND revision = :revision
                AND EXISTS (
                    SELECT 1 FROM receipts r
                    WHERE r.id = receipt_lines.receipt_id
@@ -492,6 +610,9 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         );
         if ($updated !== 1) {
             return false;
+        }
+        if ($pack !== []) {
+            $this->connection->update('receipt_lines', $pack, ['home_id' => $homeId, 'id' => $lineId]);
         }
         $line = $this->receiptLine($homeId, $receiptId, $lineId);
         if ($line === null) {
@@ -513,12 +634,12 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
             'SELECT pack_id FROM home_products WHERE id = :id AND home_id = :home',
             ['id' => $homeProductId, 'home' => $homeId],
         );
-        if ($homeProduct !== null && $homeProduct['pack_id'] !== null) {
+        if ($homeProduct !== null && ($pack['selected_pack_id'] ?? $homeProduct['pack_id']) !== null) {
             $this->connection->insert('receipt_line_matches', [
                 'id' => $matchId,
                 'home_id' => $homeId,
                 'receipt_line_id' => $lineId,
-                'product_pack_id' => $homeProduct['pack_id'],
+                'product_pack_id' => $pack['selected_pack_id'] ?? $homeProduct['pack_id'],
                 'match_method' => 'human-selection',
                 'confidence' => '1',
                 'status' => 'approved',
@@ -546,10 +667,11 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         $now = $this->date($at);
         $updated = $this->connection->executeStatement(
             'UPDATE receipt_lines
-             SET home_product_id = NULL, approval_status = :unresolved,
+             SET home_product_id = NULL, selected_pack_id = NULL, stock_quantity_per_pack = NULL,
+                 stock_unit = NULL, approval_status = :unresolved,
                  revision = revision + 1, updated_at = :updated
              WHERE id = :id AND home_id = :home AND receipt_id = :receipt
-               AND approval_status <> \'removed\' AND revision = :revision
+               AND approval_status <> \'removed\' AND stock_quantity IS NULL AND revision = :revision
                AND EXISTS (
                    SELECT 1 FROM receipts r
                    WHERE r.id = receipt_lines.receipt_id
@@ -634,7 +756,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         DateTimeImmutable $createdAt,
     ): void {
         $exists = (int) $this->connection->fetchOne(
-            'SELECT COUNT(*) FROM price_observations WHERE receipt_line_id = :line',
+            'SELECT COUNT(*) FROM price_observations WHERE receipt_line_id = :line AND superseded_at IS NULL',
             ['line' => $receiptLineId],
         );
         if ($exists > 0) {
@@ -703,7 +825,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
     {
         $row['revision'] = (int) $row['revision'];
         $row['lineNumber'] = (int) $row['lineNumber'];
-        foreach (['quantity', 'unitPrice', 'lineTotal'] as $field) {
+        foreach (['quantity', 'unitPrice', 'lineTotal', 'stockQuantity', 'stockQuantityPerPack'] as $field) {
             if ($row[$field] !== null) {
                 $row[$field] = DecimalProjection::string($row[$field]);
             }

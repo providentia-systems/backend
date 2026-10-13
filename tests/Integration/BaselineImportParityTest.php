@@ -307,7 +307,8 @@ final class BaselineImportParityTest extends TestCase
                 notes TEXT NOT NULL, revision INTEGER NOT NULL, created_by_user_id TEXT NOT NULL,
                 committed_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )',
-            'CREATE TABLE receipt_lines (
+            'CREATE TABLE receipt_lines (selected_pack_id TEXT, stock_quantity TEXT,
+                 stock_quantity_per_pack TEXT, stock_unit TEXT,
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, receipt_id TEXT NOT NULL,
                 line_number INTEGER NOT NULL, raw_description TEXT NOT NULL, quantity TEXT NOT NULL,
                 original_pack_text TEXT NOT NULL, unit_price TEXT NULL, line_total TEXT NULL,
@@ -320,7 +321,7 @@ final class BaselineImportParityTest extends TestCase
                 status TEXT NOT NULL, decided_by_user_id TEXT NOT NULL, decided_at TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )',
-            'CREATE TABLE price_observations (
+            'CREATE TABLE price_observations (superseded_at TEXT,
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, receipt_line_id TEXT NOT NULL,
                 product_pack_id TEXT NULL, store_id TEXT NULL, currency TEXT NOT NULL,
                 quantity TEXT NOT NULL, unit_price TEXT NULL, line_total TEXT NOT NULL,

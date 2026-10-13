@@ -19,4 +19,14 @@ interface InventoryMovementGateway
         string $reason,
         DateTimeImmutable $occurredAt,
     ): array;
+    /** @return array<string, mixed> */
+    public function recordPurchaseCorrection(
+        string $actorUserId,
+        string $homeId,
+        string $homeProductId,
+        string $quantityDelta,
+        string $sourceId,
+        string $reason,
+        DateTimeImmutable $occurredAt,
+    ): array;
 }

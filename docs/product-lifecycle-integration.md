@@ -35,7 +35,7 @@ synchronization, even when its household has never consented to public sharing.
 | Stock preferences | Client and Admin edit/reset minimum quantity, always-keep/never-suggest, lead time, expiry handling and published preferred pack. Existing revisions and exact decimal quantities are retained. |
 | Shopping lists and lines | Client and Admin create/edit/archive/restore; description, quantity and checked state use current revisions, retaining parent-list history. |
 | Open counts | Client edits/recounts and removes erroneous lines; removal is retained, contributes no adjustment, and recount reuses the same product-line identity. Closed/cancelled counts cannot be edited. |
-| Draft receipts | Client edits header/line values, removes lines and cancels drafts. Edits reset human approval; removed/cancelled records remain in synchronization and cannot enter commit totals. |
+| Receipts | Confirmed manual additions immediately affect stock while the receipt remains open. Unreviewed imported edits reset approval; applied purchase corrections append stock differences and supersede price evidence. Header/store corrections do not create stock movements. Removed/cancelled records remain in synchronization. See [purchase entry and corrections](purchase-entry-and-corrections.md). |
 | Global catalog | Admin maintains categories, products, packs, units, variants, aliases, barcodes and identity rules, with revisions, reference validation and audit reasons. |
 | Access groups and policy drafts | Admin removes only unused custom groups or unpublished, unused policy drafts. Built-in/protected/default/assigned groups and published/accepted policies remain protected. |
 

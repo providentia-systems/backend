@@ -40,6 +40,45 @@ final class InventoryItemMasterTest extends TestCase
     }
 
 
+    public function testPackConversionsExposeExactMeasuresWithoutInterpretingPackDescriptions(): void
+    {
+        $unitId = '01912345-6789-7abc-8def-3123456789ab';
+        $this->connection->insert('units', ['id' => $unitId, 'dimension' => 'mass']);
+        $this->connection->update('product_packs', [
+            'unit_id' => $unitId,
+            'normalized_base_amount' => '4000.12345678',
+            'original_pack_text' => 'Four measured bags',
+        ], ['id' => self::BEANS_PACK_ONE]);
+        $this->connection->update('home_products', [
+            'unit' => 'kg',
+            'original_pack_text' => 'My custom packaging label',
+        ], ['id' => self::HOME_PRODUCT_ID]);
+
+        $page = $this->store->itemMaster(self::HOME_ID, '', null, null, 100, 0);
+        $byPack = [];
+        foreach ($page['items'] as $item) {
+            if ($item['packId'] !== null) {
+                $byPack[$item['packId']] = $item;
+            }
+        }
+        self::assertSame('4000.12345678', $byPack[self::BEANS_PACK_ONE]['normalizedBaseAmount']);
+        self::assertSame('g', $byPack[self::BEANS_PACK_ONE]['normalizedBaseUnit']);
+        self::assertSame('kg', $byPack[self::BEANS_PACK_ONE]['unit']);
+        self::assertSame('My custom packaging label', $byPack[self::BEANS_PACK_ONE]['packText']);
+        self::assertNull($byPack[self::BEANS_PACK_TWO]['normalizedBaseAmount']);
+        self::assertNull($byPack[self::BEANS_PACK_TWO]['normalizedBaseUnit']);
+        self::assertSame('500 g', $byPack[self::BEANS_PACK_TWO]['packText']);
+
+        $this->connection->update('units', ['dimension' => 'custom'], ['id' => $unitId]);
+        $unknown = $this->store->itemMaster(self::HOME_ID, '', null, null, 100, 0);
+        foreach ($unknown['items'] as $item) {
+            if ($item['packId'] === self::BEANS_PACK_ONE) {
+                self::assertSame('4000.12345678', $item['normalizedBaseAmount']);
+                self::assertNull($item['normalizedBaseUnit']);
+            }
+        }
+    }
+
     public function testLinkedHouseholdOverridesPreserveCatalogIdentityAndBalances(): void
     {
         $beforeCatalog = $this->connection->fetchAllAssociative('SELECT * FROM products ORDER BY id');
@@ -717,8 +756,10 @@ final class InventoryItemMasterTest extends TestCase
                 normalized_name TEXT NOT NULL, brand TEXT NOT NULL,
                 normalized_brand TEXT NOT NULL, status TEXT NOT NULL
             )',
+            'CREATE TABLE units (id TEXT PRIMARY KEY, dimension TEXT NOT NULL)',
             'CREATE TABLE product_packs (
                 id TEXT PRIMARY KEY, product_id TEXT NOT NULL, variant_id TEXT NULL,
+                unit_id TEXT NULL, normalized_base_amount TEXT NULL,
                 original_pack_text TEXT NOT NULL, status TEXT NOT NULL
             )',
             'CREATE TABLE product_aliases (
@@ -754,6 +795,8 @@ final class InventoryItemMasterTest extends TestCase
             )',
             'CREATE TABLE receipt_lines (
                 receipt_id TEXT NOT NULL, home_id TEXT NOT NULL, home_product_id TEXT NULL,
+                selected_pack_id TEXT NULL, stock_quantity TEXT NULL, stock_quantity_per_pack TEXT NULL,
+                stock_unit TEXT NULL,
                 approval_status TEXT NOT NULL DEFAULT \'pending\'
             )',
         ];

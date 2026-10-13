@@ -206,7 +206,7 @@ final class SqliteDecimalPrecisionTest extends TestCase
     #[DataProvider('quantities')]
     public function testReceiptShoppingLedgerAndReplayKeepEveryDigit(string $quantity, string $afterRemoval): void
     {
-        $this->migrate(self::CURRENT);
+        $this->migrate('Providentia\\Migrations\\Version20261013000100');
         $this->db->executeStatement('PRAGMA foreign_keys = ON');
         $at = new DateTimeImmutable(self::AT);
         $ids = new SequenceUuidGenerator();
@@ -274,6 +274,30 @@ final class SqliteDecimalPrecisionTest extends TestCase
         self::assertSame($quantity, $replayed['lines'][0]['quantity']);
         self::assertSame(1, (int) $this->db->fetchOne('SELECT COUNT(*) FROM stock_movements'));
         self::assertSame(1, (int) $this->db->fetchOne('SELECT COUNT(*) FROM price_observations'));
+        $purchases->updateLine($identity, self::HOME, $receiptId, (string) $line['id'], [
+            'rawDescription' => 'Exact quantity',
+            'quantity' => $quantity,
+            'originalPackText' => null,
+            'unitPrice' => '12.50',
+            'lineTotal' => '13.50',
+        ], (int) $committed['lines'][0]['revision']);
+        self::assertSame(2, (int) $this->db->fetchOne('SELECT COUNT(*) FROM price_observations'));
+        self::assertSame(1, (int) $this->db->fetchOne(
+            'SELECT COUNT(*) FROM price_observations WHERE superseded_at IS NULL',
+        ));
+        self::assertSame('12.50', $this->db->fetchOne(
+            'SELECT line_total FROM price_observations WHERE superseded_at IS NOT NULL',
+        ));
+        $correctedBalance = $inventoryStore->balance(self::HOME, self::PRODUCT);
+        self::assertNotNull($correctedBalance);
+        self::assertSame($quantity, $correctedBalance['quantity']);
+        try {
+            $this->migrate(self::CURRENT);
+            self::fail('Price correction history must not be destructively downgraded.');
+        } catch (AbortMigration $error) {
+            self::assertStringContainsString('Price correction history cannot be downgraded', $error->getMessage());
+        }
+        self::assertSame(2, (int) $this->db->fetchOne('SELECT COUNT(*) FROM price_observations'));
 
         $shopping = new ShoppingService(
             new DbalShoppingStore($this->db),
@@ -367,6 +391,45 @@ final class SqliteDecimalPrecisionTest extends TestCase
         $migration->postDown($schema);
         self::assertSame($before, $schema->toSql($platform));
         self::assertSame([], $migration->getSql());
+    }
+
+    public function testImmediatePurchaseMigrationBackfillsHistoricalCommitAndSurvivesRollback(): void
+    {
+        $this->seedReceipt('1.25');
+        $this->db->executeStatement("UPDATE receipts SET status = 'committed'");
+        $this->db->executeStatement("UPDATE receipt_lines SET approval_status = 'approved'");
+        $this->migrate('Providentia\\Migrations\\Version20261013000100');
+        self::assertSame('1.25', $this->db->fetchOne('SELECT stock_quantity FROM receipt_lines'));
+        self::assertSame('1', $this->db->fetchOne('SELECT stock_quantity_per_pack FROM receipt_lines'));
+        self::assertSame([], $this->db->fetchAllAssociative('PRAGMA foreign_key_check'));
+        $this->migrate(self::CURRENT);
+        self::assertSame('1.25', $this->db->fetchOne('SELECT quantity FROM receipt_lines'));
+        $this->migrate('Providentia\\Migrations\\Version20261013000100');
+        self::assertSame('1.25', $this->db->fetchOne('SELECT stock_quantity FROM receipt_lines'));
+        self::assertSame([], $this->db->fetchAllAssociative('PRAGMA foreign_key_check'));
+    }
+
+    public function testImmediatePurchaseDowngradeRejectsAppliedDraftAndConvertedCommit(): void
+    {
+        $this->seedReceipt('1.25');
+        $this->migrate('Providentia\\Migrations\\Version20261013000100');
+        foreach (['draft', 'committed'] as $status) {
+            $this->db->executeStatement('UPDATE receipts SET status = ?', [$status]);
+            $this->db->executeStatement(
+                'UPDATE receipt_lines SET approval_status = ?, stock_unit = ?, stock_quantity = ?,
+                 stock_quantity_per_pack = ?',
+                ['approved', 'kg', $status === 'draft' ? '1.25' : '5', $status === 'draft' ? '1' : '4'],
+            );
+            try {
+                $this->migrate(self::CURRENT);
+                self::fail('Dropping applied or converted purchase markers must be refused.');
+            } catch (AbortMigration $error) {
+                self::assertStringContainsString('Purchase stock snapshots cannot be downgraded', $error->getMessage());
+            }
+            self::assertSame($status === 'draft' ? '1.25' : '5', $this->db->fetchOne(
+                'SELECT stock_quantity FROM receipt_lines',
+            ));
+        }
     }
 
     private function seedLegacyConfidence(): void

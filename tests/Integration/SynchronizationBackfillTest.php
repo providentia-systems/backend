@@ -251,7 +251,8 @@ final class SynchronizationBackfillTest extends TestCase
                 total_amount TEXT, status TEXT, source TEXT, source_reference TEXT, notes TEXT,
                 revision INTEGER, created_by_user_id TEXT, updated_at TEXT
             )',
-            'CREATE TABLE receipt_lines (
+            'CREATE TABLE receipt_lines (selected_pack_id TEXT, stock_quantity TEXT,
+                 stock_quantity_per_pack TEXT, stock_unit TEXT,
                 id TEXT, home_id TEXT, receipt_id TEXT, raw_description TEXT, quantity TEXT,
                 original_pack_text TEXT, unit_price TEXT, line_total TEXT, home_product_id TEXT,
                 approval_status TEXT, revision INTEGER, updated_at TEXT

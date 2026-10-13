@@ -172,6 +172,55 @@ final class SyncCommandValidatorTest extends TestCase
         (new SyncCommandValidator(65536))->validate($this->command('shopping.preference.put', 4, $payload));
     }
 
+    public function testConfirmedPurchaseCommandRequiresClosedTypedStockInterpretation(): void
+    {
+        $payload = [
+            'receiptId' => '01912345-6789-7abc-adef-0123456789ab',
+            'homeProductId' => '01912345-6789-7abc-bdef-0123456789ab',
+            'packId' => null,
+            'rawDescription' => 'Apples',
+            'quantity' => '5',
+            'originalPackText' => null,
+            'unitPrice' => null,
+            'lineTotal' => '50',
+            'unit' => 'kg',
+            'stockQuantityPerPack' => '1',
+        ];
+        $validator = new SyncCommandValidator(65536);
+        $command = $validator->validate($this->command('purchasing.receipt-line.purchase', 1, $payload));
+        self::assertSame($payload, $command->payload);
+        self::assertSame(1, $command->baseRevision);
+        foreach ([0, null] as $revision) {
+            try {
+                $validator->validate($this->command('purchasing.receipt-line.purchase', $revision, $payload));
+                self::fail('A confirmed purchase requires the receipt revision.');
+            } catch (Problem $error) {
+                self::assertSame(422, $error->status);
+            }
+        }
+        $payload['stockQuantity'] = '5';
+        $this->expectException(Problem::class);
+        $validator->validate($this->command('purchasing.receipt-line.purchase', 1, $payload));
+    }
+
+    public function testPackReviewAcceptsAllFactsTogetherAndRejectsPartialSnapshots(): void
+    {
+        $payload = [
+            'receiptId' => '01912345-6789-7abc-adef-0123456789ab',
+            'homeProductId' => '01912345-6789-7abc-bdef-0123456789ab',
+            'packId' => null,
+            'unit' => 'kg',
+            'stockQuantityPerPack' => '1',
+        ];
+        $validator = new SyncCommandValidator(65536);
+        self::assertSame($payload, $validator->validate(
+            $this->command('purchasing.receipt-line.approve', 1, $payload),
+        )->payload);
+        unset($payload['unit']);
+        $this->expectException(Problem::class);
+        $validator->validate($this->command('purchasing.receipt-line.approve', 1, $payload));
+    }
+
     /**
      * @param array<string, mixed> $payload
      * @return array<string, mixed>

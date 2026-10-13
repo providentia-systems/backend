@@ -201,6 +201,22 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->nullableString($payload, 'lineTotal'),
                 $command->entityId,
             ),
+            'purchasing.receipt-line.purchase' => $this->purchasing->purchaseLine(
+                $identity,
+                $homeId,
+                $this->string($payload, 'receiptId'),
+                $this->revision($command),
+                $this->string($payload, 'homeProductId'),
+                $this->nullableString($payload, 'packId'),
+                $this->string($payload, 'rawDescription'),
+                $this->string($payload, 'quantity'),
+                $this->nullableString($payload, 'originalPackText'),
+                $this->nullableString($payload, 'unitPrice'),
+                $this->nullableString($payload, 'lineTotal'),
+                $this->string($payload, 'unit'),
+                $this->string($payload, 'stockQuantityPerPack'),
+                $command->entityId,
+            ),
             'purchasing.receipt-line.approve' => $this->approveReceiptLine($identity, $homeId, $command),
             'purchasing.receipt-line.unresolve' => $this->purchasing->unresolveLine(
                 $identity,
@@ -289,6 +305,9 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
             $command->entityId,
             $this->string($command->payload, 'homeProductId'),
             $this->revision($command),
+            $this->nullableString($command->payload, 'packId'),
+            $this->nullableString($command->payload, 'unit'),
+            $this->nullableString($command->payload, 'stockQuantityPerPack'),
         );
 
         return ['id' => $command->entityId];

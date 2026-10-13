@@ -43,7 +43,8 @@ final class PurchasingReceiptResponseTest extends TestCase
                  purchase_date TEXT, currency TEXT, total_amount DECIMAL(18, 2), status TEXT,
                  source TEXT, source_reference TEXT, notes TEXT, revision INTEGER,
                  created_by_user_id TEXT, committed_at TEXT, created_at TEXT, updated_at TEXT)',
-                'CREATE TABLE receipt_lines (id TEXT PRIMARY KEY, home_id TEXT, receipt_id TEXT,
+                'CREATE TABLE receipt_lines (selected_pack_id TEXT, stock_quantity TEXT,
+                 stock_quantity_per_pack TEXT, stock_unit TEXT, id TEXT PRIMARY KEY, home_id TEXT, receipt_id TEXT,
                  line_number INTEGER, raw_description TEXT, quantity DECIMAL(18, 8), original_pack_text TEXT,
                  unit_price DECIMAL(18, 2), line_total DECIMAL(18, 2), home_product_id TEXT,
                  approval_status TEXT, revision INTEGER, created_at TEXT, updated_at TEXT)',
@@ -52,7 +53,7 @@ final class PurchasingReceiptResponseTest extends TestCase
                  private_name TEXT, status TEXT)',
                 'CREATE TABLE products (id TEXT, canonical_name TEXT)',
                 'CREATE TABLE receipt_line_matches (home_id TEXT, receipt_line_id TEXT, status TEXT)',
-                'CREATE TABLE price_observations (id TEXT, home_id TEXT, receipt_line_id TEXT,
+                'CREATE TABLE price_observations (superseded_at TEXT, id TEXT, home_id TEXT, receipt_line_id TEXT,
                  product_pack_id TEXT, store_id TEXT, currency TEXT, quantity DECIMAL(18, 8),
                  unit_price DECIMAL(18, 2), line_total DECIMAL(18, 2), observed_at TEXT, created_at TEXT)',
             ] as $sql
@@ -139,7 +140,7 @@ final class PurchasingReceiptResponseTest extends TestCase
         ]);
         $published = [];
         $changes = $this->createMock(ChangeFeedWriter::class);
-        $changes->expects(self::exactly(3))->method('put')->willReturnCallback(
+        $changes->expects(self::exactly(4))->method('put')->willReturnCallback(
             function (
                 string $home,
                 ?string $actor,
@@ -176,10 +177,10 @@ final class PurchasingReceiptResponseTest extends TestCase
         self::assertSame('12.5', $published[0][2]['unitPrice']);
         self::assertSame('12.5', $published[0][2]['lineTotal']);
         self::assertSame('12.5', $published[1][2]['totalAmount']);
-        self::assertSame('purchasing-receipt', $published[2][0]);
-        self::assertSame(4, $published[2][1]);
-        self::assertSame('committed', $published[2][2]['status']);
-        self::assertSame('12.5', $published[2][2]['totalAmount']);
+        self::assertSame('purchasing-receipt', $published[3][0]);
+        self::assertSame(4, $published[3][1]);
+        self::assertSame('committed', $published[3][2]['status']);
+        self::assertSame('12.5', $published[3][2]['totalAmount']);
     }
 
     public function testOptionalHistoryFiltersKeepDateBoundsAndTenantIsolation(): void

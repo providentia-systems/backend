@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Providentia\Purchasing\Application;
 
+use Brick\Math\BigDecimal;
+use Brick\Math\Exception\MathException;
+use Brick\Math\RoundingMode;
 use DateTimeImmutable;
 use DomainException;
 use InvalidArgumentException;
@@ -410,6 +413,277 @@ final class PurchasingService
         });
     }
 
+    /** @return array<string, mixed> */
+    public function purchaseLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        int $expectedReceiptRevision,
+        string $homeProductId,
+        ?string $packId,
+        string $rawDescription,
+        string $quantity,
+        ?string $originalPackText,
+        ?string $unitPrice,
+        ?string $lineTotal,
+        string $expectedUnit,
+        string $expectedStockQuantityPerPack,
+        ?string $requestedId = null,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
+        $homeProductId = $this->identifier($homeProductId);
+        $packId = $packId === null ? null : $this->identifier($packId);
+        if (!in_array($expectedUnit, ['units', 'g', 'kg', 'ml', 'l'], true)) {
+            throw new Problem(422, 'Invalid unit', 'Choose units, g, kg, ml or l.');
+        }
+        $expectedStockQuantityPerPack = $this->quantity($expectedStockQuantityPerPack);
+        $id = $this->identifier($requestedId);
+        $quantity = $this->quantity($quantity);
+        if (DecimalQuantity::quantity($quantity)->isZero()) {
+            throw new Problem(422, 'Invalid quantity', 'Purchased quantity must be positive.');
+        }
+        $rawDescription = trim($rawDescription);
+        if ($rawDescription === '' || mb_strlen($rawDescription) > 500) {
+            throw new Problem(422, 'Invalid receipt line', 'Description must contain 1 to 500 characters.');
+        }
+        $unitPrice = $this->money($unitPrice, true);
+        $lineTotal = $this->money($lineTotal, true);
+        if ($unitPrice === null && $lineTotal === null) {
+            throw new Problem(422, 'Invalid receipt line', 'A unit price or line total is required.');
+        }
+        if ($lineTotal === null) {
+            $lineTotal = $this->money((string) BigDecimal::of($quantity)
+                ->multipliedBy((string) $unitPrice)->toScale(2, RoundingMode::HALF_UP), false);
+        }
+        $originalPackText = $originalPackText === null ? null : trim($originalPackText);
+        if ($originalPackText !== null && mb_strlen($originalPackText) > 191) {
+            throw new Problem(422, 'Invalid receipt line', 'Pack text exceeds 191 characters.');
+        }
+        try {
+            return $this->transactions->transactional(function () use (
+                $identity,
+                $homeId,
+                $receiptId,
+                $expectedReceiptRevision,
+                $homeProductId,
+                $packId,
+                $rawDescription,
+                $quantity,
+                $originalPackText,
+                $unitPrice,
+                $lineTotal,
+                $expectedUnit,
+                $expectedStockQuantityPerPack,
+                $id,
+            ): array {
+                $existing = $this->purchases->receiptLine($homeId, $receiptId, $id);
+                if ($existing !== null) {
+                    if (
+                        $existing['homeProductId'] !== $homeProductId || $existing['packId'] !== $packId
+                        || $existing['quantity'] !== $quantity || $existing['rawDescription'] !== $rawDescription
+                        || ($existing['stockQuantity'] ?? null) === null
+                        || $this->decimalMoney($existing['unitPrice']) !== $this->decimalMoney($unitPrice)
+                        || $this->decimalMoney($existing['lineTotal']) !== $this->decimalMoney($lineTotal)
+                        || $existing['stockQuantityPerPack'] !== $expectedStockQuantityPerPack
+                        || $existing['stockUnit'] !== $expectedUnit
+                        || ($originalPackText !== null && $existing['originalPackText'] !== $originalPackText)
+                    ) {
+                        throw new Problem(
+                            409,
+                            'Purchase identifier conflict',
+                            'This identifier belongs to another purchase.',
+                        );
+                    }
+                    $receipt = $this->purchases->receipt($homeId, $receiptId);
+                    return [...$existing, 'receiptRevision' => (int) ($receipt['revision'] ?? 0)];
+                }
+                $receipt = $this->requireDraft($homeId, $receiptId);
+                $product = $this->purchases->purchaseProduct($homeId, $homeProductId, $packId);
+                if ($product === null) {
+                    throw new Problem(404, 'Not found', 'The selected home product is unavailable.');
+                }
+                $factor = $this->purchaseFactor($product, $packId, $expectedUnit, $expectedStockQuantityPerPack);
+                $stockQuantity = $this->decimalProduct($quantity, $factor);
+                if (DecimalQuantity::quantity($stockQuantity)->isZero()) {
+                    throw new Problem(422, 'Invalid pack', 'The pack must have a positive stock measure.');
+                }
+                $packText = $originalPackText ?? ($product['packText'] ?? null);
+                $at = $this->clock->now();
+                if (
+                    !$this->purchases->addReceiptLine(
+                        $id,
+                        $homeId,
+                        $receiptId,
+                        $expectedReceiptRevision,
+                        count($this->purchases->receiptLines($homeId, $receiptId)) + 1,
+                        $rawDescription,
+                        $quantity,
+                        $packText === null ? null : (string) $packText,
+                        $unitPrice,
+                        $lineTotal,
+                        $at,
+                        [
+                        'home_product_id' => $homeProductId,
+                        'selected_pack_id' => $packId,
+                        'approval_status' => 'approved',
+                        'stock_quantity' => $stockQuantity,
+                        'stock_quantity_per_pack' => $factor,
+                        'stock_unit' => $expectedUnit,
+                        ],
+                    )
+                ) {
+                    throw new Problem(409, 'Revision conflict', 'Refresh this receipt before adding the purchase.');
+                }
+                $this->inventory->recordApprovedInbound(
+                    $identity->userId,
+                    $homeId,
+                    $homeProductId,
+                    $stockQuantity,
+                    'receipt-line',
+                    $id,
+                    'Manually confirmed purchase',
+                    $this->date((string) $receipt['purchaseDate']),
+                );
+                $line = $this->purchases->receiptLine($homeId, $receiptId, $id);
+                if ($line === null) {
+                    throw new \RuntimeException('The purchased line is unavailable.');
+                }
+                $this->observePrice($homeId, $receipt, $line);
+                $this->publishLine($identity, $homeId, $receiptId, $line);
+                return [...$line, 'receiptRevision' => $expectedReceiptRevision + 1];
+            });
+        } catch (DomainException $error) {
+            throw new Problem(422, 'Invalid purchase', $error->getMessage());
+        }
+    }
+
+    /** @param array<string, mixed> $product */
+    private function purchaseFactor(
+        array $product,
+        ?string $packId,
+        string $expectedUnit,
+        string $expectedFactor,
+    ): string {
+        if ($product['unit'] !== $expectedUnit) {
+            throw new Problem(409, 'Stock unit changed', 'Refresh the product before adding this purchase.');
+        }
+        $factor = '1';
+        if ($packId !== null && $product['unit'] === 'units' && $product['homePackId'] !== $packId) {
+            $baseAmount = $product['homeBaseAmount'];
+            $dimension = $product['homeDimension'];
+            if ($product['homePackId'] === null && $product['dimension'] === 'count') {
+                $baseAmount = '1';
+                $dimension = 'count';
+            }
+            if (
+                $baseAmount === null || $dimension !== $product['dimension']
+                || $product['normalizedBaseAmount'] === null
+            ) {
+                throw new Problem(422, 'Incompatible pack', 'Select a stock measurement or a compatible home pack.');
+            }
+            $factor = $this->decimalRatio((string) $product['normalizedBaseAmount'], (string) $baseAmount);
+        } elseif ($packId !== null && $product['unit'] !== 'units') {
+            $dimension = in_array($product['unit'], ['g', 'kg'], true) ? 'mass' : 'volume';
+            if ($product['dimension'] !== $dimension || $product['normalizedBaseAmount'] === null) {
+                throw new Problem(422, 'Incompatible pack', 'This pack cannot be converted to the stock unit.');
+            }
+            $factor = $this->decimalProduct(
+                (string) $product['normalizedBaseAmount'],
+                in_array($product['unit'], ['kg', 'l'], true) ? '0.001' : '1',
+            );
+        }
+        if ($factor !== $expectedFactor) {
+            throw new Problem(409, 'Pack measure changed', 'Refresh the pack size before adding this purchase.');
+        }
+        return $factor;
+    }
+
+    private function decimalMoney(?string $value): ?string
+    {
+        return $value === null ? null : (string) BigDecimal::of($value)->strippedOfTrailingZeros();
+    }
+
+    private function decimalRatio(string $quantity, string $base): string
+    {
+        try {
+            return $this->quantity((string) BigDecimal::of($quantity)->dividedBy($base, 8, RoundingMode::UNNECESSARY));
+        } catch (MathException) {
+            throw new Problem(
+                422,
+                'Invalid quantity',
+                'Pack conversion must be positive and exact within eight decimal places.',
+            );
+        }
+    }
+
+    private function decimalProduct(string $quantity, string $factor): string
+    {
+        try {
+            $product = BigDecimal::of($quantity)->multipliedBy($factor)->toScale(8, RoundingMode::UNNECESSARY);
+            return $this->quantity((string) $product);
+        } catch (MathException $error) {
+            throw new Problem(422, 'Invalid quantity', 'Pack conversion must be exact within eight decimal places.');
+        }
+    }
+
+    /** @param array<string, mixed> $line */
+    private function publishLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        array $line,
+        bool $publishReceipt = true,
+    ): void {
+        $id = (string) $line['id'];
+        $revision = (int) $line['revision'];
+        unset($line['id'], $line['revision']);
+        $this->changes?->put(
+            $homeId,
+            $identity->userId,
+            'purchasing-receipt-line',
+            $id,
+            $revision,
+            $line,
+            $this->clock->now(),
+        );
+        if ($publishReceipt) {
+            $this->publishDraftReceipt($identity, $homeId, $receiptId);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $receipt
+     * @param array<string, mixed> $line
+     */
+    private function observePrice(string $homeId, array $receipt, array $line): void
+    {
+        $lineTotal = $line['lineTotal'];
+        if ($lineTotal === null && $line['unitPrice'] !== null) {
+            try {
+                $lineTotal = (string) BigDecimal::of((string) $line['quantity'])
+                    ->multipliedBy((string) $line['unitPrice'])->toScale(2, RoundingMode::HALF_UP);
+                $this->money($lineTotal, false);
+            } catch (MathException) {
+                throw new Problem(422, 'Invalid amount', 'The calculated line total exceeds the supported range.');
+            }
+        }
+        if ($lineTotal !== null) {
+            $this->purchases->recordPriceObservation(
+                $this->ids->generate(),
+                $homeId,
+                (string) $line['id'],
+                $line['packId'] === null ? null : (string) $line['packId'],
+                $receipt['storeId'] === null ? null : (string) $receipt['storeId'],
+                (string) $receipt['currency'],
+                (string) $line['quantity'],
+                $line['unitPrice'] === null ? null : (string) $line['unitPrice'],
+                (string) $lineTotal,
+                $this->date((string) $receipt['purchaseDate']),
+                $this->clock->now(),
+            );
+        }
+    }
+
     public function approveLine(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -417,6 +691,9 @@ final class PurchasingService
         string $lineId,
         string $homeProductId,
         int $expectedRevision,
+        ?string $packId = null,
+        ?string $expectedUnit = null,
+        ?string $expectedFactor = null,
     ): void {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
         $this->requireDraft($homeId, $receiptId);
@@ -427,7 +704,36 @@ final class PurchasingService
             $homeProductId,
             $expectedRevision,
             $identity,
+            $packId,
+            $expectedUnit,
+            $expectedFactor,
         ): void {
+            $pack = [];
+            if ($expectedUnit !== null || $expectedFactor !== null || $packId !== null) {
+                if ($expectedUnit === null || $expectedFactor === null) {
+                    throw new Problem(
+                        422,
+                        'Invalid pack review',
+                        'Pack review requires a stock unit and exact factor.',
+                    );
+                }
+                $homeProductId = $this->identifier($homeProductId);
+                $packId = $packId === null ? null : $this->identifier($packId);
+                try {
+                    $product = $this->purchases->purchaseProduct($homeId, $homeProductId, $packId);
+                } catch (DomainException $error) {
+                    throw new Problem(422, 'Invalid pack review', $error->getMessage());
+                }
+                if ($product === null) {
+                    throw new Problem(404, 'Not found', 'The selected home product is unavailable.');
+                }
+                $factor = $this->purchaseFactor($product, $packId, $expectedUnit, $this->quantity($expectedFactor));
+                $pack = [
+                    'selected_pack_id' => $packId,
+                    'stock_quantity_per_pack' => $factor,
+                    'stock_unit' => $expectedUnit,
+                ];
+            }
             if (
                 ! $this->purchases->approveReceiptLine(
                     $this->ids->generate(),
@@ -438,6 +744,7 @@ final class PurchasingService
                     $expectedRevision,
                     $identity->userId,
                     $this->clock->now(),
+                    $pack,
                 )
             ) {
                 throw new Problem(409, 'Revision conflict', 'The receipt line changed on another device.');
@@ -497,6 +804,9 @@ final class PurchasingService
         $line = $this->purchases->receiptLine($homeId, $receiptId, $lineId);
         if ($receipt === null || $line === null) {
             throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+        }
+        if (($line['stockQuantity'] ?? null) !== null) {
+            throw new Problem(409, 'Purchase already recorded', 'Correct or remove this purchase instead.');
         }
         $lineRevision = (int) $line['revision'];
         if (
@@ -733,6 +1043,80 @@ final class PurchasingService
                 $fields,
                 $expectedRevision,
             ): array {
+                $receipt = $this->purchases->receipt($homeId, $receiptId);
+                $lines = $this->purchases->receiptLines($homeId, $receiptId);
+                $applied = array_filter(
+                    $lines,
+                    static fn (array $line): bool => ($line['stockQuantity'] ?? null) !== null,
+                );
+                if ($receipt !== null && ($applied !== [] || $receipt['status'] === 'committed')) {
+                    if (($fields['status'] ?? '') === 'cancelled') {
+                        if ((int) $receipt['revision'] !== $expectedRevision || $receipt['status'] !== 'draft') {
+                            throw new Problem(409, 'Revision conflict', 'Refresh this receipt before cancelling it.');
+                        }
+                        foreach ($applied as $line) {
+                            if ($line['approvalStatus'] === 'removed') {
+                                continue;
+                            }
+                            $this->changeDraftLine(
+                                $identity,
+                                $homeId,
+                                $receiptId,
+                                (string) $line['id'],
+                                ['approval_status' => 'removed'],
+                                (int) $line['revision'],
+                                false,
+                            );
+                        }
+                        if (
+                            !$this->purchases->updateDraftReceipt(
+                                $homeId,
+                                $receiptId,
+                                ['status' => 'cancelled'],
+                                $expectedRevision,
+                                $this->clock->now(),
+                            )
+                        ) {
+                            throw new Problem(409, 'Revision conflict', 'Refresh this receipt before cancelling it.');
+                        }
+                        $this->publishDraftReceipt($identity, $homeId, $receiptId);
+                        return ['id' => $receiptId, 'revision' => $expectedRevision + 1];
+                    }
+                    if (
+                        $fields['purchase_date'] !== $receipt['purchaseDate']
+                        || $fields['currency'] !== $receipt['currency']
+                    ) {
+                        throw new Problem(
+                            409,
+                            'Purchase already recorded',
+                            'Purchase date and currency cannot change after stock is recorded.',
+                        );
+                    }
+                    if (
+                        $expectedRevision < 1 || !$this->purchases->updateReceiptMetadata(
+                            $homeId,
+                            $receiptId,
+                            $fields,
+                            $expectedRevision,
+                            $this->clock->now(),
+                        )
+                    ) {
+                        throw new Problem(409, 'Revision conflict', 'Refresh this receipt before changing its store.');
+                    }
+                    if ($fields['store_id'] !== $receipt['storeId']) {
+                        $updatedReceipt = $this->purchases->receipt($homeId, $receiptId);
+                        if ($updatedReceipt === null) {
+                            throw new \RuntimeException('The corrected receipt is unavailable.');
+                        }
+                        foreach ($applied as $line) {
+                            if ($line['approvalStatus'] !== 'removed') {
+                                $this->observePrice($homeId, $updatedReceipt, $line);
+                            }
+                        }
+                    }
+                    $this->publishDraftReceipt($identity, $homeId, $receiptId);
+                    return ['id' => $receiptId, 'revision' => $expectedRevision + 1];
+                }
                 $this->requireDraft($homeId, $receiptId);
                 if (
                     $expectedRevision < 1 ||
@@ -765,6 +1149,7 @@ final class PurchasingService
         string $lineId,
         array $fields,
         int $expectedRevision,
+        bool $bumpReceipt = true,
     ): array {
         return $this->transactions->transactional(function () use (
             $identity,
@@ -773,7 +1158,70 @@ final class PurchasingService
             $lineId,
             $fields,
             $expectedRevision,
+            $bumpReceipt,
         ): array {
+            $receipt = $this->purchases->receipt($homeId, $receiptId);
+            $line = $this->purchases->receiptLine($homeId, $receiptId, $lineId);
+            if (($line['stockQuantity'] ?? null) !== null) {
+                if ((int) $line['revision'] !== $expectedRevision) {
+                    throw new Problem(409, 'Revision conflict', 'Refresh this purchase before correcting it.');
+                }
+                if ($receipt === null || !in_array($receipt['status'], ['draft', 'committed'], true)) {
+                    throw new Problem(409, 'Receipt immutable', 'This receipt cannot be corrected.');
+                }
+                $removing = ($fields['approval_status'] ?? '') === 'removed';
+                if (!$removing && ($line['stockUnit'] ?? null) !== null) {
+                    $product = $this->purchases->purchaseProduct($homeId, (string) $line['homeProductId'], null);
+                    if ($product === null || $product['unit'] !== $line['stockUnit']) {
+                        throw new Problem(
+                            409,
+                            'Stock unit changed',
+                            'Restore the original stock unit before correcting this purchase.',
+                        );
+                    }
+                }
+                $stockQuantity = $removing ? '0' : $this->decimalProduct(
+                    (string) $fields['quantity'],
+                    (string) $line['stockQuantityPerPack'],
+                );
+                $delta = DecimalQuantity::quantity($stockQuantity)
+                    ->subtract(DecimalQuantity::quantity((string) $line['stockQuantity']))->toString();
+                $fields['approval_status'] = $removing ? 'removed' : 'approved';
+                $fields['stock_quantity'] = $stockQuantity;
+                if (
+                    $expectedRevision < 1 || !$this->purchases->applyReceiptLine(
+                        $homeId,
+                        $receiptId,
+                        $lineId,
+                        $fields,
+                        $expectedRevision,
+                        $this->clock->now(),
+                        $bumpReceipt,
+                    )
+                ) {
+                    throw new Problem(409, 'Revision conflict', 'Refresh this purchased line before correcting it.');
+                }
+                if ($delta !== '0') {
+                    $this->inventory->recordPurchaseCorrection(
+                        $identity->userId,
+                        $homeId,
+                        (string) $line['homeProductId'],
+                        $delta,
+                        $lineId . ':' . ($expectedRevision + 1),
+                        $removing ? 'Removed purchase line' : 'Corrected purchase line',
+                        $this->clock->now(),
+                    );
+                }
+                $updated = $this->purchases->receiptLine($homeId, $receiptId, $lineId);
+                if ($updated === null) {
+                    throw new \RuntimeException('The corrected purchase line is unavailable.');
+                }
+                if (!$removing) {
+                    $this->observePrice($homeId, $receipt, $updated);
+                }
+                $this->publishLine($identity, $homeId, $receiptId, $updated, $bumpReceipt);
+                return ['id' => $lineId, 'revision' => $expectedRevision + 1];
+            }
             $this->requireDraft($homeId, $receiptId);
             if (
                 $expectedRevision < 1 ||
@@ -874,6 +1322,9 @@ final class PurchasingService
             }
             $movements = 0;
             foreach ($lines as $line) {
+                if (($line['stockQuantity'] ?? null) !== null) {
+                    continue;
+                }
                 $approvalStatus = (string) $line['approvalStatus'];
                 if ($approvalStatus === 'unresolved' && $line['homeProductId'] === null) {
                     continue;
@@ -885,17 +1336,59 @@ final class PurchasingService
                         'Every receipt line must be explicitly approved or left unresolved before commit.',
                     );
                 }
+                if (($line['stockUnit'] ?? null) !== null) {
+                    $product = $this->purchases->purchaseProduct($homeId, (string) $line['homeProductId'], null);
+                    if ($product === null || $product['unit'] !== $line['stockUnit']) {
+                        throw new Problem(
+                            409,
+                            'Stock unit changed',
+                            'Review this receipt line again before finishing.',
+                        );
+                    }
+                }
+                $factor = (string) ($line['stockQuantityPerPack'] ?? '1');
+                $stockQuantity = $this->decimalProduct((string) $line['quantity'], $factor);
                 $this->inventory->recordApprovedInbound(
                     $identity->userId,
                     $homeId,
                     (string) $line['homeProductId'],
-                    (string) $line['quantity'],
+                    $stockQuantity,
                     'receipt-line',
                     (string) $line['id'],
                     'Approved receipt line',
                     $this->date((string) $receipt['purchaseDate']),
                 );
                 $movements++;
+                if (array_key_exists('stockQuantity', $line)) {
+                    if (
+                        !$this->purchases->applyReceiptLine(
+                            $homeId,
+                            $receiptId,
+                            (string) $line['id'],
+                            [
+                            'stock_quantity' => $stockQuantity,
+                            'stock_quantity_per_pack' => $factor,
+                            'selected_pack_id' => $line['packId'] ?? null,
+                            ],
+                            (int) $line['revision'],
+                            $this->clock->now(),
+                            false,
+                        )
+                    ) {
+                        throw new Problem(409, 'Revision conflict', 'The receipt line changed during commit.');
+                    }
+                    $line = $this->purchases->receiptLine($homeId, $receiptId, (string) $line['id'])
+                        ?? throw new \RuntimeException('The committed receipt line is unavailable.');
+                    $this->changes?->put(
+                        $homeId,
+                        $identity->userId,
+                        'purchasing-receipt-line',
+                        (string) $line['id'],
+                        (int) $line['revision'],
+                        array_diff_key($line, ['id' => true, 'revision' => true]),
+                        $this->clock->now(),
+                    );
+                }
                 if ($line['lineTotal'] !== null) {
                     $this->purchases->recordPriceObservation(
                         $this->ids->generate(),
