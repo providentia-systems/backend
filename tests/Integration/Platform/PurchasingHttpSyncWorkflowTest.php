@@ -24,6 +24,8 @@ use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\IdentityStore;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
+use Providentia\SharedKernel\Infrastructure\Logging\StderrJsonLogger;
+use Psr\Log\LoggerInterface;
 
 /** Real route, JSON parser, bearer authentication and typed synchronization integration. */
 final class PurchasingHttpSyncWorkflowTest extends TestCase
@@ -42,6 +44,8 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
     private string $fourKgPackId;
     private string $itemId;
     private string $receiptId;
+    /** @var list<string> */
+    private array $diagnostics = [];
 
     protected function setUp(): void
     {
@@ -58,6 +62,13 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
         $this->container = require dirname(__DIR__, 3) . '/config/container.php';
         $this->container->setAllowOverride(true);
         $this->container->setService(Connection::class, $this->db);
+        // Expected HTTP rejections must not reach the process error channel:
+        // Infection stops its initial suite on any stderr output. Keep the real
+        // logger and verify its serialized diagnostics through an isolated sink.
+        $this->diagnostics = [];
+        $this->container->setService(LoggerInterface::class, new StderrJsonLogger(function (string $line): void {
+            $this->diagnostics[] = $line;
+        }));
         $connection = $this->db;
         $transactions = $this->createStub(TransactionManager::class);
         $transactions->method('transactional')->willReturnCallback(
@@ -157,6 +168,7 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
         self::assertSame(2, (int) $this->db->fetchOne(
             "SELECT COUNT(*) FROM stock_movements WHERE movement_type = 'purchase-in'",
         ));
+        $this->assertDiagnostics([]);
     }
 
     public function testPurchaseRouteRejectsUnauthenticatedAndOtherHomeRequestsWithoutWrites(): void
@@ -168,6 +180,7 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
         $this->assertBalance('2');
         self::assertSame(0, (int) $this->db->fetchOne('SELECT COUNT(*) FROM receipt_lines'));
         self::assertSame(0, (int) $this->db->fetchOne('SELECT COUNT(*) FROM price_observations'));
+        $this->assertDiagnostics([401, 404, 404]);
     }
 
     public function testChangedHttpRetryAndStaleTypedPurchaseCannotPartiallyChangeStock(): void
@@ -192,6 +205,22 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
         $this->assertBalance('6');
         self::assertSame(1, (int) $this->db->fetchOne('SELECT COUNT(*) FROM receipt_lines'));
         self::assertSame(0, (int) $this->db->fetchOne('SELECT COUNT(*) FROM client_operations'));
+        $this->assertDiagnostics([409]);
+    }
+
+    /** @param list<int> $expectedStatuses */
+    private function assertDiagnostics(array $expectedStatuses): void
+    {
+        $statuses = [];
+        foreach ($this->diagnostics as $line) {
+            $diagnostic = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
+            self::assertIsArray($diagnostic);
+            self::assertSame('warning', $diagnostic['level']);
+            self::assertSame('HTTP request rejected.', $diagnostic['message']);
+            self::assertSame('http.problem', $diagnostic['context']['event']);
+            $statuses[] = $diagnostic['context']['status'];
+        }
+        self::assertSame($expectedStatuses, $statuses);
     }
 
     /** @return array<string, mixed> */
