@@ -47,10 +47,12 @@ final class CursorCodecTest extends TestCase
         $current = new CursorCodec(str_repeat('d', 32), $clock, 3600);
         $oldSnapshot = new SnapshotCursorCodec(str_repeat('c', 32), $clock, 3600);
         $currentSnapshot = new SnapshotCursorCodec(str_repeat('d', 32), $clock, 3600);
-        foreach ([
+        foreach (
+            [
             [$current, $old->encode('home', 0, 0)],
             [$currentSnapshot, $oldSnapshot->encode('home', 0, 'inventory-location', 'location')],
-        ] as [$codec, $cursor]) {
+            ] as [$codec, $cursor]
+        ) {
             try {
                 $codec->decode($cursor, 'home');
                 self::fail('A cursor with an obsolete signature was accepted.');
@@ -89,8 +91,10 @@ final class CursorCodecTest extends TestCase
     public function testMalformedTokenShapeHasTypedRecovery(): void
     {
         $clock = new MutableClock(new DateTimeImmutable('2026-07-30T12:00:00+00:00'));
-        foreach ([new CursorCodec(str_repeat('c', 32), $clock, 3600),
-            new SnapshotCursorCodec(str_repeat('c', 32), $clock, 3600)] as $codec) {
+        foreach (
+            [new CursorCodec(str_repeat('c', 32), $clock, 3600),
+            new SnapshotCursorCodec(str_repeat('c', 32), $clock, 3600)] as $codec
+        ) {
             try {
                 $codec->decode('not-a-cursor', 'home');
                 self::fail('An unsigned malformed token was accepted.');
