@@ -28,6 +28,8 @@ final class ConfigProvider
                     PurchasingService::class => PurchasingFactory::class,
                     'purchasing.history' => PurchasingFactory::class,
                     'purchasing.get' => PurchasingFactory::class,
+                    'purchasing.date-corrections.list' => PurchasingFactory::class,
+                    'purchasing.date-corrections.create' => PurchasingFactory::class,
                     'purchasing.summary' => PurchasingFactory::class,
                     'purchasing.stores.create' => PurchasingFactory::class,
                     'purchasing.stores.update' => PurchasingFactory::class,

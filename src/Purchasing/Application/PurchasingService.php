@@ -20,7 +20,6 @@ use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
-use Throwable;
 
 final class PurchasingService
 {
@@ -73,6 +72,122 @@ final class PurchasingService
         $receipt['lines'] = $this->purchases->receiptLines($homeId, $receiptId);
 
         return $receipt;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function receiptDateCorrections(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+    ): array {
+        $this->receipt($identity, $homeId, $receiptId);
+        return $this->purchases->receiptDateCorrections($homeId, $receiptId);
+    }
+
+    /** @return array{id: string, revision: int, correctionId: string} */
+    public function correctReceiptDate(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        string $purchaseDate,
+        string $reason,
+        int $expectedRevision,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
+        $this->date($purchaseDate);
+        $reason = trim($reason);
+        if ($expectedRevision < 1 || $reason === '' || mb_strlen($reason) > 500) {
+            throw new Problem(
+                422,
+                'Invalid date correction',
+                'Provide a positive revision and a reason of 1–500 characters.',
+            );
+        }
+        try {
+            return $this->transactions->transactional(function () use (
+                $identity,
+                $homeId,
+                $receiptId,
+                $purchaseDate,
+                $reason,
+                $expectedRevision,
+            ): array {
+                $receipt = $this->purchases->receipt($homeId, $receiptId);
+                if ($receipt === null) {
+                    throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+                }
+                if ((int) $receipt['revision'] !== $expectedRevision) {
+                    throw new Problem(
+                        409,
+                        'Revision conflict',
+                        'Reload and review this receipt before correcting its date.',
+                    );
+                }
+                if (!in_array($receipt['status'], ['draft', 'committed'], true)) {
+                    throw new Problem(409, 'Receipt immutable', 'Only an active receipt can have its date corrected.');
+                }
+                if ($receipt['purchaseDate'] === $purchaseDate) {
+                    throw new Problem(422, 'Unchanged purchase date', 'Choose a different purchase day.');
+                }
+                $correctionId = $this->ids->generate();
+                $at = $this->clock->now();
+                if (
+                    !$this->purchases->correctReceiptDate(
+                        $correctionId,
+                        $homeId,
+                        $receiptId,
+                        (string) $receipt['purchaseDate'],
+                        $purchaseDate,
+                        $reason,
+                        $expectedRevision,
+                        $identity->userId,
+                        $at,
+                    )
+                ) {
+                    throw new Problem(
+                        409,
+                        'Revision conflict',
+                        'Reload and review this receipt before correcting its date.',
+                    );
+                }
+                $updated = [...$receipt, 'purchaseDate' => $purchaseDate];
+                foreach ($this->purchases->receiptLines($homeId, $receiptId) as $line) {
+                    if (($line['stockQuantity'] ?? null) === null || $line['approvalStatus'] === 'removed') {
+                        continue;
+                    }
+                    $this->inventory->correctPurchaseDate(
+                        $identity->userId,
+                        $homeId,
+                        (string) $line['id'],
+                        $this->date($purchaseDate),
+                        $this->ids->generate(),
+                        $reason,
+                    );
+                    $this->observePrice($homeId, $updated, $line);
+                }
+                $this->publishDraftReceipt($identity, $homeId, $receiptId);
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'purchasing-receipt-date-correction',
+                    $correctionId,
+                    1,
+                    [
+                    'receiptId' => $receiptId,
+                    'originalPurchaseDate' => (string) $receipt['purchaseDate'],
+                    'purchaseDate' => $purchaseDate,
+                    'reason' => $reason,
+                    'receiptRevision' => $expectedRevision + 1,
+                    'actorUserId' => $identity->userId,
+                    'correctedAt' => $at->format(DATE_ATOM),
+                    ],
+                    $at,
+                );
+                return ['id' => $receiptId, 'revision' => $expectedRevision + 1, 'correctionId' => $correctionId];
+            });
+        } catch (DomainException $error) {
+            throw new Problem(409, 'Receipt date correction conflict', $error->getMessage());
+        }
     }
 
     /** @return list<array<string, mixed>> */
@@ -1051,7 +1166,10 @@ final class PurchasingService
                 );
                 if ($receipt !== null && ($applied !== [] || $receipt['status'] === 'committed')) {
                     if (($fields['status'] ?? '') === 'cancelled') {
-                        if ((int) $receipt['revision'] !== $expectedRevision || $receipt['status'] !== 'draft') {
+                        if (
+                            (int) $receipt['revision'] !== $expectedRevision
+                            || !in_array($receipt['status'], ['draft', 'committed'], true)
+                        ) {
                             throw new Problem(409, 'Revision conflict', 'Refresh this receipt before cancelling it.');
                         }
                         foreach ($applied as $line) {
@@ -1089,7 +1207,7 @@ final class PurchasingService
                         throw new Problem(
                             409,
                             'Purchase already recorded',
-                            'Purchase date and currency cannot change after stock is recorded.',
+                            'Use an audited date correction to change the purchase day. Currency remains fixed.',
                         );
                     }
                     if (
@@ -1209,7 +1327,7 @@ final class PurchasingService
                         $delta,
                         $lineId . ':' . ($expectedRevision + 1),
                         $removing ? 'Removed purchase line' : 'Corrected purchase line',
-                        $this->clock->now(),
+                        $this->date((string) $receipt['purchaseDate']),
                     );
                 }
                 $updated = $this->purchases->receiptLine($homeId, $receiptId, $lineId);
@@ -1508,16 +1626,14 @@ final class PurchasingService
 
     private function date(string $value): DateTimeImmutable
     {
-        try {
-            $date = new DateTimeImmutable($value . (strlen($value) === 10 ? 'T00:00:00Z' : ''));
-        } catch (Throwable) {
-            throw new Problem(422, 'Invalid date', 'Date must be an ISO-8601 value.');
+        // A purchase day is a calendar value, never an instant in the device timezone.
+        if (
+            preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $value, $parts) !== 1
+            || !checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])
+        ) {
+            throw new Problem(422, 'Invalid date', 'Purchase day must be a valid YYYY-MM-DD calendar date.');
         }
-        if (strlen($value) === 10 && $date->format('Y-m-d') !== $value) {
-            throw new Problem(422, 'Invalid date', 'Date must be an ISO-8601 calendar date.');
-        }
-
-        return $date;
+        return new DateTimeImmutable($value . 'T00:00:00Z');
     }
 
     private function normalize(string $value): string

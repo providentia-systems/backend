@@ -137,6 +137,63 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         return array_map($this->lineProjection(...), $rows);
     }
 
+    public function receiptDateCorrections(string $homeId, string $receiptId): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT id, receipt_id AS receiptId, original_purchase_date AS originalPurchaseDate,
+                    purchase_date AS purchaseDate, reason, receipt_revision AS receiptRevision,
+                    actor_user_id AS actorUserId, created_at AS correctedAt
+             FROM receipt_date_corrections WHERE home_id = :home AND receipt_id = :receipt
+             ORDER BY receipt_revision, id',
+            ['home' => $homeId, 'receipt' => $receiptId],
+        );
+        foreach ($rows as &$row) {
+            $row['receiptRevision'] = (int) $row['receiptRevision'];
+            $row['correctedAt'] = new DateTimeImmutable((string) $row['correctedAt'], new DateTimeZone('UTC'))
+                ->format(DATE_ATOM);
+        }
+        return $rows;
+    }
+
+    public function correctReceiptDate(
+        string $id,
+        string $homeId,
+        string $receiptId,
+        string $originalDate,
+        string $purchaseDate,
+        string $reason,
+        int $expectedRevision,
+        string $actorUserId,
+        DateTimeImmutable $at,
+    ): bool {
+        $updated = $this->connection->executeStatement(
+            'UPDATE receipts SET purchase_date = :date, revision = revision + 1, updated_at = :at
+             WHERE home_id = :home AND id = :id AND revision = :revision
+               AND purchase_date = :original AND status IN (:draft, :committed)',
+            [
+                'date' => $purchaseDate, 'at' => $this->date($at), 'home' => $homeId, 'id' => $receiptId,
+                'revision' => $expectedRevision, 'original' => $originalDate,
+                'draft' => 'draft', 'committed' => 'committed',
+            ],
+        );
+        if ($updated !== 1) {
+            return false;
+        }
+        $this->connection->insert('receipt_date_corrections', [
+            'id' => $id, 'home_id' => $homeId, 'receipt_id' => $receiptId,
+            'original_purchase_date' => $originalDate, 'purchase_date' => $purchaseDate,
+            'reason' => $reason, 'receipt_revision' => $expectedRevision + 1,
+            'actor_user_id' => $actorUserId, 'created_at' => $this->date($at),
+        ]);
+        $this->connection->executeStatement(
+            'UPDATE price_observations SET superseded_at = :at WHERE home_id = :home
+             AND superseded_at IS NULL AND receipt_line_id IN
+             (SELECT id FROM receipt_lines WHERE home_id = :home AND receipt_id = :receipt)',
+            ['at' => $this->date($at), 'home' => $homeId, 'receipt' => $receiptId],
+        );
+        return true;
+    }
+
     public function receiptLine(string $homeId, string $receiptId, string $lineId): ?array
     {
         $row = $this->one(
@@ -338,6 +395,18 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         int $expectedRevision,
         DateTimeImmutable $at,
     ): bool {
+        if (($fields['status'] ?? null) === 'cancelled') {
+            return $this->connection->executeStatement(
+                'UPDATE receipts SET status = :cancelled, revision = revision + 1, updated_at = :at
+                 WHERE home_id = :home AND id = :id AND revision = :revision
+                   AND status IN (:draft, :committed)',
+                [
+                    'cancelled' => 'cancelled', 'at' => $this->date($at), 'home' => $homeId,
+                    'id' => $receiptId, 'revision' => $expectedRevision, 'draft' => 'draft',
+                    'committed' => 'committed',
+                ],
+            ) === 1;
+        }
         if (isset($fields['store_id'])) {
             $store = $this->connection->fetchOne(
                 $this->forUpdate('SELECT id FROM stores WHERE home_id = ? AND id = ? AND status = ?'),
