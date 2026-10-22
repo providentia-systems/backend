@@ -22,6 +22,21 @@ interface PurchasingStore
     public function receipt(string $homeId, string $receiptId): ?array;
 
     /** @return list<array<string, mixed>> */
+    public function receiptDateCorrections(string $homeId, string $receiptId): array;
+
+    public function correctReceiptDate(
+        string $id,
+        string $homeId,
+        string $receiptId,
+        string $originalDate,
+        string $purchaseDate,
+        string $reason,
+        int $expectedRevision,
+        string $actorUserId,
+        DateTimeImmutable $at,
+    ): bool;
+
+    /** @return list<array<string, mixed>> */
     public function receiptLines(string $homeId, string $receiptId): array;
 
     /** @return array<string, mixed>|null */

@@ -66,6 +66,9 @@ final class PurchasingImmediatePurchaseTest extends TestCase
             'CREATE TABLE price_observations (id TEXT, home_id TEXT, receipt_line_id TEXT,
              product_pack_id TEXT, store_id TEXT, currency TEXT, quantity TEXT, unit_price TEXT,
              line_total TEXT, observed_at TEXT, created_at TEXT, superseded_at TEXT)',
+            'CREATE TABLE receipt_date_corrections (id TEXT PRIMARY KEY, home_id TEXT, receipt_id TEXT,
+             original_purchase_date TEXT, purchase_date TEXT, reason TEXT, receipt_revision INTEGER,
+             actor_user_id TEXT, created_at TEXT, UNIQUE(home_id, receipt_id, receipt_revision))',
             'CREATE TABLE stock_movements (id TEXT PRIMARY KEY, home_id TEXT, home_product_id TEXT,
              movement_type TEXT, quantity_delta TEXT, source_type TEXT, source_id TEXT, reason TEXT,
              actor_user_id TEXT, reversed_movement_id TEXT, occurred_at TEXT, created_at TEXT,
@@ -77,6 +80,7 @@ final class PurchasingImmediatePurchaseTest extends TestCase
         ) {
             $this->connection->executeStatement($sql);
         }
+        \ProvidentiaTest\Support\InventoryChronologySchema::install($this->connection);
         $this->at = new DateTimeImmutable('2026-10-13T07:00:00Z');
         $this->store = new DbalPurchasingStore($this->connection);
         $ids = $this->createStub(UuidGenerator::class);
@@ -135,6 +139,18 @@ final class PurchasingImmediatePurchaseTest extends TestCase
                     $this->at,
                 ),
         );
+        $inventory->method('correctPurchaseDate')->willReturnCallback(
+            fn (string $actor, string $home, string $line, DateTimeImmutable $purchaseDate,
+                string $correctionId, string $reason): array => $ledger->correctPurchaseDate(
+                    $actor,
+                    $home,
+                    $line,
+                    $purchaseDate,
+                    $correctionId,
+                    $reason,
+                    $this->at,
+                ),
+        );
         $this->service = new PurchasingService($this->store, $inventory, $authorization, $ids, $clock, $transactions);
         $this->connection->insert('home_products', [
             'id' => self::ITEM, 'home_id' => self::HOME, 'product_id' => 'apples',
@@ -160,9 +176,19 @@ final class PurchasingImmediatePurchaseTest extends TestCase
 
     public function testPurchasesImmediatelyAddToExistingBalanceAndCompletionDoesNotRepeatThem(): void
     {
-        $this->connection->insert('inventory_balances', [
-            'home_id' => self::HOME, 'home_product_id' => self::ITEM, 'quantity' => '2', 'revision' => 1,
-        ]);
+        new DbalInventoryStore($this->connection)->appendMovement(
+            '01912345-6789-7abc-8def-4123456789ab',
+            self::HOME,
+            self::ITEM,
+            'adjustment',
+            '2',
+            'manual',
+            'opening-stock',
+            'Opening stock evidence',
+            self::USER,
+            $this->at->modify('-1 day'),
+            $this->at,
+        );
         $first = $this->purchase('4');
         self::assertSame('approved', $first['approvalStatus']);
         self::assertSame('4', $first['quantity']);
@@ -194,7 +220,9 @@ final class PurchasingImmediatePurchaseTest extends TestCase
         self::assertSame(0, $receipt['movements']);
         self::assertSame('10', $this->balance());
         self::assertSame(0, $this->service->commit($this->identity(), self::HOME, self::RECEIPT, 3)['movements']);
-        self::assertSame('2', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM stock_movements'));
+        self::assertSame('2', (string) $this->connection->fetchOne(
+            "SELECT COUNT(*) FROM stock_movements WHERE movement_type = 'purchase-in'",
+        ));
     }
 
     public function testRetryOfSameLineIdentifierCannotIncreaseStockTwice(): void
@@ -294,6 +322,205 @@ final class PurchasingImmediatePurchaseTest extends TestCase
             'SELECT store_id FROM price_observations WHERE superseded_at IS NOT NULL',
         ));
         self::assertSame('1', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM stock_movements'));
+    }
+
+    public function testAuditedDateCorrectionPreservesLogicalPurchaseAndSupersedesPriceEvidence(): void
+    {
+        $this->purchase('4');
+        $this->service->commit($this->identity(), self::HOME, self::RECEIPT, 2);
+        $original = $this->service->receipt($this->identity(), self::HOME, self::RECEIPT);
+        $result = $this->service->correctReceiptDate(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            '2026-10-10',
+            'Corrected from original receipt',
+            3,
+        );
+        self::assertSame(4, $result['revision']);
+        $receipt = $this->service->receipt($this->identity(), self::HOME, self::RECEIPT);
+        self::assertSame('2026-10-10', $receipt['purchaseDate']);
+        self::assertSame($original['createdAt'], $receipt['createdAt']);
+        self::assertSame($original['committedAt'], $receipt['committedAt']);
+        self::assertSame($original['lines'], $receipt['lines']);
+        self::assertSame('4', $this->balance());
+        self::assertSame('1', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM stock_movements'));
+        self::assertSame('2026-10-13 00:00:00', $this->connection->fetchOne('SELECT occurred_at FROM stock_movements'));
+        $history = $this->service->receiptDateCorrections($this->identity(), self::HOME, self::RECEIPT);
+        self::assertCount(1, $history);
+        self::assertSame('2026-10-13', $history[0]['originalPurchaseDate']);
+        self::assertSame('2026-10-10', $history[0]['purchaseDate']);
+        self::assertSame(self::USER, $history[0]['actorUserId']);
+        self::assertSame(4, $history[0]['receiptRevision']);
+        self::assertSame($this->at->format(DATE_ATOM), $history[0]['correctedAt']);
+        self::assertSame('2026-10-10 00:00:00', $this->connection->fetchOne(
+            'SELECT observed_at FROM price_observations WHERE superseded_at IS NULL',
+        ));
+        self::assertSame('2', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM price_observations'));
+
+        try {
+            $this->service->correctReceiptDate(
+                $this->identity(),
+                self::HOME,
+                self::RECEIPT,
+                '2026-10-09',
+                'Stale device',
+                3,
+            );
+            self::fail('A stale date correction must not overwrite another device.');
+        } catch (Problem $error) {
+            self::assertSame(409, $error->status);
+        }
+        self::assertCount(1, $this->store->receiptDateCorrections(self::HOME, self::RECEIPT));
+        self::assertSame('2026-10-10', $this->store->receipt(self::HOME, self::RECEIPT)['purchaseDate']);
+    }
+
+    public function testNotesOnlyEditPreservesCorrectedDayCurrencyAndStock(): void
+    {
+        $this->purchase('4');
+        $this->service->correctReceiptDate(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            '2026-10-10',
+            'Shopping was earlier',
+            2,
+        );
+        $this->service->updateReceipt($this->identity(), self::HOME, self::RECEIPT, [
+            'storeId' => null, 'purchaseDate' => '2026-10-10', 'currency' => 'NAD',
+            'totalAmount' => '40', 'notes' => 'Metadata only',
+        ], 3);
+        self::assertSame('4', $this->balance());
+        self::assertSame('2026-10-10', $this->store->receipt(self::HOME, self::RECEIPT)['purchaseDate']);
+        self::assertSame('2', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM price_observations'));
+        try {
+            $this->service->updateReceipt($this->identity(), self::HOME, self::RECEIPT, [
+                'storeId' => null, 'purchaseDate' => '2026-10-10', 'currency' => 'USD',
+                'totalAmount' => '40', 'notes' => 'Currency reinterpretation',
+            ], 4);
+            self::fail('Date correction must not unlock currency reinterpretation.');
+        } catch (Problem $error) {
+            self::assertSame(409, $error->status);
+        }
+        self::assertSame('NAD', $this->store->receipt(self::HOME, self::RECEIPT)['currency']);
+    }
+
+    public function testUnavailableOriginalMovementRollsBackDateAndPriceCorrectionsForReview(): void
+    {
+        $this->purchase('4');
+        $this->connection->executeStatement('DELETE FROM stock_movements');
+        try {
+            $this->service->correctReceiptDate(
+                $this->identity(),
+                self::HOME,
+                self::RECEIPT,
+                '2026-10-10',
+                'Original evidence is unavailable',
+                2,
+            );
+            self::fail('Missing original movement must require review.');
+        } catch (Problem $error) {
+            self::assertSame(409, $error->status);
+        }
+        $receipt = $this->store->receipt(self::HOME, self::RECEIPT);
+        self::assertSame('2026-10-13', $receipt['purchaseDate']);
+        self::assertSame(2, $receipt['revision']);
+        self::assertSame([], $this->store->receiptDateCorrections(self::HOME, self::RECEIPT));
+        self::assertSame('1', (string) $this->connection->fetchOne(
+            'SELECT COUNT(*) FROM price_observations WHERE superseded_at IS NULL',
+        ));
+    }
+
+    public function testDateCorrectionAcrossReliableCountReconcilesWithoutChangingPhysicalObservation(): void
+    {
+        foreach ([['opening', '2026-10-01 12:00:00', '2'], ['closing', '2026-10-11 12:00:00', '3']] as $count) {
+            [$id, $observed, $quantity] = $count;
+            $this->connection->insert('stock_count_sessions', [
+                'id' => $id, 'home_id' => self::HOME, 'status' => 'closed',
+                'scope_complete' => 1, 'reliability' => 'reliable',
+                'observed_at' => $observed, 'closed_at' => $observed, 'updated_at' => $observed,
+            ]);
+            $this->connection->insert('stock_count_lines', [
+                'id' => $id . '-line', 'home_id' => self::HOME, 'session_id' => $id,
+                'home_product_id' => self::ITEM, 'quantity' => $quantity, 'stock_unit' => 'kg',
+                'status' => 'confirmed', 'updated_at' => $observed,
+            ]);
+        }
+        $this->purchase('4');
+        self::assertSame('7', $this->balance());
+        $this->service->correctReceiptDate(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            '2026-10-10',
+            'Bought before the later physical count',
+            2,
+        );
+        self::assertSame('3', $this->balance());
+        self::assertSame('3', $this->connection->fetchOne(
+            "SELECT quantity FROM stock_count_lines WHERE id = 'closing-line'",
+        ));
+        self::assertSame('1', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM stock_movements'));
+        self::assertSame('1', (string) $this->connection->fetchOne(
+            'SELECT COUNT(*) FROM stock_purchase_date_corrections',
+        ));
+        new DbalInventoryStore($this->connection)->rebuildBalances(self::HOME, $this->at);
+        self::assertSame('3', $this->balance());
+        $this->service->cancelReceipt($this->identity(), self::HOME, self::RECEIPT, 3);
+        self::assertSame('3', $this->balance());
+        self::assertSame(
+            ['4', '-4'],
+            $this->connection->fetchFirstColumn('SELECT quantity_delta FROM stock_movements'),
+        );
+    }
+
+    public function testCommittedReceiptCancellationRetainsEvidenceAndReversesStockOnce(): void
+    {
+        $this->purchase('4');
+        $this->service->commit($this->identity(), self::HOME, self::RECEIPT, 2);
+        $this->service->cancelReceipt($this->identity(), self::HOME, self::RECEIPT, 3);
+        self::assertSame('0', $this->balance());
+        self::assertSame('cancelled', $this->store->receipt(self::HOME, self::RECEIPT)['status']);
+        self::assertSame(
+            ['4', '-4'],
+            $this->connection->fetchFirstColumn('SELECT quantity_delta FROM stock_movements'),
+        );
+        self::assertSame('0', (string) $this->connection->fetchOne(
+            'SELECT COUNT(*) FROM price_observations WHERE superseded_at IS NULL',
+        ));
+        $this->expectException(Problem::class);
+        $this->service->cancelReceipt($this->identity(), self::HOME, self::RECEIPT, 3);
+    }
+
+    public function testPurchaseCalendarDateValidationIsIndependentOfHostTimezone(): void
+    {
+        $originalTimezone = date_default_timezone_get();
+        try {
+            foreach (['Africa/Windhoek', 'America/New_York', 'Pacific/Kiritimati', 'UTC'] as $timezone) {
+                date_default_timezone_set($timezone);
+                $receipt = $this->service->createReceipt(
+                    $this->identity(),
+                    self::HOME,
+                    null,
+                    '2024-02-29',
+                    'NAD',
+                    null,
+                    '',
+                    null,
+                );
+                self::assertSame('2024-02-29', $receipt['purchaseDate']);
+            }
+            foreach (['2026-02-29', '2026-04-31', '2026-10-13T00:00:00+02:00', 'yesterday', '0000-01-01'] as $date) {
+                try {
+                    $this->service->createReceipt($this->identity(), self::HOME, null, $date, 'NAD', null, '', null);
+                    self::fail('Invalid purchase calendar date accepted: ' . $date);
+                } catch (Problem $error) {
+                    self::assertSame(422, $error->status);
+                }
+            }
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
     }
 
     public function testWrongDimensionAndStaleRevisionDoNotLeavePartialPurchaseData(): void
@@ -475,6 +702,25 @@ final class PurchasingImmediatePurchaseTest extends TestCase
         self::assertSame(201, $handler->handle($request)->getStatusCode());
         self::assertSame('5', $this->balance());
         $body['stockQuantityPerPack'] = true;
+        $this->expectException(Problem::class);
+        $handler->handle($request->withParsedBody($body));
+    }
+
+    public function testDirectHttpDateCorrectionValidatesInputAndReturnsAuditableHistory(): void
+    {
+        $this->purchase('4');
+        $body = ['purchaseDate' => '2026-10-10', 'reason' => 'Verified purchase day', 'expectedRevision' => 2];
+        $request = new ServerRequest()->withAttribute('homeId', self::HOME)
+            ->withAttribute('receiptId', self::RECEIPT)
+            ->withAttribute(BearerAuthenticationMiddleware::ATTRIBUTE, $this->identity())->withParsedBody($body);
+        $handler = new PurchasingHandler($this->service, 'date-corrections.create');
+        self::assertSame(201, $handler->handle($request)->getStatusCode());
+        $response = new PurchasingHandler($this->service, 'date-corrections.list')->handle($request);
+        self::assertSame(200, $response->getStatusCode());
+        $history = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('2026-10-13', $history['data'][0]['originalPurchaseDate']);
+        self::assertSame('2026-10-10', $history['data'][0]['purchaseDate']);
+        $body['expectedRevision'] = '3';
         $this->expectException(Problem::class);
         $handler->handle($request->withParsedBody($body));
     }

@@ -167,7 +167,8 @@ final class ExtractionSchema
             $result['purchaseDate'] !== null
             && (
                 ! is_string($result['purchaseDate'])
-                || preg_match('/^\d{4}-\d{2}-\d{2}$/', $result['purchaseDate']) !== 1
+                || preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $result['purchaseDate'], $dateParts) !== 1
+                || !checkdate((int) $dateParts[2], (int) $dateParts[3], (int) $dateParts[1])
             )
         ) {
             throw new AiProviderException('schema_mismatch', 'The provider returned an invalid purchase date.');

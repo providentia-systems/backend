@@ -54,6 +54,10 @@ final class PurchasingHandler implements RequestHandlerInterface
                 $body,
             ),
             'get' => new JsonResponse($this->purchases->receipt($identity, $homeId, $receiptId)),
+            'date-corrections.list' => new JsonResponse([
+                'data' => $this->purchases->receiptDateCorrections($identity, $homeId, $receiptId),
+            ]),
+            'date-corrections.create' => $this->correctReceiptDate($identity, $homeId, $receiptId, $body),
             'summary' => new JsonResponse(
                 $this->purchases->summary($identity, $homeId, (int) ($query['recentDays'] ?? 90)),
             ),
@@ -119,6 +123,35 @@ final class PurchasingHandler implements RequestHandlerInterface
             ),
             default => throw new \LogicException('Unknown purchasing action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function correctReceiptDate(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        array $body,
+    ): ResponseInterface {
+        $keys = ['purchaseDate', 'reason', 'expectedRevision'];
+        if (
+            array_diff(array_keys($body), $keys) !== [] || array_diff($keys, array_keys($body)) !== []
+            || !is_string($body['purchaseDate']) || !is_string($body['reason'])
+            || !is_int($body['expectedRevision']) || $body['expectedRevision'] < 1
+        ) {
+            throw new HttpProblem(
+                422,
+                'Invalid date correction',
+                'Provide purchaseDate, reason and a positive expectedRevision.',
+            );
+        }
+        return new JsonResponse($this->purchases->correctReceiptDate(
+            $identity,
+            $homeId,
+            $receiptId,
+            $body['purchaseDate'],
+            $body['reason'],
+            $body['expectedRevision'],
+        ), 201);
     }
 
     /** @param array<string, mixed> $body */

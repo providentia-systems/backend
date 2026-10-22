@@ -10,6 +10,20 @@ use Providentia\AiIntegration\Application\ExtractionSchema;
 
 final class ExtractionSchemaTest extends TestCase
 {
+    public function testMissingReceiptDayRemainsUnknownAndImpossibleDayIsRejected(): void
+    {
+        $result = [
+            'documentType' => 'receipt', 'merchant' => null, 'receiptNumber' => null,
+            'purchaseDate' => null, 'currency' => null, 'totalAmount' => null,
+            'taxAmount' => null, 'notes' => null, 'warnings' => [], 'candidates' => [],
+        ];
+        self::assertNull(new ExtractionSchema()->validate($result, 'receipt')['purchaseDate']);
+        $result['purchaseDate'] = '2026-02-29';
+        $this->expectException(AiProviderException::class);
+        $this->expectExceptionMessage('invalid purchase date');
+        new ExtractionSchema()->validate($result, 'receipt');
+    }
+
     public function testValidReceiptProposalRemainsReviewOnlyData(): void
     {
         $result = [
