@@ -76,13 +76,17 @@ and a non-HTTPS public URL. Implicit-TLS SMTP verifies
 the peer certificate and hostname. Development Mailpit remains plaintext on the
 private Compose network and must never be used as a production profile.
 
-The Caddy web image is rebuilt with Go 1.26.9 and `golang.org/x/net` 0.60.0 to
+The Caddy web image is rebuilt with Go 1.26.10 and `golang.org/x/net` 0.60.0 to
 address the October 2026 HTTP/2, HTTP Range and TLS denial-of-service findings
-CVE-2026-78669, CVE-2026-78667 and CVE-2026-97031. Go 1.26.9 is a patch release
+CVE-2026-78669, CVE-2026-78667 and CVE-2026-97031. Go 1.26.10 is a patch release
 within the existing builder series; Caddy remains 2.11.4. The tagged `x/net`
 module requires `x/crypto` 0.57.0 and `x/text` 0.42.0, so those compatible pins
 move together. Go's checksum database remains enabled and production CI checks
 the compiled binary's Go/module versions before the existing image scans.
+Go 1.26.10 additionally fixes the `crypto/x509` certificate-validation issue
+CVE-2026-111943. The explicit `github.com/klauspost/compress` 1.18.7 pin fixes
+the s2 dictionary out-of-bounds read CVE-2026-63209; the compiled-binary check
+also verifies this module so a cached vulnerable dependency cannot pass.
 
 Primary evidence:
 [Go release history](https://go.dev/doc/devel/release#go1.26),
@@ -90,6 +94,7 @@ Primary evidence:
 [HTTP Range advisory](https://pkg.go.dev/vuln/GO-2026-6609),
 [TLS advisory](https://pkg.go.dev/vuln/GO-2026-6607),
 [tagged x/net requirements](https://github.com/golang/net/blob/v0.60.0/go.mod),
+[compress 1.18.7 security release](https://github.com/klauspost/compress/releases/tag/v1.18.7),
 and the [official Go image manifest](https://github.com/docker-library/official-images/blob/master/library/golang).
 
 ## Known limitations and acceptance boundary

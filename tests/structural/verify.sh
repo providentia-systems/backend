@@ -205,12 +205,13 @@ const pins = {
   xdebug: '3.5.3',
   node: '22.14.0',
   nodeMinimum: '18.19.0',
-  webGo: '1.26.9',
+  webGo: '1.26.10',
   caddy: '2.11.4',
   goNet: '0.60.0',
   goCrypto: '0.57.0',
   goText: '0.42.0',
   goGrpc: '1.83.2',
+  goCompress: '1.18.7',
 };
 for (const [name, value] of Object.entries(pins)) {
   if (manifest.runtime?.[name] !== value) {
@@ -225,13 +226,15 @@ for (const [argument, value] of Object.entries({
   GO_CRYPTO_VERSION: manifest.runtime.goCrypto,
   GO_TEXT_VERSION: manifest.runtime.goText,
   GO_GRPC_VERSION: manifest.runtime.goGrpc,
+  GO_COMPRESS_VERSION: manifest.runtime.goCompress,
 })) {
   if (!productionDockerfile.includes(`ARG ${argument}=${value}\n`)) {
     throw new Error(`Production web-image ${argument} does not match the pinned manifest.`);
   }
 }
 if (!manifest.containerImages.includes(`golang:${manifest.runtime.webGo}-alpine3.23`)
-    || !productionDockerfile.includes('golang.org/x/net@v${GO_NET_VERSION}')) {
+    || !productionDockerfile.includes('golang.org/x/net@v${GO_NET_VERSION}')
+    || !productionDockerfile.includes('github.com/klauspost/compress@v${GO_COMPRESS_VERSION}')) {
   throw new Error('Production web-image patched Go and HTTP/2 module must be explicit build inputs.');
 }
 for (const domain of ['nodejs.org', 'repo.packagist.org', 'pecl.php.net', 'registry-1.docker.io', 'ghcr.io']) {

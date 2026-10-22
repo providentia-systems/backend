@@ -24,8 +24,11 @@ images, required network endpoints, and validation commands. Changes to a runtim
 manifest, the corresponding Dockerfiles, lockfiles when applicable, and the
 structural assertions together.
 
-The production web builder retains Caddy 2.11.4 and pins Go 1.26.9 with
-`golang.org/x/net` 0.60.0, `x/crypto` 0.57.0, `x/text` 0.42.0 and gRPC 1.83.2.
+The production web builder retains Caddy 2.11.4 and pins Go 1.26.10 with
+`golang.org/x/net` 0.60.0, `x/crypto` 0.57.0, `x/text` 0.42.0, gRPC 1.83.2 and
+`github.com/klauspost/compress` 1.18.7. Go 1.26.10 rejects the untrusted
+intermediate certificates reported as CVE-2026-111943; compress 1.18.7 fixes
+the s2 dictionary out-of-bounds read reported as CVE-2026-63209.
 The crypto/text versions are the compatible minimums required by the tagged
 `x/net` module. The production-image workflow checks the actual Caddy binary's
 Go version and module build information; the Security workflow still rejects
