@@ -47,7 +47,7 @@ final class ConsumptionEstimatorBoundaryTest extends TestCase
         $later = new DateTimeImmutable('2026-01-01T12:00:00+00:00');
         $estimate = (new ConsumptionEstimator())->estimate(
             [
-                ['at' => $start, 'quantity' => '10'],
+                ['at' => $start, 'quantity' => '1'],
                 ['at' => $start, 'quantity' => '1'],
                 ['at' => $later, 'quantity' => '0'],
             ],
@@ -61,7 +61,7 @@ final class ConsumptionEstimatorBoundaryTest extends TestCase
         self::assertSame('1', $estimate['dailyRate']);
     }
 
-    public function testOnlyNegativeConsumptionAddsTheClampLimitationAndDuplicatesAreRemoved(): void
+    public function testNegativeResidualIsAReviewCaseAndIsExcludedFromTheRate(): void
     {
         $counts = [
             ['at' => new DateTimeImmutable('2026-01-01T00:00:00+00:00'), 'quantity' => '5'],
@@ -74,9 +74,13 @@ final class ConsumptionEstimatorBoundaryTest extends TestCase
             [],
             new DateTimeImmutable('2026-01-03T00:00:00+00:00'),
         );
-        $clamp = 'A count interval implied negative consumption and was clamped to zero.';
+        $clamp = 'A count interval requires review: negative_residual.';
 
         self::assertSame('0', $negative['dailyRate']);
+        self::assertSame(0, $negative['sampleIntervals']);
+        self::assertSame('-5', $negative['intervalEvidence'][0]['residualDepletion']);
+        self::assertSame('review_required', $negative['intervalEvidence'][0]['status']);
+        self::assertNull($negative['intervalEvidence'][0]['estimatedUsage']);
         self::assertSame(1, count(array_keys($negative['limitations'], $clamp, true)));
 
         $zero = (new ConsumptionEstimator())->estimate(

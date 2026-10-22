@@ -21,7 +21,7 @@ final class SuggestionEngineBoundaryTest extends TestCase
     {
         $engine = new SuggestionEngine();
         self::assertSame(
-            ['eligible' => false, 'reason' => 'never-suggest preference'],
+            ['eligible' => false, 'reason' => 'never-suggest preference', 'reasonCode' => 'excluded'],
             $engine->suggest(
                 [...$this->product(), 'neverSuggest' => true],
                 $this->estimate(),
@@ -30,7 +30,7 @@ final class SuggestionEngineBoundaryTest extends TestCase
             ),
         );
         self::assertSame(
-            ['eligible' => false, 'reason' => 'snoozed preference'],
+            ['eligible' => false, 'reason' => 'snoozed preference', 'reasonCode' => 'paused'],
             $engine->suggest(
                 [...$this->product(), 'snoozeUntil' => '2026-01-22'],
                 $this->estimate(),
@@ -171,6 +171,10 @@ final class SuggestionEngineBoundaryTest extends TestCase
             ['key' => 'minimum-reserve', 'value' => '0'],
             ['key' => 'factual-stock', 'value' => '0'],
             ['key' => 'required-quantity', 'value' => '1.25'],
+            [
+                'key' => 'usage-evidence', 'sampleIntervals' => 1, 'coverageDays' => 0,
+                'from' => null, 'to' => null, 'intervals' => [], 'basis' => 'estimated_usage',
+            ],
         ], $result['factors']);
         self::assertSame('0.7000', $result['confidenceScore']);
         self::assertSame('medium', $result['confidenceBand']);

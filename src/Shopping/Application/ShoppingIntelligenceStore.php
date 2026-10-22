@@ -8,6 +8,14 @@ use DateTimeImmutable;
 
 interface ShoppingIntelligenceStore extends ShoppingIntelligenceReader
 {
+    public function lockGeneration(string $homeId): void;
+
+    /** @return array<string, mixed>|null */
+    public function latestRun(string $homeId): ?array;
+
+    /** @return array<string, string> */
+    public function resolvedStatuses(string $homeId, string $runId): array;
+
     /**
      * @return list<array<string, mixed>> */
     public function estimationInputs(string $homeId, DateTimeImmutable $asOf): array;
@@ -35,6 +43,7 @@ interface ShoppingIntelligenceStore extends ShoppingIntelligenceReader
      * @param list<array<string, mixed>> $estimates
      *
      * @param list<array<string, mixed>> $suggestions
+     * @param array<string, string> $retainedDecisions
      */
     public function saveRun(
         string $estimateRunId,
@@ -47,6 +56,7 @@ interface ShoppingIntelligenceStore extends ShoppingIntelligenceReader
         array $estimates,
         array $suggestions,
         DateTimeImmutable $asOf,
+        array $retainedDecisions = [],
     ): void;
 
     /**
