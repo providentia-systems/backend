@@ -107,7 +107,7 @@ interface InventoryStore
      * @return array{status: 'updated', record: array<string, mixed>}
      *     |array{
      *         status: 'not-found'|'revision-conflict'|'category-unavailable'
-     *             |'balance-not-zero'|'product-in-use'|'name-required'|'category-conflict'
+     *             |'balance-not-zero'|'product-in-use'|'unit-in-use'|'name-required'|'category-conflict'
      *     }
      */
     public function updateHomeProduct(
@@ -158,6 +158,7 @@ interface InventoryStore
         string $reliability,
         string $actorUserId,
         DateTimeImmutable $at,
+        ?DateTimeImmutable $observedAt = null,
     ): void;
 
     /** @return array<string, mixed>|null */
@@ -200,6 +201,9 @@ interface InventoryStore
         int $expectedRevision,
         string $actorUserId,
         DateTimeImmutable $at,
+        ?bool $scopeComplete = null,
+        ?string $reliability = null,
+        ?DateTimeImmutable $observedAt = null,
     ): bool;
 
     public function cancelCountSession(
@@ -210,6 +214,32 @@ interface InventoryStore
         DateTimeImmutable $at,
     ): bool;
 
-    /** @return array{products: int, quantity: string} */
+    /** @param list<array{id: string, quantity: string, expectedRevision: int}> $lineCorrections */
+    public function reviewCountSession(
+        string $reviewId,
+        string $homeId,
+        string $sessionId,
+        int $expectedRevision,
+        string $actorUserId,
+        string $reason,
+        bool $scopeComplete,
+        string $reliability,
+        DateTimeImmutable $observedAt,
+        array $lineCorrections,
+        DateTimeImmutable $at,
+    ): bool;
+
+    /** @return array<string, mixed> */
+    public function correctPurchaseDate(
+        string $actorUserId,
+        string $homeId,
+        string $receiptLineId,
+        DateTimeImmutable $purchaseDate,
+        string $correctionId,
+        string $reason,
+        DateTimeImmutable $at,
+    ): array;
+
+    /** @return array{products: int, quantity: string, balances: list<array<string, mixed>>} */
     public function rebuildBalances(string $homeId, DateTimeImmutable $at): array;
 }

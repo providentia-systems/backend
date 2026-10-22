@@ -781,12 +781,15 @@ final class InventoryItemMasterTest extends TestCase
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )',
             'CREATE TABLE inventory_balances (
-                home_id TEXT NOT NULL, home_product_id TEXT NOT NULL, quantity TEXT NOT NULL
+                home_id TEXT NOT NULL, home_product_id TEXT NOT NULL, quantity TEXT NOT NULL,
+                uncertain INTEGER NOT NULL DEFAULT 0, pending_quantity TEXT NOT NULL DEFAULT \'0\',
+                limitations_json TEXT NULL, checkpoint_id TEXT NULL
             )',
-            'CREATE TABLE stock_count_sessions (
+            'CREATE TABLE stock_movements (home_id TEXT, home_product_id TEXT)',
+            'CREATE TABLE stock_count_sessions (observed_at TEXT NULL,
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, status TEXT NOT NULL
             )',
-            'CREATE TABLE stock_count_lines (
+            'CREATE TABLE stock_count_lines (stock_unit TEXT NULL,
                 session_id TEXT NOT NULL, home_id TEXT NOT NULL, home_product_id TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT \'confirmed\'
             )',
@@ -825,6 +828,7 @@ final class InventoryItemMasterTest extends TestCase
             'private_name' => null,
             'normalized_private_name' => null,
             'original_pack_text' => '1 kg',
+            'unit' => 'kg',
             'status' => 'active',
             'revision' => 1,
             'created_at' => '2026-08-11 09:00:00',

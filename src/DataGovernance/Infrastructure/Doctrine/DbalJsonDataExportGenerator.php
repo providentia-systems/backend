@@ -94,7 +94,14 @@ final readonly class DbalJsonDataExportGenerator implements DataExportGenerator
             'countLines' => 'SELECT l.* FROM stock_count_lines l
                 INNER JOIN stock_count_sessions s ON s.id = l.session_id
                 WHERE s.home_id = :scope ORDER BY l.id',
+            'countReviews' => 'SELECT * FROM stock_count_reviews WHERE home_id = :scope ORDER BY id',
+            'stockPurchaseDateCorrections' => 'SELECT * FROM stock_purchase_date_corrections
+                WHERE home_id = :scope ORDER BY id',
+            'stockProjectionBaselines' => 'SELECT * FROM stock_projection_baselines
+                WHERE home_id = :scope ORDER BY home_product_id',
             'receipts' => 'SELECT * FROM receipts WHERE home_id = :scope ORDER BY id',
+            'receiptDateCorrections' => 'SELECT * FROM receipt_date_corrections
+                WHERE home_id = :scope ORDER BY id',
             'receiptLines' => 'SELECT l.* FROM receipt_lines l
                 INNER JOIN receipts r ON r.id = l.receipt_id
                 WHERE r.home_id = :scope ORDER BY l.id',

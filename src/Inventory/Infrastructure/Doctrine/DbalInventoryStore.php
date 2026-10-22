@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Providentia\Inventory\Infrastructure\Doctrine;
 
+use Brick\Math\BigDecimal;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\ArrayParameterType;
@@ -506,6 +507,9 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                     COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
                     COALESCE(ib.quantity, 0) AS quantity,
                     COALESCE(ib.revision, 0) AS balanceRevision,
+                    COALESCE(ib.uncertain, 0) AS uncertain,
+                    COALESCE(ib.pending_quantity, 0) AS pendingQuantity,
+                    ib.limitations_json AS limitationsJson, ib.checkpoint_id AS checkpointId,
                     sp.minimum_quantity AS minimumQuantity,
                     sp.always_keep AS alwaysKeep, sp.never_suggest AS neverSuggest,
                     hp.revision, hp.updated_at AS updatedAt
@@ -555,6 +559,15 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
 
         return array_map(function (array $row): array {
             $row['balanceRevision'] = (int) $row['balanceRevision'];
+            $row['uncertain'] = (bool) ($row['uncertain'] ?? false);
+            $row['pendingQuantity'] = DecimalProjection::string($row['pendingQuantity'] ?? '0');
+            $row['limitations'] = json_decode(
+                (string) ($row['limitationsJson'] ?? '[]'),
+                true,
+                512,
+                JSON_THROW_ON_ERROR,
+            );
+            unset($row['limitationsJson']);
             $row['revision'] = (int) $row['revision'];
             $row['quantity'] = (string) $row['quantity'];
             $row['minimumQuantity'] = $row['minimumQuantity'] === null
@@ -766,6 +779,23 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         if ($nextCategoryId !== null && $nextGlobalCategoryId !== null) {
             return ['status' => 'category-conflict'];
         }
+        if ($unit !== null && $unit !== $row['unit']) {
+            $balance = $this->connection->fetchOne(
+                'SELECT quantity FROM inventory_balances WHERE home_id = :home AND home_product_id = :product',
+                ['home' => $homeId, 'product' => $homeProductId],
+            );
+            $hasBalance = $balance !== false && !BigDecimal::of((string) $balance)->isZero();
+            $hasEvidence = (int) $this->connection->fetchOne(
+                'SELECT (SELECT COUNT(*) FROM stock_movements
+                    WHERE home_id = :home AND home_product_id = :product)
+                  + (SELECT COUNT(*) FROM stock_count_lines
+                    WHERE home_id = :home AND home_product_id = :product AND status <> :removed)',
+                ['home' => $homeId, 'product' => $homeProductId, 'removed' => 'removed'],
+            ) > 0;
+            if ($hasBalance || $hasEvidence) {
+                return ['status' => 'unit-in-use'];
+            }
+        }
         $nextStatus = $status ?? (string) $row['status'];
         if ($nextStatus === 'archived' && (string) $row['status'] !== 'archived') {
             $balance = $this->connection->fetchOne(
@@ -877,7 +907,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             return $this->movementResult($homeId, (string) $existing['id'], true);
         }
         $product = $this->one(
-            $this->forUpdate('SELECT id, status FROM home_products
+            $this->forUpdate('SELECT id, status, unit FROM home_products
              WHERE home_id = :home AND id = :product'),
             ['home' => $homeId, 'product' => $homeProductId],
         );
@@ -900,6 +930,18 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         if ($existing !== null) {
             return $this->movementResult($homeId, (string) $existing['id'], true);
         }
+        $stockUnit = $product['unit'];
+        if ($sourceType === 'receipt-line-correction') {
+            $originalUnit = $this->connection->fetchOne(
+                'SELECT stock_unit FROM stock_movements WHERE home_id = :home AND home_product_id = :product
+                 AND source_type = :source AND source_id = :line',
+                ['home' => $homeId, 'product' => $homeProductId, 'source' => 'receipt-line',
+                 'line' => explode(':', $sourceId, 2)[0]],
+            );
+            if ($originalUnit !== false && $originalUnit !== null) {
+                $stockUnit = $originalUnit;
+            }
+        }
         $recorded = $this->date($recordedAt);
         $this->connection->insert('stock_movements', [
             'id' => $id,
@@ -912,33 +954,13 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'reason' => $reason,
             'actor_user_id' => $actorUserId,
             'reversed_movement_id' => null,
+            'stock_unit' => $stockUnit,
+            'receipt_line_id' => in_array($sourceType, ['receipt-line', 'receipt-line-correction'], true)
+                ? explode(':', $sourceId, 2)[0] : null,
             'occurred_at' => $this->date($occurredAt),
             'created_at' => $recorded,
         ]);
-        $updated = $this->connection->executeStatement(
-            'UPDATE inventory_balances
-             SET quantity = ' . DecimalSql::add($this->connection, 'quantity', ':delta') . ',
-                 last_movement_id = :movement,
-                 revision = revision + 1, updated_at = :updated
-             WHERE home_id = :home AND home_product_id = :product',
-            [
-                'delta' => $quantityDelta,
-                'movement' => $id,
-                'updated' => $recorded,
-                'home' => $homeId,
-                'product' => $homeProductId,
-            ],
-        );
-        if ($updated === 0) {
-            $this->connection->insert('inventory_balances', [
-                'home_id' => $homeId,
-                'home_product_id' => $homeProductId,
-                'quantity' => $quantityDelta,
-                'last_movement_id' => $id,
-                'revision' => 1,
-                'updated_at' => $recorded,
-            ]);
-        }
+        $this->refreshProductBalance($homeId, $homeProductId, $recordedAt, $id);
 
         return $this->movementResult($homeId, $id, false);
     }
@@ -971,14 +993,28 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
 
     public function balance(string $homeId, string $homeProductId): ?array
     {
-        return $this->one(
+        $row = $this->one(
             'SELECT home_id AS homeId, home_product_id AS homeProductId,
                     quantity, last_movement_id AS lastMovementId,
-                    revision, updated_at AS updatedAt
+                    uncertain, pending_quantity AS pendingQuantity, limitations_json AS limitationsJson,
+                    checkpoint_id AS checkpointId, revision, updated_at AS updatedAt
              FROM inventory_balances
              WHERE home_id = :home AND home_product_id = :product',
             ['home' => $homeId, 'product' => $homeProductId],
         );
+        if ($row !== null) {
+            $row['quantity'] = DecimalProjection::string($row['quantity']);
+            $row['pendingQuantity'] = DecimalProjection::string($row['pendingQuantity']);
+            $row['uncertain'] = (bool) $row['uncertain'];
+            $row['limitations'] = json_decode(
+                (string) ($row['limitationsJson'] ?? '[]'),
+                true,
+                512,
+                JSON_THROW_ON_ERROR,
+            );
+            unset($row['limitationsJson']);
+        }
+        return $row;
     }
 
     public function createCountSession(
@@ -990,6 +1026,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         string $reliability,
         string $actorUserId,
         DateTimeImmutable $at,
+        ?DateTimeImmutable $observedAt = null,
     ): void {
         if ($locationId !== null) {
             $available = $this->connection->fetchOne(
@@ -1010,6 +1047,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'notes' => $notes,
             'scope_complete' => $scopeComplete,
             'reliability' => $reliability,
+            'observed_at' => $this->date($observedAt ?? $at),
+            'observed_timezone' => $this->homeTimezone($homeId),
             'revision' => 1,
             'opened_by_user_id' => $actorUserId,
             'opened_at' => $now,
@@ -1020,12 +1059,13 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         ]);
     }
 
-    public function countSession(string $homeId, string $sessionId): ?array
+    public function countSession(string $homeId, string $sessionId, bool $includeReviews = true): ?array
     {
-        return $this->one(
+        $row = $this->one(
             'SELECT s.id, s.home_id AS homeId, s.location_id AS locationId,
                     l.name AS locationName, s.status, s.notes,
-                    s.scope_complete AS scopeComplete, s.reliability, s.revision,
+                    s.scope_complete AS scopeComplete, s.reliability, s.observed_at AS observedAt,
+                    s.observed_timezone AS observedTimezone, s.revision,
                     s.opened_by_user_id AS openedByUserId, s.opened_at AS openedAt,
                     s.closed_by_user_id AS closedByUserId, s.closed_at AS closedAt,
                     s.created_at AS createdAt, s.updated_at AS updatedAt
@@ -1034,6 +1074,31 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
              WHERE s.home_id = :home AND s.id = :id',
             ['home' => $homeId, 'id' => $sessionId],
         );
+        if ($row !== null && $includeReviews) {
+            $row['reviews'] = array_map(function (array $review): array {
+                return [
+                    'id' => (string) $review['id'], 'revision' => (int) $review['revision'],
+                    'actorUserId' => (string) $review['actor_user_id'], 'reason' => (string) $review['reason'],
+                    'reviewedAt' => $this->atom((string) $review['created_at']),
+                    'previousSnapshot' => json_decode(
+                        (string) $review['previous_snapshot_json'],
+                        true,
+                        512,
+                        JSON_THROW_ON_ERROR,
+                    ),
+                    'nextSnapshot' => json_decode(
+                        (string) $review['next_snapshot_json'],
+                        true,
+                        512,
+                        JSON_THROW_ON_ERROR,
+                    ),
+                ];
+            }, $this->connection->fetchAllAssociative(
+                'SELECT * FROM stock_count_reviews WHERE home_id = :home AND session_id = :session ORDER BY revision',
+                ['home' => $homeId, 'session' => $sessionId],
+            ));
+        }
+        return $row;
     }
 
     public function countSessions(string $homeId, int $limit, int $offset): array
@@ -1041,7 +1106,8 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         return $this->connection->fetchAllAssociative(
             'SELECT s.id, s.home_id AS homeId, s.location_id AS locationId, l.name AS locationName,
                     s.status, s.notes, s.scope_complete AS scopeComplete,
-                    s.reliability, s.revision, s.opened_at AS openedAt,
+                    s.reliability, s.observed_at AS observedAt, s.observed_timezone AS observedTimezone,
+                    s.revision, s.opened_at AS openedAt,
                     s.closed_at AS closedAt, COUNT(sl.id) AS lineCount
              FROM stock_count_sessions s
              LEFT JOIN home_locations l ON l.id = s.location_id AND l.home_id = s.home_id
@@ -1049,7 +1115,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                AND sl.status <> :removed
              WHERE s.home_id = :home
              GROUP BY s.id, s.home_id, s.location_id, l.name, s.status, s.notes,
-                      s.scope_complete, s.reliability, s.revision,
+                      s.scope_complete, s.reliability, s.observed_at, s.observed_timezone, s.revision,
                       s.opened_at, s.closed_at
              ORDER BY s.opened_at DESC, s.id DESC
              LIMIT ' . $limit . ' OFFSET ' . $offset,
@@ -1063,7 +1129,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'SELECT sl.id, sl.home_product_id AS homeProductId,
                     COALESCE(hp.private_name, p.canonical_name) AS productName,
                     COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
-                    sl.quantity, sl.confidence, sl.source, sl.notes, sl.status,
+                    sl.quantity, sl.stock_unit AS unit, sl.confidence, sl.source, sl.notes, sl.status,
                     sl.revision, sl.counted_by_user_id AS countedByUserId,
                     sl.created_at AS createdAt, sl.updated_at AS updatedAt
              FROM stock_count_lines sl
@@ -1082,7 +1148,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
     {
         return $this->one(
             'SELECT sl.id, sl.home_product_id AS homeProductId,
-                    sl.quantity, sl.confidence, sl.source, sl.notes, sl.status,
+                    sl.quantity, sl.stock_unit AS unit, sl.confidence, sl.source, sl.notes, sl.status,
                     sl.revision
              FROM stock_count_lines sl
              WHERE sl.home_id = :home AND sl.session_id = :session AND sl.id = :id',
@@ -1104,7 +1170,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         DateTimeImmutable $at,
     ): bool {
         $product = $this->one(
-            $this->forUpdate('SELECT id, status FROM home_products
+            $this->forUpdate('SELECT id, status, unit FROM home_products
              WHERE id = :product AND home_id = :home'),
             ['product' => $homeProductId, 'home' => $homeId],
         );
@@ -1135,6 +1201,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                 'session_id' => $sessionId,
                 'home_product_id' => $homeProductId,
                 'quantity' => $quantity,
+                'stock_unit' => $product['unit'],
                 'confidence' => $confidence,
                 'source' => $source,
                 'notes' => $notes,
@@ -1150,7 +1217,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             }
             $updated = $this->connection->executeStatement(
                 'UPDATE stock_count_lines
-                 SET quantity = :quantity, confidence = :confidence, source = :source,
+                 SET quantity = :quantity, stock_unit = :unit, confidence = :confidence, source = :source,
                      notes = :notes, counted_by_user_id = :actor, status = :confirmed,
                      revision = revision + 1, updated_at = :updated
                  WHERE id = :id AND home_id = :home AND session_id = :session
@@ -1158,6 +1225,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                 [
                     'confirmed' => 'confirmed',
                     'quantity' => $quantity,
+                    'unit' => $product['unit'],
                     'confidence' => $confidence,
                     'source' => $source,
                     'notes' => $notes,
@@ -1228,26 +1296,112 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         int $expectedRevision,
         string $actorUserId,
         DateTimeImmutable $at,
+        ?bool $scopeComplete = null,
+        ?string $reliability = null,
+        ?DateTimeImmutable $observedAt = null,
     ): bool {
+        $session = $this->one(
+            $this->forUpdate('SELECT id, scope_complete, reliability, observed_at, observed_timezone
+             FROM stock_count_sessions
+             WHERE home_id = :home AND id = :id AND status = :open AND revision = :revision'),
+            ['home' => $homeId, 'id' => $sessionId, 'open' => 'open', 'revision' => $expectedRevision],
+        );
+        if ($session === null) {
+            return false;
+        }
         $now = $this->date($at);
+        $updated = $this->connection->update('stock_count_sessions', [
+            'status' => 'closed', 'closed_by_user_id' => $actorUserId, 'closed_at' => $now,
+            'scope_complete' => $scopeComplete ?? (bool) $session['scope_complete'],
+            'reliability' => $reliability ?? (string) $session['reliability'],
+            'observed_at' => $observedAt === null ? $session['observed_at'] : $this->date($observedAt),
+            'observed_timezone' => $observedAt === null ? $session['observed_timezone'] : $this->homeTimezone($homeId),
+            'revision' => $expectedRevision + 1, 'updated_at' => $now,
+        ], ['home_id' => $homeId, 'id' => $sessionId, 'revision' => $expectedRevision, 'status' => 'open']);
+        if ($updated !== 1) {
+            return false;
+        }
+        foreach ($this->countLines($homeId, $sessionId) as $line) {
+            $this->refreshProductBalance($homeId, (string) $line['homeProductId'], $at);
+        }
+        return true;
+    }
 
-        return $this->connection->executeStatement(
-            'UPDATE stock_count_sessions
-             SET status = :closed, closed_by_user_id = :actor, closed_at = :closed_at,
-                 revision = revision + 1, updated_at = :updated
-             WHERE id = :id AND home_id = :home AND status = :open
-               AND revision = :revision',
-            [
-                'closed' => 'closed',
-                'actor' => $actorUserId,
-                'closed_at' => $now,
-                'updated' => $now,
-                'id' => $sessionId,
-                'home' => $homeId,
-                'open' => 'open',
-                'revision' => $expectedRevision,
-            ],
-        ) === 1;
+    public function reviewCountSession(
+        string $reviewId,
+        string $homeId,
+        string $sessionId,
+        int $expectedRevision,
+        string $actorUserId,
+        string $reason,
+        bool $scopeComplete,
+        string $reliability,
+        DateTimeImmutable $observedAt,
+        array $lineCorrections,
+        DateTimeImmutable $at,
+    ): bool {
+        $session = $this->one(
+            $this->forUpdate('SELECT id FROM stock_count_sessions WHERE home_id = :home AND id = :id
+             AND status = :closed AND revision = :revision'),
+            ['home' => $homeId, 'id' => $sessionId, 'closed' => 'closed', 'revision' => $expectedRevision],
+        );
+        if ($session === null) {
+            return false;
+        }
+        $before = ['session' => $this->countSession($homeId, $sessionId, false),
+            'lines' => $this->countLines($homeId, $sessionId)];
+        foreach ($lineCorrections as $correction) {
+            $line = $this->countLine($homeId, $sessionId, $correction['id']);
+            if (
+                $line === null || $line['status'] !== 'confirmed'
+                || (int) $line['revision'] !== $correction['expectedRevision']
+            ) {
+                return false;
+            }
+        }
+        $now = $this->date($at);
+        foreach ($lineCorrections as $correction) {
+            if (
+                $this->connection->update('stock_count_lines', [
+                'quantity' => $correction['quantity'], 'revision' => $correction['expectedRevision'] + 1,
+                'updated_at' => $now,
+                ], ['home_id' => $homeId, 'session_id' => $sessionId, 'id' => $correction['id'],
+                'revision' => $correction['expectedRevision']]) !== 1
+            ) {
+                return false;
+            }
+        }
+        // Review explicitly confirms that the saved quantities use the product's current stock unit.
+        foreach ($before['lines'] as $line) {
+            $product = $this->one($this->forUpdate('SELECT unit FROM home_products
+                WHERE home_id = :home AND id = :id'), ['home' => $homeId, 'id' => $line['homeProductId']]);
+            if ($product === null || ($line['unit'] !== null && $line['unit'] !== $product['unit'])) {
+                throw new \DomainException('The count has an incompatible stock unit and requires a new observation.');
+            }
+            if ($line['unit'] === null) {
+                $this->connection->update('stock_count_lines', [
+                    'stock_unit' => $product['unit'], 'updated_at' => $now,
+                    'revision' => (int) $line['revision'] + 1,
+                ], ['home_id' => $homeId, 'session_id' => $sessionId, 'id' => $line['id']]);
+            }
+        }
+        $this->connection->update('stock_count_sessions', [
+            'scope_complete' => $scopeComplete, 'reliability' => $reliability,
+            'observed_at' => $this->date($observedAt), 'observed_timezone' => $this->homeTimezone($homeId),
+            'revision' => $expectedRevision + 1, 'updated_at' => $now,
+        ], ['home_id' => $homeId, 'id' => $sessionId, 'revision' => $expectedRevision]);
+        $after = ['session' => $this->countSession($homeId, $sessionId, false),
+            'lines' => $this->countLines($homeId, $sessionId)];
+        $this->connection->insert('stock_count_reviews', [
+            'id' => $reviewId, 'home_id' => $homeId, 'session_id' => $sessionId, 'actor_user_id' => $actorUserId,
+            'previous_snapshot_json' => json_encode($before, JSON_THROW_ON_ERROR),
+            'next_snapshot_json' => json_encode($after, JSON_THROW_ON_ERROR),
+            'reason' => $reason, 'created_at' => $now, 'revision' => $expectedRevision + 1,
+        ]);
+        foreach ($before['lines'] as $line) {
+            $this->refreshProductBalance($homeId, (string) $line['homeProductId'], $at);
+        }
+        return true;
     }
 
     public function cancelCountSession(
@@ -1280,33 +1434,121 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
 
     public function rebuildBalances(string $homeId, DateTimeImmutable $at): array
     {
-        $this->connection->delete('inventory_balances', ['home_id' => $homeId]);
-        $rows = $this->connection->fetchAllAssociative(
-            'SELECT sm.home_product_id, ' . DecimalSql::sum($this->connection, 'sm.quantity_delta') . ' AS quantity,
-                    MAX(sm.id) AS last_movement_id
-             FROM stock_movements sm
-             WHERE sm.home_id = :home
-             GROUP BY sm.home_product_id',
+        $products = $this->connection->fetchFirstColumn(
+            $this->forUpdate('SELECT id FROM home_products WHERE home_id = :home ORDER BY id'),
             ['home' => $homeId],
         );
-        $now = $this->date($at);
-        foreach ($rows as $row) {
-            $this->connection->insert('inventory_balances', [
-                'home_id' => $homeId,
-                'home_product_id' => $row['home_product_id'],
-                'quantity' => $row['quantity'],
-                'last_movement_id' => $row['last_movement_id'],
-                'revision' => 1,
-                'updated_at' => $now,
-            ]);
+        $total = BigDecimal::zero();
+        $changed = [];
+        foreach ($products as $productId) {
+            $previous = $this->balance($homeId, (string) $productId);
+            $balance = $this->refreshProductBalance($homeId, (string) $productId, $at);
+            $total = $total->plus((string) $balance['quantity']);
+            if ($previous === null || $previous['revision'] !== $balance['revision']) {
+                $changed[] = $balance;
+            }
         }
-        $total = $this->connection->fetchOne(
-            'SELECT COALESCE(' . DecimalSql::sum($this->connection, 'quantity') . ', 0)
-             FROM inventory_balances WHERE home_id = :home',
-            ['home' => $homeId],
-        );
+        return ['products' => count($products), 'quantity' => (string) $total->strippedOfTrailingZeros(),
+            'balances' => $changed];
+    }
 
-        return ['products' => count($rows), 'quantity' => (string) $total];
+    /** @return array<string, mixed> */
+    public function correctPurchaseDate(
+        string $actorUserId,
+        string $homeId,
+        string $receiptLineId,
+        DateTimeImmutable $purchaseDate,
+        string $correctionId,
+        string $reason,
+        DateTimeImmutable $at,
+    ): array {
+        $movement = $this->one(
+            'SELECT home_product_id, occurred_at FROM stock_movements
+             WHERE home_id = :home AND source_type = :source AND source_id = :line',
+            ['home' => $homeId, 'source' => 'receipt-line', 'line' => $receiptLineId],
+        );
+        if ($movement === null) {
+            throw new \DomainException('The original purchase movement is unavailable for date correction.');
+        }
+        $productId = (string) $movement['home_product_id'];
+        $this->one(
+            $this->forUpdate('SELECT id FROM home_products WHERE home_id = :home AND id = :id'),
+            ['home' => $homeId, 'id' => $productId]
+        );
+        $existing = $this->one('SELECT home_id, receipt_line_id, purchase_date FROM stock_purchase_date_corrections
+            WHERE id = :id', ['id' => $correctionId]);
+        if ($existing !== null) {
+            if (
+                $existing['home_id'] !== $homeId || $existing['receipt_line_id'] !== $receiptLineId
+                || $existing['purchase_date'] !== $purchaseDate->format('Y-m-d')
+            ) {
+                throw new \DomainException('The correction identity was already used for different evidence.');
+            }
+            return $this->balance($homeId, $productId) ?? [];
+        }
+        $previous = $this->connection->fetchOne(
+            'SELECT purchase_date FROM stock_purchase_date_corrections
+            WHERE home_id = :home AND receipt_line_id = :line ORDER BY revision DESC LIMIT 1',
+            ['home' => $homeId, 'line' => $receiptLineId]
+        );
+        $this->connection->insert('stock_purchase_date_corrections', [
+            'id' => $correctionId, 'home_id' => $homeId, 'receipt_line_id' => $receiptLineId,
+            'original_purchase_date' => $previous === false
+                ? substr((string) $movement['occurred_at'], 0, 10) : $previous,
+            'purchase_date' => $purchaseDate->format('Y-m-d'), 'actor_user_id' => $actorUserId,
+            'reason' => $reason, 'created_at' => $this->date($at),
+            'revision' => (int) $this->connection->fetchOne(
+                'SELECT COALESCE(MAX(revision), 0) FROM stock_purchase_date_corrections
+                 WHERE home_id = :home AND receipt_line_id = :line',
+                ['home' => $homeId, 'line' => $receiptLineId],
+            ) + 1,
+        ]);
+        return $this->refreshProductBalance($homeId, $productId, $at);
+    }
+
+    /** @return array<string, mixed> */
+    private function refreshProductBalance(
+        string $homeId,
+        string $homeProductId,
+        DateTimeImmutable $at,
+        ?string $lastMovementId = null,
+    ): array {
+        $this->one(
+            $this->forUpdate('SELECT id FROM home_products WHERE home_id = :home AND id = :id'),
+            ['home' => $homeId, 'id' => $homeProductId]
+        );
+        $projection = (new DbalStockChronologyReader($this->connection))->projection($homeId, $homeProductId, $at);
+        $existing = $this->balance($homeId, $homeProductId);
+        if (
+            $existing !== null && $lastMovementId === null
+            && BigDecimal::of((string) $existing['quantity'])->compareTo($projection['quantity']) === 0
+            && BigDecimal::of((string) $existing['pendingQuantity'])->compareTo($projection['pendingQuantity']) === 0
+            && $existing['uncertain'] === $projection['uncertain']
+            && $existing['limitations'] === $projection['limitations']
+            && $existing['checkpointId'] === $projection['checkpointId']
+        ) {
+            return $existing;
+        }
+        $record = [
+            'quantity' => $projection['quantity'], 'uncertain' => $projection['uncertain'],
+            'pending_quantity' => $projection['pendingQuantity'],
+            'limitations_json' => json_encode($projection['limitations'], JSON_THROW_ON_ERROR),
+            'checkpoint_id' => $projection['checkpointId'],
+            'last_movement_id' => $lastMovementId ?? ($existing['lastMovementId'] ?? null),
+            'revision' => (int) ($existing['revision'] ?? 0) + 1, 'updated_at' => $this->date($at),
+        ];
+        if ($existing === null) {
+            $this->connection->insert('inventory_balances', [
+                'home_id' => $homeId, 'home_product_id' => $homeProductId, ...$record,
+            ]);
+        } else {
+            $this->connection->update(
+                'inventory_balances',
+                $record,
+                ['home_id' => $homeId, 'home_product_id' => $homeProductId]
+            );
+        }
+        return $this->balance($homeId, $homeProductId) ?? [];
     }
 
     public function inventorySummary(string $homeId): array
@@ -1362,7 +1604,9 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                     sm.quantity_delta AS quantityDelta, sm.movement_type AS movementType,
                     sm.source_type AS sourceType, sm.source_id AS sourceId,
                     sm.reason, sm.actor_user_id AS actorUserId, sm.occurred_at AS occurredAt,
-                    ib.quantity AS balance, ib.revision AS balanceRevision
+                    ib.quantity AS balance, ib.revision AS balanceRevision,
+                    ib.uncertain, ib.pending_quantity AS pendingQuantity, ib.limitations_json AS limitationsJson,
+                    ib.checkpoint_id AS checkpointId
              FROM stock_movements sm
              INNER JOIN inventory_balances ib
                ON ib.home_id = sm.home_id AND ib.home_product_id = sm.home_product_id
@@ -1373,6 +1617,15 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             throw new \RuntimeException('Committed stock movement is unavailable.');
         }
         $row['replayed'] = $replayed;
+        $row['uncertain'] = (bool) $row['uncertain'];
+        $row['pendingQuantity'] = DecimalProjection::string($row['pendingQuantity']);
+        $row['limitations'] = json_decode(
+            (string) ($row['limitationsJson'] ?? '[]'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+        unset($row['limitationsJson']);
         $row['balance'] = DecimalProjection::string($row['balance']);
         $row['balanceRevision'] = (int) $row['balanceRevision'];
 
@@ -1398,6 +1651,12 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         $row = $this->connection->fetchAssociative($sql, $parameters);
 
         return $row === false ? null : $row;
+    }
+
+    private function homeTimezone(string $homeId): string
+    {
+        $zone = $this->connection->fetchOne('SELECT default_timezone FROM homes WHERE id = :home', ['home' => $homeId]);
+        return $zone === false ? 'UTC' : (string) $zone;
     }
 
     private function date(DateTimeImmutable $date): string

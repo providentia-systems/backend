@@ -264,7 +264,7 @@ final class BaselineImportParityTest extends TestCase
                 normalized_name TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL,
                 revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )',
-            'CREATE TABLE stock_count_sessions (
+            'CREATE TABLE stock_count_sessions (observed_at TEXT NULL,
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, location_id TEXT NOT NULL,
                 status TEXT NOT NULL, notes TEXT NOT NULL, revision INTEGER NOT NULL,
                 opened_by_user_id TEXT NOT NULL, opened_at TEXT NOT NULL,
@@ -277,7 +277,7 @@ final class BaselineImportParityTest extends TestCase
                 original_pack_text TEXT NOT NULL, status TEXT NOT NULL, revision INTEGER NOT NULL,
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )',
-            'CREATE TABLE stock_count_lines (
+            'CREATE TABLE stock_count_lines (stock_unit TEXT NULL,
                 id TEXT PRIMARY KEY, home_id TEXT NOT NULL, session_id TEXT NOT NULL,
                 home_product_id TEXT NOT NULL, quantity TEXT NOT NULL, confidence TEXT NULL,
                 source TEXT NOT NULL, notes TEXT NOT NULL, status TEXT NOT NULL,

@@ -37,7 +37,7 @@ final class HouseholdPlaceLifecycleTest extends TestCase
                 'CREATE TABLE stores (id TEXT PRIMARY KEY, home_id TEXT, name TEXT,
                  normalized_name TEXT, location TEXT, status TEXT, revision INTEGER,
                  created_at TEXT, updated_at TEXT, UNIQUE(home_id, normalized_name, location))',
-                'CREATE TABLE stock_count_sessions (id TEXT PRIMARY KEY, home_id TEXT,
+                'CREATE TABLE stock_count_sessions (observed_at TEXT NULL,id TEXT PRIMARY KEY, home_id TEXT,
                  location_id TEXT, status TEXT)',
                 'CREATE TABLE receipts (id TEXT PRIMARY KEY, home_id TEXT, store_id TEXT, status TEXT)',
             ] as $sql
