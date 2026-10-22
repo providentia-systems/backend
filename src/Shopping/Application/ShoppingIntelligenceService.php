@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Shopping\Application;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use InvalidArgumentException;
 use Providentia\Home\Application\HomePermission;
 use Providentia\Home\Application\HomePermissionAuthorizer;
@@ -44,15 +45,43 @@ final class ShoppingIntelligenceService
         if ($horizonDays < 1 || $horizonDays > 90) {
             throw new Problem(422, 'Invalid suggestion horizon', 'Horizon must be between 1 and 90 days.');
         }
+        return $this->calculate($identity, $homeId, $horizonDays);
+    }
+
+    /** @return array<string, mixed> */
+    private function calculate(AuthenticatedIdentity $identity, string $homeId, int $horizonDays): array
+    {
+        return $this->transactions->transactional(function () use ($identity, $homeId, $horizonDays): array {
+            $this->store->lockGeneration($homeId);
+            return $this->calculateSnapshot($identity, $homeId, $horizonDays);
+        });
+    }
+
+    /**
+     * @param array<string, string> $retainedDecisions
+     * @return array<string, mixed>
+     */
+    private function calculateSnapshot(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        int $horizonDays,
+        array $retainedDecisions = [],
+    ): array {
         $asOf = $this->clock->now();
+        $watermark = $this->store->inputWatermark($homeId, $asOf);
         $inputs = $this->store->estimationInputs($homeId, $asOf);
         $counts = $this->groupEvidence($this->store->reliableCounts($homeId, $asOf));
         $inbound = $this->groupEvidence($this->store->inboundMovements($homeId, $asOf));
         $purchases = $this->groupEvidence($this->store->purchaseMovements($homeId, $asOf));
         $packOptions = $this->latestPackOptions($this->store->packOptions($homeId, $asOf));
-        $watermark = $this->store->inputWatermark($homeId, $asOf);
+        $this->requireStableInputs($homeId, $asOf, $watermark);
         $estimateRows = [];
         $suggestionRows = [];
+        $diagnostics = [];
+        $reasonCounts = array_fill_keys([
+            'usage_shortfall', 'minimum_reserve_shortfall', 'insufficient_usage_evidence',
+            'sufficient_stock', 'excluded', 'paused', 'stock_chronology_uncertain',
+        ], 0);
         foreach ($inputs as $input) {
             $homeProductId = (string) $input['homeProductId'];
             $estimate = $this->estimator->estimate(
@@ -65,6 +94,24 @@ final class ShoppingIntelligenceService
             $estimate['homeProductId'] = $homeProductId;
             $estimateRows[] = $estimate;
             $suggestion = $this->suggestions->suggest($input, $estimate, $horizonDays, $asOf);
+            $reasonCode = (string) $suggestion['reasonCode'];
+            $reasonCounts[$reasonCode] = ($reasonCounts[$reasonCode] ?? 0) + 1;
+            $diagnostics[] = [
+                'homeProductId' => $homeProductId,
+                'productName' => (string) $input['productName'],
+                'reasonCode' => $reasonCode,
+                'usageEvidenceAvailable' => (int) $estimate['sampleIntervals'] > 0,
+                'minimumQuantity' => $input['minimumQuantity'],
+                'alwaysKeep' => (bool) ($input['alwaysKeep'] ?? false),
+                'factualStock' => (string) $input['factualStock'],
+                'stockUncertain' => (bool) ($input['stockUncertain'] ?? false),
+                'requiredQuantity' => $suggestion['requiredQuantity'] ?? null,
+                'limitations' => array_values(array_unique([
+                    ...$estimate['limitations'],
+                    ...($suggestion['limitations'] ?? []),
+                    ...($input['stockLimitations'] ?? []),
+                ])),
+            ];
             if (($suggestion['eligible'] ?? false) !== true) {
                 continue;
             }
@@ -73,6 +120,7 @@ final class ShoppingIntelligenceService
             $suggestion['productName'] = (string) $input['productName'];
             $suggestion['packText'] = (string) ($input['packText'] ?? '');
             $suggestion['packOptions'] = [];
+            $suggestion['status'] = $retainedDecisions[$homeProductId] ?? 'active';
             if (
                 $input['currentPackBase'] !== null
                 && isset($packOptions[$homeProductId])
@@ -99,6 +147,7 @@ final class ShoppingIntelligenceService
             }
             $suggestionRows[] = $suggestion;
         }
+        $this->requireStableInputs($homeId, $asOf, $watermark);
         $estimateRunId = $this->ids->generate();
         $suggestionRunId = $this->ids->generate();
         $auditEventId = $this->ids->generate();
@@ -113,6 +162,7 @@ final class ShoppingIntelligenceService
             $estimateRows,
             $suggestionRows,
             $asOf,
+            $retainedDecisions,
         ): void {
             $this->store->saveRun(
                 $estimateRunId,
@@ -125,6 +175,7 @@ final class ShoppingIntelligenceService
                 $estimateRows,
                 $suggestionRows,
                 $asOf,
+                $retainedDecisions,
             );
         });
 
@@ -137,6 +188,10 @@ final class ShoppingIntelligenceService
             'inputWatermark' => $watermark,
             'estimatedProducts' => count($estimateRows),
             'suggestionCount' => count($suggestionRows),
+            'status' => 'completed',
+            'reasonCounts' => $reasonCounts,
+            'diagnostics' => $diagnostics,
+            'inputScope' => 'accepted_server_evidence',
         ];
     }
 
@@ -145,7 +200,10 @@ final class ShoppingIntelligenceService
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
 
-        return $this->store->latestEstimates($homeId);
+        return $this->transactions->transactional(function () use ($identity, $homeId): array {
+            $this->refreshDerivedResults($identity, $homeId);
+            return $this->currentRows($this->store->latestEstimates($homeId));
+        });
     }
 
     /** @return list<array<string, mixed>> */
@@ -153,7 +211,10 @@ final class ShoppingIntelligenceService
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
 
-        return $this->store->latestSuggestions($homeId, $this->clock->now());
+        return $this->transactions->transactional(function () use ($identity, $homeId): array {
+            $this->refreshDerivedResults($identity, $homeId);
+            return $this->currentRows($this->store->latestSuggestions($homeId, $this->clock->now()));
+        });
     }
 
     /** @return list<array<string, mixed>> */
@@ -161,7 +222,10 @@ final class ShoppingIntelligenceService
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
 
-        return $this->store->latestPriceComparisons($homeId);
+        return $this->transactions->transactional(function () use ($identity, $homeId): array {
+            $this->refreshDerivedResults($identity, $homeId);
+            return $this->store->latestPriceComparisons($homeId);
+        });
     }
 
     /** @return array<string, mixed> */
@@ -171,12 +235,18 @@ final class ShoppingIntelligenceService
         string $suggestionId,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_READ);
-        $result = $this->store->explanation($homeId, $suggestionId);
-        if ($result === null) {
-            throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
-        }
+        return $this->transactions->transactional(function () use ($identity, $homeId, $suggestionId): array {
+            $latest = $this->refreshDerivedResults($identity, $homeId);
+            $result = $this->store->explanation($homeId, $suggestionId);
+            if ($result === null) {
+                throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+            }
 
-        return $result;
+            $result['freshness'] = $latest !== null && ($result['runId'] ?? null) === $latest['id']
+                ? 'current' : 'superseded';
+            $result['latestRunId'] = $latest['id'] ?? null;
+            return $result;
+        });
     }
 
     /** @return array<string, mixed> */
@@ -508,6 +578,51 @@ final class ShoppingIntelligenceService
         return $result;
     }
 
+    private function requireStableInputs(string $homeId, DateTimeImmutable $asOf, string $watermark): void
+    {
+        if (! hash_equals($watermark, $this->store->inputWatermark($homeId, $asOf))) {
+            throw new Problem(
+                409,
+                'Recommendation inputs changed',
+                'Household evidence changed during calculation. Generate recommendations again to use the new facts.',
+                'urn:providentia:shopping:inputs-changed',
+            );
+        }
+    }
+
+    /** @return array<string, mixed>|null */
+    private function refreshDerivedResults(AuthenticatedIdentity $identity, string $homeId): ?array
+    {
+        $this->store->lockGeneration($homeId);
+        $latest = $this->store->latestRun($homeId);
+        if ($latest === null) {
+            return null;
+        }
+        $watermark = $this->store->inputWatermark($homeId, $this->clock->now());
+        if (! hash_equals((string) $latest['inputWatermark'], $watermark)) {
+            // The caller has already passed SHOPPING_READ. Refresh only derived
+            // evidence; accepting a suggestion still requires SHOPPING_WRITE.
+            $retained = $latest['retainedDecisions'] ?? [];
+            $retained = array_merge($retained, $this->store->resolvedStatuses($homeId, (string) $latest['id']));
+            $result = $this->calculateSnapshot($identity, $homeId, (int) $latest['horizonDays'], $retained);
+            return ['id' => $result['id'], 'inputWatermark' => $result['inputWatermark']];
+        }
+        return $latest;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
+     */
+    private function currentRows(array $rows): array
+    {
+        foreach ($rows as &$row) {
+            $row['freshness'] = 'current';
+        }
+        unset($row);
+        return $rows;
+    }
+
     /**
      * @param list<array<string, mixed>> $rows
      * @return array<string, list<array<string, mixed>>>
@@ -524,14 +639,17 @@ final class ShoppingIntelligenceService
 
     /**
      * @param list<array<string, mixed>> $rows
-     * @return list<array{at: DateTimeImmutable, quantity: string}>
+     * @return list<array<string, mixed>>
      */
     private function countEvidence(array $rows): array
     {
         return array_map(
             static fn (array $row): array => [
-                'at' => new DateTimeImmutable((string) $row['occurredAt']),
+                'at' => new DateTimeImmutable((string) $row['occurredAt'], new DateTimeZone('UTC')),
                 'quantity' => (string) $row['quantity'],
+                'unit' => $row['unit'] ?? null,
+                'scope' => $row['scope'] ?? 'home',
+                'calendarDay' => $row['calendarDay'] ?? null,
             ],
             $rows,
         );
@@ -539,14 +657,18 @@ final class ShoppingIntelligenceService
 
     /**
      * @param list<array<string, mixed>> $rows
-     * @return list<array{at: DateTimeImmutable, quantity: string}>
+     * @return list<array<string, mixed>>
      */
     private function movementEvidence(array $rows): array
     {
         return array_map(
             static fn (array $row): array => [
-                'at' => new DateTimeImmutable((string) $row['occurredAt']),
+                'at' => new DateTimeImmutable((string) $row['occurredAt'], new DateTimeZone('UTC')),
                 'quantity' => (string) $row['quantity'],
+                'unit' => $row['unit'] ?? null,
+                'movementType' => $row['movementType'] ?? null,
+                'dateOnly' => (bool) ($row['dateOnly'] ?? false),
+                'acceptedAtCutoff' => true,
             ],
             $rows,
         );
@@ -561,6 +683,7 @@ final class ShoppingIntelligenceService
         return array_map(
             static fn (array $row): DateTimeImmutable => new DateTimeImmutable(
                 (string) $row['occurredAt'],
+                new DateTimeZone('UTC'),
             ),
             $rows,
         );

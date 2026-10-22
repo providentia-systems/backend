@@ -10,6 +10,7 @@ use Doctrine\DBAL\Connection;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalSql;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use DomainException;
+use Providentia\Inventory\Infrastructure\Doctrine\DbalStockChronologyReader;
 use Providentia\Shopping\Application\ShoppingIntelligenceStore;
 use Providentia\Shopping\Domain\ConsumptionEstimator;
 use Providentia\Shopping\Domain\SuggestionEngine;
@@ -20,6 +21,52 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
     {
     }
 
+    public function lockGeneration(string $homeId): void
+    {
+        if ($this->connection->getDatabasePlatform() instanceof SQLitePlatform) {
+            // SQLite's deferred transaction needs a write reservation before reading
+            // evidence. This acquires it without changing any household field.
+            $this->connection->executeStatement(
+                'UPDATE homes SET updated_at = updated_at WHERE id = :home',
+                ['home' => $homeId],
+            );
+            return;
+        }
+        $this->connection->fetchOne('SELECT id FROM homes WHERE id = :home FOR UPDATE', ['home' => $homeId]);
+    }
+
+    public function latestRun(string $homeId): ?array
+    {
+        $run = $this->one(
+            'SELECT id, horizon_days AS horizonDays, input_watermark AS inputWatermark, as_of AS asOf,
+                    retained_decisions_json AS retainedDecisionsJson
+             FROM shopping_suggestion_runs WHERE home_id = :home AND status = :completed
+             ORDER BY as_of DESC, id DESC LIMIT 1',
+            ['home' => $homeId, 'completed' => 'completed'],
+        );
+        if ($run !== null) {
+            $run['retainedDecisions'] = $run['retainedDecisionsJson'] === null
+                ? [] : $this->decodeMap((string) $run['retainedDecisionsJson']);
+            unset($run['retainedDecisionsJson']);
+        }
+        return $run;
+    }
+
+    public function resolvedStatuses(string $homeId, string $runId): array
+    {
+        $statuses = [];
+        foreach (
+            $this->connection->fetchAllAssociative(
+                'SELECT home_product_id AS homeProductId, status FROM shopping_suggestions
+             WHERE home_id = :home AND run_id = :run AND status <> :active',
+                ['home' => $homeId, 'run' => $runId, 'active' => 'active'],
+            ) as $row
+        ) {
+            $statuses[(string) $row['homeProductId']] = (string) $row['status'];
+        }
+        return $statuses;
+    }
+
     public function estimationInputs(string $homeId, DateTimeImmutable $asOf): array
     {
         $rows = $this->connection->fetchAllAssociative(
@@ -28,15 +75,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                     COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
                     hp.pack_id AS packId,
                     pk.normalized_base_amount AS currentPackBase,
-                    COALESCE(
-                        (SELECT ' . DecimalSql::sum($this->connection, 'sm.quantity_delta') . '
-                         FROM stock_movements sm
-                         WHERE sm.home_id = hp.home_id
-                           AND sm.home_product_id = hp.id
-                           AND sm.occurred_at <= :as_of
-                           AND sm.created_at <= :as_of),
-                        0
-                    ) AS factualStock,
+                    0 AS factualStock,
                     COALESCE(pref_history.minimumQuantity, sp.minimum_quantity) AS minimumQuantity,
                     COALESCE(pref_history.alwaysKeep, sp.always_keep, 0) AS alwaysKeep,
                     COALESCE(pref_history.neverSuggest, sp.never_suggest, 0) AS neverSuggest,
@@ -80,7 +119,13 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                 'status' => 'active',
             ],
         );
+        $projections = (new DbalStockChronologyReader($this->connection))->projections($homeId, $asOf);
         foreach ($rows as &$row) {
+            $projection = $projections[(string) $row['homeProductId']];
+            $row['factualStock'] = $projection['quantity'];
+            $row['stockUncertain'] = $projection['uncertain'];
+            $row['stockLimitations'] = $projection['limitations'];
+            $row['pendingStockQuantity'] = $projection['pendingQuantity'];
             $row['preferredPackId'] = $this->nullableJsonString($row['preferredPackId'] ?? null);
             $row['snoozeUntil'] = $this->nullableJsonString($row['snoozeUntil'] ?? null);
             $row['minimumQuantity'] = $this->nullableJsonString($row['minimumQuantity'] ?? null);
@@ -96,71 +141,31 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
 
     public function reliableCounts(string $homeId, DateTimeImmutable $asOf): array
     {
-        return $this->connection->fetchAllAssociative(
-            'SELECT scl.home_product_id AS homeProductId, scl.quantity,
-                    scs.closed_at AS occurredAt
-             FROM stock_count_lines scl
-             INNER JOIN stock_count_sessions scs
-               ON scs.id = scl.session_id AND scs.home_id = scl.home_id
-             WHERE scl.home_id = :home
-               AND scl.status = :line_status
-               AND scs.status = :session_status
-               AND scs.scope_complete = :complete
-               AND scs.reliability = :reliability
-               AND scs.closed_at <= :as_of
-               AND scs.updated_at <= :as_of
-               AND scl.updated_at <= :as_of
-             ORDER BY scl.home_product_id, scs.closed_at, scl.id',
-            [
-                'home' => $homeId,
-                'line_status' => 'confirmed',
-                'session_status' => 'closed',
-                'complete' => true,
-                'reliability' => 'reliable',
-                'as_of' => $this->date($asOf),
-            ],
-        );
+        return (new DbalStockChronologyReader($this->connection))->counts($homeId, $asOf);
     }
 
     public function inboundMovements(string $homeId, DateTimeImmutable $asOf): array
     {
-        return $this->connection->fetchAllAssociative(
-            'SELECT sm.home_product_id AS homeProductId,
-                    ' . $this->netPurchaseQuantity(':as_of') . ' AS quantity,
-                    sm.occurred_at AS occurredAt
-             FROM stock_movements sm
-             WHERE sm.home_id = :home AND sm.occurred_at <= :as_of
-               AND sm.created_at <= :as_of
-               AND ' . DecimalSql::greaterThan($this->connection, 'sm.quantity_delta', '0') . '
-               AND sm.movement_type <> :count_type AND sm.source_type <> :correction_source
-             ORDER BY sm.home_product_id, sm.occurred_at, sm.id',
-            [
-                'home' => $homeId,
-                'as_of' => $this->date($asOf),
-                'count_type' => 'count-reconciliation',
-                'correction_source' => 'receipt-line-correction',
-                'source' => 'receipt-line',
-            ],
-        );
+        // Retain signed classified outflows as well as purchases, so recorded waste,
+        // returns and consumption are not inferred a second time as residual depletion.
+        return (new DbalStockChronologyReader($this->connection))->movements($homeId, $asOf);
     }
 
     public function purchaseMovements(string $homeId, DateTimeImmutable $asOf): array
     {
-        return $this->connection->fetchAllAssociative(
-            'SELECT DISTINCT home_product_id AS homeProductId, occurred_at AS occurredAt
-             FROM stock_movements sm
-             WHERE home_id = :home AND source_type = :source
-               AND ' . DecimalSql::greaterThan($this->connection, $this->netPurchaseQuantity(':as_of'), '0') . '
-               AND occurred_at <= :as_of
-               AND created_at <= :as_of
-             ORDER BY home_product_id, occurred_at',
-            [
-                'home' => $homeId,
-                'source' => 'receipt-line',
-                'correction_source' => 'receipt-line-correction',
-                'as_of' => $this->date($asOf),
-            ],
-        );
+        $purchases = [];
+        foreach ($this->inboundMovements($homeId, $asOf) as $movement) {
+            if (
+                $movement['sourceType'] !== 'receipt-line'
+                || ! \Providentia\Shopping\Domain\FixedDecimal::from((string) $movement['quantity'])->isPositive()
+            ) {
+                continue;
+            }
+            $key = (string) $movement['homeProductId'] . '|' . (string) $movement['occurredAt'];
+            $purchases[$key] = $movement;
+        }
+
+        return array_values($purchases);
     }
 
     public function packOptions(string $homeId, DateTimeImmutable $asOf): array
@@ -223,7 +228,14 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
             ),
         ];
 
-        return hash('sha256', $this->json([$homeId, $through, $values]));
+        $chronology = new DbalStockChronologyReader($this->connection);
+        return hash('sha256', $this->json([
+            $homeId, substr($through, 0, 10), $values,
+            $this->estimationInputs($homeId, $asOf),
+            $this->packOptions($homeId, $asOf),
+            $chronology->counts($homeId, $asOf),
+            $chronology->movements($homeId, $asOf),
+        ]));
     }
 
     public function saveRun(
@@ -237,8 +249,16 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         array $estimates,
         array $suggestions,
         DateTimeImmutable $asOf,
+        array $retainedDecisions = [],
     ): void {
         $now = $this->date($asOf);
+        // Preserve every prior run while keeping a single authoritative projection.
+        // Status supersession also avoids relying on UUID ordering for runs in the same second.
+        foreach (['consumption_estimate_runs', 'shopping_suggestion_runs'] as $table) {
+            $this->connection->update($table, ['status' => 'superseded'], [
+                'home_id' => $homeId, 'status' => 'completed',
+            ]);
+        }
         $this->connection->insert('consumption_estimate_runs', [
             'id' => $estimateRunId,
             'home_id' => $homeId,
@@ -270,6 +290,11 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                 'evidence_from' => $this->nullableDate($estimate['evidenceFrom']),
                 'evidence_to' => $this->nullableDate($estimate['evidenceTo']),
                 'limitations_json' => $this->json($estimate['limitations']),
+                'evidence_json' => $this->json([
+                    'intervals' => $estimate['intervalEvidence'] ?? [],
+                    'totalEstimatedUsage' => $estimate['totalEstimatedUsage'] ?? null,
+                    'residualDepletion' => $estimate['residualDepletion'] ?? null,
+                ]),
                 'created_at' => $now,
             ]);
         }
@@ -280,6 +305,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
             'model_version' => SuggestionEngine::VERSION,
             'as_of' => $now,
             'horizon_days' => $horizonDays,
+            'retained_decisions_json' => $this->json($retainedDecisions),
             'input_watermark' => $watermark,
             'status' => 'completed',
             'created_by_user_id' => $actorUserId,
@@ -300,7 +326,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                 'pack_count' => $suggestion['packCount'],
                 'confidence_score' => $suggestion['confidenceScore'],
                 'confidence_band' => $suggestion['confidenceBand'],
-                'status' => 'active',
+                'status' => $suggestion['status'] ?? 'active',
                 'expires_at' => $this->date($asOf->modify('+1 day')),
                 'created_at' => $now,
             ]);
@@ -359,7 +385,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                     ce.confidence_score AS confidenceScore,
                     ce.confidence_band AS confidenceBand,
                     ce.evidence_from AS evidenceFrom, ce.evidence_to AS evidenceTo,
-                    ce.limitations_json AS limitationsJson,
+                    ce.limitations_json AS limitationsJson, ce.evidence_json AS evidenceJson,
                     cer.as_of AS asOf, cer.input_watermark AS inputWatermark
              FROM consumption_estimates ce
              INNER JOIN consumption_estimate_runs cer ON cer.id = ce.run_id
@@ -377,7 +403,8 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         );
         foreach ($rows as &$row) {
             $row['limitations'] = $this->decodeList((string) $row['limitationsJson']);
-            unset($row['limitationsJson']);
+            $row['evidence'] = $row['evidenceJson'] === null ? null : $this->decodeMap((string) $row['evidenceJson']);
+            unset($row['limitationsJson'], $row['evidenceJson']);
         }
         unset($row);
 
@@ -464,7 +491,7 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
                     ss.confidence_band AS confidenceBand,
                     se.factors_json AS factorsJson,
                     se.limitations_json AS limitationsJson,
-                    ssr.model_version AS modelVersion,
+                    ssr.model_version AS modelVersion, ssr.id AS runId,
                     ssr.as_of AS asOf, ssr.input_watermark AS inputWatermark
              FROM shopping_suggestions ss
              INNER JOIN suggestion_explanations se ON se.suggestion_id = ss.id
@@ -695,21 +722,16 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         DateTimeImmutable $after,
         DateTimeImmutable $through,
     ): array {
-        return $this->connection->fetchAllAssociative(
-            'SELECT DISTINCT home_product_id AS homeProductId
-             FROM stock_movements sm
-             WHERE home_id = :home AND source_type = :source
-               AND ' . DecimalSql::greaterThan($this->connection, $this->netPurchaseQuantity(':through'), '0') . '
-               AND occurred_at > :after AND occurred_at <= :through
-             ORDER BY home_product_id',
-            [
-                'home' => $homeId,
-                'source' => 'receipt-line',
-                'correction_source' => 'receipt-line-correction',
-                'after' => $this->date($after),
-                'through' => $this->date($through),
-            ],
-        );
+        $products = [];
+        foreach ($this->purchaseMovements($homeId, $through) as $purchase) {
+            if (new DateTimeImmutable((string) $purchase['occurredAt']) > $after) {
+                $id = (string) $purchase['homeProductId'];
+                $products[$id] = ['homeProductId' => $id];
+            }
+        }
+        ksort($products);
+
+        return array_values($products);
     }
 
     public function feedbackSummary(string $homeId, DateTimeImmutable $asOf): array
@@ -821,17 +843,6 @@ final class DbalShoppingIntelligenceStore implements ShoppingIntelligenceStore
         unset($row['cutoffsJson'], $row['metricsJson'], $row['limitationsJson']);
 
         return $row;
-    }
-
-    private function netPurchaseQuantity(string $through): string
-    {
-        $corrections = '(SELECT COALESCE(' . DecimalSql::sum($this->connection, 'c.quantity_delta') . ', 0)
-                        FROM stock_movements c WHERE c.home_id = sm.home_id
-                          AND c.home_product_id = sm.home_product_id
-                          AND c.source_type = :correction_source AND sm.source_type = :source
-                          AND SUBSTR(c.source_id, 1, 36) = sm.source_id
-                          AND c.occurred_at <= ' . $through . ' AND c.created_at <= ' . $through . ')';
-        return DecimalSql::add($this->connection, 'sm.quantity_delta', $corrections);
     }
 
     /**

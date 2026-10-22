@@ -197,6 +197,9 @@ final class ShoppingService
         $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
         $this->requireOpenList($homeId, $listId);
         $reason = trim($reason);
+        if ($expectedRevision < 1) {
+            throw new Problem(422, 'Invalid revision', 'Provide the current shopping-list line revision.');
+        }
         if ($reason === '' || mb_strlen($reason) > 500) {
             throw new Problem(422, 'Audit reason required', 'Provide a reason containing 1 to 500 characters.');
         }

@@ -8,11 +8,11 @@ use DateTimeImmutable;
 
 final class ConsumptionEstimator
 {
-    public const VERSION = 'reliable-count-interval-v1';
+    public const VERSION = 'reliable-count-interval-v2';
 
     /**
-     * @param list<array{at: DateTimeImmutable, quantity: string}> $counts
-     * @param list<array{at: DateTimeImmutable, quantity: string}> $inbound
+     * @param list<array<string, mixed>> $counts
+     * @param list<array<string, mixed>> $inbound
      * @param list<DateTimeImmutable> $purchases
      * @return array<string, mixed>
      */
@@ -22,12 +22,34 @@ final class ConsumptionEstimator
         array $purchases,
         DateTimeImmutable $asOf,
     ): array {
+        $counts = array_values(array_filter(
+            $counts,
+            static fn (array $count): bool => $count['at'] <= $asOf,
+        ));
+        $purchases = array_values(array_filter(
+            $purchases,
+            static fn (DateTimeImmutable $purchase): bool => $purchase <= $asOf,
+        ));
         usort($counts, static fn (array $left, array $right): int => $left['at'] <=> $right['at']);
         usort($purchases, static fn (DateTimeImmutable $left, DateTimeImmutable $right): int => $left <=> $right);
         $totalConsumption = FixedDecimal::zero();
+        $totalResidual = FixedDecimal::zero();
         $coverageDays = 0;
         $rates = [];
         $limitations = [];
+        $intervalEvidence = [];
+        $evidenceFrom = null;
+        $evidenceTo = null;
+        $quantitiesAt = [];
+        $conflictingTimes = [];
+        foreach ($counts as $count) {
+            $key = $count['at']->format('U.u');
+            $quantity = FixedDecimal::from((string) $count['quantity'])->toString();
+            if (isset($quantitiesAt[$key]) && $quantitiesAt[$key] !== $quantity) {
+                $conflictingTimes[$key] = true;
+            }
+            $quantitiesAt[$key] = $quantity;
+        }
 
         for ($index = 1, $length = count($counts); $index < $length; $index++) {
             $start = $counts[$index - 1];
@@ -38,21 +60,98 @@ final class ConsumptionEstimator
             }
             $days = max(1, intdiv($seconds, 86400));
             $received = FixedDecimal::zero();
+            $knownConsumption = FixedDecimal::zero();
+            $otherOutflow = FixedDecimal::zero();
+            $netMovement = FixedDecimal::zero();
+            $reviewReason = ($start['unit'] ?? null) !== ($end['unit'] ?? null)
+                || ($start['scope'] ?? null) !== ($end['scope'] ?? null)
+                ? 'incompatible_count_scope_or_unit'
+                : null;
+            if (
+                isset($conflictingTimes[$start['at']->format('U.u')])
+                || isset($conflictingTimes[$end['at']->format('U.u')])
+            ) {
+                $reviewReason = 'conflicting_count_observations';
+            }
             foreach ($inbound as $movement) {
-                if ($movement['at'] > $start['at'] && $movement['at'] <= $end['at']) {
-                    $received = $received->add(FixedDecimal::from($movement['quantity'])->maxZero());
+                $quantity = FixedDecimal::from((string) $movement['quantity']);
+                if ($quantity->compare(FixedDecimal::zero()) === 0) {
+                    continue;
+                }
+                if (($movement['movementType'] ?? '') === 'count-reconciliation') {
+                    continue;
+                }
+                if (
+                    $movement['at'] > $asOf
+                    && !(($movement['dateOnly'] ?? false) && ($movement['acceptedAtCutoff'] ?? false))
+                ) {
+                    continue;
+                }
+                $day = $movement['at']->format('Y-m-d');
+                $startDay = $start['calendarDay'] ?? $start['at']->format('Y-m-d');
+                $endDay = $end['calendarDay'] ?? $end['at']->format('Y-m-d');
+                if (
+                    ($movement['dateOnly'] ?? false) === true
+                    && ($day === $startDay || $day === $endDay)
+                ) {
+                    $reviewReason = 'same_day_purchase_order_uncertain';
+                    continue;
+                }
+                if (($movement['dateOnly'] ?? false) === true) {
+                    if ($day <= $startDay || $day >= $endDay) {
+                        continue;
+                    }
+                } elseif ($movement['at'] <= $start['at'] || $movement['at'] > $end['at']) {
+                    continue;
+                }
+                if (
+                    isset($start['unit'])
+                    && ($movement['unit'] ?? null) !== $start['unit']
+                ) {
+                    $reviewReason = 'incompatible_movement_unit';
+                    continue;
+                }
+                $netMovement = $netMovement->add($quantity);
+                if ($quantity->isPositive()) {
+                    $received = $received->add($quantity);
+                } elseif (($movement['movementType'] ?? '') === 'consumption') {
+                    $knownConsumption = $knownConsumption->add($quantity->absolute());
+                } else {
+                    $otherOutflow = $otherOutflow->add($quantity->absolute());
                 }
             }
-            $raw = FixedDecimal::from($start['quantity'])
-                ->add($received)
-                ->subtract(FixedDecimal::from($end['quantity']));
-            if ($raw->compare(FixedDecimal::zero()) < 0) {
-                $limitations[] = 'A count interval implied negative consumption and was clamped to zero.';
+            $residual = FixedDecimal::from((string) $start['quantity'])
+                ->add($netMovement)
+                ->subtract(FixedDecimal::from((string) $end['quantity']));
+            if ($residual->compare(FixedDecimal::zero()) < 0) {
+                $reviewReason ??= 'negative_residual';
             }
-            $consumption = $raw->maxZero();
-            $totalConsumption = $totalConsumption->add($consumption);
+            $estimatedUsage = $knownConsumption->add($residual);
+            $intervalEvidence[] = [
+                'from' => $start['at']->format(DATE_ATOM),
+                'to' => $end['at']->format(DATE_ATOM),
+                'unit' => $start['unit'] ?? null,
+                'scope' => $start['scope'] ?? 'home',
+                'openingQuantity' => (string) $start['quantity'],
+                'incomingQuantity' => $received->toString(),
+                'knownConsumption' => $knownConsumption->toString(),
+                'otherRecordedOutflow' => $otherOutflow->toString(),
+                'closingQuantity' => (string) $end['quantity'],
+                'residualDepletion' => $residual->toString(),
+                'estimatedUsage' => $reviewReason === null ? $estimatedUsage->toString() : null,
+                'status' => $reviewReason === null ? 'accepted' : 'review_required',
+                'reviewReason' => $reviewReason,
+            ];
+            if ($reviewReason !== null) {
+                $limitations[] = 'A count interval requires review: ' . $reviewReason . '.';
+                continue;
+            }
+            $totalConsumption = $totalConsumption->add($estimatedUsage);
+            $totalResidual = $totalResidual->add($residual);
             $coverageDays += $days;
-            $rates[] = $consumption->divideByInt($days);
+            $rates[] = $estimatedUsage->divideByInt($days);
+            $evidenceFrom ??= $start['at'];
+            $evidenceTo = $end['at'];
         }
 
         $intervals = count($rates);
@@ -66,7 +165,7 @@ final class ConsumptionEstimator
         if ($intervals > 0) {
             $variability = $variability->divideByInt($intervals);
         }
-        $latestCount = $counts === [] ? null : $counts[array_key_last($counts)]['at'];
+        $latestCount = $evidenceTo ?? ($counts === [] ? null : $counts[array_key_last($counts)]['at']);
         $recencyDays = $latestCount === null
             ? PHP_INT_MAX
             : max(0, intdiv($asOf->getTimestamp() - $latestCount->getTimestamp(), 86400));
@@ -84,6 +183,7 @@ final class ConsumptionEstimator
         if ($purchaseCadenceDays === null) {
             $limitations[] = 'At least two historical purchases are required to estimate purchase cadence.';
         }
+        $limitations[] = 'Residual depletion is estimated usage or unexplained outflow, not exact food consumption.';
         $limitations[] = 'Seasonality is disabled until a longer evidence history is available.';
 
         return [
@@ -97,8 +197,11 @@ final class ConsumptionEstimator
             'nextExpectedShoppingAt' => $nextExpectedShoppingAt,
             'confidenceScore' => $score,
             'confidenceBand' => $band,
-            'evidenceFrom' => $counts === [] ? null : $counts[0]['at'],
-            'evidenceTo' => $latestCount,
+            'evidenceFrom' => $evidenceFrom,
+            'evidenceTo' => $evidenceTo,
+            'totalEstimatedUsage' => $intervals === 0 ? null : $totalConsumption->toString(),
+            'residualDepletion' => $intervals === 0 ? null : $totalResidual->toString(),
+            'intervalEvidence' => $intervalEvidence,
             'limitations' => array_values(array_unique($limitations)),
         ];
     }

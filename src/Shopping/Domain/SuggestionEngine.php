@@ -8,7 +8,7 @@ use DateTimeImmutable;
 
 final class SuggestionEngine
 {
-    public const VERSION = 'deterministic-replenishment-v1';
+    public const VERSION = 'deterministic-replenishment-v2';
 
     /**
      * @param array<string, mixed> $product
@@ -30,6 +30,15 @@ final class SuggestionEngine
             return [
                 'eligible' => false,
                 'reason' => $neverSuggest ? 'never-suggest preference' : 'snoozed preference',
+                'reasonCode' => $neverSuggest ? 'excluded' : 'paused',
+            ];
+        }
+        if (($product['stockUncertain'] ?? false) === true) {
+            return [
+                'eligible' => false,
+                'reason' => 'Stock chronology requires review before a reliable shortage can be calculated.',
+                'reasonCode' => 'stock_chronology_uncertain',
+                'limitations' => $product['stockLimitations'] ?? [],
             ];
         }
         $configuredCoverage = (int) ($product['targetCoverageDays'] ?? 0);
@@ -50,6 +59,7 @@ final class SuggestionEngine
         if (! $minimum->isPositive() && (bool) ($product['alwaysKeep'] ?? false)) {
             $minimum = FixedDecimal::from('1');
         }
+        $hasUsageEvidence = (int) $estimate['sampleIntervals'] > 0;
         $dailyRate = FixedDecimal::from((string) $estimate['dailyRate'])->maxZero();
         $expectedDemand = (int) $estimate['sampleIntervals'] === 0
             ? FixedDecimal::zero()
@@ -63,6 +73,14 @@ final class SuggestionEngine
 
         return [
             'eligible' => $required->isPositive(),
+            'reasonCode' => $required->isPositive()
+                ? ($hasUsageEvidence ? 'usage_shortfall' : 'minimum_reserve_shortfall')
+                : (! $hasUsageEvidence && ! $minimum->isPositive()
+                    ? 'insufficient_usage_evidence'
+                    : 'sufficient_stock'),
+            'calculationBasis' => $hasUsageEvidence ? 'usage_and_reserve' : 'minimum_reserve_only',
+            'usageEvidenceAvailable' => $hasUsageEvidence,
+            'minimumConfigured' => $minimum->isPositive(),
             'expectedDemand' => $expectedDemand->toString(),
             'safetyStock' => $minimum->toString(),
             'factualStock' => $factualStock->toString(),
@@ -91,6 +109,17 @@ final class SuggestionEngine
                 ['key' => 'minimum-reserve', 'value' => $minimum->toString()],
                 ['key' => 'factual-stock', 'value' => $factualStock->toString()],
                 ['key' => 'required-quantity', 'value' => $required->toString()],
+                [
+                    'key' => 'usage-evidence',
+                    'sampleIntervals' => (int) $estimate['sampleIntervals'],
+                    'coverageDays' => (int) ($estimate['coverageDays'] ?? 0),
+                    'from' => ($estimate['evidenceFrom'] ?? null) instanceof DateTimeImmutable
+                        ? $estimate['evidenceFrom']->format(DATE_ATOM) : null,
+                    'to' => ($estimate['evidenceTo'] ?? null) instanceof DateTimeImmutable
+                        ? $estimate['evidenceTo']->format(DATE_ATOM) : null,
+                    'intervals' => $estimate['intervalEvidence'] ?? [],
+                    'basis' => $hasUsageEvidence ? 'estimated_usage' : 'minimum_reserve_only',
+                ],
             ],
             'limitations' => array_values(array_unique($limitations)),
         ];
