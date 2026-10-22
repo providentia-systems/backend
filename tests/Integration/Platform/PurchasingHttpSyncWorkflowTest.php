@@ -328,11 +328,12 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
         $information = $this->request('GET', '/sync/diagnostics');
         self::assertSame($this->homeId, $information['homeId']);
         self::assertSame($this->deviceId, $information['deviceId']);
-        self::assertSame(
-            hash_file('sha256', dirname(__DIR__, 3) . '/contracts/openapi/providentia-v1.json'),
-            $information['deployment']['contractHash'],
-        );
-        self::assertTrue($information['deployment']['contractMatchesLock']);
+        $contract = dirname(__DIR__, 3) . '/contracts/openapi/providentia-v1.json';
+        $expectedHash = is_file($contract) ? hash_file('sha256', $contract) : null;
+        self::assertSame($expectedHash, $information['deployment']['contractHash']);
+        // A clean checkout need not have materialized the canonical contract yet.
+        // Missing deployment evidence must be explicit, never a warning or invented hash.
+        self::assertSame($expectedHash !== null, $information['deployment']['contractMatchesLock']);
         self::assertSame('current', $information['deployment']['migrationStatus']);
         self::assertSame([], $information['deployment']['pendingMigrations']);
         self::assertStringNotContainsString('accessToken', json_encode($information, JSON_THROW_ON_ERROR));

@@ -1045,7 +1045,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             'location_id' => $locationId,
             'status' => 'open',
             'notes' => $notes,
-            'scope_complete' => $scopeComplete,
+            'scope_complete' => (int) $scopeComplete,
             'reliability' => $reliability,
             'observed_at' => $this->date($observedAt ?? $at),
             'observed_timezone' => $this->homeTimezone($homeId),
@@ -1312,7 +1312,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
         $now = $this->date($at);
         $updated = $this->connection->update('stock_count_sessions', [
             'status' => 'closed', 'closed_by_user_id' => $actorUserId, 'closed_at' => $now,
-            'scope_complete' => $scopeComplete ?? (bool) $session['scope_complete'],
+            'scope_complete' => (int) ($scopeComplete ?? (bool) $session['scope_complete']),
             'reliability' => $reliability ?? (string) $session['reliability'],
             'observed_at' => $observedAt === null ? $session['observed_at'] : $this->date($observedAt),
             'observed_timezone' => $observedAt === null ? $session['observed_timezone'] : $this->homeTimezone($homeId),
@@ -1386,7 +1386,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             }
         }
         $this->connection->update('stock_count_sessions', [
-            'scope_complete' => $scopeComplete, 'reliability' => $reliability,
+            'scope_complete' => (int) $scopeComplete, 'reliability' => $reliability,
             'observed_at' => $this->date($observedAt), 'observed_timezone' => $this->homeTimezone($homeId),
             'revision' => $expectedRevision + 1, 'updated_at' => $now,
         ], ['home_id' => $homeId, 'id' => $sessionId, 'revision' => $expectedRevision]);
@@ -1530,7 +1530,7 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
             return $existing;
         }
         $record = [
-            'quantity' => $projection['quantity'], 'uncertain' => $projection['uncertain'],
+            'quantity' => $projection['quantity'], 'uncertain' => (int) $projection['uncertain'],
             'pending_quantity' => $projection['pendingQuantity'],
             'limitations_json' => json_encode($projection['limitations'], JSON_THROW_ON_ERROR),
             'checkpoint_id' => $projection['checkpointId'],
