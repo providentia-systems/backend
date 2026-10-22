@@ -36,7 +36,7 @@ final class CorsMiddleware implements MiddlewareInterface
             ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
             ->withHeader(
                 'Access-Control-Allow-Headers',
-                'Authorization, Content-Type, Idempotency-Key, X-CSRF-Token, X-Request-Id',
+                'Authorization, Content-Type, Idempotency-Key, X-CSRF-Token, X-Request-Id, X-Providentia-Application',
             )
             ->withHeader('Access-Control-Max-Age', '600')
             ->withHeader('Vary', 'Origin');

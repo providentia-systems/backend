@@ -31,6 +31,8 @@ use Providentia\Synchronization\Application\SyncRequestHasher;
 use Providentia\Synchronization\Application\SyncResultPresenter;
 use Providentia\Synchronization\Application\SynchronizationService;
 use Providentia\Synchronization\Application\SyncStore;
+use Providentia\Synchronization\Application\SyncDeploymentInformation;
+use Providentia\Synchronization\Infrastructure\Doctrine\DbalSyncDeploymentInformation;
 use Providentia\Synchronization\Application\SyncRepresentationNormalizer;
 use Providentia\Synchronization\Http\SynchronizationHandler;
 use Providentia\Synchronization\Infrastructure\Doctrine\DbalChangeFeedWriter;
@@ -46,6 +48,7 @@ final class SynchronizationFactory
     {
         /**
          * @var array{
+         *     app: array{version: string, build_revision: string},
          *     synchronization: array{
          *         cursor_secret: string,
          *         cursor_ttl_seconds: int,
@@ -61,6 +64,12 @@ final class SynchronizationFactory
         $sync = $config['synchronization'];
 
         return match (true) {
+            $requestedName === DbalSyncDeploymentInformation::class => new DbalSyncDeploymentInformation(
+                $container->get(Connection::class),
+                dirname(__DIR__, 4),
+                $config['app']['version'],
+                $config['app']['build_revision'],
+            ),
             $requestedName === DbalChangeFeedWriter::class => new DbalChangeFeedWriter(
                 $container->get(Connection::class),
                 $container->get(UuidGenerator::class),
@@ -127,6 +136,7 @@ final class SynchronizationFactory
                 $container->get(SyncCommandHasher::class),
                 $container->get(TransactionManager::class),
                 $container->get(SnapshotCursorCodec::class),
+                $container->get(SyncDeploymentInformation::class),
             ),
             $requestedName === SyncBackfillService::class => new SyncBackfillService(
                 $container->get(SyncBackfillStore::class),

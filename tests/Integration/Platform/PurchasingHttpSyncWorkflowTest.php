@@ -22,6 +22,9 @@ use Providentia\Access\Domain\FeatureCatalog;
 use Providentia\Home\Application\HomeStore;
 use Providentia\Identity\Application\AuthenticationService;
 use Providentia\Identity\Application\IdentityStore;
+use Providentia\Identity\Application\LoginApplicationKind;
+use Providentia\Identity\Http\SessionResponseFactory;
+use Providentia\Identity\Http\WebSessionContext;
 use Providentia\SharedKernel\Application\TransactionManager;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\SharedKernel\Infrastructure\Logging\StderrJsonLogger;
@@ -56,7 +59,7 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
         );
         $migrations->getMetadataStorage()->ensureInitialized();
         $plan = $migrations->getMigrationPlanCalculator()->getPlanUntilVersion(
-            new Version('Providentia\Migrations\Version20261013000100'),
+            new Version('Providentia\Migrations\Version20261022000300'),
         );
         $migrations->getMigrator()->migrate($plan, new MigratorConfiguration());
         $this->container = require dirname(__DIR__, 3) . '/config/container.php';
@@ -131,6 +134,19 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
         self::assertSame('1', $second['results'][0]['result']['quantity']);
         self::assertSame('4', $second['results'][0]['result']['stockQuantity']);
         self::assertSame('4', $second['results'][0]['result']['stockQuantityPerPack']);
+        // Simulate a lost response: inspect the original execution receipt before
+        // deciding whether the immutable purchase should be transmitted again.
+        $accountId = $this->container->get(AuthenticationService::class)->authenticate($this->ownerToken)->userId;
+        $recovery = [
+            'accountId' => $accountId, 'deviceId' => $this->deviceId,
+            'operations' => [['blockedCode' => 'device_binding_mismatch', 'command' => $envelope['operations'][0]]],
+        ];
+        $revalidated = $this->request('POST', '/sync/revalidate', $recovery);
+        self::assertSame('readback', $revalidated['operations'][0]['action']);
+        self::assertSame($second['results'][0], $revalidated['operations'][0]['result']);
+        self::assertSame($revalidated, $this->request('POST', '/sync/revalidate', $recovery));
+        $this->request('POST', '/sync/revalidate', $recovery, 403, $this->secondDeviceToken);
+        $this->assertBalance('10');
         $retry = $this->request('POST', '/sync/push', $envelope, 200, null, null, $headers);
         self::assertSame($second['results'], $retry['results']);
         $this->assertBalance('10');
@@ -168,7 +184,7 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
         self::assertSame(2, (int) $this->db->fetchOne(
             "SELECT COUNT(*) FROM stock_movements WHERE movement_type = 'purchase-in'",
         ));
-        $this->assertDiagnostics([]);
+        $this->assertDiagnostics([403]);
     }
 
     public function testPurchaseRouteRejectsUnauthenticatedAndOtherHomeRequestsWithoutWrites(): void
@@ -206,6 +222,138 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
         self::assertSame(1, (int) $this->db->fetchOne('SELECT COUNT(*) FROM receipt_lines'));
         self::assertSame(0, (int) $this->db->fetchOne('SELECT COUNT(*) FROM client_operations'));
         $this->assertDiagnostics([409]);
+    }
+
+    public function testRealWebSessionsRemainIsolatedAcrossSharedBackendCookieJarAndRefresh(): void
+    {
+        $authentication = $this->container->get(AuthenticationService::class);
+        $users = [
+            'homeowner' => $authentication->authenticate($this->ownerToken)->userId,
+            'admin' => $authentication->authenticate($this->outsiderToken)->userId,
+        ];
+        $sessions = [];
+        $cookies = [];
+        foreach ([LoginApplicationKind::HOMEOWNER, LoginApplicationKind::ADMIN] as $application) {
+            $sessions[$application->value] = $authentication->issueVerifiedSession(
+                $users[$application->value],
+                $this->id(),
+                'Web app',
+                'web',
+                'web',
+                2592000,
+                null,
+            );
+            $this->mergeWebCookies($cookies, SessionResponseFactory::web(
+                $sessions[$application->value],
+                false,
+                $application,
+            )->getHeader('Set-Cookie'));
+        }
+        self::assertCount(6, $cookies);
+        foreach ([LoginApplicationKind::HOMEOWNER, LoginApplicationKind::ADMIN] as $application) {
+            $response = $this->app->handle(new ServerRequest([], [], 'http://localhost/api/v1/auth/sessions', 'GET')
+                ->withHeader(WebSessionContext::HEADER, $application->value)->withCookieParams($cookies));
+            self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+            $data = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+            $current = array_values(array_filter($data['data'], static fn (array $row): bool => $row['current']));
+            self::assertCount(1, $current);
+            self::assertSame($sessions[$application->value]['deviceId'], $current[0]['deviceId']);
+            self::assertSame($sessions[$application->value]['installationId'], $current[0]['installationId']);
+
+            $refresh = $this->app->handle(new ServerRequest([], [], 'http://localhost/api/v1/auth/refresh', 'POST')
+                ->withHeader(WebSessionContext::HEADER, $application->value)
+                ->withHeader('X-CSRF-Token', $cookies[WebSessionContext::cookie('csrf', $application)])
+                ->withCookieParams($cookies));
+            self::assertSame(200, $refresh->getStatusCode(), (string) $refresh->getBody());
+            foreach ($refresh->getHeader('Set-Cookie') as $cookie) {
+                self::assertStringStartsWith('providentia_' . $application->value . '_', $cookie);
+            }
+            $this->mergeWebCookies($cookies, $refresh->getHeader('Set-Cookie'));
+        }
+        $logout = $this->app->handle(new ServerRequest([], [], 'http://localhost/api/v1/auth/logout', 'POST')
+            ->withHeader(WebSessionContext::HEADER, 'admin')
+            ->withHeader('X-CSRF-Token', $cookies['providentia_admin_csrf'])->withCookieParams($cookies));
+        self::assertSame(204, $logout->getStatusCode(), (string) $logout->getBody());
+        $this->mergeWebCookies($cookies, $logout->getHeader('Set-Cookie'));
+        $stillHome = $this->app->handle(new ServerRequest([], [], 'http://localhost/api/v1/auth/sessions', 'GET')
+            ->withHeader(WebSessionContext::HEADER, 'homeowner')->withCookieParams($cookies));
+        self::assertSame(200, $stillHome->getStatusCode(), (string) $stillHome->getBody());
+        $this->assertDiagnostics([]);
+    }
+
+    public function testCorrectedSubmittedReceiptDateSurvivesSyncReplayAndUpdatesAuthoritativeHistory(): void
+    {
+        $this->request('POST', $this->purchasesPath(), $this->purchaseBody($this->oneKgPackId, '4', '1', 1), 201);
+        $this->request('POST', '/receipts/' . $this->receiptId . '/commit', ['expectedRevision' => 2]);
+        $receipt = $this->request('GET', '/receipts/' . $this->receiptId);
+        $batch = $this->id();
+        $command = [
+            'operationId' => $this->id(), 'commandType' => 'purchasing.receipt.correct-date',
+            'entityId' => $this->receiptId, 'baseRevision' => $receipt['revision'],
+            'clientTimestamp' => '2026-10-22T10:00:00Z', 'payloadSchemaVersion' => 1,
+            'payload' => ['purchaseDate' => '2026-10-12', 'reason' => 'Checked the original receipt'],
+        ];
+        $envelope = [
+            'protocolVersion' => 2, 'batchId' => $batch, 'deviceId' => $this->deviceId,
+            'lastPulledCursor' => null, 'operations' => [$command],
+        ];
+        $first = $this->request('POST', '/sync/push', $envelope, 200, null, null, ['Idempotency-Key' => $batch]);
+        self::assertSame('accepted', $first['results'][0]['status']);
+        $replay = $this->request('POST', '/sync/push', $envelope, 200, null, null, ['Idempotency-Key' => $batch]);
+        self::assertSame($first['results'], $replay['results']);
+        $receipt = $this->request('GET', '/receipts/' . $this->receiptId);
+        self::assertSame('2026-10-12', $receipt['purchaseDate']);
+        self::assertSame('committed', $receipt['status']);
+        $history = $this->request('GET', '/receipts/' . $this->receiptId . '/date-corrections');
+        self::assertCount(1, $history['data']);
+        self::assertSame('2026-10-13', $history['data'][0]['originalPurchaseDate']);
+        self::assertSame('2026-10-12', $history['data'][0]['purchaseDate']);
+        $this->assertBalance('6');
+        self::assertSame(2, (int) $this->db->fetchOne('SELECT COUNT(*) FROM price_observations'));
+        self::assertSame(1, (int) $this->db->fetchOne(
+            'SELECT COUNT(*) FROM price_observations WHERE superseded_at IS NULL',
+        ));
+        self::assertStringStartsWith(
+            '2026-10-12',
+            (string) $this->db->fetchOne('SELECT observed_at FROM price_observations WHERE superseded_at IS NULL'),
+        );
+        self::assertSame(1, (int) $this->db->fetchOne(
+            "SELECT COUNT(*) FROM stock_movements WHERE movement_type = 'purchase-in'",
+        ));
+        $this->assertDiagnostics([]);
+    }
+
+    public function testAuthenticatedDiagnosticsReportActualContractAndMigrationStateWithoutHouseholdData(): void
+    {
+        $information = $this->request('GET', '/sync/diagnostics');
+        self::assertSame($this->homeId, $information['homeId']);
+        self::assertSame($this->deviceId, $information['deviceId']);
+        self::assertSame(
+            hash_file('sha256', dirname(__DIR__, 3) . '/contracts/openapi/providentia-v1.json'),
+            $information['deployment']['contractHash'],
+        );
+        self::assertTrue($information['deployment']['contractMatchesLock']);
+        self::assertSame('current', $information['deployment']['migrationStatus']);
+        self::assertSame([], $information['deployment']['pendingMigrations']);
+        self::assertStringNotContainsString('accessToken', json_encode($information, JSON_THROW_ON_ERROR));
+        $this->request('GET', '/sync/diagnostics', null, 404, $this->outsiderToken);
+        $this->assertDiagnostics([404]);
+    }
+
+    /**
+     * @param array<string, string> $cookies
+     * @param array<array-key, string> $headers
+     */
+    private function mergeWebCookies(array &$cookies, array $headers): void
+    {
+        foreach ($headers as $header) {
+            [$name, $value] = explode('=', explode(';', $header)[0], 2);
+            if (str_contains($header, 'Max-Age=0;')) {
+                unset($cookies[$name]);
+            } else {
+                $cookies[$name] = rawurldecode($value);
+            }
+        }
     }
 
     /** @param list<int> $expectedStatuses */

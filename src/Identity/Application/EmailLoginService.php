@@ -81,8 +81,11 @@ final class EmailLoginService
      *
      * @return array<string, mixed>
      */
-    public function verify(array $input, string $ip): array
-    {
+    public function verify(
+        array $input,
+        string $ip,
+        ?LoginApplicationKind $application = null,
+    ): array {
         $challenge = $this->codes->verify(
             (string) ($input['challengeId'] ?? ''),
             (string) ($input['bindingToken'] ?? ''),
@@ -93,7 +96,12 @@ final class EmailLoginService
         // Proof is consumed before this transaction. A failure cannot make a
         // numeric credential reusable or roll back its failed-attempt counter.
         return $this->transactions->transactional(
-            function () use ($challenge): array {
+            function () use ($challenge, $application): array {
+                /** @var array<string, string> $context */
+                $context = $challenge['context'];
+                if ($application !== null && ($context['applicationKind'] ?? null) !== $application->value) {
+                    throw new Problem(422, 'Application context mismatch', 'The login belongs to another application.');
+                }
                 $email = (string) $challenge['email'];
                 $user = $this->identities->findUserByEmail($email);
                 $now = $this->clock->now();
@@ -124,8 +132,6 @@ final class EmailLoginService
                         FeatureCatalog::SYSTEM_OWNER,
                     );
                 }
-                /** @var array<string, string> $context */
-                $context = $challenge['context'];
                 if ($context['applicationKind'] === 'admin' && !$this->profiles->isSystemOwner($userId)) {
                     $this->profiles->registerAdministrator($userId, $now->format('Y-m-d H:i:s'));
                 }

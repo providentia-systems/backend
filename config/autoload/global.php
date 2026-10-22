@@ -261,6 +261,7 @@ return [
     'app' => [
         'environment' => $environment,
         'version' => $env('APP_VERSION', '0.1.0'),
+        'build_revision' => $env('APP_BUILD_REVISION', ''),
         'debug' => filter_var($env('APP_DEBUG', '0'), FILTER_VALIDATE_BOOL),
     ],
     'database' => [

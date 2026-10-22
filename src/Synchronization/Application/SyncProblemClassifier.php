@@ -9,6 +9,7 @@ use Providentia\SharedKernel\Application\Problem;
 /** Stable recovery classifications; never infer authorization from prose. */
 final class SyncProblemClassifier
 {
+    public const ACCOUNT_MISMATCH = 'https://providentia.invalid/problems/sync_account_mismatch';
     public const DEVICE_MISMATCH = 'https://providentia.invalid/problems/sync_device_mismatch';
     public const HOME_ACCESS_DENIED = 'https://providentia.invalid/problems/sync_home_access_denied';
     public const PERMISSION_DENIED = 'https://providentia.invalid/problems/sync_permission_denied';
@@ -22,6 +23,7 @@ final class SyncProblemClassifier
         $retryable = $problem->status >= 500 || in_array($problem->status, [408, 425, 429], true);
         [$status, $code] = match (true) {
             $retryable => ['retryable_failure', 'service_unavailable'],
+            $problem->type === self::ACCOUNT_MISMATCH => ['authorization_failure', 'account_binding_mismatch'],
             $problem->type === self::DEVICE_MISMATCH => ['authorization_failure', 'device_binding_mismatch'],
             $problem->type === self::HOME_ACCESS_DENIED => ['authorization_failure', 'home_access_denied'],
             $problem->type === self::PERMISSION_DENIED, $problem->status === 403

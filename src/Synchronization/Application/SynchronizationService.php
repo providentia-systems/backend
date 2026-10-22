@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Providentia\Synchronization\Application;
 
 use Providentia\Home\Application\HomeAuthorization;
+use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
@@ -34,6 +35,7 @@ final class SynchronizationService
         private readonly ?SyncCommandHasher $commandHasher = null,
         private readonly ?TransactionManager $transactions = null,
         private readonly ?SnapshotCursorCodec $snapshotCursors = null,
+        private readonly ?SyncDeploymentInformation $deployment = null,
     ) {
         if ($this->pageSize < 1) {
             throw new \InvalidArgumentException('pageSize must be positive.');
@@ -266,6 +268,158 @@ final class SynchronizationService
         }
 
         return ['protocolVersion' => 2, 'operations' => $operations];
+    }
+
+    /** @return array<string, mixed> */
+    public function diagnostics(AuthenticatedIdentity $identity, string $homeId): array
+    {
+        $this->requireMember($identity, $homeId);
+        $deployment = $this->deployment ?? throw new \LogicException('Deployment diagnostics are not configured.');
+        $information = $deployment->information();
+        $this->requireMember($identity, $homeId);
+
+        return [
+            'accountId' => $identity->userId,
+            'deviceId' => $identity->deviceId,
+            'homeId' => $homeId,
+            'serverTime' => $this->clock->now()->format(DATE_ATOM),
+            'deployment' => $information,
+        ];
+    }
+
+    /**
+     * Revalidate the original binding and execution evidence without replaying work.
+     * Only device-binding failures are eligible; every other conflict stays blocked.
+     *
+     * @param array<string, mixed> $request
+     * @return array<string, mixed>
+     */
+    public function revalidate(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        array $request,
+    ): array {
+        $this->requireMember($identity, $homeId);
+        if (array_diff(array_keys($request), ['accountId', 'deviceId', 'operations']) !== []) {
+            throw new Problem(422, 'Invalid recovery request', 'The recovery request contains unknown fields.');
+        }
+        if (($request['accountId'] ?? null) !== $identity->userId) {
+            throw new Problem(
+                403,
+                'Account mismatch',
+                'Recovery requires the original authenticated account; unknown provenance needs explicit review.',
+                SyncProblemClassifier::ACCOUNT_MISMATCH,
+            );
+        }
+        if (($request['deviceId'] ?? null) !== $identity->deviceId) {
+            throw new Problem(
+                403,
+                'Device mismatch',
+                'Restore the original device session before revalidating saved operations.',
+                SyncProblemClassifier::DEVICE_MISMATCH,
+            );
+        }
+        $operations = $request['operations'] ?? null;
+        if (
+            ! is_array($operations) || ! array_is_list($operations)
+            || count($operations) < 1 || count($operations) > 100
+        ) {
+            throw new Problem(422, 'Invalid recovery request', 'Request between 1 and 100 operations in queue order.');
+        }
+        $validator = $this->commands ?? throw new \LogicException('Command validation is not configured.');
+        $hasher = $this->commandHasher ?? throw new \LogicException('Command hashing is not configured.');
+        $validated = [];
+        $seen = [];
+        foreach ($operations as $operation) {
+            if (
+                ! is_array($operation)
+                || array_diff(array_keys($operation), ['blockedCode', 'command']) !== []
+                || ! is_string($operation['blockedCode'] ?? null)
+                || ! is_array($operation['command'] ?? null)
+            ) {
+                throw new Problem(422, 'Invalid recovery request', 'Provide each original command and blockedCode.');
+            }
+            $command = $validator->validate($operation['command']);
+            if (isset($seen[$command->operationId])) {
+                throw new Problem(422, 'Invalid recovery request', 'Operation identifiers must be unique.');
+            }
+            $seen[$command->operationId] = true;
+            $validated[] = ['command' => $command, 'blockedCode' => $operation['blockedCode']];
+        }
+        $permissions = $this->readPermissions($identity, $homeId);
+        $scope = SyncReadPolicy::scope($identity, $permissions);
+        $results = [];
+        $predecessor = null;
+        foreach ($validated as $operation) {
+            $command = $operation['command'];
+            $receipt = $this->store->operationReceipt($command->operationId);
+            $result = ['operationId' => $command->operationId];
+            if ($receipt !== null) {
+                $matches = (string) $receipt['homeId'] === $homeId
+                    && (string) $receipt['userId'] === $identity->userId
+                    && (string) $receipt['deviceId'] === $identity->deviceId
+                    && hash_equals((string) $receipt['requestHash'], $hasher->hash($command));
+                if (! $matches) {
+                    $result += ['action' => 'review_required', 'code' => 'immutable_request_mismatch'];
+                } else {
+                    /** @var array<string, mixed> $response */
+                    $response = $receipt['response'];
+                    $result += [
+                        'action' => ($response['status'] ?? null) === 'accepted' ? 'readback' : 'review_required',
+                        'code' => 'execution_receipt_found',
+                        'result' => SyncReadPolicy::result($response, $permissions),
+                    ];
+                }
+            } elseif ($predecessor !== null) {
+                $result += [
+                    'action' => 'await_predecessor', 'code' => 'dependency_pending', 'predecessorId' => $predecessor,
+                ];
+            } elseif ($operation['blockedCode'] !== 'device_binding_mismatch') {
+                $result += ['action' => 'review_required', 'code' => 'block_not_eligible'];
+            } elseif (! $this->canRetryCommand($identity, $homeId, $command)) {
+                $result += ['action' => 'review_required', 'code' => 'permission_denied'];
+            } else {
+                $result += ['action' => 'retry_same_operation', 'code' => 'unknown_under_original_binding'];
+            }
+            if ($result['action'] !== 'readback') {
+                $predecessor ??= $command->operationId;
+            }
+            $results[] = $result;
+        }
+        $this->requireUnchangedReadScope($identity, $homeId, $scope);
+
+        return [
+            'protocolVersion' => 2,
+            'accountId' => $identity->userId,
+            'deviceId' => $identity->deviceId,
+            'homeId' => $homeId,
+            'operations' => $results,
+        ];
+    }
+
+    private function canRetryCommand(AuthenticatedIdentity $identity, string $homeId, SyncCommand $command): bool
+    {
+        $entity = SyncReadPolicy::entityForCommand($command->commandType);
+        $permission = match (true) {
+            $entity !== null && str_starts_with($entity, 'inventory-') => HomePermission::INVENTORY_WRITE,
+            $entity !== null && str_starts_with($entity, 'purchasing-') => HomePermission::PURCHASES_WRITE,
+            $entity !== null && str_starts_with($entity, 'shopping-') => HomePermission::SHOPPING_WRITE,
+            default => null,
+        };
+        if ($permission === null) {
+            return false;
+        }
+        try {
+            $this->authorization->requirePermission($identity, $homeId, $permission);
+
+            return true;
+        } catch (Problem $problem) {
+            if (! in_array($problem->status, [403, 404], true)) {
+                throw $problem;
+            }
+
+            return false;
+        }
     }
 
     /** @return array<string, mixed> */
