@@ -8,6 +8,7 @@ use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Providentia\SharedKernel\Infrastructure\Factory\ConnectionFactory;
+use Providentia\SharedKernel\Infrastructure\Doctrine\MySqlConnection;
 use Psr\Container\ContainerInterface;
 use RuntimeException;
 
@@ -65,7 +66,12 @@ final class ConnectionFactoryTest extends TestCase
     ): void {
         $factory = new ConnectionFactory(static fn (): array => [$availableDriver]);
 
-        self::assertInstanceOf(Connection::class, $factory($this->containerWithDatabaseUrl($url)));
+        $connection = $factory($this->containerWithDatabaseUrl($url));
+        self::assertInstanceOf(Connection::class, $connection);
+        self::assertFalse($connection->isConnected());
+        if ($availableDriver === 'mysql') {
+            self::assertInstanceOf(MySqlConnection::class, $connection);
+        }
     }
 
     private function containerWithDatabaseUrl(string $url): ContainerInterface

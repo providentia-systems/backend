@@ -8,6 +8,8 @@ use DateTimeImmutable;
 
 interface PurchasingStore
 {
+    public function homeTimezone(string $homeId): ?string;
+
     /** @return list<array<string, mixed>> */
     public function receipts(
         string $homeId,

@@ -89,7 +89,7 @@ final class PurchasingImmediatePurchaseTest extends TestCase
             return sprintf('01912345-6789-7abc-8def-%012d', $sequence++);
         });
         $clock = $this->createStub(Clock::class);
-        $clock->method('now')->willReturn($this->at);
+        $clock->method('now')->willReturnCallback(fn (): DateTimeImmutable => $this->at);
         $transactions = $this->createStub(TransactionManager::class);
         $transactions->method('transactional')->willReturnCallback(
             fn (callable $work): mixed => $this->connection->transactional(
@@ -372,7 +372,7 @@ final class PurchasingImmediatePurchaseTest extends TestCase
             self::assertSame(409, $error->status);
         }
         self::assertCount(1, $this->store->receiptDateCorrections(self::HOME, self::RECEIPT));
-        self::assertSame('2026-10-10', $this->store->receipt(self::HOME, self::RECEIPT)['purchaseDate']);
+        self::assertSame('2026-10-10', $this->receiptRecord()['purchaseDate']);
     }
 
     public function testNotesOnlyEditPreservesCorrectedDayCurrencyAndStock(): void
@@ -391,7 +391,7 @@ final class PurchasingImmediatePurchaseTest extends TestCase
             'totalAmount' => '40', 'notes' => 'Metadata only',
         ], 3);
         self::assertSame('4', $this->balance());
-        self::assertSame('2026-10-10', $this->store->receipt(self::HOME, self::RECEIPT)['purchaseDate']);
+        self::assertSame('2026-10-10', $this->receiptRecord()['purchaseDate']);
         self::assertSame('2', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM price_observations'));
         try {
             $this->service->updateReceipt($this->identity(), self::HOME, self::RECEIPT, [
@@ -402,7 +402,7 @@ final class PurchasingImmediatePurchaseTest extends TestCase
         } catch (Problem $error) {
             self::assertSame(409, $error->status);
         }
-        self::assertSame('NAD', $this->store->receipt(self::HOME, self::RECEIPT)['currency']);
+        self::assertSame('NAD', $this->receiptRecord()['currency']);
     }
 
     public function testUnavailableOriginalMovementRollsBackDateAndPriceCorrectionsForReview(): void
@@ -422,7 +422,7 @@ final class PurchasingImmediatePurchaseTest extends TestCase
         } catch (Problem $error) {
             self::assertSame(409, $error->status);
         }
-        $receipt = $this->store->receipt(self::HOME, self::RECEIPT);
+        $receipt = $this->receiptRecord();
         self::assertSame('2026-10-13', $receipt['purchaseDate']);
         self::assertSame(2, $receipt['revision']);
         self::assertSame([], $this->store->receiptDateCorrections(self::HOME, self::RECEIPT));
@@ -480,7 +480,7 @@ final class PurchasingImmediatePurchaseTest extends TestCase
         $this->service->commit($this->identity(), self::HOME, self::RECEIPT, 2);
         $this->service->cancelReceipt($this->identity(), self::HOME, self::RECEIPT, 3);
         self::assertSame('0', $this->balance());
-        self::assertSame('cancelled', $this->store->receipt(self::HOME, self::RECEIPT)['status']);
+        self::assertSame('cancelled', $this->receiptRecord()['status']);
         self::assertSame(
             ['4', '-4'],
             $this->connection->fetchFirstColumn('SELECT quantity_delta FROM stock_movements'),
@@ -521,6 +521,88 @@ final class PurchasingImmediatePurchaseTest extends TestCase
         } finally {
             date_default_timezone_set($originalTimezone);
         }
+    }
+
+    public function testFuturePurchaseValidationUsesTheHomeCalendarAcrossUtcMidnight(): void
+    {
+        $this->connection->insert('homes', ['id' => self::HOME, 'default_timezone' => 'Africa/Windhoek']);
+        $this->at = new DateTimeImmutable('2026-10-13T22:30:00Z');
+        $receipt = $this->service->createReceipt(
+            $this->identity(),
+            self::HOME,
+            null,
+            '2026-10-14',
+            'NAD',
+            null,
+            '',
+            null,
+        );
+        self::assertSame('2026-10-14', $receipt['purchaseDate']);
+        $this->connection->update('homes', ['default_timezone' => 'America/Los_Angeles'], ['id' => self::HOME]);
+        $this->at = new DateTimeImmutable('2026-10-14T00:30:00Z');
+        try {
+            $this->service->createReceipt(
+                $this->identity(),
+                self::HOME,
+                null,
+                '2026-10-14',
+                'NAD',
+                null,
+                '',
+                null,
+            );
+            self::fail('Tomorrow in the household timezone must not be accepted as an actual purchase.');
+        } catch (Problem $error) {
+            self::assertSame(422, $error->status);
+        }
+        self::assertSame(2, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM receipts'));
+    }
+
+    public function testFutureDateCannotBeIntroducedByEditingCorrectionOrImportConfirmation(): void
+    {
+        $this->purchase('4');
+        foreach (['metadata', 'correction'] as $workflow) {
+            try {
+                if ($workflow === 'metadata') {
+                    $this->service->updateReceipt($this->identity(), self::HOME, self::RECEIPT, [
+                        'storeId' => null, 'purchaseDate' => '2026-10-14', 'currency' => 'NAD',
+                        'totalAmount' => '40', 'notes' => '',
+                    ], 2);
+                } else {
+                    $this->service->correctReceiptDate(
+                        $this->identity(),
+                        self::HOME,
+                        self::RECEIPT,
+                        '2026-10-14',
+                        'This is tomorrow',
+                        2,
+                    );
+                }
+                self::fail('A future correction must be rejected.');
+            } catch (Problem $error) {
+                self::assertSame(422, $error->status);
+            }
+        }
+        self::assertSame('2026-10-13', $this->receiptRecord()['purchaseDate']);
+        self::assertSame(2, $this->receiptRecord()['revision']);
+        self::assertSame('4', $this->balance());
+        $this->connection->update('receipts', ['purchase_date' => '2026-10-14'], ['id' => self::RECEIPT]);
+        try {
+            $this->service->commit($this->identity(), self::HOME, self::RECEIPT, 2);
+            self::fail('An imported or legacy future-dated draft cannot be confirmed.');
+        } catch (Problem $error) {
+            self::assertSame(422, $error->status);
+        }
+        // Retain existing legacy data and allow its day to be deliberately corrected.
+        $this->service->correctReceiptDate(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            '2026-10-12',
+            'Correct a legacy future date',
+            2,
+        );
+        self::assertSame('2026-10-12', $this->receiptRecord()['purchaseDate']);
     }
 
     public function testWrongDimensionAndStaleRevisionDoNotLeavePartialPurchaseData(): void
@@ -755,6 +837,14 @@ final class PurchasingImmediatePurchaseTest extends TestCase
         $line = $this->store->receiptLine(self::HOME, self::RECEIPT, self::LINE);
         self::assertNotNull($line);
         return $line;
+    }
+
+    /** @return array<string, mixed> */
+    private function receiptRecord(): array
+    {
+        $receipt = $this->store->receipt(self::HOME, self::RECEIPT);
+        self::assertNotNull($receipt);
+        return $receipt;
     }
 
     private function balance(): string

@@ -10,6 +10,7 @@ use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
 use InvalidArgumentException;
 use PDO;
+use Providentia\SharedKernel\Infrastructure\Doctrine\MySqlConnection;
 use Providentia\SharedKernel\Infrastructure\Doctrine\SqliteConnection;
 use Psr\Container\ContainerInterface;
 use RuntimeException;
@@ -49,6 +50,8 @@ final class ConnectionFactory
             // may have external effects and a failed EntityManager is closed.
             $parameters['driverOptions'][PDO::ATTR_TIMEOUT] = $timeout;
             $parameters['wrapperClass'] = SqliteConnection::class;
+        } elseif (($parameters['driver'] ?? null) === 'pdo_mysql') {
+            $parameters['wrapperClass'] = MySqlConnection::class;
         }
 
         return DriverManager::getConnection($parameters);

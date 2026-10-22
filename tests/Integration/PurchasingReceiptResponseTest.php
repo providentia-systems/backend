@@ -39,6 +39,7 @@ final class PurchasingReceiptResponseTest extends TestCase
         $this->connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         foreach (
             [
+                'CREATE TABLE homes (id TEXT PRIMARY KEY, default_timezone TEXT)',
                 'CREATE TABLE receipts (id TEXT PRIMARY KEY, home_id TEXT, store_id TEXT,
                  purchase_date TEXT, currency TEXT, total_amount DECIMAL(18, 2), status TEXT,
                  source TEXT, source_reference TEXT, notes TEXT, revision INTEGER,
