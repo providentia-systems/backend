@@ -125,7 +125,7 @@ final class Version20261022000100 extends AbstractMigration
                 'included_movement_ids_json' => json_encode($ids, JSON_THROW_ON_ERROR),
             ]);
             $this->connection->update('inventory_balances', [
-                'uncertain' => true,
+                'uncertain' => 1,
                 'limitations_json' => json_encode([
                     'A migrated stock projection is preserved until the household reviews '
                         . 'a complete reliable observation.',

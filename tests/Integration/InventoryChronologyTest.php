@@ -37,6 +37,51 @@ final class InventoryChronologyTest extends TestCase
         $this->store = new DbalInventoryStore($this->db);
     }
 
+    public function testFalseAndTrueFlagsSatisfyStrictDatabaseBooleanConstraints(): void
+    {
+        // SQLite otherwise accepts an empty string in a BOOLEAN column, hiding
+        // a false value incorrectly bound as a string from strict MySQL/MariaDB.
+        $booleanColumns = ['inventory_balances' => 'uncertain', 'stock_count_sessions' => 'scope_complete'];
+        foreach ($booleanColumns as $table => $column) {
+            foreach (['INSERT', 'UPDATE'] as $operation) {
+                $this->db->executeStatement(sprintf(
+                    'CREATE TRIGGER strict_%s_%s BEFORE %s ON %s '
+                    . "WHEN NEW.%s NOT IN (0, 1) BEGIN SELECT RAISE(ABORT, 'Invalid boolean value'); END",
+                    $table,
+                    strtolower($operation),
+                    $operation,
+                    $table,
+                    $column,
+                ));
+            }
+        }
+        $this->purchase('2', '2026-10-01', self::LINE);
+        self::assertFalse($this->balance()['uncertain']);
+        $this->physicalCount('unassessed', '1', '2026-10-19T12:00:00Z', complete: false, reliability: 'unassessed');
+        self::assertSame(0, (int) $this->db->fetchOne(
+            "SELECT scope_complete FROM stock_count_sessions WHERE id = 'unassessed'",
+        ));
+        $this->physicalCount('reliable', '3', '2026-10-20T12:00:00Z');
+        $this->purchase('4', '2026-10-20', 'same-day');
+        self::assertTrue($this->balance()['uncertain']);
+        self::assertTrue($this->db->transactional(fn (): bool => $this->store->reviewCountSession(
+            'review',
+            self::HOME,
+            'reliable',
+            3,
+            self::USER,
+            'Scope needs review',
+            false,
+            'partial',
+            new DateTimeImmutable('2026-10-20T12:00:00Z'),
+            [],
+            new DateTimeImmutable('2026-10-23T12:00:00Z'),
+        )));
+        self::assertSame(0, (int) $this->db->fetchOne(
+            "SELECT scope_complete FROM stock_count_sessions WHERE id = 'reliable'",
+        ));
+    }
+
     /** @return array<string, array{list<string>}> */
     public static function arrivalOrders(): array
     {

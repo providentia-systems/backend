@@ -211,7 +211,9 @@ foreach (
 ) {
     foreach (['uncertain', 'pendingQuantity', 'limitations', 'checkpointId'] as $projectionField) {
         if (!isset($schemas[$projectionSchema]['properties'][$projectionField])) {
-            throw new RuntimeException('Missing chronological stock evidence: ' . $projectionSchema . '.' . $projectionField);
+            throw new RuntimeException(
+                'Missing chronological stock evidence: ' . $projectionSchema . '.' . $projectionField,
+            );
         }
     }
 }
@@ -234,7 +236,9 @@ foreach (
             !== '#/components/schemas/' . $payloadSchema
         || ($schemas[$payloadSchema]['additionalProperties'] ?? null) !== false
     ) {
-        throw new RuntimeException('An audited correction command lacks immutable revision-checked input: ' . $correctionCommand);
+        throw new RuntimeException(
+            'An audited correction command lacks immutable revision-checked input: ' . $correctionCommand,
+        );
     }
 }
 foreach (

@@ -1543,6 +1543,8 @@ assert_json 'The created stock-count session omitted API 1.18 required fields.' 
     .homeId == $homeId
     and .status == "open"
     and .revision == 1
+    and .scopeComplete == false
+    and .reliability == "unassessed"
     and .lines == []
 ' --arg homeId "$home_id"
 count_session_id="$(jq -er '.id' "$response_body")"
@@ -1663,7 +1665,12 @@ assert_json 'The explicit photo-confirmed count did not return a full API 1.18 l
     and .revision == 1
 ' --arg lineId "$count_line_id" --arg productId "$home_product_id"
 
-close_body="$(jq -cn '{expectedRevision:2}')"
+# The reviewer now confirms this household-wide observation is complete and
+# reliable. Merely closing an unassessed AI count must never reset household stock.
+count_observed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+close_body="$(jq -cn --arg observedAt "$count_observed_at" '
+    {expectedRevision:2,scopeComplete:true,reliability:"reliable",observedAt:$observedAt}
+')"
 http_json POST "/api/v1/homes/${home_id}/stock-count-sessions/${count_session_id}/close" \
     200 "$homeowner_access_token" "$close_body"
 assert_json 'Closing the count did not return the full API 1.18 session.' '
@@ -1671,6 +1678,9 @@ assert_json 'Closing the count did not return the full API 1.18 session.' '
     and .homeId == $homeId
     and .status == "closed"
     and .revision == 3
+    and .scopeComplete == true
+    and .reliability == "reliable"
+    and (.observedAt | type == "string" and length > 0)
     and (.closedAt | type == "string" and length > 0)
     and (.lines | length == 1)
     and .lines[0].id == $lineId
