@@ -659,6 +659,149 @@ final class SynchronizationServiceTest extends TestCase
         self::assertSame('unresolved', $this->firstRow($first, 'results')['result']['approvalStatus']);
     }
 
+    public function testRecoveryUsesOriginalBindingAndRetainedReceiptWithoutReplaying(): void
+    {
+        $command = $this->recoveryCommand();
+        $hash = new SyncCommandHasher()->hash(new SyncCommandValidator(65536)->validate($command));
+        $store = $this->createMock(SyncStore::class);
+        $store->expects(self::never())->method('recordCommandReceipt');
+        $store->expects(self::once())->method('operationReceipt')->with(self::OPERATION_ID)->willReturn([
+            'homeId' => self::HOME_ID,
+            'userId' => self::USER_ID,
+            'deviceId' => self::DEVICE_ID,
+            'requestHash' => $hash,
+            'response' => [
+                'operationId' => self::OPERATION_ID, 'status' => 'accepted', 'commandType' => 'purchasing.store.create',
+            ],
+        ]);
+        $dispatcher = $this->createMock(SyncCommandDispatcher::class);
+        $dispatcher->expects(self::never())->method('dispatch');
+        $service = $this->service($store, HomeAuthorization::MEMBER, $dispatcher);
+
+        $result = $service->revalidate($this->identity(), self::HOME_ID, [
+            'accountId' => self::USER_ID,
+            'deviceId' => self::DEVICE_ID,
+            'operations' => [['blockedCode' => 'device_binding_mismatch', 'command' => $command]],
+        ]);
+        self::assertSame('readback', $result['operations'][0]['action']);
+        self::assertSame('accepted', $result['operations'][0]['result']['status']);
+    }
+
+    public function testRecoveryOnlyResumesFirstUnknownBindingBlockAndKeepsDependenciesWaiting(): void
+    {
+        $first = $this->recoveryCommand();
+        $second = $first;
+        $second['operationId'] = self::BATCH_ID;
+        $store = $this->createMock(SyncStore::class);
+        $store->expects(self::never())->method('recordCommandReceipt');
+        $store->expects(self::exactly(2))->method('operationReceipt')->willReturn(null);
+        $result = $this->service($store, HomeAuthorization::MEMBER)->revalidate($this->identity(), self::HOME_ID, [
+            'accountId' => self::USER_ID,
+            'deviceId' => self::DEVICE_ID,
+            'operations' => [
+                ['blockedCode' => 'device_binding_mismatch', 'command' => $first],
+                ['blockedCode' => 'device_binding_mismatch', 'command' => $second],
+            ],
+        ]);
+        self::assertSame('retry_same_operation', $result['operations'][0]['action']);
+        self::assertSame('unknown_under_original_binding', $result['operations'][0]['code']);
+        self::assertSame('await_predecessor', $result['operations'][1]['action']);
+        self::assertSame(self::OPERATION_ID, $result['operations'][1]['predecessorId']);
+    }
+
+    #[DataProvider('recoveryBlockProvider')]
+    public function testRecoveryDoesNotOverrideOtherBlocksOrReadOnlyMembership(string $code, string $role): void
+    {
+        $store = $this->createStub(SyncStore::class);
+        $store->method('operationReceipt')->willReturn(null);
+        $result = $this->service($store, $role)->revalidate($this->identity(), self::HOME_ID, [
+            'accountId' => self::USER_ID,
+            'deviceId' => self::DEVICE_ID,
+            'operations' => [['blockedCode' => $code, 'command' => $this->recoveryCommand()]],
+        ]);
+        self::assertSame('review_required', $result['operations'][0]['action']);
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function recoveryBlockProvider(): iterable
+    {
+        yield 'unknown authorship' => ['origin_account_unknown', HomeAuthorization::MEMBER];
+        yield 'revision conflict' => ['revision_conflict', HomeAuthorization::MEMBER];
+        yield 'permission block' => ['permission_denied', HomeAuthorization::MEMBER];
+        yield 'home revoked block' => ['home_access_denied', HomeAuthorization::MEMBER];
+        yield 'read only member' => ['device_binding_mismatch', HomeAuthorization::VIEWER];
+    }
+
+    public function testRecoveryNeverTreatsForeignScopeOrChangedPayloadAsUnknown(): void
+    {
+        $store = $this->createStub(SyncStore::class);
+        $store->method('operationReceipt')->willReturn([
+            'homeId' => self::OTHER_HOME_ID,
+            'userId' => self::USER_ID,
+            'deviceId' => self::DEVICE_ID,
+            'requestHash' => str_repeat('0', 64),
+            'response' => ['status' => 'accepted', 'secret' => 'PRIVATE'],
+        ]);
+        $result = $this->service($store, HomeAuthorization::MEMBER)->revalidate($this->identity(), self::HOME_ID, [
+            'accountId' => self::USER_ID,
+            'deviceId' => self::DEVICE_ID,
+            'operations' => [['blockedCode' => 'device_binding_mismatch', 'command' => $this->recoveryCommand()]],
+        ]);
+        self::assertSame('review_required', $result['operations'][0]['action']);
+        self::assertSame('immutable_request_mismatch', $result['operations'][0]['code']);
+        self::assertStringNotContainsString('PRIVATE', json_encode($result, JSON_THROW_ON_ERROR));
+    }
+
+    #[DataProvider('recoveryBindingProvider')]
+    public function testRecoveryRejectsWrongOrUnknownOriginalBindingBeforeExecutionLookup(
+        ?string $accountId,
+        string $deviceId,
+    ): void {
+        $store = $this->createMock(SyncStore::class);
+        $store->expects(self::never())->method('operationReceipt');
+        $this->expectException(Problem::class);
+        $this->service($store, HomeAuthorization::MEMBER)->revalidate($this->identity(), self::HOME_ID, [
+            'accountId' => $accountId,
+            'deviceId' => $deviceId,
+            'operations' => [['blockedCode' => 'device_binding_mismatch', 'command' => $this->recoveryCommand()]],
+        ]);
+    }
+
+    /** @return iterable<string, array{?string, string}> */
+    public static function recoveryBindingProvider(): iterable
+    {
+        yield 'unknown account' => [null, self::DEVICE_ID];
+        yield 'wrong account' => [self::OTHER_HOME_ID, self::DEVICE_ID];
+        yield 'wrong device' => [self::USER_ID, self::OTHER_HOME_ID];
+    }
+
+    public function testRecoveryConcealsRevokedHomeBeforeAnyReceiptLookup(): void
+    {
+        $store = $this->createMock(SyncStore::class);
+        $store->expects(self::never())->method('operationReceipt');
+        $service = $this->serviceWithMembership($store, null, self::HOME_ID);
+        $this->expectException(Problem::class);
+        $service->revalidate($this->identity(), self::HOME_ID, [
+            'accountId' => self::USER_ID,
+            'deviceId' => self::DEVICE_ID,
+            'operations' => [['blockedCode' => 'device_binding_mismatch', 'command' => $this->recoveryCommand()]],
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function recoveryCommand(): array
+    {
+        return [
+            'operationId' => self::OPERATION_ID,
+            'commandType' => 'purchasing.store.create',
+            'entityId' => self::ENTITY_ID,
+            'baseRevision' => null,
+            'clientTimestamp' => '2026-07-30T11:59:00+00:00',
+            'payloadSchemaVersion' => 1,
+            'payload' => ['name' => 'Shop', 'location' => 'Windhoek'],
+        ];
+    }
+
     private function service(
         SyncStore $syncStore,
         string $role,

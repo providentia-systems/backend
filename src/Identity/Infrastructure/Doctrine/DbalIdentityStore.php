@@ -304,7 +304,7 @@ final class DbalIdentityStore implements
     public function listSessions(string $userId): array
     {
         $sessions = $this->connection->fetchAllAssociative(
-            'SELECT s.id, s.device_id AS deviceId, d.name AS deviceName,
+            'SELECT s.id, s.device_id AS deviceId, d.installation_id AS installationId, d.name AS deviceName,
                     d.platform,
                     CASE WHEN s.transport = :web THEN :web ELSE :native END AS transport,
                     s.active_home_id AS activeHomeId,

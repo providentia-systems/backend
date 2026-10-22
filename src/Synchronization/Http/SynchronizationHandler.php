@@ -28,6 +28,12 @@ final class SynchronizationHandler implements RequestHandlerInterface
             throw new HttpProblem(401, 'Authentication required', 'A valid access credential is required.');
         }
 
+        if ($this->action === 'diagnostics') {
+            return new JsonResponse($this->synchronization->diagnostics(
+                $identity,
+                (string) $request->getAttribute('homeId', ''),
+            ));
+        }
         if ($this->action === 'pull') {
             $cursor = $request->getQueryParams()['cursor'] ?? null;
 
@@ -53,6 +59,14 @@ final class SynchronizationHandler implements RequestHandlerInterface
         }
         /** @var array<string, mixed> $body */
         $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
+
+        if ($this->action === 'revalidate') {
+            return new JsonResponse($this->synchronization->revalidate(
+                $identity,
+                (string) $request->getAttribute('homeId', ''),
+                $body,
+            ));
+        }
 
         if ($this->action === 'operation-status') {
             $operationIds = $body['operationIds'] ?? null;

@@ -62,7 +62,7 @@ final class AuthenticationService
      *     userId: string
      * }
      */
-    public function refresh(string $refreshToken): array
+    public function refresh(string $refreshToken, ?string $csrfProof = null): array
     {
         $now = $this->clock->now();
         $session = $this->store->findSessionByRefreshHash($this->hasher->hashToken($refreshToken), $now);
@@ -80,6 +80,15 @@ final class AuthenticationService
                 'Authentication failed',
                 'The refresh credential is invalid or expired.',
             );
+        }
+        if (
+            $csrfProof !== null
+            && ($csrfProof === '' || ! hash_equals(
+                (string) ($session['csrf_token_hash'] ?? ''),
+                $this->hasher->hashToken($csrfProof),
+            ))
+        ) {
+            throw new Problem(403, 'CSRF validation failed', 'The CSRF credential is missing or invalid.');
         }
         $accessToken = $this->tokens->generate();
         $nextRefreshToken = $this->tokens->generate();

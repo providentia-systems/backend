@@ -21,12 +21,13 @@ final class BearerAuthenticationMiddleware implements MiddlewareInterface
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
+        $application = WebSessionContext::application($request);
         $authorization = $request->getHeaderLine('Authorization');
         $cookieAuthentication = false;
         if (preg_match('/^Bearer ([A-Za-z0-9_-]{40,})$/', $authorization, $matches) === 1) {
             $token = $matches[1];
         } else {
-            $token = (string) ($request->getCookieParams()['providentia_access'] ?? '');
+            $token = (string) ($request->getCookieParams()[WebSessionContext::cookie('access', $application)] ?? '');
             $cookieAuthentication = $token !== '';
         }
         if ($token === '') {
@@ -38,7 +39,7 @@ final class BearerAuthenticationMiddleware implements MiddlewareInterface
             $cookieAuthentication
             && in_array(strtoupper($request->getMethod()), ['POST', 'PUT', 'PATCH', 'DELETE'], true)
         ) {
-            $cookieCsrf = (string) ($request->getCookieParams()['providentia_csrf'] ?? '');
+            $cookieCsrf = (string) ($request->getCookieParams()[WebSessionContext::cookie('csrf', $application)] ?? '');
             $headerCsrf = $request->getHeaderLine('X-CSRF-Token');
             if (
                 $cookieCsrf === ''

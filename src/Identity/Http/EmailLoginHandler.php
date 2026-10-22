@@ -26,6 +26,14 @@ final class EmailLoginHandler implements RequestHandlerInterface
         $body = is_array($request->getParsedBody())
             ? $request->getParsedBody()
             : [];
+        $application = WebSessionContext::application($request);
+        if ($application !== null && ! $this->verify && ($body['applicationKind'] ?? null) !== $application->value) {
+            throw new \Providentia\SharedKernel\Http\HttpProblem(
+                422,
+                'Application context mismatch',
+                'The login application must match the selected web session context.',
+            );
+        }
         $ip = (string) ($request->getServerParams()['REMOTE_ADDR'] ?? 'unknown');
         if (!$this->verify) {
             return new JsonResponse(
@@ -34,9 +42,9 @@ final class EmailLoginHandler implements RequestHandlerInterface
                 ['Cache-Control' => 'no-store'],
             );
         }
-        $session = $this->login->verify($body, $ip);
+        $session = $this->login->verify($body, $ip, $application);
         return ($session['transport'] ?? '') === 'web'
-            ? SessionResponseFactory::web($session, $this->cookieSecure)
+            ? SessionResponseFactory::web($session, $this->cookieSecure, $application)
             : new JsonResponse($session, 200, ['Cache-Control' => 'no-store']);
     }
 }

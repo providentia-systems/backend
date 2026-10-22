@@ -6,6 +6,7 @@ namespace Providentia\Identity\Http;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use Providentia\Identity\Application\LoginApplicationKind;
 use Laminas\Diactoros\Response\EmptyResponse;
 use Laminas\Diactoros\Response\JsonResponse;
 use Psr\Http\Message\ResponseInterface;
@@ -13,8 +14,11 @@ use Psr\Http\Message\ResponseInterface;
 final class SessionResponseFactory
 {
     /** @param array<string, mixed> $tokens */
-    public static function web(array $tokens, bool $cookieSecure = true): ResponseInterface
-    {
+    public static function web(
+        array $tokens,
+        bool $cookieSecure = true,
+        ?LoginApplicationKind $application = null,
+    ): ResponseInterface {
         $accessExpiry = new DateTimeImmutable((string) $tokens['accessExpiresAt']);
         // A durable session has no idle expiry; browsers cap cookie lifetime
         // at 400 days, so the cookie is re-issued on every rotation while the
@@ -44,33 +48,39 @@ final class SessionResponseFactory
         return $response
             ->withAddedHeader(
                 'Set-Cookie',
-                'providentia_access=' . rawurlencode((string) $tokens['accessToken']) . $secure
+                WebSessionContext::cookie('access', $application) . '='
+                . rawurlencode((string) $tokens['accessToken']) . $secure
                 . '; HttpOnly; Max-Age=' . $accessMaxAge . '; Expires=' . self::cookieDate($accessExpiry),
             )
             ->withAddedHeader(
                 'Set-Cookie',
-                'providentia_refresh=' . rawurlencode((string) $tokens['refreshToken']) . $secure
+                WebSessionContext::cookie('refresh', $application) . '='
+                . rawurlencode((string) $tokens['refreshToken']) . $secure
                 . '; HttpOnly; Max-Age=' . $refreshMaxAge . '; Expires=' . self::cookieDate($refreshExpiry),
             )
             ->withAddedHeader(
                 'Set-Cookie',
-                'providentia_csrf=' . rawurlencode((string) $tokens['csrfToken']) . $secure
+                WebSessionContext::cookie('csrf', $application) . '='
+                . rawurlencode((string) $tokens['csrfToken']) . $secure
                 . '; Max-Age=' . $refreshMaxAge . '; Expires=' . self::cookieDate($refreshExpiry),
             );
     }
 
-    public static function cleared(int $status = 204, bool $cookieSecure = true): ResponseInterface
-    {
+    public static function cleared(
+        int $status = 204,
+        bool $cookieSecure = true,
+        ?LoginApplicationKind $application = null,
+    ): ResponseInterface {
         $secure = $cookieSecure ? '; Secure' : '';
         $expired = '=deleted; Path=/' . $secure
             . '; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
 
         return (new EmptyResponse($status))
-            ->withAddedHeader('Set-Cookie', 'providentia_access' . $expired)
-            ->withAddedHeader('Set-Cookie', 'providentia_refresh' . $expired)
+            ->withAddedHeader('Set-Cookie', WebSessionContext::cookie('access', $application) . $expired)
+            ->withAddedHeader('Set-Cookie', WebSessionContext::cookie('refresh', $application) . $expired)
             ->withAddedHeader(
                 'Set-Cookie',
-                'providentia_csrf=deleted; Path=/' . $secure
+                WebSessionContext::cookie('csrf', $application) . '=deleted; Path=/' . $secure
                 . '; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
             );
     }

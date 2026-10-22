@@ -22,6 +22,8 @@ use Providentia\Synchronization\Application\SyncRequestHasher;
 use Providentia\Synchronization\Application\SyncResultPresenter;
 use Providentia\Synchronization\Application\SynchronizationService;
 use Providentia\Synchronization\Application\SyncStore;
+use Providentia\Synchronization\Application\SyncDeploymentInformation;
+use Providentia\Synchronization\Infrastructure\Doctrine\DbalSyncDeploymentInformation;
 use Providentia\Synchronization\Infrastructure\Doctrine\DbalChangeFeedWriter;
 use Providentia\Synchronization\Infrastructure\Doctrine\DbalSyncStore;
 use Providentia\Synchronization\Infrastructure\Doctrine\DbalSyncBackfillStore;
@@ -38,6 +40,7 @@ final class ConfigProvider
         return [
             'dependencies' => [
                 'aliases' => [
+                    SyncDeploymentInformation::class => DbalSyncDeploymentInformation::class,
                     SyncStore::class => DbalSyncStore::class,
                     SyncMetricsProbe::class => DbalSyncStore::class,
                     SyncCommandDispatcher::class => PantrySyncCommandDispatcher::class,
@@ -46,6 +49,7 @@ final class ConfigProvider
                 ],
                 'factories' => [
                     DbalSyncStore::class => SynchronizationFactory::class,
+                    DbalSyncDeploymentInformation::class => SynchronizationFactory::class,
                     DbalChangeFeedWriter::class => SynchronizationFactory::class,
                     DbalSyncBackfillStore::class => SynchronizationFactory::class,
                     CursorCodec::class => SynchronizationFactory::class,
@@ -65,6 +69,8 @@ final class ConfigProvider
                     'synchronization.push' => SynchronizationFactory::class,
                     'synchronization.pull' => SynchronizationFactory::class,
                     'synchronization.bootstrap' => SynchronizationFactory::class,
+                    'synchronization.diagnostics' => SynchronizationFactory::class,
+                    'synchronization.revalidate' => SynchronizationFactory::class,
                     'synchronization.operation-status' => SynchronizationFactory::class,
                     SyncCompactCommand::class => SynchronizationFactory::class,
                     SyncBackfillCommand::class => SynchronizationFactory::class,
