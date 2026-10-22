@@ -7,6 +7,7 @@ namespace Providentia\Shopping\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Providentia\Inventory\Domain\DecimalQuantity;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalSql;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalProjection;
@@ -55,6 +56,7 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
     {
         $rows = $this->connection->fetchAllAssociative(
             'SELECT sll.id, sll.home_product_id AS homeProductId,
+                    hp.product_id AS productId, hp.unit AS stockUnit,
                     COALESCE(hp.private_name, p.canonical_name, sll.description) AS productName,
                     sll.description, sll.source, sll.quantity_to_buy AS quantityToBuy,
                     sll.explanation, sll.confidence, sll.checked_at AS checkedAt,
@@ -76,11 +78,14 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
     public function line(string $homeId, string $listId, string $lineId): ?array
     {
         $row = $this->one(
-            'SELECT id, shopping_list_id AS listId, home_product_id AS homeProductId,
-                    description, source, quantity_to_buy AS quantityToBuy, explanation, confidence,
-                    checked_at AS checkedAt, archived_at AS archivedAt, revision,
-                    suggestion_id AS suggestionId, selected_pack_id AS selectedPackId
-             FROM shopping_list_lines WHERE home_id = :home AND shopping_list_id = :list AND id = :id',
+            'SELECT sll.id, sll.shopping_list_id AS listId, sll.home_product_id AS homeProductId,
+                    hp.product_id AS productId, hp.unit AS stockUnit,
+                    sll.description, sll.source, sll.quantity_to_buy AS quantityToBuy, sll.explanation, sll.confidence,
+                    sll.checked_at AS checkedAt, sll.archived_at AS archivedAt, sll.revision,
+                    sll.suggestion_id AS suggestionId, sll.selected_pack_id AS selectedPackId
+             FROM shopping_list_lines sll LEFT JOIN home_products hp
+               ON hp.id = sll.home_product_id AND hp.home_id = sll.home_id
+             WHERE sll.home_id = :home AND sll.shopping_list_id = :list AND sll.id = :id',
             ['home' => $homeId, 'list' => $listId, 'id' => $lineId],
         );
         return $row === null ? null : $this->lineRecord($row);
@@ -121,18 +126,9 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
         ?string $confidence,
         DateTimeImmutable $at,
         ?string $suggestionId = null,
+        ?string $selectedPackId = null,
     ): bool {
-        if ($homeProductId !== null) {
-            $product = (int) $this->connection->fetchOne(
-                'SELECT COUNT(*) FROM home_products
-                 WHERE id = :product AND home_id = :home AND status = :status',
-                ['product' => $homeProductId, 'home' => $homeId, 'status' => 'active'],
-            );
-            if ($product !== 1) {
-                throw new \DomainException('The selected home product is unavailable.');
-            }
-        }
-        $selectedPackId = null;
+        $this->validateSelection($homeId, $homeProductId, $selectedPackId);
         if ($suggestionId !== null) {
             $suggestion = $this->connection->fetchAssociative(
                 'SELECT home_product_id, selected_pack_id, confidence_band, status, expires_at
@@ -150,11 +146,15 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
             ) {
                 throw new \DomainException('The recommendation is no longer available for this home product.');
             }
+            if ($selectedPackId !== null && $selectedPackId !== $suggestion['selected_pack_id']) {
+                throw new \DomainException('The selected pack does not match this recommendation.');
+            }
             $selectedPackId = $suggestion['selected_pack_id'];
             $source = 'suggested';
             $confidence = (string) $suggestion['confidence_band'];
             $explanation = 'Suggested from household consumption and stock evidence.';
         }
+        $this->validateSelection($homeId, $homeProductId, $selectedPackId);
         $now = $this->date($at);
         $updated = $this->connection->executeStatement(
             'UPDATE shopping_lists SET revision = revision + 1, updated_at = :updated
@@ -189,6 +189,71 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
             'updated_at' => $now,
         ]);
 
+        return true;
+    }
+
+    public function relinkLine(
+        string $homeId,
+        string $listId,
+        string $lineId,
+        ?string $homeProductId,
+        ?string $selectedPackId,
+        int $expectedRevision,
+        string $actorUserId,
+        string $auditEventId,
+        string $reason,
+        DateTimeImmutable $at,
+    ): bool {
+        if (! $this->lockOpenList($homeId, $listId)) {
+            return false;
+        }
+        $before = $this->line($homeId, $listId, $lineId);
+        if ($before === null || $before['revision'] !== $expectedRevision) {
+            return false;
+        }
+        $this->validateSelection($homeId, $homeProductId, $selectedPackId);
+        $now = $this->date($at);
+        $updated = $this->connection->executeStatement(
+            'UPDATE shopping_list_lines
+             SET home_product_id = :product, selected_pack_id = :pack, source = :source,
+                 suggestion_id = NULL, confidence = NULL, explanation = :explanation,
+                 revision = revision + 1, updated_at = :updated
+             WHERE home_id = :home AND shopping_list_id = :list AND id = :line AND revision = :revision',
+            [
+                'product' => $homeProductId,
+                'pack' => $selectedPackId,
+                'source' => 'manual',
+                'explanation' => 'Product and pack selected manually.',
+                'updated' => $now,
+                'home' => $homeId,
+                'list' => $listId,
+                'line' => $lineId,
+                'revision' => $expectedRevision,
+            ],
+        );
+        if ($updated !== 1) {
+            return false;
+        }
+        $this->connection->executeStatement(
+            'UPDATE shopping_lists SET revision = revision + 1, updated_at = :updated
+             WHERE home_id = :home AND id = :list',
+            ['updated' => $now, 'home' => $homeId, 'list' => $listId],
+        );
+        $this->connection->insert('audit_events', [
+            'id' => $auditEventId,
+            'home_id' => $homeId,
+            'actor_user_id' => $actorUserId,
+            'action' => 'shopping.line.relinked',
+            'target_type' => 'shopping-list-line',
+            'target_id' => $lineId,
+            'details' => json_encode([
+                'reason' => $reason,
+                'listId' => $listId,
+                'before' => $before,
+                'after' => $this->line($homeId, $listId, $lineId),
+            ], JSON_THROW_ON_ERROR),
+            'occurred_at' => $now,
+        ]);
         return true;
     }
 
@@ -361,6 +426,63 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
         ) ?? ['openListCount' => 0, 'lineCount' => 0, 'uncheckedLineCount' => 0];
     }
 
+    private function validateSelection(string $homeId, ?string $homeProductId, ?string $selectedPackId): void
+    {
+        if ($homeProductId === null) {
+            if ($selectedPackId !== null) {
+                throw new \DomainException('A selected pack requires a household product.');
+            }
+            return;
+        }
+        $product = $this->one(
+            'SELECT id, product_id, unit FROM home_products
+             WHERE id = :id AND home_id = :home AND status = :status',
+            ['id' => $homeProductId, 'home' => $homeId, 'status' => 'active'],
+        );
+        if ($product === null) {
+            throw new \DomainException('The selected home product is unavailable.');
+        }
+        if ($selectedPackId === null) {
+            return;
+        }
+        $pack = $this->one(
+            'SELECT pk.normalized_base_amount AS amount, u.dimension, hp.pack_id AS homePackId,
+                    base.normalized_base_amount AS baseAmount, base_unit.dimension AS baseDimension
+             FROM product_packs pk LEFT JOIN units u ON u.id = pk.unit_id
+             JOIN home_products hp ON hp.id = :home_product AND hp.home_id = :home
+             LEFT JOIN product_packs base ON base.id = hp.pack_id
+             LEFT JOIN units base_unit ON base_unit.id = base.unit_id
+             WHERE pk.id = :pack AND pk.product_id = :product AND pk.status = :published',
+            [
+                'home_product' => $homeProductId,
+                'home' => $homeId,
+                'pack' => $selectedPackId,
+                'product' => $product['product_id'],
+                'published' => 'published',
+            ],
+        );
+        if ($pack === null) {
+            throw new \DomainException('Select a published pack belonging to this product.');
+        }
+        if ($product['unit'] === 'units' && $pack['homePackId'] === $selectedPackId) {
+            return;
+        }
+        $dimension = match ($product['unit']) {
+            'g', 'kg' => 'mass',
+            'ml', 'l' => 'volume',
+            default => $pack['homePackId'] === null ? 'count' : $pack['baseDimension'],
+        };
+        if (
+            $dimension === null || $pack['dimension'] !== $dimension || $pack['amount'] === null
+            || DecimalQuantity::quantity((string) $pack['amount'])->toString() === '0'
+            || ($product['unit'] === 'units' && $pack['homePackId'] !== null
+                && ($pack['baseAmount'] === null
+                    || DecimalQuantity::quantity((string) $pack['baseAmount'])->toString() === '0'))
+        ) {
+            throw new \DomainException('The selected pack is incompatible with the stock measurement.');
+        }
+    }
+
     private function lockOpenList(string $homeId, string $listId): bool
     {
         $lock = $this->connection->getDatabasePlatform() instanceof SQLitePlatform ? '' : ' FOR UPDATE';
@@ -408,6 +530,9 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
     {
         $row['revision'] = (int) $row['revision'];
         $row['quantityToBuy'] = DecimalProjection::string($row['quantityToBuy']);
+        $row['quantityBasis'] = $row['source'] === 'manual' && $row['selectedPackId'] !== null
+            ? 'pack-count'
+            : 'stock-unit';
         $row['checked'] = $row['checkedAt'] !== null;
         return $row;
     }

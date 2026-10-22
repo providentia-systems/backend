@@ -42,6 +42,20 @@ interface ShoppingStore
         ?string $confidence,
         DateTimeImmutable $at,
         ?string $suggestionId = null,
+        ?string $selectedPackId = null,
+    ): bool;
+
+    public function relinkLine(
+        string $homeId,
+        string $listId,
+        string $lineId,
+        ?string $homeProductId,
+        ?string $selectedPackId,
+        int $expectedRevision,
+        string $actorUserId,
+        string $auditEventId,
+        string $reason,
+        DateTimeImmutable $at,
     ): bool;
 
     public function setChecked(

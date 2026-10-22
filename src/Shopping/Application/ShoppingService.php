@@ -108,6 +108,7 @@ final class ShoppingService
         string $quantity,
         ?string $requestedId = null,
         ?string $suggestionId = null,
+        ?string $selectedPackId = null,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
         $list = $this->requireOpenList($homeId, $listId);
@@ -136,6 +137,7 @@ final class ShoppingService
                 $identity,
                 $list,
                 $suggestionId,
+                $selectedPackId,
             ): array {
                 if (
                     ! $this->shopping->addLine(
@@ -151,6 +153,7 @@ final class ShoppingService
                         null,
                         $this->clock->now(),
                         $suggestionId,
+                        $selectedPackId,
                     )
                 ) {
                     throw new Problem(409, 'Revision conflict', 'The shopping list changed on another device.');
@@ -177,6 +180,59 @@ final class ShoppingService
             });
         } catch (DomainException $error) {
             throw new Problem(422, 'Invalid list line', $error->getMessage());
+        }
+    }
+
+    /** @return array<string, mixed> */
+    public function relinkLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $listId,
+        string $lineId,
+        ?string $homeProductId,
+        ?string $selectedPackId,
+        int $expectedRevision,
+        string $reason,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::SHOPPING_WRITE);
+        $this->requireOpenList($homeId, $listId);
+        $reason = trim($reason);
+        if ($reason === '' || mb_strlen($reason) > 500) {
+            throw new Problem(422, 'Audit reason required', 'Provide a reason containing 1 to 500 characters.');
+        }
+        try {
+            return $this->transactions->transactional(function () use (
+                $identity,
+                $homeId,
+                $listId,
+                $lineId,
+                $homeProductId,
+                $selectedPackId,
+                $expectedRevision,
+                $reason,
+            ): array {
+                if (
+                    ! $this->shopping->relinkLine(
+                        $homeId,
+                        $listId,
+                        $lineId,
+                        $homeProductId,
+                        $selectedPackId,
+                        $expectedRevision,
+                        $identity->userId,
+                        $this->ids->generate(),
+                        $reason,
+                        $this->clock->now(),
+                    )
+                ) {
+                    throw new Problem(409, 'Revision conflict', 'The shopping-list line changed on another device.');
+                }
+                $line = $this->publishLine($identity, $homeId, $listId, $lineId);
+                $this->publishList($identity, $homeId, $listId);
+                return $line;
+            });
+        } catch (DomainException $error) {
+            throw new Problem(422, 'Invalid product selection', $error->getMessage());
         }
     }
 

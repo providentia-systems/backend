@@ -44,6 +44,7 @@ final class ConfigProvider
                     'shopping.lists.get' => ShoppingFactory::class,
                     'shopping.lists.create' => ShoppingFactory::class,
                     'shopping.lines.create' => ShoppingFactory::class,
+                    'shopping.lines.relink' => ShoppingFactory::class,
                     'shopping.lines.check' => ShoppingFactory::class,
                     'shopping.suggestions' => ShoppingFactory::class,
                     'shopping.intelligence.estimates.list' => ShoppingFactory::class,
