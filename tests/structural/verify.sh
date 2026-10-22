@@ -59,6 +59,7 @@ assert_no_matches "former prototype name leaked outside historical evidence" \
 for file in composer.json compose.yaml contracts/openapi/providentia-v1.json \
   contracts/design-tokens/providentia-v1.json \
   tools/agent-requirements.json infrastructure/agent/Dockerfile \
+  tool/materialize-openapi-contract.php \
   infrastructure/agent/Dockerfile.dockerignore \
   docs/deployment/agent-development.md AGENTS.md \
   src/Identity/Http/EmailLoginHandler.php \
@@ -219,6 +220,13 @@ for (const [name, value] of Object.entries(pins)) {
   }
 }
 const productionDockerfile = fs.readFileSync('Dockerfile.production', 'utf8');
+const productionDependencies = productionDockerfile.split('FROM php-base AS dependencies\n')[1]
+  ?.split('FROM php-base AS runtime\n')[0] ?? '';
+if (!productionDependencies.includes('RUN php tool/materialize-openapi-contract.php')
+    || !fs.readFileSync('.github/workflows/production-image.yml', 'utf8')
+      .includes('docker run --rm providentia:production-ci php tool/materialize-openapi-contract.php --check')) {
+  throw new Error('Production images must bake and verify their lock-matched canonical OpenAPI document.');
+}
 for (const [argument, value] of Object.entries({
   GO_IMAGE: `golang:${manifest.runtime.webGo}-alpine3.23`,
   CADDY_VERSION: manifest.runtime.caddy,

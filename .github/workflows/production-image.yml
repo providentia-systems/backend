@@ -126,6 +126,7 @@ jobs:
         run: |
           test "$(docker image inspect providentia:production-ci --format '{{.Config.User}}')" = "www-data"
           docker run --rm providentia:production-ci php --version
+          docker run --rm providentia:production-ci php tool/materialize-openapi-contract.php --check
           for extension in pdo_mysql pdo_sqlite redis sodium; do
             docker run --rm providentia:production-ci php -m | grep -Fxq "$extension"
           done

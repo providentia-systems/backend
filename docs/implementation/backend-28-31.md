@@ -15,6 +15,8 @@ API **2.3.0**, with migration versions `20261022000100` through
 `20261022000300`. The canonical archive, lock, materializer, runtime routes and
 generated Dart proof move together. The required contract workflow publishes
 the generated package as a PR artifact for coordinated frontend adoption.
+Production runtime and media-worker images bake the canonical document from its
+lock-verified source archive; the image proof verifies that file without repairing it.
 
 ## Implemented behavior
 
