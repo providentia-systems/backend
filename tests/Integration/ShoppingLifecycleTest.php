@@ -48,9 +48,12 @@ final class ShoppingLifecycleTest extends TestCase
         );
         $this->connection->executeStatement(
             'CREATE TABLE home_products (global_category_id TEXT, unit TEXT NOT NULL DEFAULT \'units\',
-                id TEXT, home_id TEXT, private_name TEXT, product_id TEXT, status TEXT)',
+                id TEXT, home_id TEXT, private_name TEXT, product_id TEXT, pack_id TEXT, status TEXT)',
         );
         $this->connection->executeStatement('CREATE TABLE products (id TEXT, canonical_name TEXT)');
+        $this->connection->executeStatement('CREATE TABLE product_packs (id TEXT, product_id TEXT,
+            unit_id TEXT, normalized_base_amount TEXT, status TEXT)');
+        $this->connection->executeStatement('CREATE TABLE units (id TEXT, dimension TEXT)');
         foreach (
             [
                 'CREATE TABLE shopping_suggestion_runs (id TEXT, home_id TEXT, status TEXT, as_of TEXT)',
@@ -154,7 +157,13 @@ final class ShoppingLifecycleTest extends TestCase
 
     public function testRecommendationProvenanceAndFeedbackCommitOnlyWithASuccessfulLine(): void
     {
-        $this->connection->insert('home_products', ['id' => 'product', 'home_id' => 'home', 'status' => 'active']);
+        $this->connection->insert('home_products', [
+            'id' => 'product', 'home_id' => 'home', 'status' => 'active',
+            'product_id' => 'catalog', 'pack_id' => 'pack',
+        ]);
+        $this->connection->insert('product_packs', [
+            'id' => 'pack', 'product_id' => 'catalog', 'status' => 'published',
+        ]);
         $this->connection->insert('shopping_suggestion_runs', [
             'id' => 'run',
             'home_id' => 'home',
@@ -226,6 +235,182 @@ final class ShoppingLifecycleTest extends TestCase
         $updatedLine = $this->store->line('home', 'list', $created['id']);
         self::assertNotNull($updatedLine);
         self::assertSame('suggestion', $updatedLine['suggestionId']);
+    }
+
+    public function testManualPackSelectionAndAuditedRelinkingPreservePurchasingInstructions(): void
+    {
+        $this->seedPackChoices();
+        self::assertTrue($this->store->addLine(
+            'four-small',
+            'home',
+            'list',
+            1,
+            'rice',
+            'Four bags',
+            'manual',
+            '4',
+            'Manual.',
+            null,
+            $this->at,
+            null,
+            'one-kg',
+        ));
+        self::assertTrue($this->store->addLine(
+            'one-large',
+            'home',
+            'list',
+            2,
+            'rice',
+            'One bag',
+            'manual',
+            '1',
+            'Manual.',
+            null,
+            $this->at,
+            null,
+            'four-kg',
+        ));
+        $small = $this->store->line('home', 'list', 'four-small');
+        $large = $this->store->line('home', 'list', 'one-large');
+        self::assertNotNull($small);
+        self::assertNotNull($large);
+        self::assertSame('4', $small['quantityToBuy']);
+        self::assertSame('one-kg', $small['selectedPackId']);
+        self::assertSame('1', $large['quantityToBuy']);
+        self::assertSame('four-kg', $large['selectedPackId']);
+        self::assertSame('manual', $small['source']);
+        self::assertSame('pack-count', $small['quantityBasis']);
+        self::assertSame('catalog-rice', $small['productId']);
+        self::assertSame('kg', $small['stockUnit']);
+
+        self::assertTrue($this->store->addLine(
+            'custom',
+            'home',
+            'list',
+            3,
+            null,
+            'Keep original description',
+            'manual',
+            '2',
+            'Manual.',
+            null,
+            $this->at,
+        ));
+        self::assertFalse($this->store->relinkLine(
+            'home',
+            'list',
+            'custom',
+            'rice',
+            'one-kg',
+            9,
+            'actor',
+            'stale-audit',
+            'Resolve custom line',
+            $this->at,
+        ));
+        self::assertTrue($this->store->relinkLine(
+            'home',
+            'list',
+            'custom',
+            'rice',
+            'one-kg',
+            1,
+            'actor',
+            'link-audit',
+            'Resolve custom line',
+            $this->at,
+        ));
+        $linked = $this->store->line('home', 'list', 'custom');
+        self::assertNotNull($linked);
+        self::assertSame('Keep original description', $linked['description']);
+        self::assertSame('2', $linked['quantityToBuy']);
+        self::assertSame('rice', $linked['homeProductId']);
+        self::assertSame('one-kg', $linked['selectedPackId']);
+        self::assertSame(2, $linked['revision']);
+        $audit = json_decode((string) $this->connection->fetchOne(
+            'SELECT details FROM audit_events WHERE id = ?',
+            ['link-audit'],
+        ), true, 512, JSON_THROW_ON_ERROR);
+        self::assertNull($audit['before']['homeProductId']);
+        self::assertSame('rice', $audit['after']['homeProductId']);
+        self::assertTrue($this->store->relinkLine(
+            'home',
+            'list',
+            'custom',
+            null,
+            null,
+            2,
+            'actor',
+            'unlink-audit',
+            'Use custom wording',
+            $this->at,
+        ));
+        $unlinked = $this->store->line('home', 'list', 'custom');
+        self::assertNotNull($unlinked);
+        self::assertNull($unlinked['homeProductId']);
+        self::assertSame(2, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM audit_events'));
+        self::assertNull($this->store->line('other-home', 'list', 'custom'));
+    }
+
+    public function testUnavailableAndIncompatiblePacksAreRejectedBeforeListRevisionChanges(): void
+    {
+        $this->seedPackChoices();
+        $cases = [
+            ['rice', 'litre'], ['rice', 'foreign-pack'], ['rice', 'unpublished'],
+            ['foreign-home-product', 'one-kg'], ['archived-product', 'one-kg'], [null, 'one-kg'],
+        ];
+        foreach ($cases as $index => [$product, $pack]) {
+            try {
+                $this->store->addLine(
+                    'invalid-' . $index,
+                    'home',
+                    'list',
+                    1,
+                    $product,
+                    'Invalid',
+                    'manual',
+                    '1',
+                    'Manual.',
+                    null,
+                    $this->at,
+                    null,
+                    $pack,
+                );
+                self::fail('Invalid product/pack must fail.');
+            } catch (\DomainException) {
+                $list = $this->store->shoppingList('home', 'list');
+                self::assertNotNull($list);
+                self::assertSame(1, $list['revision']);
+                self::assertCount(0, $this->store->lines('home', 'list'));
+            }
+        }
+    }
+
+    private function seedPackChoices(): void
+    {
+        $this->connection->insert('units', ['id' => 'mass', 'dimension' => 'mass']);
+        $this->connection->insert('units', ['id' => 'volume', 'dimension' => 'volume']);
+        foreach (
+            [['rice', 'home', 'active'], ['foreign-home-product', 'other-home', 'active'],
+            ['archived-product', 'home', 'archived']] as [$id, $home, $status]
+        ) {
+            $this->connection->insert('home_products', [
+                'id' => $id, 'home_id' => $home, 'status' => $status,
+                'product_id' => 'catalog-rice', 'unit' => 'kg',
+            ]);
+        }
+        foreach (
+            [['one-kg', 'mass', '1000', 'catalog-rice', 'published'],
+            ['four-kg', 'mass', '4000', 'catalog-rice', 'published'],
+            ['litre', 'volume', '1000', 'catalog-rice', 'published'],
+            ['foreign-pack', 'mass', '1000', 'other-product', 'published'],
+            ['unpublished', 'mass', '1000', 'catalog-rice', 'draft']] as [$id, $unit, $amount, $product, $status]
+        ) {
+            $this->connection->insert('product_packs', [
+                'id' => $id, 'product_id' => $product, 'unit_id' => $unit,
+                'normalized_base_amount' => $amount, 'status' => $status,
+            ]);
+        }
     }
 
     public function testListLifecycleRequiresCurrentRevisionAndKeepsTenantBoundaries(): void

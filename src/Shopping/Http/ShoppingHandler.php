@@ -47,7 +47,11 @@ final class ShoppingHandler implements RequestHandlerInterface
                 isset($body['homeProductId']) ? (string) $body['homeProductId'] : null,
                 (string) ($body['description'] ?? ''),
                 (string) ($body['quantityToBuy'] ?? ''),
+                null,
+                isset($body['suggestionId']) ? (string) $body['suggestionId'] : null,
+                isset($body['selectedPackId']) ? (string) $body['selectedPackId'] : null,
             ), 201),
+            'lines.relink' => $this->relink($identity, $homeId, $listId, $request, $body),
             'lines.check' => $this->check($identity, $homeId, $listId, $request, $body),
             'suggestions' => new JsonResponse([
                 'data' => $this->shopping->legacySuggestions($identity, $homeId),
@@ -56,6 +60,38 @@ final class ShoppingHandler implements RequestHandlerInterface
             ]),
             default => throw new \LogicException('Unknown shopping action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function relink(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $listId,
+        ServerRequestInterface $request,
+        array $body,
+    ): ResponseInterface {
+        $fields = ['homeProductId', 'selectedPackId', 'expectedRevision', 'reason'];
+        if (array_diff(array_keys($body), $fields) !== [] || array_diff($fields, array_keys($body)) !== []) {
+            throw new HttpProblem(422, 'Invalid product selection', 'Provide the product, pack, revision and reason.');
+        }
+        foreach (['homeProductId', 'selectedPackId'] as $field) {
+            if ($body[$field] !== null && ! is_string($body[$field])) {
+                throw new HttpProblem(422, 'Invalid product selection', 'Product and pack must be strings or null.');
+            }
+        }
+        if (! is_int($body['expectedRevision']) || $body['expectedRevision'] < 1 || ! is_string($body['reason'])) {
+            throw new HttpProblem(422, 'Invalid product selection', 'Provide a positive revision and text reason.');
+        }
+        return new JsonResponse($this->shopping->relinkLine(
+            $identity,
+            $homeId,
+            $listId,
+            (string) $request->getAttribute('lineId', ''),
+            $body['homeProductId'],
+            $body['selectedPackId'],
+            $body['expectedRevision'],
+            $body['reason'],
+        ));
     }
 
     /** @param array<string, mixed> $body */
