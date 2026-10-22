@@ -128,6 +128,11 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
         ?string $suggestionId = null,
         ?string $selectedPackId = null,
     ): bool {
+        // Relinking also locks the list before its selected product. Preserve
+        // that order now that selection serializes against stock-unit edits.
+        if (!$this->lockOpenList($homeId, $listId)) {
+            return false;
+        }
         $this->validateSelection($homeId, $homeProductId, $selectedPackId);
         if ($suggestionId !== null) {
             $suggestion = $this->connection->fetchAssociative(
@@ -434,9 +439,10 @@ final class DbalShoppingStore implements ShoppingStore, ShoppingSummaryReader
             }
             return;
         }
+        $lock = $this->connection->getDatabasePlatform() instanceof SQLitePlatform ? '' : ' FOR UPDATE';
         $product = $this->one(
             'SELECT id, product_id, unit FROM home_products
-             WHERE id = :id AND home_id = :home AND status = :status',
+             WHERE id = :id AND home_id = :home AND status = :status' . $lock,
             ['id' => $homeProductId, 'home' => $homeId, 'status' => 'active'],
         );
         if ($product === null) {

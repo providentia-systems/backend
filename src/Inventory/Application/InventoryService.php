@@ -626,7 +626,8 @@ final class InventoryService implements InventoryMovementGateway
             'unit-in-use' => throw new Problem(
                 409,
                 'Stock unit has history',
-                'The stock unit cannot be relabelled after quantities or observations exist. Use a separate product.',
+                'The stock unit is used by stock, counts, saved shopping quantities or minimum preferences. '
+                    . 'Use a separate product to preserve their meaning.',
             ),
             'product-in-use' => throw new Problem(
                 409,
