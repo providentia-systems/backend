@@ -45,7 +45,9 @@ FROM php-base AS dependencies
 COPY --from=composer-bin /usr/bin/composer /usr/local/bin/composer
 WORKDIR /app
 COPY . .
-RUN composer install \
+# Bake the canonical contract even from a clean checkout where its working copy is ignored.
+RUN php tool/materialize-openapi-contract.php \
+    && composer install \
     --no-dev \
     --no-interaction \
     --no-progress \
