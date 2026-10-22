@@ -5,8 +5,8 @@ set -Eeuo pipefail
 readonly root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly archive="$root/contracts/source/providentia-v1.json.gz"
 readonly output="$root/contracts/openapi/providentia-v1.json"
-readonly archive_sha256='98d0b9d4bdbb4916be6fa30054aaeebb49384c30a7392f88ad8b8560c74f019f'
-readonly output_sha256='75701b9ef65edc964f50762ba428ca425bfad40f574cb1abc0ce03086ca19cc1'
+readonly archive_sha256='c12cd960967a8daa285b2c59d2ed82b172da3b45e7a5c8ba0d92e3cc2b6429b7'
+readonly output_sha256='2814c1c69aaacadf7bfae6f71d1178dab619f3cce4510e17d6cbd8ffaa42d7fb'
 
 sha256_file() {
   sha256sum "$1" | cut -d' ' -f1
@@ -38,10 +38,10 @@ node -e '
       .filter((method) => path?.[method]).length,
     0,
   );
-  if (contract.info?.version !== "2.2.0"
-      || Object.keys(contract.paths ?? {}).length !== 195
-      || operations !== 236
-      || Object.keys(contract.components?.schemas ?? {}).length !== 287
+  if (contract.info?.version !== "2.3.0"
+      || Object.keys(contract.paths ?? {}).length !== 200
+      || operations !== 242
+      || Object.keys(contract.components?.schemas ?? {}).length !== 309
       || contract.paths?.["/api/v1/auth/email-codes/verify"]?.post?.operationId
           !== "verifyEmailCode"
       || contract.components?.schemas?.AiExtraction?.properties?.schemaVersion?.enum?.[0] !== 2
@@ -49,10 +49,10 @@ node -e '
       || contract.paths?.["/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/lines/{lineId}"]
           ?.put?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref
           !== "#/components/schemas/StockCountLine") {
-    throw new Error("The materialized OpenAPI document is not complete Providentia API 2.2.0.");
+    throw new Error("The materialized OpenAPI document is not complete Providentia API 2.3.0.");
   }
 ' "$temporary"
 
 mv "$temporary" "$output"
 trap - EXIT
-echo 'Materialized Providentia API 2.2.0 contract.'
+echo 'Materialized Providentia API 2.3.0 contract.'

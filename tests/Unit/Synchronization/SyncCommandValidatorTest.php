@@ -10,6 +10,24 @@ use Providentia\Synchronization\Application\SyncCommandValidator;
 
 final class SyncCommandValidatorTest extends TestCase
 {
+    public function testReceiptDateCorrectionIsClosedRevisionedAndPreservesCalendarText(): void
+    {
+        $validator = new SyncCommandValidator(65536);
+        $command = $validator->validate($this->command(
+            'purchasing.receipt.correct-date',
+            8,
+            ['purchaseDate' => '2026-10-15', 'reason' => 'Verified original receipt'],
+        ));
+        self::assertSame(8, $command->baseRevision);
+        self::assertSame('2026-10-15', $command->payload['purchaseDate']);
+        $this->expectException(Problem::class);
+        $validator->validate($this->command(
+            'purchasing.receipt.correct-date',
+            0,
+            ['purchaseDate' => '2026-10-15', 'reason' => 'Missing original revision'],
+        ));
+    }
+
     public function testClosedTypedCommandIsAccepted(): void
     {
         $command = (new SyncCommandValidator(65536))->validate([
@@ -119,6 +137,42 @@ final class SyncCommandValidatorTest extends TestCase
         $validator->validate($this->command('shopping.list.update', 3, ['name' => null, 'status' => 'open']));
     }
 
+    public function testManualSelectedPacksAndExplicitRelinkingUseRevisionedClosedPayloads(): void
+    {
+        $validator = new SyncCommandValidator(65536);
+        $listId = '01912345-6789-7abc-adef-0123456789ab';
+        $productId = '01912345-6789-7abc-bdef-0123456789ab';
+        $packId = '01912345-6789-7abc-8def-1123456789ab';
+        $created = $validator->validate($this->command('shopping.list-line.create', 1, [
+            'listId' => $listId,
+            'homeProductId' => $productId,
+            'description' => 'Rice',
+            'quantity' => '4',
+            'selectedPackId' => $packId,
+        ]));
+        self::assertSame($packId, $created->payload['selectedPackId']);
+        $linked = $validator->validate($this->command('shopping.list-line.relink', 2, [
+            'listId' => $listId,
+            'homeProductId' => $productId,
+            'selectedPackId' => $packId,
+            'reason' => 'Resolve custom line',
+        ]));
+        self::assertSame(2, $linked->baseRevision);
+        $unlinked = $validator->validate($this->command('shopping.list-line.relink', 3, [
+            'listId' => $listId,
+            'homeProductId' => null,
+            'selectedPackId' => null,
+            'reason' => 'Keep a free-text instruction',
+        ]));
+        self::assertNull($unlinked->payload['homeProductId']);
+        $this->expectException(Problem::class);
+        $validator->validate($this->command('shopping.list-line.relink', 3, [
+            'listId' => $listId,
+            'homeProductId' => $productId,
+            'reason' => 'Missing deliberate pack choice',
+        ]));
+    }
+
     public function testPlaceMetadataUpdatesRequireTypedValuesAndPositiveRevision(): void
     {
         $validator = new SyncCommandValidator(65536);
@@ -219,6 +273,53 @@ final class SyncCommandValidatorTest extends TestCase
         unset($payload['unit']);
         $this->expectException(Problem::class);
         $validator->validate($this->command('purchasing.receipt-line.approve', 1, $payload));
+    }
+
+    public function testCountCloseAndAuditedReviewAcceptExplicitObservationEvidence(): void
+    {
+        $validator = new SyncCommandValidator(65536);
+        $evidence = [
+            'scopeComplete' => true,
+            'reliability' => 'reliable',
+            'observedAt' => '2026-08-01T16:00:00+02:00',
+        ];
+        self::assertSame($evidence, $validator->validate(
+            $this->command('inventory.count-session.close', 3, $evidence),
+        )->payload);
+        $review = [...$evidence, 'reason' => 'Verified original count sheet', 'lineCorrections' => [[
+            'id' => '01912345-6789-7abc-8def-1123456789ab',
+            'quantity' => '3.5',
+            'expectedRevision' => 2,
+        ]]];
+        self::assertSame($review, $validator->validate(
+            $this->command('inventory.count-session.review', 4, $review),
+        )->payload);
+    }
+
+    public function testCountReviewRejectsMalformedNestedCorrectionAndTruthyCompleteness(): void
+    {
+        $validator = new SyncCommandValidator(65536);
+        $payload = [
+            'scopeComplete' => true, 'reliability' => 'reliable',
+            'observedAt' => '2026-08-01T16:00:00+02:00', 'reason' => 'Reviewed',
+        ];
+        foreach (
+            [
+            [...$payload, 'scopeComplete' => 'true'],
+            [...$payload, 'lineCorrections' => '3'],
+            [...$payload, 'lineCorrections' => [['id' => 'not-a-uuid', 'quantity' => '3', 'expectedRevision' => 1]]],
+            [...$payload, 'lineCorrections' => [[
+                'id' => '01912345-6789-7abc-8def-1123456789ab', 'quantity' => '3', 'expectedRevision' => '1',
+            ]]],
+            ] as $invalid
+        ) {
+            try {
+                $validator->validate($this->command('inventory.count-session.review', 4, $invalid));
+                self::fail('An invalid count review command was accepted.');
+            } catch (Problem $error) {
+                self::assertSame(422, $error->status);
+            }
+        }
     }
 
     /**

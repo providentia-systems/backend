@@ -31,6 +31,14 @@ require_literal "$count_line" 'final String homeProductId;'
 require_literal "$count_line" 'final String quantity;'
 require_literal "$count_line" 'final StockCountLineStatusEnum status;'
 require_literal "$count_line" 'final int revision;'
+require_literal "$inventory_api" 'Future<Response<StockCountSession>> reviewStockCountSession({'
+require_literal "$package/lib/src/api/shopping_api.dart" 'Future<Response<ShoppingListLine>> relinkShoppingListLine({'
+require_literal "$package/lib/src/api/purchasing_api.dart" 'Future<Response<ReceiptDateCorrectionResult>> correctReceiptPurchaseDate({'
+require_literal "$package/lib/src/api/synchronization_api.dart" 'Future<Response<SyncRecoveryResponse>> revalidateSynchronizationOperations({'
+require_literal "$package/lib/src/api/synchronization_api.dart" 'Future<Response<SyncDiagnosticsResponse>> getSynchronizationDiagnostics({'
+require_literal "$package/lib/src/model/sync_recovery_request.dart" 'final String deviceId;'
+require_literal "$package/lib/src/model/review_stock_count_request.dart" 'final int expectedRevision;'
+require_literal "$package/lib/src/model/create_shopping_list_line_request.dart" 'final String? selectedPackId;'
 
 readonly identity_api="$package/lib/src/api/identity_api.dart"
 readonly platform_api="$package/lib/src/api/platform_api.dart"
@@ -54,4 +62,4 @@ if grep -Eq 'startLoginLink|proveLoginLinkApproval|exchangeLoginLink' "$identity
   exit 1
 fi
 
-echo 'Generated Dart stock, email-code, profile and scoped-access contracts passed.'
+echo 'Generated Dart stock, audited correction, pack, recovery and scoped-access contracts passed.'

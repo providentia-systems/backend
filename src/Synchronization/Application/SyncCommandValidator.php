@@ -130,7 +130,7 @@ final class SyncCommandValidator
             ),
             'inventory.count-session.create' => $this->shape(
                 $payload,
-                ['locationId', 'notes', 'scopeComplete', 'reliability'],
+                ['locationId', 'notes', 'scopeComplete', 'reliability', 'observedAt'],
                 ['locationId', 'notes', 'scopeComplete', 'reliability'],
                 false,
                 $baseRevision,
@@ -143,7 +143,20 @@ final class SyncCommandValidator
                 $baseRevision,
             ),
             'inventory.count-line.remove' => $this->shape($payload, ['sessionId'], ['sessionId'], true, $baseRevision),
-            'inventory.count-session.close' => $this->shape($payload, [], [], true, $baseRevision),
+            'inventory.count-session.close' => $this->shape(
+                $payload,
+                ['scopeComplete', 'reliability', 'observedAt'],
+                [],
+                true,
+                $baseRevision,
+            ),
+            'inventory.count-session.review' => $this->shape(
+                $payload,
+                ['reason', 'scopeComplete', 'reliability', 'observedAt', 'lineCorrections'],
+                ['reason', 'scopeComplete', 'reliability', 'observedAt'],
+                true,
+                $baseRevision,
+            ),
             'inventory.count-session.cancel' => $this->shape($payload, [], [], true, $baseRevision),
             'purchasing.store.update' => $this->shape(
                 $payload,
@@ -163,6 +176,13 @@ final class SyncCommandValidator
                 $payload,
                 ['storeId', 'purchaseDate', 'currency', 'totalAmount', 'notes'],
                 ['storeId', 'purchaseDate', 'currency', 'totalAmount', 'notes'],
+                true,
+                $baseRevision,
+            ),
+            'purchasing.receipt.correct-date' => $this->shape(
+                $payload,
+                ['purchaseDate', 'reason'],
+                ['purchaseDate', 'reason'],
                 true,
                 $baseRevision,
             ),
@@ -266,8 +286,15 @@ final class SyncCommandValidator
             ),
             'shopping.list-line.create' => $this->shape(
                 $payload,
-                ['listId', 'homeProductId', 'description', 'quantity', 'suggestionId'],
+                ['listId', 'homeProductId', 'description', 'quantity', 'suggestionId', 'selectedPackId'],
                 ['listId', 'homeProductId', 'description', 'quantity'],
+                true,
+                $baseRevision,
+            ),
+            'shopping.list-line.relink' => $this->shape(
+                $payload,
+                ['listId', 'homeProductId', 'selectedPackId', 'reason'],
+                ['listId', 'homeProductId', 'selectedPackId', 'reason'],
                 true,
                 $baseRevision,
             ),
@@ -317,6 +344,7 @@ final class SyncCommandValidator
                 [
                     'purchasing.receipt-line.purchase',
                     'purchasing.receipt.update',
+                    'purchasing.receipt.correct-date',
                     'purchasing.receipt.cancel',
                     'purchasing.receipt-line.update',
                     'purchasing.receipt-line.remove',
@@ -328,6 +356,9 @@ final class SyncCommandValidator
             throw new Problem(422, 'Invalid draft command', 'Draft changes require a positive baseRevision.');
         }
 
+        if ($type === 'shopping.list-line.relink' && ($baseRevision === null || $baseRevision < 1)) {
+            throw new Problem(422, 'Invalid revision', 'Relinking requires a positive baseRevision.');
+        }
         $this->validateFieldTypes($type, $payload);
     }
 
@@ -379,7 +410,8 @@ final class SyncCommandValidator
             'purchasing.receipt-line.approve' => ['receiptId', 'homeProductId', 'packId'],
             'purchasing.receipt-line.unresolve' => ['receiptId'],
             'shopping.preference.put' => ['preferredPackId'],
-            'shopping.list-line.create' => ['listId', 'homeProductId', 'suggestionId'],
+            'shopping.list-line.create' => ['listId', 'homeProductId', 'suggestionId', 'selectedPackId'],
+            'shopping.list-line.relink' => ['listId', 'homeProductId', 'selectedPackId'],
             'shopping.suggestion-feedback.create' => ['suggestionId'],
             'shopping.list-line.checked', 'shopping.list-line.update' => ['listId'],
             default => [],
@@ -391,8 +423,40 @@ final class SyncCommandValidator
             }
         }
 
+        if (array_key_exists('observedAt', $payload)) {
+            $this->timestamp($payload['observedAt']);
+        }
+        if (array_key_exists('lineCorrections', $payload)) {
+            $corrections = $payload['lineCorrections'];
+            if (!is_array($corrections) || !array_is_list($corrections) || count($corrections) > 1000) {
+                throw new Problem(422, 'Invalid command', 'lineCorrections must be a list of at most 1000 entries.');
+            }
+            foreach ($corrections as $correction) {
+                if (!is_array($correction)) {
+                    throw new Problem(422, 'Invalid command', 'Count corrections must be objects.');
+                }
+                $this->rejectUnknownKeys($correction, ['id', 'quantity', 'expectedRevision'], 'line correction');
+                $this->uuid($correction['id'] ?? null, 'id');
+                if (
+                    !is_string($correction['quantity'] ?? null)
+                    || !is_int($correction['expectedRevision'] ?? null)
+                    || $correction['expectedRevision'] < 1
+                ) {
+                    throw new Problem(422, 'Invalid command', 'Count correction quantity and revision are required.');
+                }
+            }
+        }
         $booleanFields = ['scopeComplete', 'checked', 'archived', 'alwaysKeep', 'neverSuggest'];
         foreach ($payload as $field => $fieldValue) {
+            if ($field === 'lineCorrections') {
+                continue;
+            }
+            if (
+                $type === 'shopping.list-line.relink' && in_array($field, ['listId', 'reason'], true)
+                && $fieldValue === null
+            ) {
+                throw new Problem(422, 'Invalid command', $field . ' must not be null.');
+            }
             if (
                 $type === 'shopping.suggestion-feedback.create' &&
                 $field !== 'resultQuantity' &&

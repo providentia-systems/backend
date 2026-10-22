@@ -31,6 +31,7 @@ final class SynchronizationBackfillTest extends TestCase
         foreach ($this->schema() as $statement) {
             $this->connection->executeStatement($statement);
         }
+        \ProvidentiaTest\Support\InventoryChronologySchema::install($this->connection);
         foreach ([self::HOME_ONE, self::HOME_TWO] as $homeId) {
             $this->connection->insert('home_memberships', [
                 'home_id' => $homeId,
@@ -224,12 +225,12 @@ final class SynchronizationBackfillTest extends TestCase
                 home_id TEXT, home_product_id TEXT, quantity TEXT, last_movement_id TEXT,
                 revision INTEGER, updated_at TEXT
             )',
-            'CREATE TABLE stock_count_lines (
+            'CREATE TABLE stock_count_lines (stock_unit TEXT NULL,
                 id TEXT, home_id TEXT, session_id TEXT, home_product_id TEXT, quantity TEXT,
                 confidence TEXT, source TEXT, notes TEXT, status TEXT, revision INTEGER,
                 counted_by_user_id TEXT, updated_at TEXT
             )',
-            'CREATE TABLE stock_count_sessions (
+            'CREATE TABLE stock_count_sessions (observed_at TEXT NULL,
                 id TEXT, home_id TEXT, location_id TEXT, notes TEXT, scope_complete INTEGER,
                 reliability TEXT, status TEXT, revision INTEGER, opened_by_user_id TEXT,
                 closed_by_user_id TEXT, updated_at TEXT
@@ -256,6 +257,10 @@ final class SynchronizationBackfillTest extends TestCase
                 id TEXT, home_id TEXT, receipt_id TEXT, raw_description TEXT, quantity TEXT,
                 original_pack_text TEXT, unit_price TEXT, line_total TEXT, home_product_id TEXT,
                 approval_status TEXT, revision INTEGER, updated_at TEXT
+            )',
+            'CREATE TABLE receipt_date_corrections (
+                id TEXT, home_id TEXT, receipt_id TEXT, original_purchase_date TEXT,
+                purchase_date TEXT, reason TEXT, receipt_revision INTEGER, actor_user_id TEXT, created_at TEXT
             )',
             'CREATE TABLE stores (
                 id TEXT, home_id TEXT, name TEXT, location TEXT, status TEXT,

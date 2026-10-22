@@ -680,10 +680,17 @@ assert_no_matches "catalog merge deletes canonical products or household history
   -ni --glob 'src/Catalog/Infrastructure/Doctrine/DbalCatalogGovernanceStore.php' \
   'DELETE FROM (products|home_products|stock_movements|receipts|receipt_lines|price_observations)'
 
+for chronology_gate in \
+  "s.scope_complete = :complete" \
+  "s.reliability = :reliable" \
+  "s.location_id IS NULL" \
+  "l.stock_unit = hp.unit" \
+  "created_at <= :as_of"; do
+  rg -Fq "$chronology_gate" src/Inventory/Infrastructure/Doctrine/DbalStockChronologyReader.php \
+    || fail "Chronological intelligence evidence gate is missing: $chronology_gate"
+done
+
 for intelligence_gate in \
-  "scs.scope_complete = :complete" \
-  "scs.reliability = :reliability" \
-  "sm.created_at <= :as_of" \
   "po.created_at <= :as_of" \
   "Prices in different currencies are shown separately and never compared." \
   "No fact after each cutoff is used to build its suggestion." \
