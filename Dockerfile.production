@@ -2,7 +2,7 @@
 
 ARG PHP_IMAGE=php:8.5.9-fpm-alpine3.23
 ARG COMPOSER_IMAGE=composer:2.10.2
-ARG GO_IMAGE=golang:1.26.9-alpine3.23
+ARG GO_IMAGE=golang:1.26.10-alpine3.23
 ARG ALPINE_IMAGE=alpine:3.23
 
 FROM ${COMPOSER_IMAGE} AS composer-bin
@@ -13,6 +13,7 @@ ARG GO_NET_VERSION=0.60.0
 ARG GO_CRYPTO_VERSION=0.57.0
 ARG GO_TEXT_VERSION=0.42.0
 ARG GO_GRPC_VERSION=1.83.2
+ARG GO_COMPRESS_VERSION=1.18.7
 ENV CGO_ENABLED=0 \
     GOPROXY=https://proxy.golang.org,direct \
     GOSUMDB=sum.golang.org \
@@ -25,6 +26,7 @@ RUN apk add --no-cache ca-certificates git \
         golang.org/x/crypto@v${GO_CRYPTO_VERSION} \
         golang.org/x/text@v${GO_TEXT_VERSION} \
         google.golang.org/grpc@v${GO_GRPC_VERSION} \
+        github.com/klauspost/compress@v${GO_COMPRESS_VERSION} \
     && go build -trimpath -ldflags="-s -w" \
         -o /usr/local/bin/caddy github.com/caddyserver/caddy/v2/cmd/caddy
 
@@ -59,7 +61,7 @@ LABEL org.opencontainers.image.title="Providentia backend" \
       org.opencontainers.image.source="${VCS_URL}" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}"
-ENV APP_VERSION=${APP_VERSION}
+ENV APP_VERSION=${APP_VERSION} APP_BUILD_REVISION=${VCS_REF}
 WORKDIR /app
 COPY --from=dependencies /app /app
 COPY infrastructure/php/request-limits.ini /usr/local/etc/php/conf.d/zz-providentia-request-limits.ini

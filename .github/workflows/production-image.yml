@@ -166,12 +166,13 @@ jobs:
         run: |
           test "$(docker image inspect providentia-web:production-ci --format '{{.Config.User}}')" = "caddy"
           docker run --rm providentia-web:production-ci caddy build-info | tee /tmp/caddy-build-info
-          grep -Eq '^go[[:space:]]+go1\.26\.9([[:space:]]|$)' /tmp/caddy-build-info
+          grep -Eq '^go[[:space:]]+go1\.26\.10([[:space:]]|$)' /tmp/caddy-build-info
           grep -Eq 'github\.com/caddyserver/caddy/v2[[:space:]]+v2\.11\.4' /tmp/caddy-build-info
           grep -Eq 'golang\.org/x/net[[:space:]]+v0\.60\.0' /tmp/caddy-build-info
           grep -Eq 'golang\.org/x/crypto[[:space:]]+v0\.57\.0' /tmp/caddy-build-info
           grep -Eq 'golang\.org/x/text[[:space:]]+v0\.42\.0' /tmp/caddy-build-info
           grep -Eq 'google\.golang\.org/grpc[[:space:]]+v1\.83\.2' /tmp/caddy-build-info
+          grep -Eq 'github\.com/klauspost/compress[[:space:]]+v1\.18\.7' /tmp/caddy-build-info
       - name: Exercise production containers
         env:
           APP_ENV: production
