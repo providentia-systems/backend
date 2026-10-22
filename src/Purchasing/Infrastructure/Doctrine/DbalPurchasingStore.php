@@ -21,6 +21,15 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
     {
     }
 
+    public function homeTimezone(string $homeId): ?string
+    {
+        $timezone = $this->connection->fetchOne(
+            'SELECT default_timezone FROM homes WHERE id = :home',
+            ['home' => $homeId],
+        );
+        return $timezone === false ? null : (string) $timezone;
+    }
+
     public function receipts(
         string $homeId,
         ?string $from,
@@ -93,8 +102,7 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
 
     public function receipt(string $homeId, string $receiptId): ?array
     {
-        $row = $this->one(
-            'SELECT r.id, r.home_id AS homeId, r.store_id AS storeId,
+        $sql = 'SELECT r.id, r.home_id AS homeId, r.store_id AS storeId,
                     s.name AS storeName, r.purchase_date AS purchaseDate,
                     r.currency, r.total_amount AS totalAmount, r.status,
                     r.source, r.source_reference AS sourceReference, r.notes,
@@ -103,7 +111,12 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
                     r.updated_at AS updatedAt
              FROM receipts r
              LEFT JOIN stores s ON s.id = r.store_id AND s.home_id = r.home_id
-             WHERE r.home_id = :home AND r.id = :id',
+             WHERE r.home_id = :home AND r.id = :id';
+        // All receipt mutations read their header inside a transaction. Lock that
+        // snapshot before a line edit can race a store/day correction and publish
+        // price evidence against the old header.
+        $row = $this->one(
+            $this->connection->isTransactionActive() ? $this->forUpdate($sql) : $sql,
             ['home' => $homeId, 'id' => $receiptId],
         );
 

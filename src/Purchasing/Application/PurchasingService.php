@@ -8,6 +8,7 @@ use Brick\Math\BigDecimal;
 use Brick\Math\Exception\MathException;
 use Brick\Math\RoundingMode;
 use DateTimeImmutable;
+use DateTimeZone;
 use DomainException;
 use InvalidArgumentException;
 use Providentia\Home\Application\HomePermissionAuthorizer;
@@ -94,7 +95,7 @@ final class PurchasingService
         int $expectedRevision,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
-        $this->date($purchaseDate);
+        $this->purchaseDay($homeId, $purchaseDate);
         $reason = trim($reason);
         if ($expectedRevision < 1 || $reason === '' || mb_strlen($reason) > 500) {
             throw new Problem(
@@ -357,7 +358,7 @@ final class PurchasingService
         ?string $requestedId = null,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
-        $this->date($purchaseDate);
+        $this->purchaseDay($homeId, $purchaseDate);
         $currency = strtoupper(trim($currency));
         if (preg_match('/^[A-Z]{3}$/', $currency) !== 1) {
             throw new Problem(422, 'Invalid receipt', 'Currency must be an ISO 4217 code.');
@@ -613,6 +614,7 @@ final class PurchasingService
                     return [...$existing, 'receiptRevision' => (int) ($receipt['revision'] ?? 0)];
                 }
                 $receipt = $this->requireDraft($homeId, $receiptId);
+                $this->purchaseDay($homeId, (string) $receipt['purchaseDate']);
                 $product = $this->purchases->purchaseProduct($homeId, $homeProductId, $packId);
                 if ($product === null) {
                     throw new Problem(404, 'Not found', 'The selected home product is unavailable.');
@@ -1023,7 +1025,7 @@ final class PurchasingService
         ) {
             throw new Problem(422, 'Invalid receipt', 'Provide a calendar date and text notes.');
         }
-        $date = $this->date($fields['purchaseDate'])->format('Y-m-d');
+        $date = $this->purchaseDay($homeId, $fields['purchaseDate'])->format('Y-m-d');
         $currency = (string) $fields['currency'];
         $notes = trim((string) $fields['notes']);
         if (preg_match('/^[A-Z]{3}$/', $currency) !== 1 || mb_strlen($notes) > 2000) {
@@ -1431,6 +1433,7 @@ final class PurchasingService
             if ((string) $receipt['status'] !== 'draft' || (int) $receipt['revision'] !== $expectedRevision) {
                 throw new Problem(409, 'Revision conflict', 'The receipt changed on another device.');
             }
+            $this->purchaseDay($homeId, (string) $receipt['purchaseDate']);
             $lines = array_values(array_filter(
                 $this->purchases->receiptLines($homeId, $receiptId),
                 static fn (array $line): bool => $line['approvalStatus'] !== 'removed',
@@ -1634,6 +1637,20 @@ final class PurchasingService
             throw new Problem(422, 'Invalid date', 'Purchase day must be a valid YYYY-MM-DD calendar date.');
         }
         return new DateTimeImmutable($value . 'T00:00:00Z');
+    }
+
+    private function purchaseDay(string $homeId, string $value): DateTimeImmutable
+    {
+        $day = $this->date($value);
+        $timezone = new DateTimeZone($this->purchases->homeTimezone($homeId) ?? 'UTC');
+        if ($value > $this->clock->now()->setTimezone($timezone)->format('Y-m-d')) {
+            throw new Problem(
+                422,
+                'Future purchase date',
+                'The purchase day cannot be after today in the home timezone.',
+            );
+        }
+        return $day;
     }
 
     private function normalize(string $value): string
