@@ -1012,6 +1012,11 @@ return static function (Application $app): void {
         'api.inventory.counts.close',
     );
     $app->post(
+        '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/review',
+        [BearerAuthenticationMiddleware::class, 'inventory.counts.review'],
+        'api.inventory.counts.review',
+    );
+    $app->post(
         '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/cancel',
         [
             BearerAuthenticationMiddleware::class,
@@ -1047,6 +1052,16 @@ return static function (Application $app): void {
         '/api/v1/homes/{homeId}/receipts/{receiptId}',
         [BearerAuthenticationMiddleware::class, 'purchasing.update'],
         'api.purchasing.receipts.update',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}/date-corrections',
+        [BearerAuthenticationMiddleware::class, 'purchasing.date-corrections.list'],
+        'api.purchasing.receipt-date-corrections.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}/date-corrections',
+        [BearerAuthenticationMiddleware::class, 'purchasing.date-corrections.create'],
+        'api.purchasing.receipt-date-corrections.create',
     );
     $app->delete(
         '/api/v1/homes/{homeId}/receipts/{receiptId}',
@@ -1157,6 +1172,11 @@ return static function (Application $app): void {
             'shopping.lines.create',
         ],
         'api.shopping.lines.create',
+    );
+    $app->put(
+        '/api/v1/homes/{homeId}/shopping-lists/{listId}/lines/{lineId}/product',
+        [BearerAuthenticationMiddleware::class, 'shopping.lines.relink'],
+        'api.shopping.lines.relink',
     );
     $app->put(
         '/api/v1/homes/{homeId}/shopping-lists/{listId}/lines/{lineId}/checked',
@@ -1758,5 +1778,21 @@ return static function (Application $app): void {
             'synchronization.operation-status',
         ],
         'api.synchronization.operation-status',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/sync/revalidate',
+        [
+            BearerAuthenticationMiddleware::class,
+            'synchronization.revalidate',
+        ],
+        'api.synchronization.revalidate',
+    );
+    $app->get(
+        '/api/v1/homes/{homeId}/sync/diagnostics',
+        [
+            BearerAuthenticationMiddleware::class,
+            'synchronization.diagnostics',
+        ],
+        'api.synchronization.diagnostics',
     );
 };

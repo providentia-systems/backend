@@ -96,14 +96,15 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
             'inventory-balance' =>
                 'SELECT t.home_id, t.home_product_id AS entity_id, t.revision,
                         sm.actor_user_id, t.updated_at AS changed_at,
-                        t.quantity, t.last_movement_id
+                        t.quantity, t.last_movement_id, t.uncertain, t.pending_quantity,
+                        t.limitations_json, t.checkpoint_id
                  FROM inventory_balances t
                  LEFT JOIN stock_movements sm ON sm.id = t.last_movement_id'
                 . $missing('inventory-balance') . 't.home_product_id)',
             'inventory-count-line' =>
                 'SELECT t.home_id, t.id AS entity_id, t.revision,
                         t.counted_by_user_id AS actor_user_id, t.updated_at AS changed_at,
-                        t.session_id, t.home_product_id, t.quantity, t.confidence,
+                        t.session_id, t.home_product_id, t.quantity, t.confidence, t.stock_unit AS unit,
                         t.source, t.notes, t.status
                  FROM stock_count_lines t'
                 . $missing('inventory-count-line') . 't.id)',
@@ -111,7 +112,7 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'SELECT t.home_id, t.id AS entity_id, t.revision,
                         COALESCE(t.closed_by_user_id, t.opened_by_user_id) AS actor_user_id,
                         t.updated_at AS changed_at, t.location_id, t.notes,
-                        t.scope_complete, t.reliability, t.status
+                        t.scope_complete, t.reliability, t.observed_at, t.observed_timezone, t.status
                  FROM stock_count_sessions t'
                 . $missing('inventory-count-session') . 't.id)',
             'inventory-location' =>
@@ -137,6 +138,12 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                  FROM receipt_lines t
                  INNER JOIN receipts r ON r.id = t.receipt_id AND r.home_id = t.home_id'
                 . $missing('purchasing-receipt-line') . 't.id)',
+            'purchasing-receipt-date-correction' =>
+                'SELECT t.home_id, t.id AS entity_id, 1 AS revision,
+                        t.actor_user_id, t.created_at AS changed_at, t.receipt_id,
+                        t.original_purchase_date, t.purchase_date, t.reason, t.receipt_revision
+                 FROM receipt_date_corrections t'
+                . $missing('purchasing-receipt-date-correction') . 't.id)',
             'purchasing-store' =>
                 'SELECT t.home_id, t.id AS entity_id, t.revision,
                         NULL AS actor_user_id, t.updated_at AS changed_at,
@@ -167,11 +174,13 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'SELECT t.home_id, t.id AS entity_id, t.revision,
                         l.created_by_user_id AS actor_user_id, t.updated_at AS changed_at,
                         t.shopping_list_id, t.home_product_id, t.description,
+                        hp.product_id AS product_id, hp.unit AS stock_unit,
                         t.source, t.quantity_to_buy, t.explanation,
                         t.confidence, t.checked_at, t.archived_at, t.suggestion_id, t.selected_pack_id
                  FROM shopping_list_lines t
                  INNER JOIN shopping_lists l
-                   ON l.id = t.shopping_list_id AND l.home_id = t.home_id'
+                   ON l.id = t.shopping_list_id AND l.home_id = t.home_id
+                 LEFT JOIN home_products hp ON hp.id = t.home_product_id AND hp.home_id = t.home_id'
                 . $missing('shopping-list-line') . 't.id)',
         ];
     }
@@ -188,13 +197,23 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
             'inventory-balance' => [
                 'homeProductId' => (string) $row['entity_id'],
                 'quantity' => DecimalProjection::string($row['quantity']),
-                'lastMovementId' => (string) $row['last_movement_id'],
+                'lastMovementId' => $this->nullableString($row['last_movement_id']),
+                'uncertain' => (bool) $row['uncertain'],
+                'pendingQuantity' => DecimalProjection::string($row['pending_quantity']),
+                'limitations' => json_decode(
+                    (string) ($row['limitations_json'] ?? '[]'),
+                    true,
+                    512,
+                    JSON_THROW_ON_ERROR,
+                ),
+                'checkpointId' => $row['checkpoint_id'],
             ],
             'inventory-count-line' => [
                 'sessionId' => (string) $row['session_id'],
                 'homeProductId' => (string) $row['home_product_id'],
                 'quantity' => DecimalProjection::string($row['quantity']),
                 'confidence' => $this->nullableString($row['confidence']),
+                'unit' => $this->nullableString($row['unit']),
                 'source' => (string) $row['source'],
                 'notes' => (string) $row['notes'],
                 'status' => (string) $row['status'],
@@ -204,6 +223,9 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'notes' => (string) $row['notes'],
                 'scopeComplete' => (bool) $row['scope_complete'],
                 'reliability' => (string) $row['reliability'],
+                'observedAt' => $row['observed_at'] === null ? null
+                    : new DateTimeImmutable((string) $row['observed_at'], new \DateTimeZone('UTC'))->format(DATE_ATOM),
+                'observedTimezone' => $this->nullableString($row['observed_timezone']),
                 'status' => (string) $row['status'],
             ],
             'inventory-home-product' => [
@@ -245,6 +267,16 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'stockQuantityPerPack' => $this->nullableDecimal($row['stock_quantity_per_pack']),
                 'stockUnit' => $this->nullableString($row['stock_unit']),
             ],
+            'purchasing-receipt-date-correction' => [
+                'receiptId' => (string) $row['receipt_id'],
+                'originalPurchaseDate' => (string) $row['original_purchase_date'],
+                'purchaseDate' => (string) $row['purchase_date'],
+                'reason' => (string) $row['reason'],
+                'receiptRevision' => (int) $row['receipt_revision'],
+                'actorUserId' => (string) $row['actor_user_id'],
+                'correctedAt' => new DateTimeImmutable((string) $row['changed_at'], new \DateTimeZone('UTC'))
+                    ->format(DATE_ATOM),
+            ],
             'purchasing-store' => [
                 'name' => (string) $row['name'],
                 'location' => (string) $row['location'],
@@ -275,6 +307,8 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
             'shopping-list-line' => [
                 'listId' => (string) $row['shopping_list_id'],
                 'homeProductId' => $this->nullableString($row['home_product_id']),
+                'productId' => $this->nullableString($row['product_id']),
+                'stockUnit' => $this->nullableString($row['stock_unit']),
                 'description' => (string) $row['description'],
                 'source' => (string) $row['source'],
                 'quantityToBuy' => DecimalProjection::string($row['quantity_to_buy']),
@@ -285,6 +319,9 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'archived' => $row['archived_at'] !== null,
                 'suggestionId' => $this->nullableString($row['suggestion_id']),
                 'selectedPackId' => $this->nullableString($row['selected_pack_id']),
+                'quantityBasis' => $row['source'] === 'manual' && $row['selected_pack_id'] !== null
+                    ? 'pack-count'
+                    : 'stock-unit',
             ],
             default => throw new \LogicException('Unknown synchronization backfill resource.'),
         };

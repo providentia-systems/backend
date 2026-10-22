@@ -102,6 +102,7 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->boolean($payload, 'scopeComplete'),
                 $this->string($payload, 'reliability'),
                 $command->entityId,
+                $this->nullableString($payload, 'observedAt'),
             ),
             'inventory.count-line.upsert' => $this->inventory->recordCount(
                 $identity,
@@ -127,6 +128,20 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $homeId,
                 $command->entityId,
                 $this->revision($command),
+                array_key_exists('scopeComplete', $payload) ? $this->boolean($payload, 'scopeComplete') : null,
+                $this->nullableString($payload, 'reliability'),
+                $this->nullableString($payload, 'observedAt'),
+            ),
+            'inventory.count-session.review' => $this->inventory->reviewCount(
+                $identity,
+                $homeId,
+                $command->entityId,
+                $this->revision($command),
+                $this->string($payload, 'reason'),
+                $this->boolean($payload, 'scopeComplete'),
+                $this->string($payload, 'reliability'),
+                $this->string($payload, 'observedAt'),
+                $this->countCorrections($payload),
             ),
             'inventory.count-session.cancel' => $this->inventory->cancelCount(
                 $identity,
@@ -155,6 +170,14 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $homeId,
                 $command->entityId,
                 $payload,
+                $this->revision($command),
+            ),
+            'purchasing.receipt.correct-date' => $this->purchasing->correctReceiptDate(
+                $identity,
+                $homeId,
+                $command->entityId,
+                $this->string($payload, 'purchaseDate'),
+                $this->string($payload, 'reason'),
                 $this->revision($command),
             ),
             'purchasing.receipt.cancel' => $this->purchasing->cancelReceipt(
@@ -285,6 +308,17 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->string($payload, 'quantity'),
                 $command->entityId,
                 $this->nullableString($payload, 'suggestionId'),
+                $this->nullableString($payload, 'selectedPackId'),
+            ),
+            'shopping.list-line.relink' => $this->shopping->relinkLine(
+                $identity,
+                $homeId,
+                $this->string($payload, 'listId'),
+                $command->entityId,
+                $this->nullableString($payload, 'homeProductId'),
+                $this->nullableString($payload, 'selectedPackId'),
+                $this->revision($command),
+                $this->string($payload, 'reason'),
             ),
             'shopping.list-line.checked' => $this->checkShoppingLine($identity, $homeId, $command),
             default => throw new \LogicException('A validated synchronization command has no dispatcher.'),
@@ -292,7 +326,17 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
     }
 
     /**
-     * @return array<string, mixed> */
+     * @param array<string, mixed> $payload
+     * @return list<array{id: string, quantity: string, expectedRevision: int}>
+     */
+    private function countCorrections(array $payload): array
+    {
+        /** @var list<array{id: string, quantity: string, expectedRevision: int}> $corrections */
+        $corrections = $payload['lineCorrections'] ?? [];
+        return $corrections;
+    }
+
+    /** @return array<string, mixed> */
     private function approveReceiptLine(
         AuthenticatedIdentity $identity,
         string $homeId,

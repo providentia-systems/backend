@@ -8,6 +8,14 @@ $path = $root . '/contracts/openapi/providentia-v1.json';
 $source = (string) file_get_contents($path);
 $contract = json_decode($source, true, 512, JSON_THROW_ON_ERROR);
 $expected = [
+    '/api/v1/homes/{homeId}/sync/revalidate' => ['post' => 'revalidateSynchronizationOperations'],
+    '/api/v1/homes/{homeId}/sync/diagnostics' => ['get' => 'getSynchronizationDiagnostics'],
+    '/api/v1/homes/{homeId}/receipts/{receiptId}/date-corrections' => [
+        'get' => 'listReceiptDateCorrections',
+        'post' => 'correctReceiptPurchaseDate',
+    ],
+    '/api/v1/homes/{homeId}/stock-count-sessions/{sessionId}/review' => ['post' => 'reviewStockCountSession'],
+    '/api/v1/homes/{homeId}/shopping-lists/{listId}/lines/{lineId}/product' => ['put' => 'relinkShoppingListLine'],
     '/api/v1/admin/homes/{homeId}/stock-preferences/{homeProductId}' => [
         'get' => 'getOperatorStockPreference',
         'put' => 'putOperatorStockPreference',
@@ -199,6 +207,37 @@ foreach (['accessToken', 'refreshToken', 'csrfToken'] as $responseCredential) {
 }
 $schemas = $contract['components']['schemas'];
 foreach (
+    ['HomeStockItem', 'InventoryBalance'] as $projectionSchema
+) {
+    foreach (['uncertain', 'pendingQuantity', 'limitations', 'checkpointId'] as $projectionField) {
+        if (!isset($schemas[$projectionSchema]['properties'][$projectionField])) {
+            throw new RuntimeException('Missing chronological stock evidence: ' . $projectionSchema . '.' . $projectionField);
+        }
+    }
+}
+foreach (
+    [
+        'purchasing.receipt.correct-date' => 'SyncReceiptDateCorrectionPayload',
+        'inventory.count-session.review' => 'SyncCountSessionReviewPayload',
+        'shopping.list-line.relink' => 'SyncShoppingListLineRelinkPayload',
+    ] as $correctionCommand => $payloadSchema
+) {
+    $branches = array_values(array_filter(
+        $schemas['SyncPantryCommand']['allOf'],
+        static fn (array $branch): bool => ($branch['if']['properties']['commandType']['const'] ?? null)
+            === $correctionCommand,
+    ));
+    if (
+        count($branches) !== 1
+        || ($branches[0]['then']['properties']['baseRevision']['minimum'] ?? null) !== 1
+        || ($branches[0]['then']['properties']['payload']['$ref'] ?? null)
+            !== '#/components/schemas/' . $payloadSchema
+        || ($schemas[$payloadSchema]['additionalProperties'] ?? null) !== false
+    ) {
+        throw new RuntimeException('An audited correction command lacks immutable revision-checked input: ' . $correctionCommand);
+    }
+}
+foreach (
     [
     'EmailCodeRequest',
     'EmailCodeChallenge',
@@ -335,9 +374,9 @@ foreach ($contract['paths'] as $pathTemplate => $pathItem) {
         }
     }
 }
-if (count($contract['paths']) !== 195 || $operationCount !== 236) {
+if (count($contract['paths']) !== 200 || $operationCount !== 242) {
     throw new RuntimeException(
-        'API 2.1 must expose exactly 195 paths and 236 operations.',
+        'API 2.3 must expose exactly 200 paths and 242 operations.',
     );
 }
 // Zero-password guarantee: no human-account password, registration, or
@@ -1014,6 +1053,11 @@ $createHomeProductSchema = $homeProductsPath['post']['responses']['201']['conten
 $syncHomeProductCreate = $contract['components']['schemas']['SyncHomeProductCreatePayload'] ?? [];
 $homeAuthorizedAiAndShoppingOperations = [
     [
+        '/api/v1/homes/{homeId}/shopping-lists/{listId}/lines/{lineId}/product',
+        'put',
+        'relinkShoppingListLine',
+    ],
+    [
         '/api/v1/homes/{homeId}/shopping-lists',
         'get',
         'listShoppingLists',
@@ -1365,7 +1409,7 @@ if (
     ?? null) !== 1
     || ($contract['components']['schemas']['SyncPushRequestV2']['properties']['protocolVersion']['const']
     ?? null) !== 2
-    || ($contract['info']['version'] ?? '') !== '2.2.0'
+    || ($contract['info']['version'] ?? '') !== '2.3.0'
     || stripos($source, 'magic-link') !== false
     || stripos($source, 'magiclink') !== false
     || isset($contract['paths']['/api/v1/auth/magic-links'])
