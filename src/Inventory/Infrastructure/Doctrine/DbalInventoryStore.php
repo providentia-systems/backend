@@ -789,8 +789,16 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
                 'SELECT (SELECT COUNT(*) FROM stock_movements
                     WHERE home_id = :home AND home_product_id = :product)
                   + (SELECT COUNT(*) FROM stock_count_lines
-                    WHERE home_id = :home AND home_product_id = :product AND status <> :removed)',
-                ['home' => $homeId, 'product' => $homeProductId, 'removed' => 'removed'],
+                    WHERE home_id = :home AND home_product_id = :product AND status <> :removed)
+                  + (SELECT COUNT(*) FROM shopping_list_lines
+                    WHERE home_id = :home AND home_product_id = :product)
+                  + (SELECT COUNT(*) FROM stock_threshold_preferences
+                    WHERE home_id = :home AND home_product_id = :product
+                      AND (minimum_quantity IS NOT NULL OR always_keep = :keep))
+                  + (SELECT COUNT(*) FROM stock_preference_revisions
+                    WHERE home_id = :home AND home_product_id = :product
+                      AND (minimum_quantity IS NOT NULL OR always_keep = :keep))',
+                ['home' => $homeId, 'product' => $homeProductId, 'removed' => 'removed', 'keep' => 1],
             ) > 0;
             if ($hasBalance || $hasEvidence) {
                 return ['status' => 'unit-in-use'];

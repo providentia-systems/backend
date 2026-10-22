@@ -18,6 +18,7 @@ use Providentia\DataGovernance\Infrastructure\Doctrine\DbalJsonDataExportGenerat
 use Providentia\Inventory\Infrastructure\Doctrine\DbalInventoryStore;
 use Providentia\Inventory\Infrastructure\Doctrine\DbalStockChronologyReader;
 use Providentia\Shopping\Domain\ConsumptionEstimator;
+use Providentia\Shopping\Infrastructure\Doctrine\DbalShoppingStore;
 
 final class InventoryChronologyTest extends TestCase
 {
@@ -409,6 +410,166 @@ final class InventoryChronologyTest extends TestCase
         self::assertSame('0', $this->balance()['quantity']);
         $this->store->rebuildBalances(self::HOME, new DateTimeImmutable('2026-10-23T12:00:00Z'));
         self::assertSame('0', $this->balance()['quantity']);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function quantityBearingPlans(): array
+    {
+        return [
+            'saved shopping quantity' => ['shopping'],
+            'configured minimum' => ['minimum'],
+            'implicit always-keep minimum' => ['always-keep'],
+            'cleared historical minimum' => ['historical-minimum'],
+            'cleared historical always-keep reserve' => ['historical-always-keep'],
+        ];
+    }
+
+    #[DataProvider('quantityBearingPlans')]
+    public function testUnitRelabelCannotReinterpretSavedPlansOrMinimums(string $kind): void
+    {
+        $at = new DateTimeImmutable('2026-10-23T12:00:00Z');
+        $shopping = new DbalShoppingStore($this->db);
+        if ($kind === 'shopping') {
+            $shopping->createList('plan', self::HOME, 'Shopping', 'manual', self::USER, $at);
+            self::assertTrue($this->db->transactional(fn (): bool => $shopping->addLine(
+                'plan-line',
+                self::HOME,
+                'plan',
+                1,
+                self::PRODUCT,
+                'Three kilograms of rice',
+                'manual',
+                '3',
+                'Manual selection.',
+                null,
+                $at,
+            )));
+        } else {
+            $historical = str_starts_with($kind, 'historical-');
+            $this->db->insert('stock_threshold_preferences', [
+                'home_id' => self::HOME, 'home_product_id' => self::PRODUCT,
+                'minimum_quantity' => $kind === 'minimum' ? '3' : null,
+                'always_keep' => $kind === 'always-keep' ? 1 : 0,
+                'revision' => $historical ? 2 : 1,
+                'updated_at' => '2026-10-23 12:00:00',
+            ]);
+            if ($historical) {
+                $previous = [
+                    'minimumQuantity' => $kind === 'historical-minimum' ? '3' : null,
+                    'alwaysKeep' => $kind === 'historical-always-keep', 'neverSuggest' => false,
+                    'preferredPackId' => null, 'leadTimeDays' => 0,
+                    'targetCoverageDays' => null, 'snoozeUntil' => null,
+                ];
+                $this->db->insert('stock_preference_revisions', [
+                    'id' => 'previous-preference', 'home_id' => self::HOME,
+                    'home_product_id' => self::PRODUCT, 'revision' => 1,
+                    'minimum_quantity' => $previous['minimumQuantity'],
+                    'always_keep' => (int) $previous['alwaysKeep'], 'never_suggest' => 0,
+                    'preferred_pack_id' => null, 'lead_time_days' => 0,
+                    'target_coverage_days' => null, 'snooze_until' => null,
+                    'preference_json' => json_encode($previous, JSON_THROW_ON_ERROR),
+                    'changed_at' => '2026-10-22 12:00:00',
+                ]);
+            }
+        }
+        $beforeLine = $shopping->line(self::HOME, 'plan', 'plan-line');
+        $beforePreference = $this->db->fetchAssociative(
+            'SELECT * FROM stock_threshold_preferences WHERE home_id = ? AND home_product_id = ?',
+            [self::HOME, self::PRODUCT],
+        );
+        $beforeHistory = $this->db->fetchAllAssociative(
+            'SELECT * FROM stock_preference_revisions WHERE home_id = ? AND home_product_id = ?',
+            [self::HOME, self::PRODUCT],
+        );
+        self::assertSame(0, (int) $this->db->fetchOne('SELECT COUNT(*) FROM stock_movements'));
+        self::assertSame(0, (int) $this->db->fetchOne('SELECT COUNT(*) FROM stock_count_lines'));
+        self::assertSame('unit-in-use', $this->changeProductUnit(self::HOME, self::PRODUCT, 'units')['status']);
+        $product = $this->store->homeProduct(self::HOME, self::PRODUCT);
+        self::assertNotNull($product);
+        self::assertSame('kg', $product['unit']);
+        self::assertSame(1, (int) $product['revision']);
+        self::assertSame($beforeLine, $shopping->line(self::HOME, 'plan', 'plan-line'));
+        self::assertSame($beforePreference, $this->db->fetchAssociative(
+            'SELECT * FROM stock_threshold_preferences WHERE home_id = ? AND home_product_id = ?',
+            [self::HOME, self::PRODUCT],
+        ));
+        self::assertSame($beforeHistory, $this->db->fetchAllAssociative(
+            'SELECT * FROM stock_preference_revisions WHERE home_id = ? AND home_product_id = ?',
+            [self::HOME, self::PRODUCT],
+        ));
+        if (str_starts_with($kind, 'historical-')) {
+            self::assertIsArray($beforePreference);
+            self::assertNull($beforePreference['minimum_quantity']);
+            self::assertSame(0, (int) $beforePreference['always_keep']);
+            self::assertSame(2, (int) $beforePreference['revision']);
+            self::assertCount(1, $beforeHistory);
+        }
+        if ($kind === 'shopping') {
+            self::assertNotNull($beforeLine);
+            self::assertSame('3', $beforeLine['quantityToBuy']);
+            self::assertSame('stock-unit', $beforeLine['quantityBasis']);
+            self::assertSame('kg', $beforeLine['stockUnit']);
+            self::assertSame(1, $beforeLine['revision']);
+        }
+    }
+
+    public function testOtherHomePlansDoNotBlockUnusedLocalUnitOrPermitForeignProductChanges(): void
+    {
+        $at = new DateTimeImmutable('2026-10-23T12:00:00Z');
+        $otherProduct = '01912345-6789-7abc-cdef-0123456789ab';
+        $home = $this->db->fetchAssociative('SELECT * FROM homes WHERE id = ?', [self::HOME]);
+        self::assertIsArray($home);
+        $home['id'] = self::OTHER_HOME;
+        $this->db->insert('homes', $home);
+        $this->store->createHomeProduct(
+            $otherProduct,
+            self::OTHER_HOME,
+            null,
+            null,
+            'Other rice',
+            'other rice',
+            null,
+            null,
+            $at,
+            null,
+            'kg',
+        );
+        $this->db->insert('stock_threshold_preferences', [
+            'home_id' => self::OTHER_HOME, 'home_product_id' => $otherProduct,
+            'minimum_quantity' => '3', 'updated_at' => '2026-10-23 12:00:00',
+        ]);
+        self::assertSame('not-found', $this->changeProductUnit(self::HOME, $otherProduct, 'units')['status']);
+        self::assertSame('updated', $this->changeProductUnit(self::HOME, self::PRODUCT, 'g')['status']);
+        $other = $this->store->homeProduct(self::OTHER_HOME, $otherProduct);
+        self::assertNotNull($other);
+        self::assertSame('kg', $other['unit']);
+        self::assertSame(1, (int) $other['revision']);
+        self::assertSame('3', $this->db->fetchOne(
+            'SELECT minimum_quantity FROM stock_threshold_preferences WHERE home_id = ? AND home_product_id = ?',
+            [self::OTHER_HOME, $otherProduct],
+        ));
+    }
+
+    /** @return array<string, mixed> */
+    private function changeProductUnit(string $homeId, string $productId, string $unit): array
+    {
+        return $this->db->transactional(fn (): array => $this->store->updateHomeProduct(
+            $homeId,
+            $productId,
+            false,
+            null,
+            null,
+            false,
+            null,
+            false,
+            null,
+            null,
+            1,
+            new DateTimeImmutable('2026-10-23T12:00:00Z'),
+            false,
+            null,
+            $unit,
+        ));
     }
 
     public function testMigrationPreservesLegacyCountProjectionAndMarksLateFactsPendingUntilReview(): void

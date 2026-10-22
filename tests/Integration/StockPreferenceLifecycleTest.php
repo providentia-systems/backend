@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Providentia\Home\Application\HomePermission;
 use Providentia\Home\Application\HomePermissionAuthorizer;
 use Providentia\Identity\Application\AuthenticatedIdentity;
@@ -105,6 +106,85 @@ final class StockPreferenceLifecycleTest extends TestCase
         $stored = $this->store->preference('home', 'product');
         self::assertNotNull($stored);
         self::assertNull($stored['minimumQuantity']);
+    }
+
+    /** @return array<string, array{string, string, int}> */
+    public static function booleanPreferenceWrites(): array
+    {
+        return [
+            'current insert' => ['stock_threshold_preferences', 'INSERT', 0],
+            'current update' => ['stock_threshold_preferences', 'UPDATE', 1],
+            'immutable revision insert' => ['stock_preference_revisions', 'INSERT', 0],
+        ];
+    }
+
+    #[DataProvider('booleanPreferenceWrites')]
+    public function testBooleanPreferencesSatisfyStrictDatabaseConstraints(
+        string $table,
+        string $operation,
+        int $expectedRevision,
+    ): void {
+        $values = array_diff_key($this->values(0), ['expectedRevision' => true]);
+        if ($expectedRevision === 1) {
+            self::assertTrue($this->connection->transactional(fn (): bool => $this->store->savePreference(
+                'home',
+                'product',
+                'actor',
+                'seed-audit',
+                'seed-history',
+                [...$values, 'alwaysKeep' => true, 'neverSuggest' => true],
+                0,
+                $this->at,
+            )));
+        }
+        // SQLite otherwise accepts the empty string that an untyped PDO false
+        // becomes. Strict MySQL/MariaDB rejects that value for BOOLEAN columns.
+        $this->connection->executeStatement(sprintf(
+            'CREATE TRIGGER strict_preferences BEFORE %s ON %s '
+            . 'WHEN NEW.always_keep NOT IN (0, 1) OR NEW.never_suggest NOT IN (0, 1) '
+            . "BEGIN SELECT RAISE(ABORT, 'Invalid boolean preference'); END",
+            $operation,
+            $table,
+        ));
+        self::assertTrue($this->connection->transactional(fn (): bool => $this->store->savePreference(
+            'home',
+            'product',
+            'actor',
+            'false-audit',
+            'false-history',
+            [...$values, 'alwaysKeep' => false, 'neverSuggest' => false],
+            $expectedRevision,
+            $this->at,
+        )));
+        $saved = $this->store->preference('home', 'product');
+        self::assertNotNull($saved);
+        self::assertFalse($saved['alwaysKeep']);
+        self::assertFalse($saved['neverSuggest']);
+        self::assertSame($expectedRevision + 1, $saved['revision']);
+        $history = $this->connection->fetchAssociative(
+            'SELECT always_keep, never_suggest, preference_json FROM stock_preference_revisions WHERE id = ?',
+            ['false-history'],
+        );
+        self::assertIsArray($history);
+        self::assertSame(0, (int) $history['always_keep']);
+        self::assertSame(0, (int) $history['never_suggest']);
+        $evidence = json_decode((string) $history['preference_json'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertFalse($evidence['alwaysKeep']);
+        self::assertFalse($evidence['neverSuggest']);
+        self::assertTrue($this->connection->transactional(fn (): bool => $this->store->savePreference(
+            'home',
+            'product',
+            'actor',
+            'true-audit',
+            'true-history',
+            [...$values, 'alwaysKeep' => true, 'neverSuggest' => true],
+            $expectedRevision + 1,
+            $this->at,
+        )));
+        $updated = $this->store->preference('home', 'product');
+        self::assertNotNull($updated);
+        self::assertTrue($updated['alwaysKeep']);
+        self::assertTrue($updated['neverSuggest']);
     }
 
     public function testRevokedShoppingPermissionPreventsEveryMutation(): void
