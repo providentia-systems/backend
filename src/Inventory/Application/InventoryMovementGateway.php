@@ -29,4 +29,13 @@ interface InventoryMovementGateway
         string $reason,
         DateTimeImmutable $occurredAt,
     ): array;
+    /** @return array<string, mixed> */
+    public function correctPurchaseDate(
+        string $actorUserId,
+        string $homeId,
+        string $receiptLineId,
+        DateTimeImmutable $purchaseDate,
+        string $correctionSourceId,
+        string $reason,
+    ): array;
 }

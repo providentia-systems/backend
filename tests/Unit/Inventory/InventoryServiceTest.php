@@ -334,6 +334,10 @@ final class InventoryServiceTest extends TestCase
                 'homeProductId' => self::PRODUCT_ID,
                 'quantity' => '3.5',
                 'lastMovementId' => self::MOVEMENT_ID,
+                'uncertain' => false,
+                'pendingQuantity' => '0',
+                'limitations' => [],
+                'checkpointId' => null,
                 ],
                 self::isInstanceOf(DateTimeImmutable::class),
             )
@@ -1039,6 +1043,191 @@ final class InventoryServiceTest extends TestCase
         yield 'invalid global ID' => ['not-a-uuid', null, 'units'];
         yield 'conflicting categories' => ['01912345-6789-7abc-8def-9123456789ab', self::LINE_ID, 'units'];
         yield 'invalid unit' => [null, null, 'invalid'];
+    }
+
+    public function testClosingConfirmsEvidenceAndPublishesAbsoluteBalanceWithoutInventingMovement(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $session = [
+            'id' => self::SESSION_ID, 'status' => 'open', 'revision' => 3,
+            'scopeComplete' => false, 'reliability' => 'unassessed',
+            'observedAt' => '2026-08-01T10:00:00+02:00',
+        ];
+        $closed = [...$session, 'status' => 'closed', 'revision' => 4,
+            'scopeComplete' => true, 'reliability' => 'reliable'];
+        $store->method('countSession')->willReturnOnConsecutiveCalls($session, $closed);
+        $store->method('countLines')->willReturn([[
+            'id' => self::LINE_ID, 'homeProductId' => self::PRODUCT_ID,
+            'quantity' => '3', 'unit' => 'kg', 'revision' => 1,
+        ]]);
+        $store->expects(self::never())->method('appendMovement');
+        $store->expects(self::once())->method('closeCountSession')->with(
+            self::HOME_ID,
+            self::SESSION_ID,
+            3,
+            self::USER_ID,
+            self::isInstanceOf(DateTimeImmutable::class),
+            true,
+            'reliable',
+            self::callback(
+                static fn (DateTimeImmutable $at): bool => $at == new DateTimeImmutable('2026-08-01T10:00:00+02:00'),
+            ),
+        )->willReturn(true);
+        $store->method('balance')->willReturn(['quantity' => '3', 'revision' => 7, 'lastMovementId' => null]);
+        $changes = $this->createMock(ChangeFeedWriter::class);
+        $changes->expects(self::exactly(2))->method('put')->willReturn(1);
+        $result = $this->service($store, null, $changes)->closeCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            3,
+            true,
+            'reliable',
+            '2026-08-01T10:00:00+02:00',
+        );
+        self::assertTrue($result['scopeComplete']);
+        self::assertSame('reliable', $result['reliability']);
+        self::assertSame('kg', $result['lines'][0]['unit']);
+    }
+
+    public function testClosedCountRetryUsesStoredUtcSecondPrecisionUnderNonUtcDefaultTimezone(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $store->method('countSession')->willReturn([
+            'id' => self::SESSION_ID, 'status' => 'closed', 'revision' => 4,
+            'scopeComplete' => true, 'reliability' => 'reliable', 'observedAt' => '2026-08-01 08:00:00',
+        ]);
+        $store->method('countLines')->willReturn([]);
+        $store->expects(self::never())->method('closeCountSession');
+        $previous = date_default_timezone_get();
+        date_default_timezone_set('America/New_York');
+        try {
+            $result = $this->service($store)->closeCount(
+                $this->identity(),
+                self::HOME_ID,
+                self::SESSION_ID,
+                3,
+                true,
+                'reliable',
+                '2026-08-01T10:00:00.123456+02:00',
+            );
+            self::assertSame('closed', $result['status']);
+        } finally {
+            date_default_timezone_set($previous);
+        }
+    }
+
+    public function testRebuildPublishesChangedAbsoluteBalancesAndReturnsOnlyPublicSummary(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $balance = ['homeProductId' => self::PRODUCT_ID, 'quantity' => '3', 'revision' => 7,
+            'lastMovementId' => null, 'uncertain' => true, 'pendingQuantity' => '4',
+            'limitations' => ['Order needs review'], 'checkpointId' => self::LINE_ID];
+        $store->expects(self::once())->method('rebuildBalances')->willReturn([
+            'products' => 1, 'quantity' => '3', 'balances' => [$balance],
+        ]);
+        $changes = $this->createMock(ChangeFeedWriter::class);
+        $changes->expects(self::once())->method('put')->with(
+            self::HOME_ID,
+            self::USER_ID,
+            'inventory-balance',
+            self::PRODUCT_ID,
+            7,
+            $balance,
+            self::isInstanceOf(DateTimeImmutable::class),
+        )->willReturn(1);
+        self::assertSame(['products' => 1, 'quantity' => '3'], $this->service($store, null, $changes)->rebuild(
+            $this->identity(),
+            self::HOME_ID,
+        ));
+    }
+
+    public function testReviewRequiresReasonAndPreservesRevisionCheckedLineIdentity(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $session = ['id' => self::SESSION_ID, 'status' => 'closed', 'revision' => 4];
+        $reviewed = [...$session, 'revision' => 5, 'scopeComplete' => true, 'reliability' => 'reliable'];
+        $store->method('countSession')->willReturnOnConsecutiveCalls($session, $reviewed);
+        $store->expects(self::once())->method('reviewCountSession')->with(
+            self::MOVEMENT_ID,
+            self::HOME_ID,
+            self::SESSION_ID,
+            4,
+            self::USER_ID,
+            'Rechecked paper count',
+            true,
+            'reliable',
+            self::isInstanceOf(DateTimeImmutable::class),
+            [['id' => self::SESSION_ID, 'quantity' => '3.5', 'expectedRevision' => 2]],
+            self::isInstanceOf(DateTimeImmutable::class),
+        )->willReturn(true);
+        $store->method('countLines')->willReturn([[
+            'id' => self::SESSION_ID, 'homeProductId' => self::PRODUCT_ID,
+            'quantity' => '3.5', 'unit' => 'kg', 'revision' => 3,
+        ]]);
+        $store->expects(self::never())->method('appendMovement');
+        $result = $this->service($store)->reviewCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            4,
+            ' Rechecked paper count ',
+            true,
+            'reliable',
+            '2026-08-01T10:00:00+02:00',
+            [['id' => self::SESSION_ID, 'quantity' => '3.500', 'expectedRevision' => 2]],
+        );
+        self::assertSame(5, $result['revision']);
+        self::assertSame(self::SESSION_ID, $result['lines'][0]['id']);
+        self::assertSame('3.5', $result['lines'][0]['quantity']);
+    }
+
+    #[DataProvider('invalidCountObservationProvider')]
+    public function testCountObservationRejectsInvalidCalendarAndMissingTimezone(string $observedAt): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $store->expects(self::never())->method('createCountSession');
+        $this->expectException(Problem::class);
+        $this->service($store)->startCount(
+            $this->identity(),
+            self::HOME_ID,
+            null,
+            '',
+            true,
+            'reliable',
+            self::SESSION_ID,
+            $observedAt,
+        );
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function invalidCountObservationProvider(): iterable
+    {
+        yield 'invalid day' => ['2026-02-30T12:00:00+02:00'];
+        yield 'missing timezone' => ['2026-08-01T12:00:00'];
+        yield 'day only' => ['2026-08-01'];
+        yield 'future observation' => ['2026-08-05T12:00:00Z'];
+    }
+
+    public function testReviewCannotSilentlyPromotePartialCountOrOverwriteStaleSession(): void
+    {
+        $store = $this->createMock(InventoryStore::class);
+        $store->method('countSession')->willReturn([
+            'id' => self::SESSION_ID, 'status' => 'closed', 'revision' => 5,
+        ]);
+        $store->expects(self::never())->method('reviewCountSession');
+        $this->expectException(Problem::class);
+        $this->expectExceptionMessage('Only the current closed count');
+        $this->service($store)->reviewCount(
+            $this->identity(),
+            self::HOME_ID,
+            self::SESSION_ID,
+            4,
+            'Reviewed',
+            true,
+            'reliable',
+            '2026-08-01T12:00:00Z',
+        );
     }
 
     private function service(

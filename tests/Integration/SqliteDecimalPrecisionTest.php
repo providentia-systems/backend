@@ -199,14 +199,14 @@ final class SqliteDecimalPrecisionTest extends TestCase
     /** @return iterable<string, array{string, string}> */
     public static function quantities(): iterable
     {
-        yield 'smallest quantity' => ['0.00000001', '0.00000000'];
+        yield 'smallest quantity' => ['0.00000001', '0'];
         yield 'largest quantity' => ['999999999.99999999', '999999999.99999998'];
     }
 
     #[DataProvider('quantities')]
     public function testReceiptShoppingLedgerAndReplayKeepEveryDigit(string $quantity, string $afterRemoval): void
     {
-        $this->migrate('Providentia\\Migrations\\Version20261013000100');
+        $this->migrate('Providentia\\Migrations\\Version20261022000300');
         $this->db->executeStatement('PRAGMA foreign_keys = ON');
         $at = new DateTimeImmutable(self::AT);
         $ids = new SequenceUuidGenerator();
@@ -298,6 +298,10 @@ final class SqliteDecimalPrecisionTest extends TestCase
             self::assertStringContainsString('Price correction history cannot be downgraded', $error->getMessage());
         }
         self::assertSame(2, (int) $this->db->fetchOne('SELECT COUNT(*) FROM price_observations'));
+        // The downgrade may have removed newer, unrelated projection columns
+        // before reaching the protected price-history migration. Restore the
+        // service schema before continuing this current-application workflow.
+        $this->migrate('Providentia\\Migrations\\Version20261022000300');
 
         $shopping = new ShoppingService(
             new DbalShoppingStore($this->db),

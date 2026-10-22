@@ -623,6 +623,11 @@ final class InventoryService implements InventoryMovementGateway
                 'Product has stock',
                 'Adjust the product balance to zero before archiving it.',
             ),
+            'unit-in-use' => throw new Problem(
+                409,
+                'Stock unit has history',
+                'The stock unit cannot be relabelled after quantities or observations exist. Use a separate product.',
+            ),
             'product-in-use' => throw new Problem(
                 409,
                 'Product in use',
@@ -682,24 +687,18 @@ final class InventoryService implements InventoryMovementGateway
         bool $scopeComplete = false,
         string $reliability = 'unassessed',
         ?string $requestedId = null,
+        ?string $observedAt = null,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
         $notes = trim($notes);
         if (mb_strlen($notes) > 2000) {
             throw new Problem(422, 'Invalid count session', 'Count-session notes exceed 2000 characters.');
         }
-        if (
-            ! in_array($reliability, ['reliable', 'partial', 'unassessed'], true)
-            || ($reliability === 'reliable' && ! $scopeComplete)
-        ) {
-            throw new Problem(
-                422,
-                'Invalid count session',
-                'Reliable evidence requires an explicitly complete count scope.',
-            );
-        }
+        $this->validateCountEvidence($scopeComplete, $reliability);
+        $observation = $observedAt === null ? $this->clock->now() : $this->countObservation($observedAt);
         $id = $this->identifier($requestedId);
         $at = $this->clock->now();
+        $createdSession = null;
         try {
             $this->transactions->transactional(function () use (
                 $id,
@@ -710,6 +709,8 @@ final class InventoryService implements InventoryMovementGateway
                 $reliability,
                 $identity,
                 $at,
+                $observation,
+                &$createdSession,
             ): void {
                 $locationId = $locationId === '' ? null : $locationId;
                 $this->inventory->createCountSession(
@@ -721,7 +722,9 @@ final class InventoryService implements InventoryMovementGateway
                     $reliability,
                     $identity->userId,
                     $at,
+                    $observation,
                 );
+                $createdSession = $this->inventory->countSession($homeId, $id);
                 $this->changes?->put(
                     $homeId,
                     $identity->userId,
@@ -733,6 +736,8 @@ final class InventoryService implements InventoryMovementGateway
                         'notes' => $notes,
                         'scopeComplete' => $scopeComplete,
                         'reliability' => $reliability,
+                        'observedAt' => $observation->format(DATE_ATOM),
+                        'observedTimezone' => $createdSession['observedTimezone'] ?? null,
                         'status' => 'open',
                     ],
                     $at,
@@ -742,7 +747,7 @@ final class InventoryService implements InventoryMovementGateway
             throw new Problem(422, 'Invalid count session', $error->getMessage());
         }
 
-        $session = $this->inventory->countSession($homeId, $id);
+        $session = $createdSession;
         if ($session === null) {
             throw new \LogicException('Created stock-count session is unavailable.');
         }
@@ -850,6 +855,10 @@ final class InventoryService implements InventoryMovementGateway
             ) {
                 throw new Problem(409, 'Revision conflict', 'The count line changed on another device.');
             }
+            $line = $this->inventory->countLine($homeId, $sessionId, $lineId);
+            if ($line === null) {
+                throw new \LogicException('Committed stock-count line is unavailable.');
+            }
             $this->changes?->put(
                 $homeId,
                 $identity->userId,
@@ -860,6 +869,7 @@ final class InventoryService implements InventoryMovementGateway
                     'sessionId' => $sessionId,
                     'homeProductId' => $homeProductId,
                     'quantity' => $quantity,
+                    ...array_key_exists('unit', $line) ? ['unit' => $line['unit']] : [],
                     'confidence' => $confidence,
                     'source' => $source,
                     'notes' => $notes,
@@ -882,15 +892,14 @@ final class InventoryService implements InventoryMovementGateway
                     'notes' => (string) ($session['notes'] ?? ''),
                     'scopeComplete' => (bool) ($session['scopeComplete'] ?? false),
                     'reliability' => (string) ($session['reliability'] ?? 'unassessed'),
+                    ...isset($session['observedAt']) ? [
+                        'observedAt' => $this->observationTimestamp((string) $session['observedAt']),
+                        'observedTimezone' => $session['observedTimezone'] ?? null,
+                    ] : [],
                     'status' => 'open',
                 ],
                 $this->clock->now(),
             );
-
-            $line = $this->inventory->countLine($homeId, $sessionId, $lineId);
-            if ($line === null) {
-                throw new \LogicException('Committed stock-count line is unavailable.');
-            }
 
             return $this->stockCountLine($line);
         });
@@ -965,6 +974,10 @@ final class InventoryService implements InventoryMovementGateway
                     'notes' => (string) ($updated['notes'] ?? ''),
                     'scopeComplete' => (bool) ($updated['scopeComplete'] ?? false),
                     'reliability' => (string) ($updated['reliability'] ?? 'unassessed'),
+                    ...isset($updated['observedAt']) ? [
+                        'observedAt' => $this->observationTimestamp((string) $updated['observedAt']),
+                        'observedTimezone' => $updated['observedTimezone'] ?? null,
+                    ] : [],
                     'status' => 'open',
                 ],
                 $at,
@@ -979,20 +992,47 @@ final class InventoryService implements InventoryMovementGateway
         string $homeId,
         string $sessionId,
         int $expectedRevision,
+        ?bool $scopeComplete = null,
+        ?string $reliability = null,
+        ?string $observedAt = null,
     ): array {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
+        if ($expectedRevision < 1) {
+            throw new Problem(422, 'Invalid count session', 'A positive expectedRevision is required.');
+        }
+        $observation = $observedAt === null ? null : $this->countObservation($observedAt);
 
         return $this->transactions->transactional(function () use (
             $identity,
             $homeId,
             $sessionId,
             $expectedRevision,
+            $scopeComplete,
+            $reliability,
+            $observation,
         ): array {
             $session = $this->inventory->countSession($homeId, $sessionId);
             if ($session === null) {
                 throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
             }
+            $complete = $scopeComplete ?? (bool) ($session['scopeComplete'] ?? false);
+            $assessment = $reliability ?? (string) ($session['reliability'] ?? 'unassessed');
+            $this->validateCountEvidence($complete, $assessment);
             if ((string) $session['status'] === 'closed') {
+                if (
+                    (int) $session['revision'] !== $expectedRevision + 1
+                    || ($scopeComplete !== null && $complete !== (bool) ($session['scopeComplete'] ?? false))
+                    || ($reliability !== null && $assessment !== (string) ($session['reliability'] ?? 'unassessed'))
+                    || ($observation !== null && (
+                        !isset($session['observedAt'])
+                        || $observation != new DateTimeImmutable(
+                            (string) $session['observedAt'],
+                            new DateTimeZone('UTC'),
+                        )
+                    ))
+                ) {
+                    throw new Problem(409, 'Revision conflict', 'The count session changed on another device.');
+                }
                 return $this->stockCountSession(
                     $homeId,
                     $session,
@@ -1002,66 +1042,165 @@ final class InventoryService implements InventoryMovementGateway
             if ((string) $session['status'] !== 'open' || (int) $session['revision'] !== $expectedRevision) {
                 throw new Problem(409, 'Revision conflict', 'The count session changed on another device.');
             }
-            $lines = $this->inventory->countLines($homeId, $sessionId);
-            if ($lines === []) {
+            $lines = array_values(array_filter(
+                $this->inventory->countLines($homeId, $sessionId),
+                static fn (array $line): bool => ($line['status'] ?? 'confirmed') !== 'removed',
+            ));
+            $confirmed = array_filter(
+                $lines,
+                static fn (array $line): bool => ($line['status'] ?? 'confirmed') === 'confirmed',
+            );
+            if ($confirmed === []) {
                 throw new Problem(422, 'Empty count', 'At least one confirmed count line is required.');
             }
-            foreach ($lines as $line) {
-                $observed = $this->quantity((string) $line['quantity']);
-                $balance = $this->inventory->balance($homeId, (string) $line['homeProductId']);
-                $current = $this->quantity((string) ($balance['quantity'] ?? '0'));
-                $delta = $observed->subtract($current);
-                if ($delta->isZero()) {
-                    continue;
-                }
-                $this->recordMovement(
-                    $identity->userId,
-                    $homeId,
-                    (string) $line['homeProductId'],
-                    'count-reconciliation',
-                    $delta->toString(),
-                    'stock-count-line',
-                    (string) $line['id'],
-                    'Closed physical count reconciliation',
-                    $this->clock->now(),
+            if ($complete && $assessment === 'reliable' && count($confirmed) !== count($lines)) {
+                throw new Problem(
+                    422,
+                    'Incomplete count',
+                    'Resolve outstanding count lines before confirming complete reliable evidence.',
                 );
             }
             if (
-                ! $this->inventory->closeCountSession(
+                !$this->inventory->closeCountSession(
                     $homeId,
                     $sessionId,
                     $expectedRevision,
                     $identity->userId,
                     $this->clock->now(),
+                    $scopeComplete,
+                    $reliability,
+                    $observation,
                 )
             ) {
                 throw new Problem(409, 'Revision conflict', 'The count session changed on another device.');
             }
-            $this->changes?->put(
-                $homeId,
-                $identity->userId,
-                'inventory-count-session',
-                $sessionId,
-                $expectedRevision + 1,
-                [
-                    'locationId' => $session['locationId'] ?? null,
-                    'notes' => (string) ($session['notes'] ?? ''),
-                    'scopeComplete' => (bool) ($session['scopeComplete'] ?? false),
-                    'reliability' => (string) ($session['reliability'] ?? 'unassessed'),
-                    'status' => 'closed',
-                ],
-                $this->clock->now(),
-            );
             $closedSession = $this->inventory->countSession($homeId, $sessionId);
             if ($closedSession === null || (string) ($closedSession['status'] ?? '') !== 'closed') {
                 throw new \LogicException('Closed stock-count session is unavailable.');
             }
+            $this->publishCount($identity, $homeId, $closedSession, $lines);
 
-            return $this->stockCountSession(
-                $homeId,
-                $closedSession,
-                $this->inventory->countLines($homeId, $sessionId),
+            return $this->stockCountSession($homeId, $closedSession, $lines);
+        });
+    }
+
+    /**
+     * Correct accepted count evidence through an explicit audited review.
+     * Original facts remain in the store's immutable review snapshots.
+     *
+     * @param list<array{id: string, quantity: string, expectedRevision: int}> $lineCorrections
+     * @return array<string, mixed>
+     */
+    public function reviewCount(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $sessionId,
+        int $expectedRevision,
+        string $reason,
+        bool $scopeComplete,
+        string $reliability,
+        string $observedAt,
+        array $lineCorrections = [],
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_WRITE);
+        $reason = trim($reason);
+        if ($expectedRevision < 1 || $reason === '' || mb_strlen($reason) > 191) {
+            throw new Problem(
+                422,
+                'Invalid count review',
+                'A positive expectedRevision and review reason are required.',
             );
+        }
+        $this->validateCountEvidence($scopeComplete, $reliability);
+        $observation = $this->countObservation($observedAt);
+        if (!array_is_list($lineCorrections) || count($lineCorrections) > 1000) {
+            throw new Problem(422, 'Invalid count review', 'lineCorrections must be a list of at most 1000 entries.');
+        }
+        $seen = [];
+        foreach ($lineCorrections as &$correction) {
+            if (
+                !is_array($correction)
+                || array_diff(array_keys($correction), ['id', 'quantity', 'expectedRevision']) !== []
+                || !is_string($correction['id'] ?? null)
+                || !$this->validIdentifier($correction['id'])
+                || !is_string($correction['quantity'] ?? null)
+                || !is_int($correction['expectedRevision'] ?? null)
+                || $correction['expectedRevision'] < 1
+            ) {
+                throw new Problem(
+                    422,
+                    'Invalid count review',
+                    'Each correction needs one unique line and its revision.',
+                );
+            }
+            $correction['id'] = strtolower($correction['id']);
+            if (isset($seen[$correction['id']])) {
+                throw new Problem(422, 'Invalid count review', 'A line can only be corrected once in a review.');
+            }
+            $seen[$correction['id']] = true;
+            $correction['quantity'] = $this->quantity($correction['quantity'])->toString();
+        }
+        unset($correction);
+
+        return $this->transactions->transactional(function () use (
+            $identity,
+            $homeId,
+            $sessionId,
+            $expectedRevision,
+            $reason,
+            $scopeComplete,
+            $reliability,
+            $observation,
+            $lineCorrections,
+        ): array {
+            $session = $this->inventory->countSession($homeId, $sessionId);
+            if ($session === null) {
+                throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+            }
+            if ((string) $session['status'] !== 'closed' || (int) $session['revision'] !== $expectedRevision) {
+                throw new Problem(409, 'Revision conflict', 'Only the current closed count can be reviewed.');
+            }
+            try {
+                $reviewed = $this->inventory->reviewCountSession(
+                    $this->ids->generate(),
+                    $homeId,
+                    $sessionId,
+                    $expectedRevision,
+                    $identity->userId,
+                    $reason,
+                    $scopeComplete,
+                    $reliability,
+                    $observation,
+                    $lineCorrections,
+                    $this->clock->now(),
+                );
+            } catch (DomainException $error) {
+                throw new Problem(422, 'Invalid count review', $error->getMessage());
+            }
+            if (!$reviewed) {
+                throw new Problem(409, 'Revision conflict', 'The count session or line changed on another device.');
+            }
+            $updated = $this->inventory->countSession($homeId, $sessionId);
+            if ($updated === null) {
+                throw new \LogicException('Reviewed count session is unavailable.');
+            }
+            $lines = $this->inventory->countLines($homeId, $sessionId);
+            foreach ($lines as $line) {
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'inventory-count-line',
+                    (string) $line['id'],
+                    (int) $line['revision'],
+                    ['sessionId' => $sessionId, ...array_diff_key(
+                        $this->stockCountLine($line),
+                        ['id' => true, 'revision' => true],
+                    )],
+                    $this->clock->now(),
+                );
+            }
+            $this->publishCount($identity, $homeId, $updated, $lines);
+            return $this->stockCountSession($homeId, $updated, $lines);
         });
     }
 
@@ -1122,6 +1261,10 @@ final class InventoryService implements InventoryMovementGateway
                     'notes' => (string) ($session['notes'] ?? ''),
                     'scopeComplete' => (bool) ($session['scopeComplete'] ?? false),
                     'reliability' => (string) ($session['reliability'] ?? 'unassessed'),
+                    ...isset($session['observedAt']) ? [
+                        'observedAt' => $this->observationTimestamp((string) $session['observedAt']),
+                        'observedTimezone' => $session['observedTimezone'] ?? null,
+                    ] : [],
                     'status' => 'cancelled',
                 ],
                 $at,
@@ -1176,6 +1319,37 @@ final class InventoryService implements InventoryMovementGateway
         );
     }
 
+    public function correctPurchaseDate(
+        string $actorUserId,
+        string $homeId,
+        string $receiptLineId,
+        DateTimeImmutable $purchaseDate,
+        string $correctionSourceId,
+        string $reason,
+    ): array {
+        $balance = $this->inventory->correctPurchaseDate(
+            $actorUserId,
+            $homeId,
+            $receiptLineId,
+            $purchaseDate,
+            $correctionSourceId,
+            mb_substr($reason, 0, 500),
+            $this->clock->now(),
+        );
+        if ($balance !== []) {
+            $this->changes?->put(
+                $homeId,
+                $actorUserId,
+                'inventory-balance',
+                (string) $balance['homeProductId'],
+                (int) $balance['revision'],
+                $balance,
+                $this->clock->now(),
+            );
+        }
+        return $balance;
+    }
+
     /** @return list<array<string, mixed>> */
     public function movements(
         AuthenticatedIdentity $identity,
@@ -1199,9 +1373,22 @@ final class InventoryService implements InventoryMovementGateway
     {
         $this->authorization->requirePermission($identity, $homeId, HomePermission::INVENTORY_MANAGE);
 
-        return $this->transactions->transactional(
-            fn (): array => $this->inventory->rebuildBalances($homeId, $this->clock->now()),
-        );
+        return $this->transactions->transactional(function () use ($identity, $homeId): array {
+            $at = $this->clock->now();
+            $result = $this->inventory->rebuildBalances($homeId, $at);
+            foreach ($result['balances'] as $balance) {
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'inventory-balance',
+                    (string) $balance['homeProductId'],
+                    (int) $balance['revision'],
+                    $balance,
+                    $at,
+                );
+            }
+            return ['products' => $result['products'], 'quantity' => $result['quantity']];
+        });
     }
 
     /** @return array<string, mixed> */
@@ -1248,12 +1435,114 @@ final class InventoryService implements InventoryMovementGateway
                     'homeProductId' => $homeProductId,
                     'quantity' => (string) $result['balance'],
                     'lastMovementId' => (string) $result['id'],
+                    'uncertain' => (bool) ($result['uncertain'] ?? false),
+                    'pendingQuantity' => (string) ($result['pendingQuantity'] ?? '0'),
+                    'limitations' => $result['limitations'] ?? [],
+                    'checkpointId' => $result['checkpointId'] ?? null,
                 ],
                 $this->clock->now(),
             );
         }
 
         return $result;
+    }
+
+    private function validateCountEvidence(bool $scopeComplete, string $reliability): void
+    {
+        if (
+            !in_array($reliability, ['reliable', 'partial', 'unassessed'], true)
+            || ($reliability === 'reliable' && !$scopeComplete)
+        ) {
+            throw new Problem(
+                422,
+                'Invalid count session',
+                'Reliable evidence requires an explicitly complete count scope.',
+            );
+        }
+    }
+
+    private function observationTimestamp(?string $value): ?string
+    {
+        return $value === null ? null : new DateTimeImmutable($value, new DateTimeZone('UTC'))->format(DATE_ATOM);
+    }
+
+    private function countObservation(string $value): DateTimeImmutable
+    {
+        if (
+            preg_match(
+                '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/',
+                $value,
+            ) !== 1
+        ) {
+            throw new Problem(422, 'Invalid count observation', 'observedAt must be a timestamp with a timezone.');
+        }
+        $format = str_contains($value, '.') ? '!Y-m-d\TH:i:s.uP' : '!Y-m-d\TH:i:sP';
+        $observed = DateTimeImmutable::createFromFormat($format, $value);
+        $errors = DateTimeImmutable::getLastErrors();
+        if (
+            $observed === false
+            || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+            || $observed > $this->clock->now()
+        ) {
+            throw new Problem(422, 'Invalid count observation', 'observedAt must be a valid observation in the past.');
+        }
+        return new DateTimeImmutable(
+            $observed->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
+            new DateTimeZone('UTC'),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $session
+     * @param list<array<string, mixed>> $lines
+     */
+    private function publishCount(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        array $session,
+        array $lines,
+    ): void {
+        $sessionId = (string) $session['id'];
+        $this->changes?->put(
+            $homeId,
+            $identity->userId,
+            'inventory-count-session',
+            $sessionId,
+            (int) $session['revision'],
+            [
+                'locationId' => $session['locationId'] ?? null,
+                'notes' => (string) ($session['notes'] ?? ''),
+                'scopeComplete' => (bool) ($session['scopeComplete'] ?? false),
+                'reliability' => (string) ($session['reliability'] ?? 'unassessed'),
+                'observedAt' => $this->observationTimestamp($session['observedAt'] ?? null),
+                'observedTimezone' => $session['observedTimezone'] ?? null,
+                'status' => (string) $session['status'],
+            ],
+            $this->clock->now(),
+        );
+        foreach ($lines as $line) {
+            $productId = (string) $line['homeProductId'];
+            $balance = $this->inventory->balance($homeId, $productId);
+            if ($balance === null) {
+                continue;
+            }
+            $this->changes?->put(
+                $homeId,
+                $identity->userId,
+                'inventory-balance',
+                $productId,
+                (int) $balance['revision'],
+                [
+                    'homeProductId' => $productId,
+                    'quantity' => (string) $balance['quantity'],
+                    'lastMovementId' => $balance['lastMovementId'] ?? null,
+                    ...array_intersect_key($balance, array_flip([
+                        'uncertain', 'pendingQuantity', 'limitations', 'checkpointId',
+                    ])),
+                ],
+                $this->clock->now(),
+            );
+        }
     }
 
     /**
@@ -1265,6 +1554,9 @@ final class InventoryService implements InventoryMovementGateway
     {
         $session['homeId'] = $homeId;
         $session['revision'] = (int) ($session['revision'] ?? 0);
+        if (array_key_exists('observedAt', $session)) {
+            $session['observedAt'] = $this->observationTimestamp($session['observedAt']);
+        }
         if (array_key_exists('scopeComplete', $session)) {
             $session['scopeComplete'] = (bool) $session['scopeComplete'];
         }

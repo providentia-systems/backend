@@ -35,6 +35,7 @@ final class InventoryCountCancellationTest extends TestCase
         foreach ($this->schema() as $statement) {
             $this->connection->executeStatement($statement);
         }
+        \ProvidentiaTest\Support\InventoryChronologySchema::install($this->connection);
         $this->connection->insert(
             'stock_count_sessions',
             [
@@ -210,6 +211,7 @@ final class InventoryCountCancellationTest extends TestCase
                 'id' => self::LINE_ID,
                 'homeProductId' => self::PRODUCT_ID,
                 'quantity' => '4',
+                'unit' => 'units',
                 'confidence' => '0.875',
                 'source' => 'photo-confirmed',
                 'notes' => 'First pass',
@@ -235,6 +237,7 @@ final class InventoryCountCancellationTest extends TestCase
                 'id' => self::LINE_ID,
                 'homeProductId' => self::PRODUCT_ID,
                 'quantity' => '5.25',
+                'unit' => 'units',
                 'confidence' => null,
                 'source' => 'manual',
                 'notes' => 'Second pass',
@@ -467,7 +470,7 @@ final class InventoryCountCancellationTest extends TestCase
     {
         return [
             'CREATE TABLE home_locations (id TEXT, home_id TEXT, name TEXT)',
-            ('CREATE TABLE stock_count_sessions (
+            ('CREATE TABLE stock_count_sessions (observed_at TEXT NULL,
                 id TEXT PRIMARY KEY,'
                 . ' home_id TEXT NOT NULL, location_id TEXT NULL,
                 status '
@@ -492,7 +495,7 @@ final class InventoryCountCancellationTest extends TestCase
             )'),
             'CREATE TABLE products (id TEXT PRIMARY KEY, canonical_name TEXT NOT NULL)',
             'CREATE TABLE product_packs (id TEXT PRIMARY KEY, original_pack_text TEXT NULL)',
-            ('CREATE TABLE stock_count_lines (
+            ('CREATE TABLE stock_count_lines (stock_unit TEXT NULL,
                 id TEXT PRIMARY KEY, '
                 . 'home_id TEXT NOT NULL, session_id TEXT NOT NULL,
                 '

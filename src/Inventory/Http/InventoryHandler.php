@@ -28,6 +28,9 @@ final class InventoryHandler implements RequestHandlerInterface
         /** @var array<string, mixed> $body */
         $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : [];
         $query = $request->getQueryParams();
+        if (in_array($this->action, ['counts.create', 'counts.close', 'counts.review'], true)) {
+            $this->validateCountRequest($body);
+        }
         if ($this->action === 'locations.update') {
             $this->validateLocationUpdate($body);
         }
@@ -161,6 +164,8 @@ final class InventoryHandler implements RequestHandlerInterface
                 (string) ($body['notes'] ?? ''),
                 (bool) ($body['scopeComplete'] ?? false),
                 (string) ($body['reliability'] ?? 'unassessed'),
+                null,
+                isset($body['observedAt']) ? (string) $body['observedAt'] : null,
             ), 201),
             'counts.get' => new JsonResponse($this->inventory->countSession(
                 $identity,
@@ -185,6 +190,20 @@ final class InventoryHandler implements RequestHandlerInterface
                 $homeId,
                 (string) $request->getAttribute('sessionId', ''),
                 (int) ($body['expectedRevision'] ?? 0),
+                $body['scopeComplete'] ?? null,
+                $body['reliability'] ?? null,
+                $body['observedAt'] ?? null,
+            )),
+            'counts.review' => new JsonResponse($this->inventory->reviewCount(
+                $identity,
+                $homeId,
+                (string) $request->getAttribute('sessionId', ''),
+                $body['expectedRevision'],
+                $body['reason'],
+                $body['scopeComplete'],
+                $body['reliability'],
+                $body['observedAt'],
+                $body['lineCorrections'] ?? [],
             )),
             'counts.cancel' => new JsonResponse($this->inventory->cancelCount(
                 $identity,
@@ -195,6 +214,44 @@ final class InventoryHandler implements RequestHandlerInterface
             'balances.rebuild' => new JsonResponse($this->inventory->rebuild($identity, $homeId)),
             default => throw new \LogicException('Unknown inventory action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function validateCountRequest(array $body): void
+    {
+        $allowed = match ($this->action) {
+            'counts.create' => ['locationId', 'notes', 'scopeComplete', 'reliability', 'observedAt'],
+            'counts.close' => ['expectedRevision', 'scopeComplete', 'reliability', 'observedAt'],
+            default => ['expectedRevision', 'reason', 'scopeComplete', 'reliability', 'observedAt', 'lineCorrections'],
+        };
+        if (array_diff(array_keys($body), $allowed) !== []) {
+            throw new HttpProblem(422, 'Invalid count session', 'The request contains unsupported count fields.');
+        }
+        if (
+            $this->action !== 'counts.create' && (
+            !is_int($body['expectedRevision'] ?? null) || $body['expectedRevision'] < 1
+            )
+        ) {
+            throw new HttpProblem(422, 'Invalid count session', 'A positive expectedRevision is required.');
+        }
+        foreach (['notes', 'reason', 'reliability', 'observedAt'] as $field) {
+            if (array_key_exists($field, $body) && !is_string($body[$field])) {
+                throw new HttpProblem(422, 'Invalid count session', $field . ' must be a string.');
+            }
+        }
+        if (array_key_exists('scopeComplete', $body) && !is_bool($body['scopeComplete'])) {
+            throw new HttpProblem(422, 'Invalid count session', 'scopeComplete must be boolean.');
+        }
+        if ($this->action === 'counts.review') {
+            foreach (['reason', 'scopeComplete', 'reliability', 'observedAt'] as $field) {
+                if (!array_key_exists($field, $body)) {
+                    throw new HttpProblem(422, 'Invalid count review', 'Missing review field: ' . $field);
+                }
+            }
+            if (array_key_exists('lineCorrections', $body) && !is_array($body['lineCorrections'])) {
+                throw new HttpProblem(422, 'Invalid count review', 'lineCorrections must be a list.');
+            }
+        }
     }
 
     /** @param array<string, mixed> $body */

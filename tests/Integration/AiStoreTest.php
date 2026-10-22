@@ -71,7 +71,7 @@ final class AiStoreTest extends TestCase
             )',
         );
         $this->connection->executeStatement(
-            'CREATE TABLE stock_count_sessions (
+            'CREATE TABLE stock_count_sessions (observed_at TEXT NULL,
                 id VARCHAR(36) PRIMARY KEY,
                 home_id VARCHAR(36) NOT NULL,
                 status VARCHAR(24) NOT NULL
