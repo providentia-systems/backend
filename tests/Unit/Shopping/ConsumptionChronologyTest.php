@@ -30,16 +30,46 @@ final class ConsumptionChronologyTest extends TestCase
             ['at' => new DateTimeImmutable('2026-10-10T00:00:00Z'), 'quantity' => '8'],
             [
                 'at' => new DateTimeImmutable('2026-10-11T00:00:00Z'),
-                'quantity' => '-2', 'movementType' => 'consumption',
+                'quantity' => '-3', 'movementType' => 'consumption',
             ],
             ['at' => new DateTimeImmutable('2026-10-12T00:00:00Z'), 'quantity' => '-1', 'movementType' => 'waste'],
             ['at' => new DateTimeImmutable('2026-10-13T00:00:00Z'), 'quantity' => '-1', 'movementType' => 'return'],
         ]);
 
-        self::assertSame('3', $result['residualDepletion']);
+        self::assertSame('2', $result['residualDepletion']);
         self::assertSame('5', $result['totalEstimatedUsage']);
-        self::assertSame('2', $result['intervalEvidence'][0]['knownConsumption']);
+        self::assertSame('3', $result['intervalEvidence'][0]['knownConsumption']);
         self::assertSame('2', $result['intervalEvidence'][0]['otherRecordedOutflow']);
+    }
+
+    public function testAmbiguousPurchaseDoesNotHideOtherRecordedIntervalEvidence(): void
+    {
+        $result = $this->estimate([
+            ['at' => new DateTimeImmutable('2026-10-20T00:00:00Z'), 'quantity' => '4', 'dateOnly' => true],
+            ['at' => new DateTimeImmutable('2026-10-10T00:00:00Z'), 'quantity' => '2'],
+            ['at' => new DateTimeImmutable('2026-10-11T00:00:00Z'), 'quantity' => '-1', 'movementType' => 'waste'],
+        ]);
+
+        self::assertSame(0, $result['sampleIntervals']);
+        self::assertNull($result['totalEstimatedUsage']);
+        self::assertSame('same_day_purchase_order_uncertain', $result['intervalEvidence'][0]['reviewReason']);
+        self::assertSame('2', $result['intervalEvidence'][0]['incomingQuantity']);
+        self::assertSame('1', $result['intervalEvidence'][0]['otherRecordedOutflow']);
+        self::assertSame('0', $result['intervalEvidence'][0]['residualDepletion']);
+    }
+
+    public function testConsecutiveDailyPurchasesRetainOneDayCadence(): void
+    {
+        $result = (new ConsumptionEstimator())->estimate([], [], [
+            new DateTimeImmutable('2026-10-20T00:00:00Z'),
+            new DateTimeImmutable('2026-10-21T00:00:00Z'),
+            new DateTimeImmutable('2026-10-22T00:00:00Z'),
+        ], new DateTimeImmutable('2026-10-22T12:00:00Z'));
+
+        self::assertSame(1, $result['purchaseCadenceDays']);
+        self::assertSame('2026-10-23T00:00:00+00:00', $result['nextExpectedShoppingAt']->format(DATE_ATOM));
+        self::assertSame(0, $result['sampleIntervals']);
+        self::assertNull($result['totalEstimatedUsage']);
     }
 
     public function testDateOnlyPurchasesOnEitherBoundaryNeedReview(): void
