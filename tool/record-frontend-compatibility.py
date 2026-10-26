@@ -32,6 +32,7 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     matrix = json.loads((root / 'tests/fixtures/frontend-compatibility.json').read_text())
+    subprocess.run(['bash', str(root / 'tool/materialize-openapi-contract.sh')], cwd=root, check=True)
     backend_contract = root / 'contracts/openapi/providentia-v1.json'
     contract = json.loads(backend_contract.read_text())
     if contract['info']['version'] != matrix['backendContractVersion']:
