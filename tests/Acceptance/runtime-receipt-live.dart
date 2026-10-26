@@ -166,13 +166,20 @@ void main() {
           homeProductId: product,
         );
         await sync();
-        var controller = PurchasingController(
-          repository: household,
-          homeId: home,
-          mayWrite: true,
-        )..start();
+        var controller =
+            PurchasingController(
+                repository: household,
+                homeId: home,
+                mayWrite: true,
+              )
+              ..start()
+              ..selectReceipt(receipt.entityId);
         addTearDown(() => controller.dispose());
-        await _until(() => controller.state.capture?.reviewComplete == true);
+        await _until(
+          () =>
+              controller.state.capture?.id == receipt.entityId &&
+              controller.state.capture?.reviewComplete == true,
+        );
         expect(await controller.commitDraft(), isTrue);
         final queued = (await database.select(database.clientOperations).get())
             .singleWhere(
@@ -310,20 +317,33 @@ void main() {
         await database.close();
         database = AppDatabase(NativeDatabase(file));
         household = repository();
-        controller = PurchasingController(
-          repository: household,
-          homeId: home,
-          mayWrite: true,
-        )..start();
-        await _until(() => controller.state.capture?.commitConfirmed == true);
+        controller =
+            PurchasingController(
+                repository: household,
+                homeId: home,
+                mayWrite: true,
+              )
+              ..start()
+              ..selectReceipt(receipt.entityId);
+        await _until(
+          () =>
+              controller.state.capture?.id == receipt.entityId &&
+              controller.state.capture?.commitConfirmed == true,
+        );
         client.corruptReadback = false;
         await sync();
         await _until(
           () =>
-              controller.state.capture == null &&
+              controller.state.capture?.id == receipt.entityId &&
+              controller.state.capture?.synchronizationState ==
+                  PurchaseSynchronizationState.synchronized &&
               controller.state.lines.any(
                 (row) => row.receiptId == receipt.entityId,
               ),
+        );
+        expect(
+          controller.state.capture?.status,
+          PurchaseReceiptStatus.committed,
         );
         expect(controller.state.captureError, isNull);
         expect(controller.state.safeError, isNull);

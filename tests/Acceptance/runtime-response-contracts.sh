@@ -72,12 +72,20 @@ for phase in "${phases[@]}"; do
   if [[ "$phase" == receipt ]]; then
     client_test="$client/test/integration/runtime_receipt_live_test.dart"
     cp tests/Acceptance/runtime-receipt-live.dart "$client_test"
-    (cd "$client" && flutter test --no-pub test/integration/runtime_receipt_live_test.dart --reporter expanded)
+    receipt_status=0
+    report_status=0
+    (cd "$client" && flutter test --no-pub test/integration/runtime_receipt_live_test.dart --reporter expanded) \
+      || receipt_status=$?
     if [[ "${PROVIDENTIA_CURRENT_FRONTEND:-0}" == 1 ]]; then
       current_client_test="$client/test/integration/runtime_current_client_live_test.dart"
       test ! -e "$current_client_test"
       cp tests/Acceptance/runtime-current-client-live.dart "$current_client_test"
-      (cd "$client" && flutter test --no-pub test/integration/runtime_current_client_live_test.dart --reporter expanded)
+      (cd "$client" && flutter test --no-pub test/integration/runtime_current_client_live_test.dart --reporter expanded) \
+        || report_status=$?
+    fi
+    if (( receipt_status != 0 || report_status != 0 )); then
+      echo 'Current Client receipt or report/count adapter acceptance failed.' >&2
+      exit 1
     fi
   else
     python3 tests/Acceptance/runtime-response-contracts.py "$phase"
