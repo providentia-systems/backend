@@ -57,7 +57,7 @@ Manage product, packs and identities opens the existing revision-bound maintenan
 surface scoped to that product, including related aliases and barcodes. Existing
 conflict and reversible-merge workbenches remain authoritative.
 
-Household name, pack and category overrides do not rename or reclassify the global product. The explicit stock unit is a household label; changing it never automatically converts existing balances or historical quantities.
+Household name, pack and category overrides do not rename or reclassify the global product. The explicit stock unit defines the meaning of household quantities. A different unit is rejected when nonzero stock or dependent stock/count/shopping/preference evidence exists; there is no automatic conversion or relabeling of historical quantities. See the [stock-unit safeguards and examples](household-workflows.md#categories-and-stock-units).
 The stock display/filter honors the home category while the public item-master
 cache retains canonical labels. Used pack/unit measurements and published pack
 parents cannot be reinterpreted. Alias variant/pack relationships are validated;

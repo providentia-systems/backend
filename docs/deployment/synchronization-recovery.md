@@ -1,12 +1,14 @@
-# Original-binding synchronization recovery (#29)
+# Original-binding synchronization recovery (#29, #37)
 
 ## Evidence and scope
 
-The backend rejected the reported envelope because its `deviceId` did not match
-its authenticated session. That check runs before batch execution and remains
-mandatory. A dashboard count of pending operations does not establish how many
+A `device_binding_mismatch` response means the envelope's `deviceId` did not
+match its authenticated session. That check runs before batch execution and
+remains mandatory. It does not establish the cause of an installed session
+mismatch. A dashboard count of pending operations does not establish how many
 purchases executed, whether their responses were lost, or whether home access
-was revoked.
+was revoked. Treat the following as source behavior until the installed build,
+session binding and preserved queue have been verified.
 
 Source review also found a reproducible browser-session collision boundary:
 legacy web sessions use the same backend-origin cookie names for both frontend
@@ -44,6 +46,12 @@ Current session responses expose the distinct account-scoped `deviceId` and
 original `installationId`; an unknown legacy installation is `null` in session
 list/readback instead of an invented installation identifier.
 
+The Linux native Admin uses bearer credentials, not the browser cookie jar.
+Cookie namespacing is therefore not a native-session recovery procedure. For
+either transport, verify the authenticated account and account-scoped device
+binding; copying browser cookies, inventing a replacement device ID or signing
+in on another installation cannot establish the original queue's provenance.
+
 ## Establish the installed backend evidence
 
 An authenticated home member can call
@@ -62,13 +70,42 @@ with both frontend revisions and their generated contract lock. This endpoint
 contains no credentials, encryption keys, receipt content or operation payloads.
 It cannot inspect a browser's private saved queue or prove uploads completed.
 
+## Preservation prerequisites and recovery limits
+
+The reviewed Client does not provide a user-facing local backup/restore or
+blocked-queue recovery workflow. Its implementation is tracked in
+[Client #30](https://github.com/providentia-systems/client/issues/30). Do not
+instruct a user to press an unimplemented backup or restore button. Before any
+local repair, require a version- and platform-specific preservation procedure
+that has been verified to recover the encrypted device database, durable outbox
+and the key material/provenance needed to read them. A copied database without
+its usable encryption context is not a verified recovery copy. Until that
+procedure and tooling are available, retain the existing installation/profile
+and its saved data; do not clear storage, reinstall or re-enter receipts as a
+generic repair.
+
+| Evidence or operation | What it preserves or proves | What it cannot replace |
+| --- | --- | --- |
+| Server home/account export | Authorized records already stored on the backend, including retained historical evidence | Encrypted Client data, unsent operations or their original operation IDs |
+| Verified local preservation | Recoverable encrypted local records, queued commands and original account/home/device provenance, with their required encryption context | Server execution evidence or proof that pending uploads succeeded |
+| Authorized bootstrap/pull | A current permitted server snapshot/change feed and authoritative readback | Backup of the outbox, recreation of unsent purchases or automatic settlement of local operations |
+| Original-binding revalidation | Classification of preserved immutable operations against retained server execution receipts and current permissions | Execution of a command, repair of the payload or reassignment to another account/device |
+
+Bootstrap/readback must retain and reconcile the local queue; replacing a local
+projection is not permission to discard it. If local queue data is deleted, the
+backend cannot reconstruct commands it never received, their payloads or their
+original operation ordering. Retained server records or execution receipts may
+establish what was accepted, but absence of a record cannot recover lost local
+intent. Any later manually reconstructed purchase requires explicit
+reconciliation against server evidence; receipt re-entry is not a safe blanket
+recovery action.
+
 ## Revalidate a preserved blocked queue
 
-Before attempting a local repair, preserve and verify a recoverable copy of the
-existing encrypted device data and outbox using the Client's supported backup
-mechanism. Keep operation IDs, account/home/device provenance, payloads,
-revisions and ordering immutable. Do not clear browser storage or re-enter
-receipts to make a queue disappear.
+Keep operation IDs, account/home/device provenance, payloads, base revisions and
+ordering immutable. The following describes the backend API and requirements
+for coordinated Client tooling; it does not claim an installed recovery screen
+exists or that a particular queue has been recovered.
 
 Restore a legitimate session for the original account and device. Then call
 `POST /api/v1/homes/{homeId}/sync/revalidate` with the original `accountId`,

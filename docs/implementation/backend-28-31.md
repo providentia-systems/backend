@@ -47,8 +47,9 @@ lock-verified source archive; the image proof verifies that file without repairi
   stock. Same-day date-only ambiguity is exposed as uncertainty and pending
   quantity. Known outflows and residual unexplained depletion remain distinct.
   Audited count reviews preserve previous/next observations and their captured
-  timezone. Unit relabeling with existing evidence requires an explicit separate
-  correction rather than silently changing quantity meaning. Rebuild publishes
+  timezone. A stock-unit change with existing evidence is rejected; use a
+  separately measured product for future tracking rather than relabeling
+  historical quantities. Rebuild publishes
   materially changed absolute balances for synchronization.
 
 The documented example of a 2 kg opening count, late 4 kg purchase and 3 kg
