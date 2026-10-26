@@ -7,6 +7,7 @@ port="${PROVIDENTIA_RESPONSE_HTTP_PORT:-18084}"
 pid=''
 client=''
 client_test=''
+current_client_test=''
 if [[ -n "${1:-}" ]]; then
   client="$(cd -- "$1" && pwd)"
   command -v flutter >/dev/null
@@ -18,6 +19,7 @@ fi
 cleanup() {
   if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
   if [[ -n "$client_test" ]]; then rm -f "$client_test"; fi
+  if [[ -n "$current_client_test" ]]; then rm -f "$current_client_test"; fi
   rm -rf "$temporary"
 }
 trap cleanup EXIT
@@ -41,7 +43,11 @@ if ($db->createSchemaManager()->tablesExist(["users"]) && (int) $db->fetchOne("S
 }
 '
 php bin/doctrine-migrations migrations:migrate --no-interaction
-php tests/fixtures/runtime-response-http.php "$fixture"
+if [[ "${PROVIDENTIA_CURRENT_FRONTEND:-0}" == 1 ]]; then
+  php tests/fixtures/current-frontend-http.php "$fixture"
+else
+  php tests/fixtures/runtime-response-http.php "$fixture"
+fi
 phases=(write read boundary)
 if [[ -n "$client" ]]; then phases=(receipt); fi
 for phase in "${phases[@]}"; do
@@ -67,6 +73,12 @@ for phase in "${phases[@]}"; do
     client_test="$client/test/integration/runtime_receipt_live_test.dart"
     cp tests/Acceptance/runtime-receipt-live.dart "$client_test"
     (cd "$client" && flutter test --no-pub test/integration/runtime_receipt_live_test.dart --reporter expanded)
+    if [[ "${PROVIDENTIA_CURRENT_FRONTEND:-0}" == 1 ]]; then
+      current_client_test="$client/test/integration/runtime_current_client_live_test.dart"
+      test ! -e "$current_client_test"
+      cp tests/Acceptance/runtime-current-client-live.dart "$current_client_test"
+      (cd "$client" && flutter test --no-pub test/integration/runtime_current_client_live_test.dart --reporter expanded)
+    fi
   else
     python3 tests/Acceptance/runtime-response-contracts.py "$phase"
   fi

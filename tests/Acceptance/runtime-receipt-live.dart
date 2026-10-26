@@ -115,6 +115,39 @@ void main() {
           ),
         );
         await sync();
+        if (Platform.environment['PROVIDENTIA_CURRENT_FRONTEND'] == '1') {
+          final changedDate = DateTime.utc(
+            now.year,
+            now.month,
+            now.day,
+          ).subtract(const Duration(days: 1));
+          await household.updateReceiptDraft(
+            receiptId: receipt.entityId,
+            expectedRevision: receipt.revision,
+            draft: PurchaseReceiptDraftRequest(
+              homeId: home,
+              purchaseDate: changedDate,
+              currency: 'NAD',
+              total: Money(minorUnits: 2550, currency: 'NAD'),
+              notes: 'Synthetic calendar-date metadata save',
+            ),
+          );
+          await sync();
+          final readback = _object(
+            jsonDecode(
+              (await client.get(
+                base.resolve(
+                  '/api/v1/homes/$home/receipts/${receipt.entityId}',
+                ),
+                headers: headers,
+              )).body,
+            ),
+          );
+          expect(
+            readback['purchaseDate'],
+            changedDate.toIso8601String().substring(0, 10),
+          );
+        }
         final line = await household.addReceiptLine(
           PurchaseReceiptLineRequest(
             homeId: home,

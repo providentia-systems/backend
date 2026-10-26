@@ -2,10 +2,16 @@
 set -Eeuo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 client="${1:?Pass the pinned client checkout path}"
+target="$client/test/integration/step2_live_backend_test.dart"
+if [[ -e "$target" ]]; then
+  echo 'Refusing to overwrite an existing Client integration test.' >&2
+  exit 2
+fi
 fixture="$(mktemp)"
 pid=''
 cleanup() {
   if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
+  rm -f "$target"
   rm -f "$fixture" "$fixture.state.json" "$fixture.device.sqlite"*
 }
 trap cleanup EXIT
@@ -18,7 +24,7 @@ export PROVIDENTIA_STEP2_FIXTURE="$fixture" PROVIDENTIA_STEP2_URL=http://127.0.0
 cd "$root"
 php bin/doctrine-migrations migrations:migrate --no-interaction
 php tests/fixtures/step2-http.php "$fixture"
-cp tests/Acceptance/step2-live-http.dart "$client/test/integration/step2_live_backend_test.dart"
+cp tests/Acceptance/step2-live-http.dart "$target"
 for phase in empty write read unavailable; do
   export PROVIDENTIA_STEP2_PHASE="$phase"
   export AI_SERVER_PROXY_ENABLED=1

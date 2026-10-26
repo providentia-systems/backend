@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "purpose": "release-candidate-adapter-acceptance",
+  "backendContractVersion": "2.4.0",
+  "applications": {
+    "client": {
+      "repository": "providentia-systems/client",
+      "revision": "83bdcc2ebeb3ec67061dc805d62d8bed300dd582",
+      "contractSha256": "2b7b38490dc42ad967cfff7e32dd56db41d30842a7d39845b9beecb7f7d4e254",
+      "scope": "production report parsing, calendar-date outbox writes, receipt recovery and Drift restart"
+    },
+    "admin": {
+      "repository": "providentia-systems/admin",
+      "revision": "ea718d4d8fb39d4a9811d36749e944a997964b9c",
+      "contractSha256": "2b7b38490dc42ad967cfff7e32dd56db41d30842a7d39845b9beecb7f7d4e254",
+      "scope": "native handwritten ApiClient and operator inventory repository; authenticated revision-bound reads and writes"
+    }
+  },
+  "historicalFixtures": [
+    {
+      "revision": "21567ada32dcf343e4e777daf10d1a67a7de6128",
+      "purpose": "former runtime receipt recovery fixture; superseded for current acceptance"
+    },
+    {
+      "revision": "99dd662ad6bc461d257e71c522a5e22e7c8d540d",
+      "purpose": "retained Historical Step 3 export regression only; superseded for current Step 2 acceptance"
+    }
+  ]
+}

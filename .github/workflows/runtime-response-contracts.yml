@@ -20,7 +20,34 @@ concurrency:
   group: runtime-contracts-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  frontend-inputs:
+    runs-on: ubuntu-24.04
+    outputs:
+      client: ${{ steps.pins.outputs.client }}
+      admin: ${{ steps.pins.outputs.admin }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - id: pins
+        name: Load deliberately pinned frontend revisions
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re
+          from pathlib import Path
+          matrix = json.loads(Path('tests/fixtures/frontend-compatibility.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for role in ['client', 'admin']:
+                  revision = matrix['applications'][role]['revision']
+                  if not re.fullmatch('[0-9a-f]{40}', revision):
+                      raise ValueError('A full immutable Git commit is required')
+                  output.write(f'{role}={revision}\n')
+          PYTHON
   receipt-recovery:
+    name: Current Client receipt and report adapters
+    needs: frontend-inputs
+    env:
+      PROVIDENTIA_CURRENT_FRONTEND: '1'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -30,7 +57,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: providentia-systems/client
-          ref: 21567ada32dcf343e4e777daf10d1a67a7de6128
+          ref: ${{ needs.frontend-inputs.outputs.client }}
           path: _runtime_client
           persist-credentials: false
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
@@ -51,16 +78,60 @@ jobs:
       - name: Real receipt commit with lost responses, persistent recovery and conflict
         run: |
           { php --version; flutter --version; git rev-parse HEAD; git -C _runtime_client rev-parse HEAD; } > /tmp/runtime-receipt-runtime.txt
+          python3 tool/record-frontend-compatibility.py --client "$PWD/_runtime_client" --output /tmp/current-client-compatibility.json
           bash tests/Acceptance/runtime-response-contracts.sh "$PWD/_runtime_client" > /tmp/runtime-receipt-check.log 2>&1
       - name: Preserve sanitized acceptance output
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: runtime-receipt-recovery
+          name: current-client-receipt-reports
           path: |
+            /tmp/current-client-compatibility.json
             /tmp/runtime-receipt-runtime.txt
             /tmp/runtime-receipt-check.log
             var/runtime-response-receipt-http.log
+          retention-days: 30
+  admin-adapters:
+    name: Current native Admin authenticated adapters
+    needs: frontend-inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: providentia-systems/admin
+          ref: ${{ needs.frontend-inputs.outputs.admin }}
+          path: _runtime_admin
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5.9'
+          extensions: gd, intl, json, mbstring, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.10.2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Install pinned Admin Flutter runtime
+        run: |
+          bash _runtime_admin/tool/install_flutter_linux.sh "$RUNNER_TEMP/providentia-sdk"
+          echo "$RUNNER_TEMP/providentia-sdk/flutter/bin" >> "$GITHUB_PATH"
+      - working-directory: _runtime_admin
+        run: flutter pub get --enforce-lockfile
+      - name: Native production transport and operator read/write acceptance
+        run: |
+          python3 tool/record-frontend-compatibility.py --admin "$PWD/_runtime_admin" --output /tmp/current-admin-compatibility.json
+          bash tests/Acceptance/runtime-admin-contracts.sh "$PWD/_runtime_admin" > /tmp/runtime-admin-check.log 2>&1
+      - name: Preserve sanitized native adapter results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: current-admin-adapters
+          path: |
+            /tmp/current-admin-compatibility.json
+            /tmp/runtime-admin-check.log
+            var/runtime-admin-http.log
           retention-days: 30
   http:
     strategy:

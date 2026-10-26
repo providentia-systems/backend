@@ -5,6 +5,7 @@ on:
       - 'src/**'
       - 'contracts/**'
       - 'tests/**'
+      - 'tool/record-frontend-compatibility.py'
       - '.github/workflows/step-2-contract-conformance.yml'
   workflow_dispatch:
 permissions:
@@ -13,7 +14,32 @@ concurrency:
   group: step2-conformance-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  frontend-inputs:
+    runs-on: ubuntu-24.04
+    outputs:
+      client: ${{ steps.pins.outputs.client }}
+      admin: ${{ steps.pins.outputs.admin }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - id: pins
+        name: Load deliberately pinned frontend revisions
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re
+          from pathlib import Path
+          matrix = json.loads(Path('tests/fixtures/frontend-compatibility.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for role in ['client', 'admin']:
+                  revision = matrix['applications'][role]['revision']
+                  if not re.fullmatch('[0-9a-f]{40}', revision):
+                      raise ValueError('A full immutable Git commit is required')
+                  output.write(f'{role}={revision}\n')
+          PYTHON
   live:
+    name: Current Client Step 2 adapters (${{ matrix.name }})
+    needs: frontend-inputs
     strategy:
       fail-fast: false
       matrix:
@@ -61,7 +87,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: providentia-systems/client
-          ref: 99dd662ad6bc461d257e71c522a5e22e7c8d540d
+          ref: ${{ needs.frontend-inputs.outputs.client }}
           path: _step2_client
           persist-credentials: false
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
@@ -82,6 +108,7 @@ jobs:
       - name: Real PHP HTTP to Dart, with server and local database reopen
         run: |
           { php --version; composer --version; flutter --version; git rev-parse HEAD; git -C _step2_client rev-parse HEAD; } > /tmp/step2-runtime.txt
+          python3 tool/record-frontend-compatibility.py --client "$PWD/_step2_client" --output /tmp/step2-current-compatibility.json
           bash tests/Acceptance/step2-http-dart.sh "$PWD/_step2_client" > /tmp/step2-live-check.log 2>&1
       - name: Email-code authentication regression
         if: always()
@@ -92,6 +119,7 @@ jobs:
         with:
           name: step2-response-${{ matrix.name }}
           path: |
+            /tmp/step2-current-compatibility.json
             /tmp/step2-runtime.txt
             /tmp/step2-live-check.log
             /tmp/step2-auth-check.log

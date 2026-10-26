@@ -1,4 +1,4 @@
-name: Step 3 live export conformance
+name: Historical Step 3 export regression
 on:
   pull_request:
     paths: ['src/**', 'contracts/**', 'tests/**', '.github/workflows/step-3-data-conformance.yml']
@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   live:
+    name: Historical Client export adapters (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
