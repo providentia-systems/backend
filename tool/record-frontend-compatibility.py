@@ -18,9 +18,13 @@ def digest(path):
 def record(root, matrix, role, checkout):
     expected = matrix['applications'][role]
     revision = head(checkout)
+    if revision != expected['revision']:
+        raise ValueError(f'{role}: checkout revision differs from pinned matrix')
+    materializer = 'tool/materialize-openapi-contract.sh' if role == 'client' else 'tool/materialize_contract.sh'
+    subprocess.run(['bash', str(checkout / materializer)], cwd=checkout, check=True)
     contract = digest(checkout / 'contracts/providentia-v1.json')
-    if revision != expected['revision'] or contract != expected['contractSha256']:
-        raise ValueError(f'{role}: checkout revision or contract digest differs from pinned matrix')
+    if contract != expected['contractSha256']:
+        raise ValueError(f'{role}: contract digest differs from pinned matrix')
     return {'revision': revision, 'contractSha256': contract, 'scope': expected['scope']}
 
 
