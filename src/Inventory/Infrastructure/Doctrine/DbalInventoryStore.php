@@ -583,11 +583,16 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
 
     public function inventoryReport(string $homeId): array
     {
-        return $this->connection->fetchAllAssociative(
+        $rows = $this->connection->fetchAllAssociative(
             'SELECT hp.id AS homeProductId,
                     COALESCE(hp.private_name, p.canonical_name) AS productName,
                     COALESCE(hp.original_pack_text, pk.original_pack_text, :empty) AS packText,
-                    COALESCE(ib.quantity, 0) AS factualQuantity,
+                    hp.unit AS stockUnit,
+                    ib.quantity AS factualQuantity,
+                    ib.uncertain,
+                    ib.pending_quantity AS pendingQuantity,
+                    ib.limitations_json AS limitationsJson,
+                    ib.checkpoint_id AS checkpointId,
                     ib.revision AS balanceRevision,
                     ib.last_movement_id AS lastMovementId,
                     ib.updated_at AS balanceUpdatedAt,
@@ -605,6 +610,28 @@ final class DbalInventoryStore implements InventoryStore, InventorySummaryReader
              ORDER BY productName, hp.id',
             ['empty' => '', 'home' => $homeId, 'status' => 'active'],
         );
+
+        return array_map(static function (array $row): array {
+            // No projection row means no recorded quantity, rather than an
+            // observed zero. A recorded balance is still a ledger projection;
+            // its checkpoint and limitations describe its physical evidence.
+            $hasBalance = $row['factualQuantity'] !== null;
+            $row['uncertain'] = (bool) ($row['uncertain'] ?? false);
+            $row['quantityState'] = ! $hasBalance ? 'unknown' : ($row['uncertain'] ? 'uncertain' : 'recorded');
+            $row['factualQuantity'] = $hasBalance ? DecimalProjection::string($row['factualQuantity']) : null;
+            $row['pendingQuantity'] = $hasBalance ? DecimalProjection::string($row['pendingQuantity']) : null;
+            $row['balanceRevision'] = $row['balanceRevision'] === null ? null : (int) $row['balanceRevision'];
+            $row['limitations'] = $hasBalance
+                ? json_decode((string) ($row['limitationsJson'] ?? '[]'), true, 512, JSON_THROW_ON_ERROR)
+                : ['No stock balance has been recorded for this household product.'];
+            unset($row['limitationsJson']);
+            $row['configuredMinimum'] = $row['configuredMinimum'] === null
+                ? null : DecimalProjection::string($row['configuredMinimum']);
+            $row['alwaysKeep'] = (bool) $row['alwaysKeep'];
+            $row['neverSuggest'] = (bool) $row['neverSuggest'];
+
+            return $row;
+        }, $rows);
     }
 
     public function homeProduct(string $homeId, string $homeProductId, bool $includeArchived = false): ?array
