@@ -33,7 +33,7 @@ final class InventoryChronologyTest extends TestCase
     protected function setUp(): void
     {
         $this->db = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
-        $this->migrate('Providentia\\Migrations\\Version20261022000300');
+        $this->migrate('Providentia\\Migrations\\Version20261026000100');
         $this->seedHome();
         $this->store = new DbalInventoryStore($this->db);
     }
@@ -357,6 +357,7 @@ final class InventoryChronologyTest extends TestCase
         ]);
         $export = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         self::assertCount(1, $export['data']['countReviews']);
+        self::assertSame([], $export['data']['receiptLineCorrections']);
         self::assertStringContainsString(
             '"quantity":"3"',
             $export['data']['countReviews'][0]['previous_snapshot_json'],
