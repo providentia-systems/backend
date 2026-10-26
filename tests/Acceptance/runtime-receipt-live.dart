@@ -216,7 +216,7 @@ void main() {
           client.armed = true;
           final rejected = await coordinator().synchronize(home);
           expect(rejected.status, SyncRunStatus.uploadsBlocked);
-          expect(rejected.safeMessage, contains('need attention'));
+          expect(rejected.safeMessage, contains('needs review'));
           final blocked =
               (await database.select(database.clientOperations).get())
                   .singleWhere((row) => row.operationId == operationId);
