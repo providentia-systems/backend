@@ -1,6 +1,6 @@
-# Household product workflows — API 2.2.0
+# Household product workflows
 
-This guide describes the supported source implementation, not an inspected production deployment. Backend #25, household Client #21 and Admin #13 must use matching builds.
+This guide describes backend source behavior and the coordinated frontend workflows; it does not establish which features an installed Client or Admin provides. Verify the installed revisions and canonical contract using the [synchronization diagnostics and recovery guidance](deployment/synchronization-recovery.md). Matching backend, Client and Admin builds are required.
 
 ## Household editing and identity
 
@@ -18,7 +18,35 @@ Admin places Product, Brand, Pack and Category first. Empty private overrides ar
 
 globalCategoryId and homeCategoryId represent distinct namespaces. Only one can be selected. Selecting a nonnull category clears the other scope. A new global selection must be published; an existing retired selection may be retained while editing unrelated metadata. The Client loads the complete paged published category list independently of household products and local categories. Both product forms display Global and Local labels. Local categories stay household-private; selecting a global category does not publish a private product or create a local copy. Global publication and moderation remain separate existing workflows.
 
-Supported stock-unit labels are units, g, kg, ml and l. A unit correction deliberately preserves existing numeric balances and history; it is not a conversion operation. The Client warns about this before saving. Catalog pack measurements and their integrity rules are unchanged.
+Supported stock-unit labels are `units`, `g`, `kg`, `ml` and `l`. A different
+unit is accepted only while the product has no nonzero balance or dependent
+evidence. The backend rejects a change with HTTP 409, `Stock unit has history`,
+when there are stock movements, nonremoved count lines, saved shopping-list
+quantities, or current/historical minimum or always-keep preferences. A zero
+balance alone does not establish that the unit is unused: previous movements
+still block relabeling. Sending the existing unit while editing other metadata
+does not trigger this unit-change rejection. These rules apply to household
+and operator writes; a frontend warning cannot override them.
+
+| Example | Backend result |
+| --- | --- |
+| New unused product, no balance/evidence, change `units` to `kg` | Accepted with the current revision |
+| Recorded zero balance with no other dependent evidence, change `g` to `kg` | Accepted; no quantities need reinterpretation |
+| Balance `2.5`, change `kg` to `g` | Rejected; the API does not multiply the balance by 1000 |
+| Balance returned to zero after purchases or counts, change `kg` to `units` | Rejected; historical movements/counts retain their captured unit |
+| No stock but a saved shopping line or minimum preference, change `l` to `ml` | Rejected; dependent quantities keep their existing meaning |
+
+For a product whose unit is already in use, keep its existing identity and
+history and create a separate correctly measured product for future use. There
+is no generic in-place unit conversion endpoint. Review outstanding purchases,
+counts, shopping lines and preferences before changing how future stock is
+tracked; do not delete history, clear preferences or fabricate a zero count to
+bypass the guard. Correct an erroneous count or purchase through its existing
+audited workflow, retaining the original stock unit and captured pack factor.
+Catalog pack measurements and their integrity rules remain unchanged. The
+paired Client guard and explanatory UI are tracked in
+[Client #35](https://github.com/providentia-systems/client/issues/35); verify
+their availability in the installed build.
 
 ## Counting and layout
 
@@ -30,7 +58,10 @@ Product and quantity forms retain explicit field spacing and scrolling with narr
 
 Complete category and item-master snapshots are cached atomically. Malformed, duplicate or failed pages do not replace the previous complete cache. Public category endpoint failures do not prove loss of home membership. Existing operation IDs, queue barriers and originating-account safeguards remain unchanged. This feature does not repair or erase historical queued operations.
 
-The canonical JSON SHA-256 is `ef5714a6298326d6fb449b966117e8b61c74de67d1bfc274ad8ec431aecd802d`. Both clients regenerate bindings from the exact backend artifact, never manual generated-code edits.
+Both clients regenerate bindings from the exact backend contract artifact,
+never manual generated-code edits. Compare each installed frontend's contract
+lock with the actual loaded backend contract digest reported by authenticated
+diagnostics; an older guide's version label or digest is not deployment proof.
 
 Deploy the backend first and run the normal migration command, `php bin/doctrine-migrations migrations:migrate --no-interaction`. Migration Version20260922000100 adds nullable global_category_id and unit defaulting to units. It neither rewrites stock quantities nor deletes history. Preserve recoverable database/application backups; do not reset existing data. Then rebuild/install the matching Client and Admin against the intended API origin. A merged source branch alone does not update an installed executable.
 
