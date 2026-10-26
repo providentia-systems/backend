@@ -7,12 +7,12 @@ namespace Providentia\Purchasing\Infrastructure\Doctrine;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
-use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalSql;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Providentia\Purchasing\Application\PurchaseAnalyticsReader;
 use Providentia\Purchasing\Application\PurchaseSummaryReader;
 use Providentia\Purchasing\Application\PurchasingStore;
+use Providentia\Purchasing\Domain\PurchaseAmounts;
 use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalProjection;
 
 final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReader, PurchaseAnalyticsReader
@@ -77,20 +77,20 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         DateTimeImmutable $from,
         DateTimeImmutable $through,
     ): array {
-        return $this->connection->fetchAllAssociative(
+        // A single joined read gives each header and its eligible lines the
+        // same database snapshot, including concurrent receipt corrections.
+        $rows = $this->connection->fetchAllAssociative(
             'SELECT r.id, r.purchase_date AS purchaseDate, r.currency,
                     r.store_id AS storeId, s.name AS storeName,
-                    COALESCE(
-                        r.total_amount,
-                        (SELECT ' . DecimalSql::sum($this->connection, 'rl.line_total') . ' FROM receipt_lines rl
-                         WHERE rl.receipt_id = r.id AND rl.home_id = r.home_id
-                           AND rl.approval_status <> \'removed\')
-                    ) AS totalAmount
+                    r.total_amount AS declaredAmount, rl.id AS lineId,
+                    rl.quantity, rl.unit_price AS unitPrice, rl.line_total AS lineTotal
              FROM receipts r
              LEFT JOIN stores s ON s.id = r.store_id AND s.home_id = r.home_id
+             LEFT JOIN receipt_lines rl ON rl.receipt_id = r.id AND rl.home_id = r.home_id
+               AND rl.approval_status <> \'removed\'
              WHERE r.home_id = :home AND r.status = :status
                AND r.purchase_date >= :from_date AND r.purchase_date <= :through_date
-             ORDER BY r.purchase_date, r.id',
+             ORDER BY r.purchase_date, r.id, rl.id',
             [
                 'home' => $homeId,
                 'status' => 'committed',
@@ -98,6 +98,40 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
                 'through_date' => $through->format('Y-m-d'),
             ],
         );
+        /** @var array<string, array<string, mixed>> $receipts */
+        $receipts = [];
+        /** @var array<string, list<array{quantity: string, unitPrice: ?string, lineTotal: ?string}>> $lines */
+        $lines = [];
+        foreach ($rows as $row) {
+            $id = (string) $row['id'];
+            if (!isset($receipts[$id])) {
+                $receipts[$id] = [
+                    'id' => $id,
+                    'purchaseDate' => $row['purchaseDate'],
+                    'currency' => $row['currency'],
+                    'storeId' => $row['storeId'],
+                    'storeName' => $row['storeName'],
+                    'declaredAmount' => $row['declaredAmount'] === null
+                        ? null : DecimalProjection::string($row['declaredAmount']),
+                ];
+                $lines[$id] = [];
+            }
+            if ($row['lineId'] !== null) {
+                $lines[$id][] = [
+                    'quantity' => DecimalProjection::string($row['quantity']),
+                    'unitPrice' => $row['unitPrice'] === null ? null : DecimalProjection::string($row['unitPrice']),
+                    'lineTotal' => $row['lineTotal'] === null ? null : DecimalProjection::string($row['lineTotal']),
+                ];
+            }
+        }
+        $facts = [];
+        foreach ($receipts as $id => $receipt) {
+            $declared = $receipt['declaredAmount'];
+            unset($receipt['declaredAmount']);
+            $facts[] = $receipt + PurchaseAmounts::receipt($declared === null ? null : (string) $declared, $lines[$id]);
+        }
+
+        return $facts;
     }
 
     public function receipt(string $homeId, string $receiptId): ?array
@@ -148,6 +182,141 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
         );
 
         return array_map($this->lineProjection(...), $rows);
+    }
+
+    public function receiptLineCorrections(string $homeId, string $receiptId): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT id, receipt_id AS receiptId, receipt_line_id AS lineId, reason,
+                    receipt_revision AS receiptRevision, original_line_json, next_line_json,
+                    actor_user_id AS actorUserId, created_at AS correctedAt
+             FROM receipt_line_corrections WHERE home_id = :home AND receipt_id = :receipt
+             ORDER BY receipt_revision, id',
+            ['home' => $homeId, 'receipt' => $receiptId],
+        );
+        return array_map($this->lineCorrectionProjection(...), $rows);
+    }
+
+    public function receiptLineCorrection(string $homeId, string $receiptId, string $correctionId): ?array
+    {
+        $row = $this->one(
+            'SELECT id, receipt_id AS receiptId, receipt_line_id AS lineId, request_hash AS requestHash,
+                    reason, receipt_revision AS receiptRevision, original_line_json, next_line_json,
+                    actor_user_id AS actorUserId, created_at AS correctedAt
+             FROM receipt_line_corrections WHERE home_id = :home AND receipt_id = :receipt AND id = :id',
+            ['home' => $homeId, 'receipt' => $receiptId, 'id' => $correctionId],
+        );
+        return $row === null ? null : $this->lineCorrectionProjection($row);
+    }
+
+    public function completeReceiptLine(
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        int $expectedReceiptRevision,
+        ?int $expectedLineRevision,
+        array $fields,
+        DateTimeImmutable $at,
+    ): bool {
+        $now = $this->date($at);
+        if (
+            $this->connection->executeStatement(
+                'UPDATE receipts SET revision = revision + 1, updated_at = :at
+             WHERE home_id = :home AND id = :id AND status = :status AND revision = :revision',
+                ['at' => $now, 'home' => $homeId, 'id' => $receiptId,
+                'status' => 'committed', 'revision' => $expectedReceiptRevision],
+            ) !== 1
+        ) {
+            return false;
+        }
+        if ($expectedLineRevision === null) {
+            $lineNumber = 1 + (int) $this->connection->fetchOne(
+                'SELECT COALESCE(MAX(line_number), 0) FROM receipt_lines WHERE home_id = ? AND receipt_id = ?',
+                [$homeId, $receiptId],
+            );
+            try {
+                $this->connection->insert('receipt_lines', [
+                    'id' => $lineId, 'home_id' => $homeId, 'receipt_id' => $receiptId,
+                    'line_number' => $lineNumber, ...$fields, 'revision' => 1,
+                    'created_at' => $now, 'updated_at' => $now,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                throw new \DomainException('This receipt-line identifier is already in use.');
+            }
+        } else {
+            $updated = $this->connection->executeStatement(
+                'UPDATE receipt_lines SET raw_description = :description, quantity = :quantity,
+                    original_pack_text = :packText, unit_price = :price, line_total = :total,
+                    home_product_id = :product, selected_pack_id = :pack, approval_status = :approved,
+                    stock_quantity = :stock, stock_quantity_per_pack = :factor, stock_unit = :unit,
+                    revision = revision + 1, updated_at = :at
+                 WHERE home_id = :home AND receipt_id = :receipt AND id = :id
+                    AND revision = :revision AND stock_quantity IS NULL AND approval_status <> :removed',
+                ['description' => $fields['raw_description'], 'quantity' => $fields['quantity'],
+                    'packText' => $fields['original_pack_text'], 'price' => $fields['unit_price'],
+                    'total' => $fields['line_total'], 'product' => $fields['home_product_id'],
+                    'pack' => $fields['selected_pack_id'], 'approved' => 'approved',
+                    'stock' => $fields['stock_quantity'], 'factor' => $fields['stock_quantity_per_pack'],
+                    'unit' => $fields['stock_unit'], 'at' => $now, 'home' => $homeId,
+                    'receipt' => $receiptId, 'id' => $lineId, 'revision' => $expectedLineRevision,
+                    'removed' => 'removed'],
+            );
+            if ($updated !== 1) {
+                return false;
+            }
+        }
+        $this->connection->executeStatement(
+            'UPDATE receipt_line_matches SET status = ? WHERE home_id = ? AND receipt_line_id = ? AND status = ?',
+            ['superseded', $homeId, $lineId, 'approved'],
+        );
+        $this->connection->executeStatement(
+            'UPDATE price_observations SET superseded_at = ?
+             WHERE home_id = ? AND receipt_line_id = ? AND superseded_at IS NULL',
+            [$now, $homeId, $lineId],
+        );
+        return true;
+    }
+
+    public function recordReceiptLineCorrection(
+        string $id,
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        string $requestHash,
+        string $reason,
+        int $receiptRevision,
+        ?array $originalLine,
+        array $nextLine,
+        string $actorUserId,
+        DateTimeImmutable $at,
+    ): void {
+        try {
+            $this->connection->insert('receipt_line_corrections', [
+                'id' => $id, 'home_id' => $homeId, 'receipt_id' => $receiptId, 'receipt_line_id' => $lineId,
+                'request_hash' => $requestHash, 'reason' => $reason, 'receipt_revision' => $receiptRevision,
+                'original_line_json' => $originalLine === null ? null : json_encode($originalLine, JSON_THROW_ON_ERROR),
+                'next_line_json' => json_encode($nextLine, JSON_THROW_ON_ERROR),
+                'actor_user_id' => $actorUserId, 'created_at' => $this->date($at),
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            throw new \DomainException('This correction identifier or receipt revision is already in use.');
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function lineCorrectionProjection(array $row): array
+    {
+        $row['receiptRevision'] = (int) $row['receiptRevision'];
+        $row['originalLine'] = $row['original_line_json'] === null ? null
+            : json_decode((string) $row['original_line_json'], true, 512, JSON_THROW_ON_ERROR);
+        $row['nextLine'] = json_decode((string) $row['next_line_json'], true, 512, JSON_THROW_ON_ERROR);
+        $row['correctedAt'] = new DateTimeImmutable((string) $row['correctedAt'], new DateTimeZone('UTC'))
+            ->format(DATE_ATOM);
+        unset($row['original_line_json'], $row['next_line_json']);
+        return $row;
     }
 
     public function receiptDateCorrections(string $homeId, string $receiptId): array
@@ -861,25 +1030,35 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
 
     public function summary(string $homeId, int $recentDays): array
     {
-        $cutoff = (new DateTimeImmutable('now', new DateTimeZone('UTC')))
-            ->modify('-' . $recentDays . ' days')
-            ->format('Y-m-d');
-        $spend = DecimalSql::sum(
-            $this->connection,
-            "CASE WHEN rl.approval_status <> 'removed' THEN rl.line_total END",
-        );
-        $row = $this->one(
-            'SELECT COUNT(DISTINCT r.id) AS receiptCount,
-                    COUNT(CASE WHEN rl.approval_status <> \'removed\' THEN rl.id END) AS lineCount,
-                    COALESCE(' . $spend . ', 0) AS spend
-             FROM receipts r
-             LEFT JOIN receipt_lines rl ON rl.receipt_id = r.id AND rl.home_id = r.home_id
-             WHERE r.home_id = :home AND r.purchase_date >= :cutoff
-               AND r.status = :status',
-            ['home' => $homeId, 'cutoff' => $cutoff, 'status' => 'committed'],
-        );
+        $through = new DateTimeImmutable('today', new DateTimeZone('UTC'));
+        $from = $through->modify('-' . $recentDays . ' days');
+        $facts = $this->purchaseFacts($homeId, $from, $through);
+        /** @var array<string, list<array<string, mixed>>> $groups */
+        $groups = [];
+        $lineCount = 0;
+        $pricingComplete = true;
+        foreach ($facts as $fact) {
+            $groups[(string) $fact['currency']][] = $fact;
+            $lineCount += (int) $fact['lineCount'];
+            $pricingComplete = $pricingComplete && (bool) $fact['pricingComplete'];
+        }
+        ksort($groups);
+        $totals = [];
+        foreach ($groups as $currency => $receipts) {
+            $amounts = PurchaseAmounts::aggregate($receipts);
+            $amounts['spend'] = $amounts['totalAmount'];
+            unset($amounts['totalAmount']);
+            $totals[] = ['currency' => $currency] + $amounts;
+        }
 
-        return $row ?? ['receiptCount' => 0, 'lineCount' => 0, 'spend' => '0'];
+        return [
+            'receiptCount' => count($facts),
+            'lineCount' => $lineCount,
+            'spend' => count($totals) === 1 ? $totals[0]['spend'] : ($totals === [] ? '0' : null),
+            'currency' => count($totals) === 1 ? $totals[0]['currency'] : null,
+            'pricingComplete' => $pricingComplete,
+            'currencyTotals' => $totals,
+        ];
     }
 
     /**
@@ -889,6 +1068,11 @@ final class DbalPurchasingStore implements PurchasingStore, PurchaseSummaryReade
     private function receiptProjection(array $row): array
     {
         $row['revision'] = (int) $row['revision'];
+        $row['lineCorrectionState'] = match ($row['status']) {
+            'draft' => 'draft',
+            'committed' => 'available',
+            default => 'immutable',
+        };
         if ($row['totalAmount'] !== null) {
             $row['totalAmount'] = DecimalProjection::string($row['totalAmount']);
         }

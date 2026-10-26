@@ -224,6 +224,17 @@ final class SyncCommandValidator
                 true,
                 $baseRevision,
             ),
+            'purchasing.receipt-line.correct' => $this->shape(
+                $payload,
+                ['receiptId', 'correctionId', 'expectedLineRevision', 'reason', 'homeProductId', 'packId',
+                    'rawDescription', 'quantity', 'originalPackText', 'unitPrice', 'lineTotal',
+                    'unit', 'stockQuantityPerPack'],
+                ['receiptId', 'correctionId', 'expectedLineRevision', 'reason', 'homeProductId', 'packId',
+                    'rawDescription', 'quantity', 'originalPackText', 'unitPrice', 'lineTotal',
+                    'unit', 'stockQuantityPerPack'],
+                true,
+                $baseRevision,
+            ),
             'purchasing.receipt-line.approve' => $this->shape(
                 $payload,
                 ['receiptId', 'homeProductId', 'packId', 'unit', 'stockQuantityPerPack'],
@@ -343,6 +354,7 @@ final class SyncCommandValidator
                 $type,
                 [
                     'purchasing.receipt-line.purchase',
+                    'purchasing.receipt-line.correct',
                     'purchasing.receipt.update',
                     'purchasing.receipt.correct-date',
                     'purchasing.receipt.cancel',
@@ -407,6 +419,7 @@ final class SyncCommandValidator
                 'receiptId',
             ],
             'purchasing.receipt-line.purchase' => ['receiptId', 'homeProductId', 'packId'],
+            'purchasing.receipt-line.correct' => ['receiptId', 'correctionId', 'homeProductId', 'packId'],
             'purchasing.receipt-line.approve' => ['receiptId', 'homeProductId', 'packId'],
             'purchasing.receipt-line.unresolve' => ['receiptId'],
             'shopping.preference.put' => ['preferredPackId'],
@@ -446,9 +459,28 @@ final class SyncCommandValidator
                 }
             }
         }
+        if ($type === 'purchasing.receipt-line.correct') {
+            foreach (
+                ['receiptId', 'correctionId', 'homeProductId', 'reason', 'rawDescription',
+                'quantity', 'unit', 'stockQuantityPerPack'] as $field
+            ) {
+                if (!is_string($payload[$field])) {
+                    throw new Problem(422, 'Invalid command', $field . ' must be a string.');
+                }
+            }
+            if (
+                $payload['expectedLineRevision'] !== null
+                && (!is_int($payload['expectedLineRevision']) || $payload['expectedLineRevision'] < 1)
+            ) {
+                throw new Problem(422, 'Invalid command', 'expectedLineRevision must be positive or null.');
+            }
+        }
         $booleanFields = ['scopeComplete', 'checked', 'archived', 'alwaysKeep', 'neverSuggest'];
         foreach ($payload as $field => $fieldValue) {
-            if ($field === 'lineCorrections') {
+            if (
+                $field === 'lineCorrections'
+                || ($type === 'purchasing.receipt-line.correct' && $field === 'expectedLineRevision')
+            ) {
                 continue;
             }
             if (

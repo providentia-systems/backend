@@ -66,6 +66,10 @@ final class PurchasingImmediatePurchaseTest extends TestCase
             'CREATE TABLE price_observations (id TEXT, home_id TEXT, receipt_line_id TEXT,
              product_pack_id TEXT, store_id TEXT, currency TEXT, quantity TEXT, unit_price TEXT,
              line_total TEXT, observed_at TEXT, created_at TEXT, superseded_at TEXT)',
+            'CREATE TABLE receipt_line_corrections (id TEXT PRIMARY KEY, home_id TEXT, receipt_id TEXT,
+             receipt_line_id TEXT, request_hash TEXT, reason TEXT, receipt_revision INTEGER,
+             original_line_json TEXT, next_line_json TEXT, actor_user_id TEXT, created_at TEXT,
+             UNIQUE(home_id, receipt_id, receipt_revision))',
             'CREATE TABLE receipt_date_corrections (id TEXT PRIMARY KEY, home_id TEXT, receipt_id TEXT,
              original_purchase_date TEXT, purchase_date TEXT, reason TEXT, receipt_revision INTEGER,
              actor_user_id TEXT, created_at TEXT, UNIQUE(home_id, receipt_id, receipt_revision))',
@@ -805,6 +809,242 @@ final class PurchasingImmediatePurchaseTest extends TestCase
         $body['expectedRevision'] = '3';
         $this->expectException(Problem::class);
         $handler->handle($request->withParsedBody($body));
+    }
+
+    public function testFinishedReceiptCompletesPendingAndOmittedPurchasesOnceWithoutReplayingAppliedLine(): void
+    {
+        $pending = '01912345-6789-7abc-8def-6123456789ab';
+        $omitted = '01912345-6789-7abc-8def-7123456789ab';
+        $this->purchase('4');
+        $this->service->addLine(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            2,
+            'Unidentified apples',
+            '1',
+            null,
+            null,
+            '10',
+            $pending
+        );
+        $this->service->unresolveLine($this->identity(), self::HOME, self::RECEIPT, $pending, 1);
+        $finished = $this->service->commit($this->identity(), self::HOME, self::RECEIPT, 4);
+        self::assertSame('available', $finished['lineCorrectionState']);
+        $fields = $this->completionFields(2);
+        $resolved = $this->service->correctFinishedLine(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            $pending,
+            5,
+            $fields,
+        );
+        self::assertSame(3, $resolved['revision']);
+        self::assertSame(6, $resolved['receiptRevision']);
+        self::assertSame('approved', $resolved['approvalStatus']);
+        self::assertSame('5.5', $this->balance());
+        self::assertSame($resolved, $this->service->correctFinishedLine(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            $pending,
+            5,
+            $fields,
+        ));
+        $missingFields = $this->completionFields(null);
+        $missingFields['correctionId'] = '01912345-6789-7abc-8def-8123456789ab';
+        $missingFields['quantity'] = '0.25';
+        $missingFields['lineTotal'] = '2';
+        $missing = $this->service->correctFinishedLine(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            $omitted,
+            6,
+            $missingFields,
+        );
+        self::assertSame(1, $missing['revision']);
+        self::assertSame(7, $missing['receiptRevision']);
+        self::assertSame('5.75', $this->balance());
+        self::assertSame(1, $this->line()['revision']);
+        self::assertSame('4', $this->line()['stockQuantity']);
+        self::assertSame('committed', $this->receiptRecord()['status']);
+        self::assertSame('2026-10-13 07:00:00', $this->receiptRecord()['committedAt']);
+        self::assertSame(0, $this->service->commit($this->identity(), self::HOME, self::RECEIPT, 7)['movements']);
+        self::assertSame('3', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM stock_movements'));
+        self::assertSame('3', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM price_observations'));
+        $history = $this->service->receiptLineCorrections($this->identity(), self::HOME, self::RECEIPT);
+        self::assertCount(2, $history);
+        self::assertSame('unresolved', $history[0]['originalLine']['approvalStatus']);
+        self::assertSame($resolved['id'], $history[0]['nextLine']['id']);
+        self::assertSame('1.5', $history[0]['nextLine']['stockQuantity']);
+        self::assertNull($history[1]['originalLine']);
+        self::assertArrayNotHasKey('requestHash', $history[0]);
+        // A frozen retry acknowledgement remains identical after later audited date changes.
+        $this->service->correctReceiptDate(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            '2026-10-10',
+            'Correct purchase calendar day',
+            7
+        );
+        self::assertSame($resolved, $this->service->correctFinishedLine(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            $pending,
+            5,
+            $fields,
+        ));
+        self::assertSame('5.75', $this->balance());
+        $this->service->cancelReceipt($this->identity(), self::HOME, self::RECEIPT, 8);
+        self::assertSame('0', $this->balance());
+        self::assertSame('immutable', $this->receiptRecord()['lineCorrectionState']);
+        self::assertCount(2, $this->service->receiptLineCorrections($this->identity(), self::HOME, self::RECEIPT));
+    }
+
+    public function testFinishedCorrectionRejectsStaleSnapshotsChangedIntentAndAppliedLines(): void
+    {
+        $this->purchase('4');
+        $this->service->commit($this->identity(), self::HOME, self::RECEIPT, 2);
+        $omitted = '01912345-6789-7abc-8def-7123456789ab';
+        $fields = $this->completionFields(null);
+        foreach ([[2, null], [3, 1]] as [$receiptRevision, $lineRevision]) {
+            $invalid = [...$fields, 'expectedLineRevision' => $lineRevision];
+            try {
+                $this->service->correctFinishedLine(
+                    $this->identity(),
+                    self::HOME,
+                    self::RECEIPT,
+                    $omitted,
+                    $receiptRevision,
+                    $invalid
+                );
+                self::fail('Stale or nonexistent line snapshots must conflict.');
+            } catch (Problem $problem) {
+                self::assertSame(409, $problem->status);
+            }
+        }
+        try {
+            $this->service->correctFinishedLine(
+                $this->identity(),
+                self::HOME,
+                self::RECEIPT,
+                self::LINE,
+                3,
+                $this->completionFields(1)
+            );
+            self::fail('Applied lines must use their existing correction workflow.');
+        } catch (Problem $problem) {
+            self::assertSame(409, $problem->status);
+        }
+        $this->service->correctFinishedLine($this->identity(), self::HOME, self::RECEIPT, $omitted, 3, $fields);
+        try {
+            $this->service->correctFinishedLine(
+                $this->identity(),
+                self::HOME,
+                self::RECEIPT,
+                $omitted,
+                3,
+                [...$fields, 'quantity' => '2']
+            );
+            self::fail('The correction ID cannot be reused with new intent.');
+        } catch (Problem $problem) {
+            self::assertSame(409, $problem->status);
+        }
+        self::assertSame('5.5', $this->balance());
+        self::assertSame(4, $this->receiptRecord()['revision']);
+        self::assertSame('1', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM receipt_line_corrections'));
+    }
+
+    public function testInterruptedFinishedCorrectionRollsBackReceiptStockPriceAndAuditTogether(): void
+    {
+        $this->purchase('4');
+        $this->service->commit($this->identity(), self::HOME, self::RECEIPT, 2);
+        $omitted = '01912345-6789-7abc-8def-7123456789ab';
+        $this->connection->executeStatement("CREATE TRIGGER fail_correction_audit
+            BEFORE INSERT ON receipt_line_corrections BEGIN SELECT RAISE(ABORT, 'synthetic interruption'); END");
+        try {
+            $this->service->correctFinishedLine(
+                $this->identity(),
+                self::HOME,
+                self::RECEIPT,
+                $omitted,
+                3,
+                $this->completionFields(null)
+            );
+            self::fail('The injected audit failure must abort the entire operation.');
+        } catch (\Doctrine\DBAL\Exception $error) {
+            self::assertStringContainsString('synthetic interruption', $error->getMessage());
+        }
+        self::assertSame('4', $this->balance());
+        self::assertSame(3, $this->receiptRecord()['revision']);
+        self::assertSame('committed', $this->receiptRecord()['status']);
+        self::assertNull($this->store->receiptLine(self::HOME, self::RECEIPT, $omitted));
+        self::assertSame('1', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM price_observations'));
+        self::assertSame('1', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM stock_movements'));
+        self::assertSame('0', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM receipt_line_corrections'));
+        $this->connection->executeStatement('DROP TRIGGER fail_correction_audit');
+        $this->service->correctFinishedLine(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            $omitted,
+            3,
+            $this->completionFields(null)
+        );
+        self::assertSame('5.5', $this->balance());
+    }
+
+    public function testFinishedCorrectionHttpUsesStrictTypesAndPreservesUnknownPrice(): void
+    {
+        $pending = $this->service->addLine(
+            $this->identity(),
+            self::HOME,
+            self::RECEIPT,
+            1,
+            'Unresolved existing item',
+            '1',
+            null,
+            null,
+            '10'
+        );
+        $this->service->unresolveLine($this->identity(), self::HOME, self::RECEIPT, $pending['id'], 1);
+        $this->service->commit($this->identity(), self::HOME, self::RECEIPT, 3);
+        $line = '01912345-6789-7abc-8def-7123456789ab';
+        $body = [...$this->completionFields(null), 'lineId' => $line, 'expectedReceiptRevision' => 4,
+            'unitPrice' => null, 'lineTotal' => null];
+        $handler = new PurchasingHandler($this->service, 'line-corrections.create');
+        $request = new ServerRequest()->withAttribute(
+            BearerAuthenticationMiddleware::ATTRIBUTE,
+            $this->identity()
+        )->withAttribute('homeId', self::HOME)->withAttribute('receiptId', self::RECEIPT);
+        $response = $handler->handle($request->withParsedBody($body));
+        self::assertSame(201, $response->getStatusCode());
+        $result = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('approved', $result['approvalStatus']);
+        self::assertNull($result['unitPrice']);
+        self::assertNull($result['lineTotal']);
+        self::assertSame('1.5', $this->balance());
+        self::assertSame('0', (string) $this->connection->fetchOne('SELECT COUNT(*) FROM price_observations'));
+        $history = new PurchasingHandler($this->service, 'line-corrections.list')->handle($request);
+        self::assertCount(1, json_decode((string) $history->getBody(), true, 512, JSON_THROW_ON_ERROR)['data']);
+        $this->expectException(\Providentia\SharedKernel\Http\HttpProblem::class);
+        $handler->handle($request->withParsedBody([...$body, 'expectedReceiptRevision' => '2']));
+    }
+
+    /** @return array<string, mixed> */
+    private function completionFields(?int $revision): array
+    {
+        return [
+            'correctionId' => '01912345-6789-7abc-8def-5123456789ab',
+            'expectedLineRevision' => $revision, 'reason' => 'Verified omitted or unresolved purchase',
+            'homeProductId' => self::ITEM, 'packId' => self::PACK, 'rawDescription' => 'Apples confirmed',
+            'quantity' => '1.5', 'originalPackText' => '1 kg bag', 'unitPrice' => '10', 'lineTotal' => '14',
+            'unit' => 'kg', 'stockQuantityPerPack' => '1',
+        ];
     }
 
     /** @return array<string, mixed> */

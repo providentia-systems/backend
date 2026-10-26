@@ -76,6 +76,248 @@ final class PurchasingService
     }
 
     /** @return list<array<string, mixed>> */
+    public function receiptLineCorrections(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+    ): array {
+        $this->receipt($identity, $homeId, $receiptId);
+        return $this->purchases->receiptLineCorrections($homeId, $receiptId);
+    }
+
+    /**
+     * Complete one omitted or unapplied line without reopening or replaying a receipt.
+     *
+     * @param array<string, mixed> $fields
+     * @return array<string, mixed>
+     */
+    public function correctFinishedLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        int $expectedReceiptRevision,
+        array $fields,
+    ): array {
+        $this->authorization->requirePermission($identity, $homeId, HomePermission::PURCHASES_WRITE);
+        $lineId = $this->identifier($lineId);
+        $fields = $this->finishedCorrectionFields($fields);
+        if ($expectedReceiptRevision < 1) {
+            throw new Problem(422, 'Invalid revision', 'Provide a positive expectedReceiptRevision.');
+        }
+        // Fixed field ordering and normalized decimals bind the command identity
+        // to its actor and intent; replay never reads a subsequently edited line.
+        $requestHash = hash('sha256', json_encode([
+            'homeId' => $homeId, 'receiptId' => $receiptId, 'lineId' => $lineId,
+            'expectedReceiptRevision' => $expectedReceiptRevision,
+            'actorUserId' => $identity->userId, 'fields' => $fields,
+        ], JSON_THROW_ON_ERROR));
+        try {
+            return $this->transactions->transactional(function () use (
+                $identity,
+                $homeId,
+                $receiptId,
+                $lineId,
+                $expectedReceiptRevision,
+                $fields,
+                $requestHash,
+            ): array {
+                // The store locks the aggregate header on transactional reads.
+                $receipt = $this->purchases->receipt($homeId, $receiptId);
+                if ($receipt === null) {
+                    throw new Problem(404, 'Not found', 'The requested resource is unavailable.');
+                }
+                $correctionId = (string) $fields['correctionId'];
+                $previous = $this->purchases->receiptLineCorrection($homeId, $receiptId, $correctionId);
+                if ($previous !== null) {
+                    if (!hash_equals((string) $previous['requestHash'], $requestHash)) {
+                        throw new Problem(
+                            409,
+                            'Correction identifier conflict',
+                            'This identifier belongs to another command. Keep the original operation intact.',
+                        );
+                    }
+                    return [...$previous['nextLine'], 'correctionId' => $correctionId,
+                        'receiptRevision' => (int) $previous['receiptRevision']];
+                }
+                if ($receipt['status'] !== 'committed') {
+                    throw new Problem(
+                        409,
+                        'Receipt correction unavailable',
+                        'Use ordinary line editing for drafts. Cancelled receipts cannot receive new purchases.',
+                    );
+                }
+                if ((int) $receipt['revision'] !== $expectedReceiptRevision) {
+                    throw new Problem(409, 'Revision conflict', 'Reload this finished receipt before correcting it.');
+                }
+                $original = $this->purchases->receiptLine($homeId, $receiptId, $lineId);
+                $lineRevision = $fields['expectedLineRevision'];
+                if (
+                    ($original === null && $lineRevision !== null)
+                    || ($original !== null && ($lineRevision === null
+                        || (int) $original['revision'] !== $lineRevision))
+                ) {
+                    throw new Problem(409, 'Revision conflict', 'Reload the pending line before correcting it.');
+                }
+                if (
+                    $original !== null && (($original['stockQuantity'] ?? null) !== null
+                    || $original['approvalStatus'] === 'removed')
+                ) {
+                    throw new Problem(
+                        409,
+                        'Purchase already recorded',
+                        'Use the existing purchase-line correction or removal action for an applied line.',
+                    );
+                }
+                $this->purchaseDay($homeId, (string) $receipt['purchaseDate']);
+                $homeProductId = (string) $fields['homeProductId'];
+                $packId = $fields['packId'] === null ? null : (string) $fields['packId'];
+                $product = $this->purchases->purchaseProduct($homeId, $homeProductId, $packId);
+                if ($product === null) {
+                    throw new Problem(404, 'Not found', 'The selected home product is unavailable.');
+                }
+                $factor = $this->purchaseFactor(
+                    $product,
+                    $packId,
+                    (string) $fields['unit'],
+                    (string) $fields['stockQuantityPerPack'],
+                );
+                $stockQuantity = $this->decimalProduct((string) $fields['quantity'], $factor);
+                if (DecimalQuantity::quantity($stockQuantity)->isZero()) {
+                    throw new Problem(422, 'Invalid pack', 'The purchase must have a positive stock measure.');
+                }
+                $packText = $fields['originalPackText'] ?? ($product['packText'] ?? null);
+                $at = $this->clock->now();
+                if (
+                    !$this->purchases->completeReceiptLine(
+                        $homeId,
+                        $receiptId,
+                        $lineId,
+                        $expectedReceiptRevision,
+                        $lineRevision === null ? null : (int) $lineRevision,
+                        [
+                        'raw_description' => $fields['rawDescription'], 'quantity' => $fields['quantity'],
+                        'original_pack_text' => $packText, 'unit_price' => $fields['unitPrice'],
+                        'line_total' => $fields['lineTotal'], 'home_product_id' => $homeProductId,
+                        'selected_pack_id' => $packId, 'approval_status' => 'approved',
+                        'stock_quantity' => $stockQuantity, 'stock_quantity_per_pack' => $factor,
+                        'stock_unit' => $fields['unit'],
+                        ],
+                        $at,
+                    )
+                ) {
+                    throw new Problem(409, 'Revision conflict', 'Reload the receipt and pending line before retrying.');
+                }
+                $this->inventory->recordApprovedInbound(
+                    $identity->userId,
+                    $homeId,
+                    $homeProductId,
+                    $stockQuantity,
+                    'receipt-line',
+                    $lineId,
+                    (string) $fields['reason'],
+                    $this->date((string) $receipt['purchaseDate']),
+                );
+                $line = $this->purchases->receiptLine($homeId, $receiptId, $lineId)
+                    ?? throw new \RuntimeException('The completed receipt line is unavailable.');
+                $this->observePrice($homeId, $receipt, $line);
+                $this->purchases->recordReceiptLineCorrection(
+                    $correctionId,
+                    $homeId,
+                    $receiptId,
+                    $lineId,
+                    $requestHash,
+                    (string) $fields['reason'],
+                    $expectedReceiptRevision + 1,
+                    $original,
+                    $line,
+                    $identity->userId,
+                    $at,
+                );
+                $this->publishLine($identity, $homeId, $receiptId, $line);
+                $audit = $this->purchases->receiptLineCorrection($homeId, $receiptId, $correctionId)
+                    ?? throw new \RuntimeException('The receipt-line correction audit is unavailable.');
+                unset($audit['id'], $audit['requestHash']);
+                $this->changes?->put(
+                    $homeId,
+                    $identity->userId,
+                    'purchasing-receipt-line-correction',
+                    $correctionId,
+                    1,
+                    $audit,
+                    $at,
+                );
+                return [...$line, 'correctionId' => $correctionId, 'receiptRevision' => $expectedReceiptRevision + 1];
+            });
+        } catch (DomainException $error) {
+            throw new Problem(409, 'Receipt-line correction conflict', $error->getMessage());
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     * @return array<string, mixed>
+     */
+    private function finishedCorrectionFields(array $fields): array
+    {
+        $keys = ['correctionId', 'expectedLineRevision', 'reason', 'homeProductId', 'packId',
+            'rawDescription', 'quantity', 'originalPackText', 'unitPrice', 'lineTotal', 'unit', 'stockQuantityPerPack'];
+        if (array_diff(array_keys($fields), $keys) !== [] || array_diff($keys, array_keys($fields)) !== []) {
+            throw new Problem(422, 'Invalid correction', 'Provide all receipt-line correction fields only.');
+        }
+        foreach ($keys as $key) {
+            if ($key === 'expectedLineRevision') {
+                if ($fields[$key] !== null && (!is_int($fields[$key]) || $fields[$key] < 1)) {
+                    throw new Problem(422, 'Invalid revision', 'expectedLineRevision must be positive or null.');
+                }
+                continue;
+            }
+            if (
+                $fields[$key] === null
+                && in_array($key, ['packId', 'originalPackText', 'unitPrice', 'lineTotal'], true)
+            ) {
+                continue;
+            }
+            if (!is_string($fields[$key])) {
+                throw new Problem(422, 'Invalid correction', $key . ' must be text.');
+            }
+        }
+        $fields = array_replace(array_fill_keys($keys, null), $fields);
+        foreach (['correctionId', 'homeProductId', 'packId'] as $key) {
+            if ($fields[$key] !== null) {
+                $fields[$key] = $this->identifier((string) $fields[$key]);
+            }
+        }
+        foreach (['reason', 'rawDescription', 'originalPackText'] as $key) {
+            if ($fields[$key] !== null) {
+                $fields[$key] = trim((string) $fields[$key]);
+            }
+        }
+        if (
+            $fields['reason'] === '' || mb_strlen((string) $fields['reason']) > 500
+            || $fields['rawDescription'] === '' || mb_strlen((string) $fields['rawDescription']) > 500
+            || ($fields['originalPackText'] !== null && mb_strlen((string) $fields['originalPackText']) > 191)
+        ) {
+            throw new Problem(422, 'Invalid correction', 'Provide a reason, description and valid pack text.');
+        }
+        if (!in_array($fields['unit'], ['units', 'g', 'kg', 'ml', 'l'], true)) {
+            throw new Problem(422, 'Invalid unit', 'Choose units, g, kg, ml or l.');
+        }
+        $fields['quantity'] = $this->quantity((string) $fields['quantity']);
+        $fields['stockQuantityPerPack'] = $this->quantity((string) $fields['stockQuantityPerPack']);
+        if (DecimalQuantity::quantity((string) $fields['quantity'])->isZero()) {
+            throw new Problem(422, 'Invalid quantity', 'Purchased quantity must be positive.');
+        }
+        foreach (['unitPrice', 'lineTotal'] as $key) {
+            $fields[$key] = $this->decimalMoney($this->money(
+                $fields[$key] === null ? null : (string) $fields[$key],
+                true,
+            ));
+        }
+        return $fields;
+    }
+
+    /** @return list<array<string, mixed>> */
     public function receiptDateCorrections(
         AuthenticatedIdentity $identity,
         string $homeId,
@@ -410,6 +652,7 @@ final class PurchasingService
                         'currency' => $currency,
                         'totalAmount' => $totalAmount,
                         'status' => 'draft',
+                        'lineCorrectionState' => 'draft',
                         'source' => 'manual',
                         'sourceReference' => $sourceReference,
                         'notes' => $notes,
@@ -514,6 +757,7 @@ final class PurchasingService
                     'currency' => (string) $receipt['currency'],
                     'totalAmount' => $receipt['totalAmount'] ?? null,
                     'status' => (string) $receipt['status'],
+                    'lineCorrectionState' => $receipt['lineCorrectionState'] ?? 'draft',
                     'source' => (string) ($receipt['source'] ?? 'manual'),
                     'sourceReference' => $receipt['sourceReference'] ?? null,
                     'notes' => (string) ($receipt['notes'] ?? ''),
@@ -896,6 +1140,7 @@ final class PurchasingService
                     'currency' => (string) $receipt['currency'],
                     'totalAmount' => $receipt['totalAmount'] ?? null,
                     'status' => (string) $receipt['status'],
+                    'lineCorrectionState' => $receipt['lineCorrectionState'] ?? 'draft',
                     'source' => (string) ($receipt['source'] ?? 'manual'),
                     'sourceReference' => $receipt['sourceReference'] ?? null,
                     'notes' => (string) ($receipt['notes'] ?? ''),
@@ -990,6 +1235,7 @@ final class PurchasingService
                     'currency' => (string) $updatedReceipt['currency'],
                     'totalAmount' => $updatedReceipt['totalAmount'] ?? null,
                     'status' => (string) $updatedReceipt['status'],
+                    'lineCorrectionState' => $updatedReceipt['lineCorrectionState'] ?? 'draft',
                     'source' => (string) ($updatedReceipt['source'] ?? 'manual'),
                     'sourceReference' => $updatedReceipt['sourceReference'] ?? null,
                     'notes' => (string) ($updatedReceipt['notes'] ?? ''),
@@ -1390,6 +1636,7 @@ final class PurchasingService
                 'currency',
                 'totalAmount',
                 'status',
+                'lineCorrectionState',
                 'source',
                 'sourceReference',
                 'notes',
@@ -1550,6 +1797,7 @@ final class PurchasingService
                     'currency' => (string) $receipt['currency'],
                     'totalAmount' => $receipt['totalAmount'] ?? null,
                     'status' => 'committed',
+                    'lineCorrectionState' => 'available',
                     'source' => (string) ($receipt['source'] ?? 'manual'),
                     'sourceReference' => $receipt['sourceReference'] ?? null,
                     'notes' => (string) ($receipt['notes'] ?? ''),

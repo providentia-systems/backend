@@ -463,6 +463,34 @@ final class SynchronizationStoreTest extends TestCase
         self::assertSame([], $this->store->captureSnapshotPage(self::HOME_ID, 2, null, null, 10)->records);
     }
 
+    public function testExistingReceiptFeedsExposeCorrectionCapabilityWithoutRewritingEvidence(): void
+    {
+        $writer = new DbalChangeFeedWriter($this->connection, new SequenceUuidGenerator());
+        $at = new DateTimeImmutable('2026-10-26T09:00:00Z');
+        $states = ['draft' => 'draft', 'committed' => 'available', 'cancelled' => 'immutable'];
+        $cursor = 0;
+        foreach ($states as $status => $capability) {
+            $cursor = $writer->put(
+                self::HOME_ID,
+                self::USER_ID,
+                'purchasing-receipt',
+                self::ENTITY_ID,
+                $cursor + 1,
+                ['status' => $status],
+                $at,
+            );
+            $changes = $this->store->changes(self::HOME_ID, $cursor - 1, $cursor, 10);
+            self::assertSame($capability, $changes[0]['payload']['lineCorrectionState']);
+            $snapshot = $this->store->captureSnapshotPage(self::HOME_ID, $cursor, null, null, 10);
+            self::assertSame($capability, $snapshot->records[0]['representation']['lineCorrectionState']);
+            $stored = json_decode((string) $this->connection->fetchOne(
+                'SELECT payload_json FROM change_log WHERE sequence_id = ?',
+                [$cursor],
+            ), true, 64, JSON_THROW_ON_ERROR);
+            self::assertSame(['status' => $status], $stored);
+        }
+    }
+
     private function operation(
         string $operationId,
         ?int $baseRevision,

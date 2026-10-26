@@ -24,6 +24,41 @@ interface PurchasingStore
     public function receipt(string $homeId, string $receiptId): ?array;
 
     /** @return list<array<string, mixed>> */
+    public function receiptLineCorrections(string $homeId, string $receiptId): array;
+
+    /** @return array<string, mixed>|null */
+    public function receiptLineCorrection(string $homeId, string $receiptId, string $correctionId): ?array;
+
+    /** @param array<string, mixed> $fields */
+    public function completeReceiptLine(
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        int $expectedReceiptRevision,
+        ?int $expectedLineRevision,
+        array $fields,
+        DateTimeImmutable $at,
+    ): bool;
+
+    /**
+     * @param array<string, mixed>|null $originalLine
+     * @param array<string, mixed> $nextLine
+     */
+    public function recordReceiptLineCorrection(
+        string $id,
+        string $homeId,
+        string $receiptId,
+        string $lineId,
+        string $requestHash,
+        string $reason,
+        int $receiptRevision,
+        ?array $originalLine,
+        array $nextLine,
+        string $actorUserId,
+        DateTimeImmutable $at,
+    ): void;
+
+    /** @return list<array<string, mixed>> */
     public function receiptDateCorrections(string $homeId, string $receiptId): array;
 
     public function correctReceiptDate(

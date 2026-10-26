@@ -396,6 +396,60 @@ final class PantrySyncCommandDispatcherTest extends TestCase
         );
     }
 
+    public function testFinishedCorrectionDispatchPreservesReceiptRevisionAndReplaysTheAuditedLine(): void
+    {
+        $lineId = self::LIST_ID;
+        $fields = [
+            'correctionId' => self::OPERATION_ID,
+            'expectedLineRevision' => 2,
+            'reason' => 'Resolve original pending purchase',
+            'homeProductId' => self::PRODUCT_ID,
+            'packId' => null,
+            'rawDescription' => 'Rice',
+            'quantity' => '2',
+            'originalPackText' => null,
+            'unitPrice' => '6',
+            'lineTotal' => '12',
+            'unit' => 'kg',
+            'stockQuantityPerPack' => '1',
+        ];
+        $hash = hash('sha256', json_encode([
+            'homeId' => self::HOME_ID,
+            'receiptId' => self::RECEIPT_ID,
+            'lineId' => $lineId,
+            'expectedReceiptRevision' => 8,
+            'actorUserId' => self::USER_ID,
+            'fields' => $fields,
+        ], JSON_THROW_ON_ERROR));
+        $line = ['id' => $lineId, 'revision' => 3, 'stockQuantity' => '2', 'approvalStatus' => 'approved'];
+        $purchases = $this->createMock(PurchasingStore::class);
+        $purchases->expects(self::once())->method('receipt')
+            ->with(self::HOME_ID, self::RECEIPT_ID)
+            ->willReturn(['id' => self::RECEIPT_ID, 'status' => 'committed', 'revision' => 10]);
+        $purchases->expects(self::once())->method('receiptLineCorrection')
+            ->with(self::HOME_ID, self::RECEIPT_ID, self::OPERATION_ID)
+            ->willReturn(['requestHash' => $hash, 'nextLine' => $line, 'receiptRevision' => 9]);
+        $purchases->expects(self::never())->method('completeReceiptLine');
+        $purchases->expects(self::never())->method('receiptLine');
+        $purchases->expects(self::never())->method('recordPriceObservation');
+        $inventory = $this->createMock(InventoryStore::class);
+        $inventory->expects(self::never())->method('appendMovement');
+        $result = $this->dispatcher($inventory, $purchases)->dispatch(
+            $this->identity(),
+            self::HOME_ID,
+            new SyncCommand(
+                self::OPERATION_ID,
+                'purchasing.receipt-line.correct',
+                $lineId,
+                8,
+                '2026-10-26T09:00:00Z',
+                1,
+                ['receiptId' => self::RECEIPT_ID, ...$fields],
+            ),
+        );
+        self::assertSame([...$line, 'correctionId' => self::OPERATION_ID, 'receiptRevision' => 9], $result);
+    }
+
     private function dispatcher(
         InventoryStore $inventoryStore,
         PurchasingStore $purchasingStore,

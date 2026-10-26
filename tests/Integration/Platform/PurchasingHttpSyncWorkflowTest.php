@@ -59,7 +59,7 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
         );
         $migrations->getMetadataStorage()->ensureInitialized();
         $plan = $migrations->getMigrationPlanCalculator()->getPlanUntilVersion(
-            new Version('Providentia\Migrations\Version20261022000300'),
+            new Version('Providentia\Migrations\Version20261026000100'),
         );
         $migrations->getMigrator()->migrate($plan, new MigratorConfiguration());
         $this->container = require dirname(__DIR__, 3) . '/config/container.php';
@@ -185,6 +185,81 @@ final class PurchasingHttpSyncWorkflowTest extends TestCase
             "SELECT COUNT(*) FROM stock_movements WHERE movement_type = 'purchase-in'",
         ));
         $this->assertDiagnostics([403]);
+    }
+
+    public function testFinishedReceiptCorrectionRoutesAndTypedSyncApplyOnlyNewPurchasesWithAuditedReadback(): void
+    {
+        $applied = $this->request(
+            'POST',
+            $this->purchasesPath(),
+            $this->purchaseBody($this->oneKgPackId, '4', '1', 1),
+            201
+        );
+        $pending = $this->request('POST', '/receipts/' . $this->receiptId . '/lines', [
+            'expectedReceiptRevision' => 2, 'rawDescription' => 'Pending apples', 'quantity' => '1',
+            'originalPackText' => null, 'unitPrice' => null, 'lineTotal' => '10',
+        ], 201);
+        $this->request('POST', '/receipts/' . $this->receiptId . '/lines/' . $pending['id'] . '/unresolve', [
+            'expectedRevision' => $pending['revision'],
+        ]);
+        $this->request('POST', '/receipts/' . $this->receiptId . '/commit', ['expectedRevision' => 4]);
+        $body = [
+            'correctionId' => $this->id(), 'lineId' => $pending['id'], 'expectedReceiptRevision' => 5,
+            'expectedLineRevision' => 2, 'reason' => 'Confirmed pending purchase',
+            'homeProductId' => $this->itemId, 'packId' => $this->oneKgPackId,
+            'rawDescription' => 'Apples reviewed', 'quantity' => '1.5', 'originalPackText' => '1 kg bag',
+            'unitPrice' => '10', 'lineTotal' => '14', 'unit' => 'kg', 'stockQuantityPerPack' => '1',
+        ];
+        $path = '/receipts/' . $this->receiptId . '/line-corrections';
+        $this->request('POST', $path, $body, 401, '');
+        $this->request('POST', $path, $body, 404, $this->outsiderToken);
+        $resolved = $this->request('POST', $path, $body, 201);
+        self::assertSame('1.5', $resolved['stockQuantity']);
+        self::assertSame(6, $resolved['receiptRevision']);
+        self::assertSame($resolved, $this->request('POST', $path, $body, 201));
+        $this->assertBalance('7.5');
+        $missing = $this->id();
+        $batchId = $this->id();
+        $payload = array_diff_key($body, ['lineId' => true, 'expectedReceiptRevision' => true]);
+        $payload = [...$payload, 'receiptId' => $this->receiptId, 'correctionId' => $this->id(),
+            'expectedLineRevision' => null, 'quantity' => '0.5'];
+        $envelope = [
+            'protocolVersion' => 2, 'batchId' => $batchId, 'deviceId' => $this->deviceId,
+            'lastPulledCursor' => null, 'operations' => [[
+                'operationId' => $this->id(), 'commandType' => 'purchasing.receipt-line.correct',
+                'entityId' => $missing, 'baseRevision' => 6, 'clientTimestamp' => '2026-10-13T07:00:00Z',
+                'payloadSchemaVersion' => 1, 'payload' => $payload,
+            ]],
+        ];
+        $headers = ['Idempotency-Key' => $batchId];
+        $result = $this->request('POST', '/sync/push', $envelope, 200, null, null, $headers);
+        self::assertSame('accepted', $result['results'][0]['status']);
+        self::assertSame($missing, $result['results'][0]['result']['id']);
+        self::assertSame(7, $result['results'][0]['result']['receiptRevision']);
+        self::assertSame(
+            $result['results'],
+            $this->request('POST', '/sync/push', $envelope, 200, null, null, $headers)['results']
+        );
+        $this->assertBalance('8');
+        $receipt = $this->request('GET', '/receipts/' . $this->receiptId);
+        self::assertSame('committed', $receipt['status']);
+        self::assertSame('available', $receipt['lineCorrectionState']);
+        self::assertSame(1, $receipt['lines'][0]['revision']);
+        self::assertSame($applied['id'], $receipt['lines'][0]['id']);
+        $audits = $this->request('GET', $path)['data'];
+        self::assertCount(2, $audits);
+        self::assertSame('unresolved', $audits[0]['originalLine']['approvalStatus']);
+        self::assertNull($audits[1]['originalLine']);
+        $bootstrap = $this->request('GET', '/sync/bootstrap', null, 200, $this->secondDeviceToken);
+        $corrections = array_values(array_filter(
+            $bootstrap['records'],
+            static fn (array $record): bool => $record['entityType'] === 'purchasing-receipt-line-correction'
+        ));
+        self::assertCount(2, $corrections);
+        self::assertArrayNotHasKey('requestHash', $corrections[0]['representation']);
+        self::assertSame(3, (int) $this->db->fetchOne("SELECT COUNT(*) FROM stock_movements
+            WHERE movement_type = 'purchase-in'"));
+        $this->assertDiagnostics([401, 404]);
     }
 
     public function testPurchaseRouteRejectsUnauthenticatedAndOtherHomeRequestsWithoutWrites(): void

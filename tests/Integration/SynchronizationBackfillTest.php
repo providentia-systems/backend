@@ -200,6 +200,44 @@ final class SynchronizationBackfillTest extends TestCase
         self::assertFalse($fields['neverSuggest']);
     }
 
+    public function testFinishedLineCorrectionAuditPreservesScopeAndSnapshotsWithoutLeakingRequestHash(): void
+    {
+        $original = ['id' => self::LINE_ID, 'revision' => 2, 'approvalStatus' => 'unresolved'];
+        $next = [...$original, 'revision' => 3, 'approvalStatus' => 'approved', 'stockQuantity' => '2.5'];
+        foreach ([self::HOME_ONE, self::HOME_TWO] as $index => $homeId) {
+            $this->connection->insert('receipt_line_corrections', [
+                'id' => $index === 0 ? self::LINE_ID : self::LIST_ID,
+                'home_id' => $homeId,
+                'receipt_id' => self::LOCATION_ID,
+                'receipt_line_id' => self::LINE_ID,
+                'request_hash' => str_repeat('a', 64),
+                'reason' => 'Resolved original pending purchase',
+                'receipt_revision' => 9,
+                'original_line_json' => json_encode($original, JSON_THROW_ON_ERROR),
+                'next_line_json' => json_encode($next, JSON_THROW_ON_ERROR),
+                'actor_user_id' => self::USER_ID,
+                'created_at' => '2026-10-26 09:00:00',
+            ]);
+        }
+        $service = new SyncBackfillService(
+            new DbalSyncBackfillStore($this->connection),
+            new DbalChangeFeedWriter($this->connection, new SequenceUuidGenerator()),
+            new BackfillDbalTransactionManager($this->connection),
+        );
+        self::assertSame(1, $service->run(self::HOME_ONE, 100)['appended']);
+        self::assertSame(0, $service->run(self::HOME_ONE, 100)['appended']);
+        $payload = json_decode((string) $this->connection->fetchOne(
+            "SELECT payload_json FROM change_log WHERE entity_type = 'purchasing-receipt-line-correction'",
+        ), true, 64, JSON_THROW_ON_ERROR);
+        self::assertSame($original, $payload['originalLine']);
+        self::assertSame($next, $payload['nextLine']);
+        self::assertSame(9, $payload['receiptRevision']);
+        self::assertSame('2026-10-26T09:00:00+00:00', $payload['correctedAt']);
+        self::assertArrayNotHasKey('requestHash', $payload);
+        self::assertSame(0, $this->tableCount('change_log', self::HOME_TWO));
+        self::assertSame(2, $this->tableCount('receipt_line_corrections'));
+    }
+
     /** @return list<string> */
     private function schema(): array
     {
@@ -257,6 +295,11 @@ final class SynchronizationBackfillTest extends TestCase
                 id TEXT, home_id TEXT, receipt_id TEXT, raw_description TEXT, quantity TEXT,
                 original_pack_text TEXT, unit_price TEXT, line_total TEXT, home_product_id TEXT,
                 approval_status TEXT, revision INTEGER, updated_at TEXT
+            )',
+            'CREATE TABLE receipt_line_corrections (
+                id TEXT, home_id TEXT, receipt_id TEXT, receipt_line_id TEXT, request_hash TEXT,
+                reason TEXT, receipt_revision INTEGER, original_line_json TEXT, next_line_json TEXT,
+                actor_user_id TEXT, created_at TEXT
             )',
             'CREATE TABLE receipt_date_corrections (
                 id TEXT, home_id TEXT, receipt_id TEXT, original_purchase_date TEXT,

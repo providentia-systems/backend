@@ -175,6 +175,127 @@ final class PurchasingHeaderConcurrencyTest extends TestCase
         }
     }
 
+    public function testConcurrentFinishedCompletionsKeepOneHeaderRevisionAndRejectTheStaleAttempt(): void
+    {
+        $url = $_SERVER['DATABASE_URL'] ?? '';
+        if (!is_string($url) || preg_match('#^(?:mysql|mariadb)://#', $url) !== 1) {
+            self::markTestSkipped('The MySQL/MariaDB matrix supplies the original DATABASE_URL.');
+        }
+        if (!function_exists('proc_open')) {
+            self::markTestSkipped('The database concurrency regression requires subprocess support.');
+        }
+        $db = $this->connection($url);
+        $store = new DbalPurchasingStore($db);
+        $home = Uuid::uuid7()->toString();
+        $user = Uuid::uuid7()->toString();
+        $product = Uuid::uuid7()->toString();
+        $receipt = Uuid::uuid7()->toString();
+        $line = Uuid::uuid7()->toString();
+        $otherLine = Uuid::uuid7()->toString();
+        $at = new DateTimeImmutable('2026-10-20T12:00:00Z');
+        $process = null;
+        $pipes = [];
+        try {
+            $db->insert('homes', [
+                'id' => $home, 'name' => 'Synthetic finished corrections', 'default_locale' => 'en-NA',
+                'default_currency' => 'NAD', 'default_timezone' => 'UTC', 'status' => 'active',
+                'created_at' => '2026-10-20 12:00:00', 'updated_at' => '2026-10-20 12:00:00',
+            ]);
+            $db->insert('users', [
+                'id' => $user, 'email' => $user . '@example.test', 'normalized_email' => $user . '@example.test',
+                'status' => 'active', 'created_at' => '2026-10-20 12:00:00',
+                'updated_at' => '2026-10-20 12:00:00',
+            ]);
+            new DbalInventoryStore($db)->createHomeProduct(
+                $product,
+                $home,
+                null,
+                null,
+                'Synthetic rice',
+                'synthetic rice',
+                null,
+                null,
+                $at,
+            );
+            $store->createReceipt(
+                $receipt,
+                $home,
+                null,
+                '2026-10-15',
+                'NAD',
+                null,
+                'manual',
+                null,
+                '',
+                $user,
+                $at
+            );
+            self::assertTrue($store->markReceiptCommitted($home, $receipt, 1, $at));
+            $db->beginTransaction();
+            $store->receipt($home, $receipt);
+            $process = proc_open(
+                [PHP_BINARY, '-r', $this->worker()],
+                [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+                dirname(__DIR__, 3),
+            );
+            self::assertIsResource($process);
+            $mode = 'finished';
+            fwrite($pipes[0], json_encode([
+                ...compact('url', 'home', 'receipt', 'product', 'mode'), 'line' => $otherLine,
+            ], JSON_THROW_ON_ERROR));
+            fclose($pipes[0]);
+            stream_set_timeout($pipes[1], 10);
+            self::assertSame("ready\n", fgets($pipes[1]));
+            $ready = [$pipes[1]];
+            $write = null;
+            $except = null;
+            self::assertSame(0, stream_select($ready, $write, $except, 0, 200000));
+            self::assertTrue($store->completeReceiptLine($home, $receipt, $line, 2, null, [
+                'raw_description' => 'Verified omitted rice', 'quantity' => '1', 'original_pack_text' => null,
+                'unit_price' => null, 'line_total' => null, 'home_product_id' => $product,
+                'selected_pack_id' => null, 'approval_status' => 'approved', 'stock_quantity' => '1',
+                'stock_quantity_per_pack' => '1', 'stock_unit' => 'units',
+            ], $at));
+            $db->commit();
+            $response = json_decode((string) fgets($pipes[1]), true, 512, JSON_THROW_ON_ERROR);
+            self::assertFalse($response['updated']);
+            self::assertSame(3, $response['receiptRevision']);
+            self::assertSame('', stream_get_contents($pipes[2]));
+            self::assertSame(0, proc_close($process));
+            $process = null;
+            $currentReceipt = $store->receipt($home, $receipt);
+            self::assertNotNull($currentReceipt);
+            self::assertSame(3, $currentReceipt['revision']);
+            self::assertSame('committed', $currentReceipt['status']);
+            self::assertSame([$line], $db->fetchFirstColumn(
+                'SELECT id FROM receipt_lines WHERE home_id = ?',
+                [$home],
+            ));
+        } finally {
+            if ($db->isTransactionActive()) {
+                $db->rollBack();
+            }
+            if (is_resource($process)) {
+                proc_terminate($process);
+                proc_close($process);
+            }
+            foreach ($pipes as $pipe) {
+                if (is_resource($pipe)) {
+                    fclose($pipe);
+                }
+            }
+            foreach (
+                ['price_observations', 'receipt_line_matches', 'receipt_lines', 'receipts', 'home_products'] as $table
+            ) {
+                $db->delete($table, ['home_id' => $home]);
+            }
+            $db->delete('homes', ['id' => $home]);
+            $db->delete('users', ['id' => $user]);
+            $db->close();
+        }
+    }
+
     private function connection(string $url): Connection
     {
         return new ConnectionFactory()(new ServiceManager([
@@ -195,6 +316,21 @@ final class PurchasingHeaderConcurrencyTest extends TestCase
             $db->executeStatement('SET SESSION innodb_lock_wait_timeout = 5');
             $db->beginTransaction();
             $store = new Providentia\Purchasing\Infrastructure\Doctrine\DbalPurchasingStore($db);
+            if (($input['mode'] ?? '') === 'finished') {
+                echo "ready\n";
+                flush();
+                $header = $store->receipt($input['home'], $input['receipt']);
+                $updated = $store->completeReceiptLine($input['home'], $input['receipt'], $input['line'], 2, null, [
+                    'raw_description' => 'Concurrent omitted rice', 'quantity' => '2', 'original_pack_text' => null,
+                    'unit_price' => null, 'line_total' => null, 'home_product_id' => $input['product'],
+                    'selected_pack_id' => null, 'approval_status' => 'approved', 'stock_quantity' => '2',
+                    'stock_quantity_per_pack' => '1', 'stock_unit' => 'units',
+                ], new DateTimeImmutable('2026-10-20T12:00:01Z'));
+                $db->rollBack();
+                echo json_encode(['updated' => $updated, 'receiptRevision' => $header['revision']],
+                    JSON_THROW_ON_ERROR) . "\n";
+                exit(0);
+            }
             $store->receiptLine($input['home'], $input['receipt'], $input['line']);
             echo "ready\n";
             flush();

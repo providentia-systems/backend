@@ -75,6 +75,9 @@ final class HomeReportServiceTest extends TestCase
         self::assertCount(2, $report['data']);
         self::assertSame('NAD', $report['data'][0]['currency']);
         self::assertSame('12.5', $report['data'][0]['total']);
+        self::assertSame('12.5', $report['data'][0]['knownSubtotal']);
+        self::assertTrue($report['data'][0]['pricingComplete']);
+        self::assertSame(2, $report['data'][0]['declaredReceiptCount']);
         self::assertSame(2, $report['data'][0]['receiptCount']);
         self::assertSame('ZAR', $report['data'][1]['currency']);
         self::assertSame('99', $report['data'][1]['total']);
@@ -174,8 +177,12 @@ final class HomeReportServiceTest extends TestCase
     {
         $inventory = $this->createStub(InventoryAnalyticsReader::class);
         $inventory->method('inventoryReport')->willReturn([
-            ['balanceUpdatedAt' => '2026-03-08 01:59:59'],
-            ['balanceUpdatedAt' => null],
+            [
+                'balanceUpdatedAt' => '2026-03-08 01:59:59', 'factualQuantity' => '-1.25',
+                'stockUnit' => 'kg', 'quantityState' => 'uncertain', 'uncertain' => true,
+                'pendingQuantity' => '0.5', 'limitations' => ['Review chronology.'], 'checkpointId' => 'count',
+            ],
+            ['balanceUpdatedAt' => null, 'factualQuantity' => null, 'quantityState' => 'unknown'],
         ]);
         $intelligence = $this->createStub(ShoppingIntelligenceReader::class);
         $intelligence->method('latestEstimates')->willReturn([[
@@ -202,8 +209,18 @@ final class HomeReportServiceTest extends TestCase
             foreach (['UTC', 'Africa/Windhoek', 'America/New_York'] as $timezone) {
                 date_default_timezone_set($timezone);
                 $report = $service->report($this->identity(), self::HOME_ID, 'inventory', null, null);
+                self::assertSame('recorded-ledger-balance-with-evidence-state', $report['quantitySemantics']);
                 self::assertSame('2026-03-08T01:59:59+00:00', $report['data'][0]['balanceUpdatedAt']);
+                self::assertSame('-1.25', $report['data'][0]['factualQuantity']);
+                self::assertSame('kg', $report['data'][0]['stockUnit']);
+                self::assertSame('uncertain', $report['data'][0]['quantityState']);
+                self::assertTrue($report['data'][0]['uncertain']);
+                self::assertSame('0.5', $report['data'][0]['pendingQuantity']);
+                self::assertSame(['Review chronology.'], $report['data'][0]['limitations']);
+                self::assertSame('count', $report['data'][0]['checkpointId']);
                 self::assertNull($report['data'][1]['balanceUpdatedAt']);
+                self::assertNull($report['data'][1]['factualQuantity']);
+                self::assertSame('unknown', $report['data'][1]['quantityState']);
                 $report = $service->report($this->identity(), self::HOME_ID, 'consumption', null, null);
                 self::assertSame('2026-11-01T01:30:00+00:00', $report['data'][0]['asOf']);
                 self::assertNull($report['data'][0]['evidenceTo']);
@@ -268,6 +285,10 @@ final class HomeReportServiceTest extends TestCase
             'storeId' => 'store-1',
             'storeName' => 'Shop',
             'totalAmount' => $total,
+            'knownSubtotal' => $total,
+            'pricingComplete' => true,
+            'amountSource' => 'declared',
+            'lineCount' => 1,
         ];
     }
 

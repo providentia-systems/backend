@@ -167,6 +167,7 @@ final class PurchasingServiceTest extends TestCase
                         'currency' => 'NAD',
                         'totalAmount' => '37.50',
                         'status' => 'draft',
+                        'lineCorrectionState' => 'draft',
                         'source' => 'manual',
                         'sourceReference' => null,
                         'notes' => 'Household groceries',
