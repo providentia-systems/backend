@@ -102,6 +102,9 @@ final readonly class DbalJsonDataExportGenerator implements DataExportGenerator
             'receipts' => 'SELECT * FROM receipts WHERE home_id = :scope ORDER BY id',
             'receiptDateCorrections' => 'SELECT * FROM receipt_date_corrections
                 WHERE home_id = :scope ORDER BY id',
+            'receiptLineCorrections' => 'SELECT id, home_id, receipt_id, receipt_line_id, reason,
+                receipt_revision, original_line_json, next_line_json, actor_user_id, created_at
+                FROM receipt_line_corrections WHERE home_id = :scope ORDER BY receipt_revision, id',
             'receiptLines' => 'SELECT l.* FROM receipt_lines l
                 INNER JOIN receipts r ON r.id = l.receipt_id
                 WHERE r.home_id = :scope ORDER BY l.id',

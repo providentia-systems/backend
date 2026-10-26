@@ -385,6 +385,13 @@ final class DbalSyncStore implements SyncStore, SyncMetricsProbe
                 $payload[$field] = DecimalProjection::string($payload[$field]);
             }
         }
+        if ((string) $row['entity_type'] === 'purchasing-receipt') {
+            // Capabilities are a response projection; old immutable feed rows
+            // do not need rewriting before an existing device can discover it.
+            $payload['lineCorrectionState'] = match ((string) ($payload['status'] ?? '')) {
+                'draft' => 'draft', 'committed' => 'available', default => 'immutable',
+            };
+        }
         if ($this->representations === null) {
             return $payload;
         }

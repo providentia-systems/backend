@@ -1054,6 +1054,16 @@ return static function (Application $app): void {
         'api.purchasing.receipts.update',
     );
     $app->get(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}/line-corrections',
+        [BearerAuthenticationMiddleware::class, 'purchasing.line-corrections.list'],
+        'api.purchasing.receipt-line-corrections.list',
+    );
+    $app->post(
+        '/api/v1/homes/{homeId}/receipts/{receiptId}/line-corrections',
+        [BearerAuthenticationMiddleware::class, 'purchasing.line-corrections.create'],
+        'api.purchasing.receipt-line-corrections.create',
+    );
+    $app->get(
         '/api/v1/homes/{homeId}/receipts/{receiptId}/date-corrections',
         [BearerAuthenticationMiddleware::class, 'purchasing.date-corrections.list'],
         'api.purchasing.receipt-date-corrections.list',

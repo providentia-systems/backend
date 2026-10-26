@@ -240,6 +240,14 @@ final readonly class PantrySyncCommandDispatcher implements SyncCommandDispatche
                 $this->string($payload, 'stockQuantityPerPack'),
                 $command->entityId,
             ),
+            'purchasing.receipt-line.correct' => $this->purchasing->correctFinishedLine(
+                $identity,
+                $homeId,
+                $this->string($payload, 'receiptId'),
+                $command->entityId,
+                $this->revision($command),
+                array_diff_key($payload, ['receiptId' => true]),
+            ),
             'purchasing.receipt-line.approve' => $this->approveReceiptLine($identity, $homeId, $command),
             'purchasing.receipt-line.unresolve' => $this->purchasing->unresolveLine(
                 $identity,

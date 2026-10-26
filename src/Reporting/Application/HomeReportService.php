@@ -12,11 +12,11 @@ use Providentia\Home\Application\HomePermission;
 use Providentia\Identity\Application\AuthenticatedIdentity;
 use Providentia\Inventory\Application\InventoryAnalyticsReader;
 use Providentia\Purchasing\Application\PurchaseAnalyticsReader;
+use Providentia\Purchasing\Domain\PurchaseAmounts;
 use Providentia\SharedKernel\Application\Clock;
 use Providentia\SharedKernel\Application\Problem;
 use Providentia\SharedKernel\Application\UuidGenerator;
 use Providentia\Shopping\Application\ShoppingIntelligenceReader;
-use Providentia\Shopping\Domain\FixedDecimal;
 
 final class HomeReportService
 {
@@ -46,7 +46,7 @@ final class HomeReportService
             'inventory' => [
                 'type' => 'inventory',
                 'asOf' => $asOf->format(DATE_ATOM),
-                'quantitySemantics' => 'factual-ledger-balance',
+                'quantitySemantics' => 'recorded-ledger-balance-with-evidence-state',
                 'data' => $this->instantRows($this->inventory->inventoryReport($homeId), ['balanceUpdatedAt']),
             ],
             'purchases' => $this->purchaseReport($homeId, $from, $through, $asOf),
@@ -113,6 +113,8 @@ final class HomeReportService
         }
         /** @var array<string, array<string, mixed>> $groups */
         $groups = [];
+        /** @var array<string, list<array<string, mixed>>> $receipts */
+        $receipts = [];
         foreach ($this->purchases->purchaseFacts($homeId, $fromDate, $toDate) as $fact) {
             $month = substr((string) $fact['purchaseDate'], 0, 7);
             $currency = (string) $fact['currency'];
@@ -123,24 +125,15 @@ final class HomeReportService
                 'currency' => $currency,
                 'storeId' => $fact['storeId'],
                 'storeName' => $fact['storeName'],
-                'receiptCount' => 0,
-                'total' => FixedDecimal::zero(),
             ];
-            $groups[$key]['receiptCount']++;
-            if ($fact['totalAmount'] !== null) {
-                /** @var FixedDecimal $currentTotal */
-                $currentTotal = $groups[$key]['total'];
-                $groups[$key]['total'] = $currentTotal->add(
-                    FixedDecimal::from((string) $fact['totalAmount']),
-                );
-            }
+            $receipts[$key][] = $fact;
         }
         $data = [];
-        foreach ($groups as $group) {
-            /** @var FixedDecimal $total */
-            $total = $group['total'];
-            $group['total'] = $total->toString();
-            $data[] = $group;
+        foreach ($groups as $key => $group) {
+            $amounts = PurchaseAmounts::aggregate($receipts[$key]);
+            $amounts['total'] = $amounts['totalAmount'];
+            unset($amounts['totalAmount'], $amounts['lineCount']);
+            $data[] = $group + $amounts;
         }
 
         return [

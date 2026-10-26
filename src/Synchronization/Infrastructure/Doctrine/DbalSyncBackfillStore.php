@@ -144,6 +144,12 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                         t.original_purchase_date, t.purchase_date, t.reason, t.receipt_revision
                  FROM receipt_date_corrections t'
                 . $missing('purchasing-receipt-date-correction') . 't.id)',
+            'purchasing-receipt-line-correction' =>
+                'SELECT t.home_id, t.id AS entity_id, 1 AS revision,
+                        t.actor_user_id, t.created_at AS changed_at, t.receipt_id, t.receipt_line_id,
+                        t.reason, t.receipt_revision, t.original_line_json, t.next_line_json
+                 FROM receipt_line_corrections t'
+                . $missing('purchasing-receipt-line-correction') . 't.id)',
             'purchasing-store' =>
                 'SELECT t.home_id, t.id AS entity_id, t.revision,
                         NULL AS actor_user_id, t.updated_at AS changed_at,
@@ -249,6 +255,9 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'currency' => (string) $row['currency'],
                 'totalAmount' => $this->nullableDecimal($row['total_amount']),
                 'status' => (string) $row['status'],
+                'lineCorrectionState' => match ((string) $row['status']) {
+                    'draft' => 'draft', 'committed' => 'available', default => 'immutable',
+                },
                 'source' => (string) $row['source'],
                 'sourceReference' => $this->nullableString($row['source_reference']),
                 'notes' => (string) $row['notes'],
@@ -273,6 +282,18 @@ final readonly class DbalSyncBackfillStore implements SyncBackfillStore
                 'purchaseDate' => (string) $row['purchase_date'],
                 'reason' => (string) $row['reason'],
                 'receiptRevision' => (int) $row['receipt_revision'],
+                'actorUserId' => (string) $row['actor_user_id'],
+                'correctedAt' => new DateTimeImmutable((string) $row['changed_at'], new \DateTimeZone('UTC'))
+                    ->format(DATE_ATOM),
+            ],
+            'purchasing-receipt-line-correction' => [
+                'receiptId' => (string) $row['receipt_id'],
+                'lineId' => (string) $row['receipt_line_id'],
+                'reason' => (string) $row['reason'],
+                'receiptRevision' => (int) $row['receipt_revision'],
+                'originalLine' => $row['original_line_json'] === null ? null
+                    : json_decode((string) $row['original_line_json'], true, 64, JSON_THROW_ON_ERROR),
+                'nextLine' => json_decode((string) $row['next_line_json'], true, 64, JSON_THROW_ON_ERROR),
                 'actorUserId' => (string) $row['actor_user_id'],
                 'correctedAt' => new DateTimeImmutable((string) $row['changed_at'], new \DateTimeZone('UTC'))
                     ->format(DATE_ATOM),

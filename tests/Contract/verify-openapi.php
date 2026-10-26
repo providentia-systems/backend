@@ -10,6 +10,10 @@ $contract = json_decode($source, true, 512, JSON_THROW_ON_ERROR);
 $expected = [
     '/api/v1/homes/{homeId}/sync/revalidate' => ['post' => 'revalidateSynchronizationOperations'],
     '/api/v1/homes/{homeId}/sync/diagnostics' => ['get' => 'getSynchronizationDiagnostics'],
+    '/api/v1/homes/{homeId}/receipts/{receiptId}/line-corrections' => [
+        'get' => 'listReceiptLineCorrections',
+        'post' => 'correctFinishedReceiptLine',
+    ],
     '/api/v1/homes/{homeId}/receipts/{receiptId}/date-corrections' => [
         'get' => 'listReceiptDateCorrections',
         'post' => 'correctReceiptPurchaseDate',
@@ -378,9 +382,9 @@ foreach ($contract['paths'] as $pathTemplate => $pathItem) {
         }
     }
 }
-if (count($contract['paths']) !== 200 || $operationCount !== 242) {
+if (count($contract['paths']) !== 201 || $operationCount !== 244) {
     throw new RuntimeException(
-        'API 2.3 must expose exactly 200 paths and 242 operations.',
+        'API 2.4 must expose exactly 201 paths and 244 operations.',
     );
 }
 // Zero-password guarantee: no human-account password, registration, or
@@ -1413,7 +1417,7 @@ if (
     ?? null) !== 1
     || ($contract['components']['schemas']['SyncPushRequestV2']['properties']['protocolVersion']['const']
     ?? null) !== 2
-    || ($contract['info']['version'] ?? '') !== '2.3.0'
+    || ($contract['info']['version'] ?? '') !== '2.4.0'
     || stripos($source, 'magic-link') !== false
     || stripos($source, 'magiclink') !== false
     || isset($contract['paths']['/api/v1/auth/magic-links'])
@@ -1423,5 +1427,49 @@ if (
     ?? '') !== 'never-compare-across-currencies'
 ) {
     throw new RuntimeException('The OpenAPI/RFC 9457 baseline is incomplete.');
+}
+$correctionPath = $contract['paths']['/api/v1/homes/{homeId}/receipts/{receiptId}/line-corrections'];
+$schemas = $contract['components']['schemas'];
+if (
+    ($correctionPath['get']['operationId'] ?? null) !== 'listReceiptLineCorrections'
+    || ($correctionPath['post']['operationId'] ?? null) !== 'correctFinishedReceiptLine'
+    || ($correctionPath['post']['requestBody']['content']['application/json']['schema']['$ref'] ?? null)
+        !== '#/components/schemas/CorrectReceiptLineRequest'
+    || ($schemas['CorrectReceiptLineRequest']['properties']['expectedLineRevision']['type'] ?? null)
+        !== ['integer', 'null']
+    || ($schemas['CorrectReceiptLineRequest']['additionalProperties'] ?? null) !== false
+    || ($schemas['Receipt']['properties']['lineCorrectionState']['enum'] ?? null)
+        !== ['draft', 'available', 'immutable']
+    || !in_array('purchasing.receipt-line.correct', $syncPantryCommand['properties']['commandType']['enum'], true)
+) {
+    throw new RuntimeException('The audited finished-receipt correction contract is incomplete.');
+}
+$finishedCorrectionBranches = array_values(array_filter(
+    $syncPantryCommand['allOf'],
+    static fn (array $branch): bool => ($branch['if']['properties']['commandType']['const'] ?? null)
+        === 'purchasing.receipt-line.correct',
+));
+if (
+    count($finishedCorrectionBranches) !== 1
+    || ($finishedCorrectionBranches[0]['then']['properties']['baseRevision']['minimum'] ?? null) !== 1
+    || ($finishedCorrectionBranches[0]['then']['properties']['payload']['$ref'] ?? null)
+        !== '#/components/schemas/SyncReceiptLineCorrectionPayload'
+) {
+    throw new RuntimeException('Finished-receipt synchronization must require the receipt revision.');
+}
+foreach (['factualQuantity', 'pendingQuantity'] as $field) {
+    if (($schemas['InventoryReportRow']['properties'][$field]['type'] ?? null) !== ['string', 'null']) {
+        throw new RuntimeException('Inventory evidence must preserve nullable signed decimal quantities.');
+    }
+}
+if (
+    ($schemas['PurchaseReportRow']['properties']['total']['type'] ?? null) !== ['string', 'null']
+    || ($schemas['PurchaseSummary']['properties']['spend']['type'] ?? null) !== ['string', 'null']
+    || ($schemas['PurchaseReportRow']['properties']['amountSource']['enum'] ?? null)
+        !== ['declared', 'derived', 'mixed', 'partial', 'unknown']
+    || ($schemas['InventoryReportRow']['properties']['quantityState']['enum'] ?? null)
+        !== ['unknown', 'recorded', 'uncertain']
+) {
+    throw new RuntimeException('Reports must distinguish complete, partial and unknown evidence.');
 }
 fwrite(STDOUT, "OpenAPI foundation contract passed.\n");

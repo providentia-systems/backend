@@ -54,6 +54,10 @@ final class PurchasingHandler implements RequestHandlerInterface
                 $body,
             ),
             'get' => new JsonResponse($this->purchases->receipt($identity, $homeId, $receiptId)),
+            'line-corrections.list' => new JsonResponse([
+                'data' => $this->purchases->receiptLineCorrections($identity, $homeId, $receiptId),
+            ]),
+            'line-corrections.create' => $this->correctFinishedLine($identity, $homeId, $receiptId, $body),
             'date-corrections.list' => new JsonResponse([
                 'data' => $this->purchases->receiptDateCorrections($identity, $homeId, $receiptId),
             ]),
@@ -123,6 +127,29 @@ final class PurchasingHandler implements RequestHandlerInterface
             ),
             default => throw new \LogicException('Unknown purchasing action.'),
         };
+    }
+
+    /** @param array<string, mixed> $body */
+    private function correctFinishedLine(
+        AuthenticatedIdentity $identity,
+        string $homeId,
+        string $receiptId,
+        array $body,
+    ): ResponseInterface {
+        if (
+            !is_string($body['lineId'] ?? null) || !is_int($body['expectedReceiptRevision'] ?? null)
+            || $body['expectedReceiptRevision'] < 1
+        ) {
+            throw new HttpProblem(422, 'Invalid correction', 'Provide lineId and a positive expectedReceiptRevision.');
+        }
+        return new JsonResponse($this->purchases->correctFinishedLine(
+            $identity,
+            $homeId,
+            $receiptId,
+            $body['lineId'],
+            $body['expectedReceiptRevision'],
+            array_diff_key($body, ['lineId' => true, 'expectedReceiptRevision' => true]),
+        ), 201);
     }
 
     /** @param array<string, mixed> $body */
