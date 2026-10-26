@@ -7,6 +7,7 @@ namespace Providentia\Administration\Infrastructure\Doctrine;
 use Doctrine\DBAL\Connection;
 use Providentia\Administration\Application\OperatorWorkspaceStore;
 use Providentia\SharedKernel\Application\Problem;
+use Providentia\SharedKernel\Infrastructure\Doctrine\DecimalProjection;
 
 final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
 {
@@ -57,6 +58,9 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
         if ($collection === 'products') {
             return $this->productRecords($homeId, $offset);
         }
+        if ($collection === 'stock') {
+            return $this->stockRecords($homeId, $offset);
+        }
         if ($collection === 'sharing') {
             return $this->connection->fetchAllAssociative(
                 'SELECT id, contribution_type, moderation_status, revision, created_at, updated_at '
@@ -69,7 +73,6 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
             'categories' => 'home_categories',
             'locations' => 'home_locations',
             'stores' => 'stores',
-            'stock' => 'inventory_balances',
             'movements' => 'stock_movements',
             'receipts' => 'receipts',
             'receipt-lines' => 'receipt_lines',
@@ -100,11 +103,8 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
         $columns = $collection === 'invitations'
             ? 'id, home_id, normalized_email, role, status, revision, created_at, expires_at'
             : '*';
-        $order = $collection === 'stock'
-            ? 'home_product_id'
-            : 'id';
         return $this->connection->fetchAllAssociative(
-            'SELECT ' . $columns . ' FROM ' . $table . ' WHERE home_id = ? ORDER BY ' . $order
+            'SELECT ' . $columns . ' FROM ' . $table . ' WHERE home_id = ? ORDER BY id'
                 . ' LIMIT 100 OFFSET ' . max(0, $offset),
             [$homeId],
         );
@@ -116,8 +116,53 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
         // Preserve the raw household fields for revision-bound editing. The
         // resolved columns are read-only, including archived catalog identities.
         return $this->connection->fetchAllAssociative(
-            "SELECT hp.*,
-                COALESCE(NULLIF(TRIM(hp.private_name), ''), NULLIF(TRIM(p.canonical_name), ''),
+            'SELECT hp.*, ' . $this->resolvedProductColumns() . '
+             FROM home_products hp
+             LEFT JOIN products p ON p.id = hp.product_id
+             LEFT JOIN product_packs pk ON pk.id = hp.pack_id AND pk.product_id = hp.product_id
+             LEFT JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories gc ON gc.id = hp.global_category_id
+             LEFT JOIN home_categories hc ON hc.id = hp.home_category_id AND hc.home_id = hp.home_id
+             WHERE hp.home_id = ? ORDER BY hp.id LIMIT 100 OFFSET ' . max(0, $offset),
+            [$homeId],
+        );
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function stockRecords(string $homeId, int $offset): array
+    {
+        // The balance population, ordering and raw evidence are unchanged.
+        // Missing/archived references must remain inspectable; never join a
+        // product or local category belonging to a different household.
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT ib.*, hp.product_id, hp.pack_id, hp.home_category_id, hp.global_category_id,
+                hp.unit, ' . $this->resolvedProductColumns() . '
+             FROM inventory_balances ib
+             LEFT JOIN home_products hp ON hp.id = ib.home_product_id AND hp.home_id = ib.home_id
+             LEFT JOIN products p ON p.id = hp.product_id
+             LEFT JOIN product_packs pk ON pk.id = hp.pack_id AND pk.product_id = hp.product_id
+             LEFT JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories gc ON gc.id = hp.global_category_id
+             LEFT JOIN home_categories hc ON hc.id = hp.home_category_id AND hc.home_id = ib.home_id
+             WHERE ib.home_id = ? ORDER BY ib.home_product_id LIMIT 100 OFFSET ' . max(0, $offset),
+            [$homeId],
+        );
+
+        return array_map(static function (array $row): array {
+            // Preserve raw field names while keeping decimal transport stable
+            // across exact-decimal servers and SQLite numeric affinity.
+            $row['quantity'] = DecimalProjection::string($row['quantity']);
+            if (array_key_exists('pending_quantity', $row)) {
+                $row['pending_quantity'] = DecimalProjection::string($row['pending_quantity']);
+            }
+
+            return $row;
+        }, $rows);
+    }
+
+    private function resolvedProductColumns(): string
+    {
+        return "COALESCE(NULLIF(TRIM(hp.private_name), ''), NULLIF(TRIM(p.canonical_name), ''),
                     'Unresolved product') AS name,
                 COALESCE(p.brand, '') AS brand,
                 COALESCE(NULLIF(TRIM(hp.original_pack_text), ''), NULLIF(TRIM(pk.original_pack_text), ''),
@@ -130,20 +175,15 @@ final class DbalOperatorWorkspaceStore implements OperatorWorkspaceStore
                 CASE WHEN hp.home_category_id IS NOT NULL THEN 'Local'
                     WHEN hp.global_category_id IS NOT NULL OR c.id IS NOT NULL THEN 'Global'
                     ELSE '' END AS category_scope,
-                CASE WHEN hp.product_id IS NOT NULL AND p.id IS NULL THEN 'Missing catalog product'
+                CASE WHEN hp.id IS NULL THEN 'Missing home product'
+                    WHEN hp.product_id IS NOT NULL AND p.id IS NULL THEN 'Missing catalog product'
                     WHEN hp.pack_id IS NOT NULL AND pk.id IS NULL THEN 'Missing or mismatched catalog pack'
                     WHEN hp.product_id IS NOT NULL AND hp.pack_id IS NULL THEN 'Catalog product; no pack selected'
                     WHEN hp.product_id IS NOT NULL THEN 'Catalog linked'
-                    ELSE 'Private product' END AS catalog_reference
-             FROM home_products hp
-             LEFT JOIN products p ON p.id = hp.product_id
-             LEFT JOIN product_packs pk ON pk.id = hp.pack_id AND pk.product_id = hp.product_id
-             LEFT JOIN categories c ON c.id = p.category_id
-             LEFT JOIN categories gc ON gc.id = hp.global_category_id
-             LEFT JOIN home_categories hc ON hc.id = hp.home_category_id AND hc.home_id = hp.home_id
-             WHERE hp.home_id = ? ORDER BY hp.id LIMIT 100 OFFSET " . max(0, $offset),
-            [$homeId],
-        );
+                    ELSE 'Private product' END AS catalog_reference,
+                hp.status AS home_product_status,
+                p.status AS catalog_product_status,
+                pk.status AS catalog_pack_status";
     }
 
     public function administrators(): array
