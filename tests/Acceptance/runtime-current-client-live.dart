@@ -128,6 +128,11 @@ void main() {
       expect(unknownFact.limitations, isNotEmpty);
       expect(num.parse(zeroFact.factualQuantity!), 0);
       expect(zeroFact.quantityState, isNot('unknown'));
+      final signedFact = report.inventoryFacts.singleWhere(
+        (row) => row.homeProductId == signed['id'],
+      );
+      expect(num.parse(signedFact.factualQuantity!), -0.25);
+      expect(signedFact.stockUnit, 'kg');
       // Later purchases retain the signed adjustment in the ledger.
       final movements = await request(
         'GET',
